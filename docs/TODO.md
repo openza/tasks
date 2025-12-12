@@ -21,92 +21,43 @@ This document outlines features that need to be implemented to achieve full pari
   - `LabelEntity` - Full JSON serialization support
 - Eliminated ~100+ lines of manual boilerplate code
 
----
-
-## Critical Priority (P0)
-
-### 1. OAuth Authentication Flows (BLOCKING)
-
-**Problem:** Users cannot connect to Todoist or MS To-Do at all. Login buttons exist but don't work.
-
-**What's Missing:**
-- [ ] Todoist OAuth 2.0 flow using flutter_appauth
-- [ ] MS To-Do MSAL authentication flow
-- [ ] Deep link handling for OAuth callbacks (openza:// scheme)
-- [ ] Platform-specific URL scheme registration (Windows, macOS, Linux)
-- [ ] Auth state persistence and restoration
-- [ ] Login screen integration with actual OAuth flows
-
-**Impact:** BLOCKING - No provider integration works without this.
-
-**Files to Create:**
-- `lib/data/datasources/remote/auth/todoist_auth.dart`
-- `lib/data/datasources/remote/auth/mstodo_auth.dart`
-
-**Files to Modify:**
-- `lib/data/datasources/remote/auth/oauth_service.dart`
-- `lib/presentation/screens/auth/login_screen.dart`
-- `lib/presentation/providers/auth_provider.dart`
-- `pubspec.yaml` (add flutter_appauth)
-- Platform manifests for deep links:
-  - `windows/runner/Runner.rc`
-  - `macos/Runner/Info.plist`
-  - `linux/` - custom URL scheme handler
-
-**Electron Reference:**
-- `openza-desktop/src/utils/auth.ts`
-- `openza-desktop/src/utils/msToDoAuth.ts` (823 lines)
-- `openza-desktop/electron/modules/msal.js`
-- `openza-desktop/electron/modules/oauth.js`
-- `openza-desktop/electron/modules/protocol.js`
+### P0 Features Implementation (December 2024)
+- **OAuth Authentication** - Connected login screen to OAuthService with loading states and error toasts
+- **Token Refresh** - Created TokenManager with automatic refresh, exponential backoff, and 401 handling
+- **API Error Handling** - Added ApiErrorHandler, ApiErrorStream, and ApiErrorListener for toast notifications
 
 ---
 
-### 2. MS To-Do Token Refresh & Auth Resilience
+## Critical Priority (P0) - COMPLETED
 
-**Problem:** MS To-Do OAuth tokens expire in 1 hour, causing authentication failures without warning.
+### ~~1. OAuth Authentication Flows~~
+- [x] Login screen now connects to OAuthService
+- [x] Loading states and error toasts during auth
+- [x] Added oauthServiceProvider and tokenManagerProvider
+- [x] Auth state persistence via SecureStorageService
 
-**What's Missing:**
-- [ ] Automatic token refresh mechanism before expiry
-- [ ] Exponential backoff for retry attempts (1s → 2s → 4s → ... → 30s, max 3 attempts)
-- [ ] 401 response handling with auto-refresh in API clients
-- [ ] Debounced refresh to prevent concurrent requests
-- [ ] Token expiry metadata tracking
-
-**Impact:** Users get logged out of MS To-Do after 1 hour of use.
-
-**Files to Modify:**
-- `lib/data/datasources/remote/auth/oauth_service.dart`
-- `lib/presentation/providers/auth_provider.dart`
-- `lib/data/datasources/remote/mstodo_api.dart`
-
-**Files to Create:**
-- `lib/data/datasources/remote/auth/token_manager.dart`
-
-**Electron Reference:**
-- `openza-desktop/src/utils/tokenManager.ts` (394 lines)
-- `openza-desktop/src/utils/msToDoClient.ts` (497 lines) - see 401 handling
+Note: Deep links (openza://) for OAuth callbacks not implemented. Using local HTTP server callback instead (works on desktop).
 
 ---
 
-### 3. API Error Handling & User Feedback
+### ~~2. MS To-Do Token Refresh & Auth Resilience~~
+- [x] Created TokenManager (`lib/data/datasources/remote/auth/token_manager.dart`)
+- [x] Automatic token refresh before expiry (5 min threshold)
+- [x] Exponential backoff for retry attempts (1s → 2s → 4s → max 30s, 3 attempts)
+- [x] 401 response handling with auto-refresh in MsToDoApi interceptor
+- [x] Debounced refresh to prevent concurrent requests
+- [x] Token expiry metadata tracking via getMsToDoTokenExpiry()
 
-**Problem:** No user feedback when API calls fail. Users don't know if sync worked or failed.
+---
 
-**What's Missing:**
-- [ ] Toast notifications on API errors
-- [ ] Loading indicators during sync operations
-- [ ] Retry buttons on failure
-- [ ] Offline state detection and indicator
-- [ ] Graceful degradation when provider unavailable
-
-**Impact:** Poor user experience - silent failures.
-
-**Files to Modify:**
-- `lib/data/datasources/remote/todoist_api.dart`
-- `lib/data/datasources/remote/mstodo_api.dart`
-- `lib/presentation/providers/task_provider.dart`
-- Various screens that fetch data
+### ~~3. API Error Handling & User Feedback~~
+- [x] Created ApiErrorHandler (`lib/core/services/api_error_handler.dart`)
+- [x] Toast notifications on API errors via ApiErrorListener
+- [x] Structured error types (network, timeout, unauthorized, forbidden, etc.)
+- [x] Task providers updated with proper error handling
+- [ ] Loading indicators during sync (partial - providers handle async)
+- [ ] Retry buttons on failure (not implemented)
+- [ ] Offline state detection (not implemented)
 
 ---
 
