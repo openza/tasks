@@ -6,6 +6,7 @@ import '../../../app/app_theme.dart';
 import '../../../core/utils/date_utils.dart';
 import '../../../domain/entities/task.dart';
 import '../../../domain/entities/project.dart';
+import '../../../domain/entities/label.dart';
 import '../badges/priority_badge.dart';
 import '../badges/label_badge.dart';
 import '../badges/project_badge.dart';
@@ -37,6 +38,10 @@ class _TaskDetailState extends ConsumerState<TaskDetail> {
   late TextEditingController _titleController;
   late TextEditingController _descriptionController;
   bool _isEditing = false;
+  late int _editPriority;
+  late DateTime? _editDueDate;
+  late List<String> _editLabelNames;
+  bool _hasUnsavedChanges = false;
 
   @override
   void initState() {
@@ -44,6 +49,18 @@ class _TaskDetailState extends ConsumerState<TaskDetail> {
     _titleController = TextEditingController(text: widget.task.title);
     _descriptionController =
         TextEditingController(text: widget.task.description ?? '');
+    _editPriority = widget.task.priority;
+    _editDueDate = widget.task.dueDate;
+    _editLabelNames = widget.task.labels.map((l) => l.name).toList();
+
+    _titleController.addListener(_onEditChanged);
+    _descriptionController.addListener(_onEditChanged);
+  }
+
+  void _onEditChanged() {
+    if (_isEditing) {
+      setState(() => _hasUnsavedChanges = true);
+    }
   }
 
   @override
@@ -244,11 +261,22 @@ class _TaskDetailState extends ConsumerState<TaskDetail> {
           context,
           icon: LucideIcons.flag,
           label: 'Priority',
-          child: PriorityBadge(
-            priority: widget.task.priority,
-            provider: widget.task.provider,
-            showLabel: true,
-          ),
+          child: _isEditing
+              ? _buildPrioritySelector()
+              : PriorityBadge(
+                  priority: widget.task.priority,
+                  provider: widget.task.provider,
+                  showLabel: true,
+                ),
+        ),
+        const SizedBox(height: 12),
+
+        // Due Date
+        _buildMetadataRow(
+          context,
+          icon: LucideIcons.calendar,
+          label: 'Due Date',
+          child: _isEditing ? _buildDueDatePicker(context) : _buildDueDateDisplay(),
         ),
         const SizedBox(height: 12),
 
@@ -318,6 +346,110 @@ class _TaskDetailState extends ConsumerState<TaskDetail> {
     );
   }
 
+  Widget _buildPrioritySelector() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      decoration: BoxDecoration(
+        border: Border.all(color: AppTheme.gray300),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: DropdownButton<int>(
+        value: _editPriority,
+        items: const [
+          DropdownMenuItem(value: 1, child: Text('P1 - Urgent')),
+          DropdownMenuItem(value: 2, child: Text('P2 - High')),
+          DropdownMenuItem(value: 3, child: Text('P3 - Normal')),
+          DropdownMenuItem(value: 4, child: Text('P4 - Low')),
+        ],
+        onChanged: (value) {
+          if (value != null) {
+            setState(() {
+              _editPriority = value;
+              _hasUnsavedChanges = true;
+            });
+          }
+        },
+        underline: const SizedBox.shrink(),
+        isDense: true,
+      ),
+    );
+  }
+
+  Widget _buildDueDateDisplay() {
+    if (widget.task.dueDate == null) {
+      return Text(
+        'No due date',
+        style: TextStyle(fontSize: 13, color: AppTheme.gray400),
+      );
+    }
+    return Text(
+      AppDateUtils.formatForDisplay(widget.task.dueDate!),
+      style: TextStyle(
+        fontSize: 13,
+        color: widget.task.isOverdue ? AppTheme.errorRed : AppTheme.gray700,
+        fontWeight: widget.task.isOverdue ? FontWeight.w600 : FontWeight.normal,
+      ),
+    );
+  }
+
+  Widget _buildDueDatePicker(BuildContext context) {
+    return Row(
+      children: [
+        InkWell(
+          onTap: () async {
+            final picked = await showDatePicker(
+              context: context,
+              initialDate: _editDueDate ?? DateTime.now(),
+              firstDate: DateTime.now().subtract(const Duration(days: 365)),
+              lastDate: DateTime.now().add(const Duration(days: 365 * 5)),
+            );
+            if (picked != null) {
+              setState(() {
+                _editDueDate = picked;
+                _hasUnsavedChanges = true;
+              });
+            }
+          },
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              border: Border.all(color: AppTheme.gray300),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Row(
+              children: [
+                Text(
+                  _editDueDate != null
+                      ? AppDateUtils.formatForDisplay(_editDueDate!)
+                      : 'Select date',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: _editDueDate != null ? AppTheme.gray700 : AppTheme.gray400,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Icon(LucideIcons.calendar, size: 14, color: AppTheme.gray400),
+              ],
+            ),
+          ),
+        ),
+        if (_editDueDate != null) ...[
+          const SizedBox(width: 8),
+          IconButton(
+            icon: Icon(LucideIcons.x, size: 14, color: AppTheme.gray400),
+            onPressed: () => setState(() {
+              _editDueDate = null;
+              _hasUnsavedChanges = true;
+            }),
+            tooltip: 'Clear due date',
+            constraints: const BoxConstraints(),
+            padding: const EdgeInsets.all(4),
+          ),
+        ],
+      ],
+    );
+  }
+
   Widget _buildMetadataRow(
     BuildContext context, {
     required IconData icon,
@@ -343,7 +475,7 @@ class _TaskDetailState extends ConsumerState<TaskDetail> {
   }
 
   Widget _buildLabelsSection(BuildContext context) {
-    if (widget.task.labels.isEmpty) return const SizedBox.shrink();
+    if (!_isEditing && widget.task.labels.isEmpty) return const SizedBox.shrink();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -361,14 +493,142 @@ class _TaskDetailState extends ConsumerState<TaskDetail> {
           ],
         ),
         const SizedBox(height: 8),
+        _isEditing ? _buildLabelsEditor(context) : _buildLabelsDisplay(),
+      ],
+    );
+  }
+
+  Widget _buildLabelsDisplay() {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: widget.task.labels
+          .map((label) => LabelBadge(label: label))
+          .toList(),
+    );
+  }
+
+  Widget _buildLabelsEditor(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
         Wrap(
           spacing: 8,
           runSpacing: 8,
-          children: widget.task.labels
-              .map((label) => LabelBadge(label: label))
-              .toList(),
+          children: [
+            ..._editLabelNames.map((labelName) => _buildEditableLabel(labelName)),
+            _buildAddLabelButton(context),
+          ],
         ),
       ],
+    );
+  }
+
+  Widget _buildEditableLabel(String labelName) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: AppTheme.primaryBlue.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppTheme.primaryBlue.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            labelName,
+            style: TextStyle(
+              fontSize: 12,
+              color: AppTheme.primaryBlue,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const SizedBox(width: 4),
+          InkWell(
+            onTap: () {
+              setState(() {
+                _editLabelNames.remove(labelName);
+                _hasUnsavedChanges = true;
+              });
+            },
+            child: Icon(LucideIcons.x, size: 14, color: AppTheme.primaryBlue),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAddLabelButton(BuildContext context) {
+    return InkWell(
+      onTap: () => _showAddLabelDialog(context),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: AppTheme.gray100,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppTheme.gray300),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(LucideIcons.plus, size: 14, color: AppTheme.gray500),
+            const SizedBox(width: 4),
+            Text(
+              'Add label',
+              style: TextStyle(
+                fontSize: 12,
+                color: AppTheme.gray500,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showAddLabelDialog(BuildContext context) {
+    final controller = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Add Label'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(
+            hintText: 'Label name',
+            border: OutlineInputBorder(),
+          ),
+          onSubmitted: (value) {
+            if (value.trim().isNotEmpty) {
+              setState(() {
+                _editLabelNames.add(value.trim());
+                _hasUnsavedChanges = true;
+              });
+              Navigator.pop(context);
+            }
+          },
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final value = controller.text.trim();
+              if (value.isNotEmpty) {
+                setState(() {
+                  _editLabelNames.add(value);
+                  _hasUnsavedChanges = true;
+                });
+                Navigator.pop(context);
+              }
+            },
+            child: const Text('Add'),
+          ),
+        ],
+      ),
     );
   }
 
@@ -520,11 +780,7 @@ class _TaskDetailState extends ConsumerState<TaskDetail> {
           if (_isEditing) ...[
             Expanded(
               child: OutlinedButton(
-                onPressed: () {
-                  _titleController.text = widget.task.title;
-                  _descriptionController.text = widget.task.description ?? '';
-                  setState(() => _isEditing = false);
-                },
+                onPressed: _cancelEditing,
                 child: const Text('Cancel'),
               ),
             ),
@@ -566,13 +822,81 @@ class _TaskDetailState extends ConsumerState<TaskDetail> {
     );
   }
 
+  void _cancelEditing() {
+    if (_hasUnsavedChanges) {
+      _showUnsavedChangesDialog();
+    } else {
+      _resetEditState();
+    }
+  }
+
+  void _showUnsavedChangesDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Unsaved Changes'),
+        content: const Text('You have unsaved changes. Do you want to discard them?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Keep Editing'),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _resetEditState();
+            },
+            style: FilledButton.styleFrom(
+              backgroundColor: AppTheme.errorRed,
+            ),
+            child: const Text('Discard'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _resetEditState() {
+    _titleController.text = widget.task.title;
+    _descriptionController.text = widget.task.description ?? '';
+    setState(() {
+      _editPriority = widget.task.priority;
+      _editDueDate = widget.task.dueDate;
+      _editLabelNames = widget.task.labels.map((l) => l.name).toList();
+      _isEditing = false;
+      _hasUnsavedChanges = false;
+    });
+  }
+
   void _saveChanges() {
+    // Create updated labels from edited names
+    final updatedLabels = _editLabelNames.map((name) {
+      // Try to find existing label, otherwise create new one
+      final existing = widget.task.labels.where((l) => l.name == name);
+      if (existing.isNotEmpty) {
+        return existing.first;
+      }
+      return LabelEntity(
+        id: 'local_${DateTime.now().millisecondsSinceEpoch}_$name',
+        name: name,
+        color: '#${AppTheme.primaryBlue.toARGB32().toRadixString(16).substring(2)}',
+        createdAt: DateTime.now(),
+        provider: widget.task.provider ?? TaskProvider.local,
+      );
+    }).toList();
+
     final updatedTask = widget.task.copyWith(
       title: _titleController.text.trim(),
       description: _descriptionController.text.trim(),
+      priority: _editPriority,
+      dueDate: _editDueDate,
+      labels: updatedLabels,
       updatedAt: DateTime.now(),
     );
     widget.onUpdate?.call(updatedTask);
-    setState(() => _isEditing = false);
+    setState(() {
+      _isEditing = false;
+      _hasUnsavedChanges = false;
+    });
   }
 }
