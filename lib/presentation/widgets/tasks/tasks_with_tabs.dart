@@ -7,6 +7,19 @@ import '../../../domain/entities/project.dart';
 import 'task_list.dart';
 import 'task_detail.dart';
 
+/// Sort options for task list
+enum TaskSortOption {
+  priority('Priority', LucideIcons.arrowUpDown),
+  dueDate('Due Date', LucideIcons.calendar),
+  createdDate('Created', LucideIcons.clock),
+  byLabel('Label', LucideIcons.tag),
+  byProject('Project', LucideIcons.folder);
+
+  final String displayName;
+  final IconData icon;
+  const TaskSortOption(this.displayName, this.icon);
+}
+
 /// Widget displaying tasks organized in tabs (All, Active, Completed)
 class TasksWithTabs extends StatefulWidget {
   final List<TaskEntity> tasks;
@@ -35,6 +48,7 @@ class _TasksWithTabsState extends State<TasksWithTabs>
   String _searchQuery = '';
   String? _selectedProjectId;
   int? _selectedPriority;
+  TaskSortOption _sortOption = TaskSortOption.priority;
 
   @override
   void initState() {
@@ -74,7 +88,74 @@ class _TasksWithTabsState extends State<TasksWithTabs>
       tasks = tasks.where((t) => t.priority == _selectedPriority).toList();
     }
 
-    return tasks;
+    // Apply sorting
+    return _sortTasks(tasks);
+  }
+
+  List<TaskEntity> _sortTasks(List<TaskEntity> tasks) {
+    final sorted = List<TaskEntity>.from(tasks);
+
+    switch (_sortOption) {
+      case TaskSortOption.priority:
+        sorted.sort((a, b) {
+          // Priority first (lower number = higher priority)
+          final priorityCompare = a.priority.compareTo(b.priority);
+          if (priorityCompare != 0) return priorityCompare;
+          // Then due date (nulls last)
+          if (a.dueDate != null && b.dueDate != null) {
+            return a.dueDate!.compareTo(b.dueDate!);
+          }
+          if (a.dueDate != null) return -1;
+          if (b.dueDate != null) return 1;
+          return 0;
+        });
+        break;
+
+      case TaskSortOption.dueDate:
+        sorted.sort((a, b) {
+          // Due date (nulls last)
+          if (a.dueDate != null && b.dueDate != null) {
+            return a.dueDate!.compareTo(b.dueDate!);
+          }
+          if (a.dueDate != null) return -1;
+          if (b.dueDate != null) return 1;
+          // Then priority
+          return a.priority.compareTo(b.priority);
+        });
+        break;
+
+      case TaskSortOption.createdDate:
+        sorted.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+        break;
+
+      case TaskSortOption.byLabel:
+        sorted.sort((a, b) {
+          // Tasks with labels first
+          if (a.hasLabels && !b.hasLabels) return -1;
+          if (!a.hasLabels && b.hasLabels) return 1;
+          // Then by first label name alphabetically
+          if (a.hasLabels && b.hasLabels) {
+            return a.labels.first.name.compareTo(b.labels.first.name);
+          }
+          return 0;
+        });
+        break;
+
+      case TaskSortOption.byProject:
+        sorted.sort((a, b) {
+          final projectA = _getProjectForTask(a);
+          final projectB = _getProjectForTask(b);
+          // Tasks with projects first
+          if (projectA != null && projectB == null) return -1;
+          if (projectA == null && projectB != null) return 1;
+          if (projectA == null && projectB == null) return 0;
+          // Then by project name alphabetically
+          return projectA!.name.compareTo(projectB!.name);
+        });
+        break;
+    }
+
+    return sorted;
   }
 
   List<TaskEntity> get _activeTasks =>
@@ -252,6 +333,10 @@ class _TasksWithTabsState extends State<TasksWithTabs>
           ),
           const SizedBox(width: 12),
 
+          // Sort dropdown
+          _buildSortDropdown(),
+          const SizedBox(width: 12),
+
           // Project filter
           if (widget.projects.isNotEmpty)
             Expanded(
@@ -303,6 +388,39 @@ class _TasksWithTabsState extends State<TasksWithTabs>
             ),
           ],
         ],
+      ),
+    );
+  }
+
+  Widget _buildSortDropdown() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      decoration: BoxDecoration(
+        border: Border.all(color: AppTheme.gray300),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: DropdownButton<TaskSortOption>(
+        value: _sortOption,
+        items: TaskSortOption.values.map((option) {
+          return DropdownMenuItem<TaskSortOption>(
+            value: option,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(option.icon, size: 16, color: AppTheme.gray600),
+                const SizedBox(width: 8),
+                Text(option.displayName),
+              ],
+            ),
+          );
+        }).toList(),
+        onChanged: (value) {
+          if (value != null) {
+            setState(() => _sortOption = value);
+          }
+        },
+        underline: const SizedBox.shrink(),
+        icon: Icon(LucideIcons.chevronDown, size: 16, color: AppTheme.gray400),
       ),
     );
   }

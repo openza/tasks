@@ -73,47 +73,30 @@ These fields were removed from Electron in commit `52fc4e4` to simplify task cre
 
 ---
 
-### 4. Next Actions Label Filter Buttons
+### ~~4. Next Actions Label Filter Buttons~~ - COMPLETED
 
-**Problem:** Can't filter Next Actions screen by individual labels.
+- [x] "All Labels" button with total task count
+- [x] Individual label filter buttons with label color, name, count badge
+- [x] Filter tasks by selected label
+- [x] Hover/selection effects
 
-**What's Missing:**
-- [ ] "All Labels" button with total task count
-- [ ] Individual label filter buttons with:
-  - Label color
-  - Label name
-  - Task count badge
-  - Hover/selection effects
-
-**Impact:** Users must scroll through all labeled tasks instead of filtering.
-
-**Files to Modify:**
+**Files Modified:**
 - `lib/presentation/screens/next_actions/next_actions_screen.dart`
-
-**Electron Reference:**
-- `openza-desktop/src/routes/NextAction.tsx`
 
 ---
 
-### 6. Advanced Sorting UI
+### ~~5. Advanced Sorting UI~~ - COMPLETED
 
-**Problem:** Limited sorting options in task lists.
-
-**What's Missing:**
-- [ ] Visual sort dropdown component
-- [ ] Sort options:
-  - By labels (alphabetical)
-  - By project name
-  - By priority (1=highest)
+- [x] Visual sort dropdown component in TasksWithTabs
+- [x] Sort options:
+  - By priority (default)
   - By due date
   - By created date
+  - By labels (alphabetical)
+  - By project name
 
-**Files to Modify:**
-- `lib/presentation/widgets/tasks/task_list.dart`
-- `lib/presentation/screens/tasks/tasks_screen.dart`
-
-**Electron Reference:**
-- `openza-desktop/src/components/TasksWithTabs.tsx` (sort dropdown)
+**Files Modified:**
+- `lib/presentation/widgets/tasks/tasks_with_tabs.dart`
 
 ---
 
