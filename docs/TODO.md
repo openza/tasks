@@ -100,30 +100,21 @@ These fields were removed from Electron in commit `52fc4e4` to simplify task cre
 
 ---
 
-### 7. Task Detail Inline Editing
+### ~~6. Task Detail Inline Editing~~ - COMPLETED
 
-**Problem:** Task detail panel is view-only. Users cannot edit tasks from the detail view.
+- [x] Edit mode toggle button
+- [x] Inline title editing (click to edit)
+- [x] Description text area editing
+- [x] Priority selector dropdown
+- [x] Due date picker with clear option
+- [x] Label editor (add/remove labels)
+- [x] Save/cancel buttons
+- [x] Unsaved changes warning dialog
 
-**What's Missing:**
-- [ ] Edit mode toggle button
-- [ ] Inline title editing (click to edit)
-- [ ] Description text area editing
-- [ ] Priority selector dropdown
-- [ ] Due date picker
-- [ ] Label editor (add/remove labels)
-- [ ] Energy level selector
-- [ ] Context selector
-- [ ] Estimated duration input
-- [ ] Save/cancel buttons
-- [ ] Unsaved changes warning
+**Note:** Energy level, Context, and Estimated duration selectors skipped (deprecated in Electron)
 
-**Impact:** Users must use the create dialog for all task edits.
-
-**Files to Modify:**
+**Files Modified:**
 - `lib/presentation/widgets/tasks/task_detail.dart`
-
-**Electron Reference:**
-- `openza-desktop/src/components/TaskDetail.tsx`
 
 ---
 
