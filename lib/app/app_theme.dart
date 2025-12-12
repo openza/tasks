@@ -12,6 +12,41 @@ class AppTheme {
   static const Color warningOrange = Color(0xFFF59E0B); // amber-500
   static const Color successGreen = Color(0xFF22C55E); // green-500
 
+  // Extended color palette - Red
+  static const Color red50 = Color(0xFFFEF2F2);
+  static const Color red100 = Color(0xFFFEE2E2);
+  static const Color red200 = Color(0xFFFECACA);
+  static const Color red500 = Color(0xFFEF4444);
+  static const Color red600 = Color(0xFFDC2626);
+  static const Color red700 = Color(0xFFB91C1C);
+
+  // Extended color palette - Green
+  static const Color green50 = Color(0xFFF0FDF4);
+  static const Color green100 = Color(0xFFDCFCE7);
+  static const Color green200 = Color(0xFFBBF7D0);
+  static const Color green500 = Color(0xFF22C55E);
+  static const Color green600 = Color(0xFF16A34A);
+  static const Color green700 = Color(0xFF15803D);
+
+  // Extended color palette - Amber/Orange
+  static const Color amber50 = Color(0xFFFFFBEB);
+  static const Color amber100 = Color(0xFFFEF3C7);
+  static const Color amber200 = Color(0xFFFDE68A);
+  static const Color amber500 = Color(0xFFF59E0B);
+  static const Color amber600 = Color(0xFFD97706);
+
+  // Extended color palette - Purple
+  static const Color purple50 = Color(0xFFFAF5FF);
+  static const Color purple100 = Color(0xFFF3E8FF);
+  static const Color purple500 = Color(0xFF8B5CF6);
+  static const Color purple600 = Color(0xFF7C3AED);
+
+  // Extended color palette - Teal
+  static const Color teal50 = Color(0xFFF0FDFA);
+  static const Color teal100 = Color(0xFFCCFBF1);
+  static const Color teal500 = Color(0xFF14B8A6);
+  static const Color teal600 = Color(0xFF0D9488);
+
   // Gray scale
   static const Color gray50 = Color(0xFFF9FAFB);
   static const Color gray100 = Color(0xFFF3F4F6);

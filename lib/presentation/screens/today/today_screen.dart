@@ -3,85 +3,144 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
 import '../../../app/app_theme.dart';
+import '../../providers/task_provider.dart';
+import '../../widgets/tasks/task_list.dart';
+import '../../widgets/tasks/task_detail.dart';
+import '../../../domain/entities/task.dart';
 
-class TodayScreen extends ConsumerWidget {
+class TodayScreen extends ConsumerStatefulWidget {
   const TodayScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<TodayScreen> createState() => _TodayScreenState();
+}
+
+class _TodayScreenState extends ConsumerState<TodayScreen> {
+  TaskEntity? _selectedTask;
+
+  @override
+  Widget build(BuildContext context) {
+    final todayTasksAsync = ref.watch(todayTasksProvider);
+    final unifiedDataAsync = ref.watch(unifiedDataProvider);
+
     return Container(
       color: AppTheme.gray50,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
         children: [
-          // Header
-          Container(
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surface,
-              border: Border(
-                bottom: BorderSide(color: Theme.of(context).dividerColor),
-              ),
-            ),
-            child: Row(
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Icon(LucideIcons.calendarDays, size: 24),
-                const SizedBox(width: 12),
-                Text(
-                  'Today',
-                  style: Theme.of(context).textTheme.headlineSmall,
+                // Header
+                Container(
+                  padding: const EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.surface,
+                    border: Border(
+                      bottom: BorderSide(color: Theme.of(context).dividerColor),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: AppTheme.warningOrange.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Icon(
+                          LucideIcons.calendarDays,
+                          size: 20,
+                          color: AppTheme.warningOrange,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Today',
+                            style: Theme.of(context).textTheme.headlineSmall,
+                          ),
+                          todayTasksAsync.when(
+                            data: (tasks) => Text(
+                              '${tasks.length} task${tasks.length != 1 ? 's' : ''} due today',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
+                                  ?.copyWith(color: AppTheme.gray500),
+                            ),
+                            loading: () => Text(
+                              'Loading...',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
+                                  ?.copyWith(color: AppTheme.gray500),
+                            ),
+                            error: (_, __) => const SizedBox.shrink(),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
-                const Spacer(),
-                // TODO: Add TaskSourceSelector here
+
+                // Task List
+                Expanded(
+                  child: todayTasksAsync.when(
+                    data: (tasks) => unifiedDataAsync.when(
+                      data: (data) => TaskListWidget(
+                        tasks: tasks,
+                        projects: data.projects,
+                        filter: TaskFilter.today,
+                        emptyMessage: 'No tasks due today',
+                        onTaskTap: (task) =>
+                            setState(() => _selectedTask = task),
+                        onTaskComplete: _completeTask,
+                      ),
+                      loading: () =>
+                          const Center(child: CircularProgressIndicator()),
+                      error: (e, _) => Center(child: Text('Error: $e')),
+                    ),
+                    loading: () =>
+                        const Center(child: CircularProgressIndicator()),
+                    error: (e, _) => Center(child: Text('Error: $e')),
+                  ),
+                ),
               ],
             ),
           ),
 
-          // Task List
-          Expanded(
-            child: _buildPlaceholderList(context, 'today'),
-          ),
+          // Detail panel
+          if (_selectedTask != null)
+            unifiedDataAsync.when(
+              data: (data) => TaskDetail(
+                task: _selectedTask!,
+                project: _getProjectForTask(_selectedTask!, data.projects),
+                onClose: () => setState(() => _selectedTask = null),
+                onComplete: _completeTask,
+              ),
+              loading: () => const SizedBox.shrink(),
+              error: (_, __) => const SizedBox.shrink(),
+            ),
         ],
       ),
     );
   }
 
-  Widget _buildPlaceholderList(BuildContext context, String filter) {
-    // Placeholder task list - will be replaced with actual TaskList widget
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: 5,
-      itemBuilder: (context, index) {
-        return Card(
-          margin: const EdgeInsets.only(bottom: 8),
-          child: ListTile(
-            leading: Checkbox(
-              value: false,
-              onChanged: (value) {},
-            ),
-            title: Text('Task ${index + 1} due today'),
-            subtitle: Text(
-              'This is a placeholder task description',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            trailing: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: AppTheme.warningOrange.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: Text(
-                'Today',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: AppTheme.warningOrange,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ),
-          ),
-        );
-      },
-    );
+  void _completeTask(TaskEntity task) {
+    // TODO: Implement task completion logic
+    // This will need to call the appropriate provider based on task.provider
+  }
+
+  dynamic _getProjectForTask(TaskEntity task, List projects) {
+    if (task.projectId == null) return null;
+    try {
+      return projects.firstWhere(
+        (p) => p.id == task.projectId || p.id == 'todoist_${task.projectId}',
+      );
+    } catch (_) {
+      return null;
+    }
   }
 }
