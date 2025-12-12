@@ -63,28 +63,17 @@ Note: Deep links (openza://) for OAuth callbacks not implemented. Using local HT
 
 ## High Priority
 
-### 4. Rich Task Card Details
+### ~~4. Rich Task Card Details~~ - DEPRECATED
 
-**Problem:** Local task enhanced features are stored but not displayed in the UI.
+These fields were removed from Electron in commit `52fc4e4` to simplify task creation:
+- Energy Level, Focus Time, Context, Estimated Duration
 
-**What's Missing:**
-- [ ] Focus time indicator (brain icon) for tasks requiring deep focus
-- [ ] Energy level badges (Low/Medium/High/Peak/Flow State)
-- [ ] Estimated duration display (in minutes)
+**Remaining (optional):**
 - [ ] Task source indicator label (Local/Todoist/MS To-Do)
-- [ ] Context indicator (Work/Personal/Errands/Home/Office)
-
-**Impact:** Users can't see their task metadata at a glance.
-
-**Files to Modify:**
-- `lib/presentation/widgets/tasks/task_card.dart`
-
-**Electron Reference:**
-- `openza-desktop/src/components/TaskCard.tsx`
 
 ---
 
-### 5. Next Actions Label Filter Buttons
+### 4. Next Actions Label Filter Buttons
 
 **Problem:** Can't filter Next Actions screen by individual labels.
 
