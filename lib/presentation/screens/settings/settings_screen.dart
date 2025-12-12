@@ -662,7 +662,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   : () async {
                       setState(() => _isConnecting = true);
                       try {
-                        final oauthService = ref.read(oAuthServiceProvider);
+                        final oauthService = ref.read(oauthServiceProvider);
                         final token = await oauthService.authenticateMsToDo(
                           clientId: AppConstants.msToDoClientId,
                           tenantId: AppConstants.msToDoTenantId,

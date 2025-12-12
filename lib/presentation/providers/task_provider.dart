@@ -1,7 +1,10 @@
+import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 // ignore: deprecated_member_use
 import 'package:flutter_riverpod/legacy.dart';
 
+import '../../core/services/api_error_handler.dart';
+import '../../core/utils/logger.dart';
 import '../../data/datasources/remote/todoist_api.dart';
 import '../../data/datasources/remote/mstodo_api.dart';
 import '../../domain/entities/task.dart';
@@ -47,39 +50,96 @@ final msToDoApiProvider = FutureProvider<MsToDoApi?>((ref) async {
   return MsToDoApi(accessToken: token);
 });
 
-/// Provider for Todoist tasks
+/// Provider for Todoist tasks with error handling
 final todoistTasksProvider = FutureProvider<List<TaskEntity>>((ref) async {
   final api = await ref.watch(todoistApiProvider.future);
   if (api == null) return [];
-  return api.getAllTasks();
+
+  try {
+    return await api.getAllTasks();
+  } on DioException catch (e) {
+    final error = ApiErrorHandler.handleDioError(e, context: 'Todoist');
+    ApiErrorHandler.reportError(error);
+    AppLogger.error('Todoist tasks fetch failed', e);
+    return [];
+  } catch (e) {
+    final error = ApiErrorHandler.handleError(e, context: 'Todoist');
+    ApiErrorHandler.reportError(error);
+    return [];
+  }
 });
 
-/// Provider for Todoist projects
+/// Provider for Todoist projects with error handling
 final todoistProjectsProvider = FutureProvider<List<ProjectEntity>>((ref) async {
   final api = await ref.watch(todoistApiProvider.future);
   if (api == null) return [];
-  return api.getAllProjects();
+
+  try {
+    return await api.getAllProjects();
+  } on DioException catch (e) {
+    final error = ApiErrorHandler.handleDioError(e, context: 'Todoist');
+    ApiErrorHandler.reportError(error);
+    return [];
+  } catch (e) {
+    final error = ApiErrorHandler.handleError(e, context: 'Todoist');
+    ApiErrorHandler.reportError(error);
+    return [];
+  }
 });
 
-/// Provider for Todoist labels
+/// Provider for Todoist labels with error handling
 final todoistLabelsProvider = FutureProvider<List<LabelEntity>>((ref) async {
   final api = await ref.watch(todoistApiProvider.future);
   if (api == null) return [];
-  return api.getAllLabels();
+
+  try {
+    return await api.getAllLabels();
+  } on DioException catch (e) {
+    final error = ApiErrorHandler.handleDioError(e, context: 'Todoist');
+    ApiErrorHandler.reportError(error);
+    return [];
+  } catch (e) {
+    final error = ApiErrorHandler.handleError(e, context: 'Todoist');
+    ApiErrorHandler.reportError(error);
+    return [];
+  }
 });
 
-/// Provider for MS To-Do tasks
+/// Provider for MS To-Do tasks with error handling
 final msToDoTasksProvider = FutureProvider<List<TaskEntity>>((ref) async {
   final api = await ref.watch(msToDoApiProvider.future);
   if (api == null) return [];
-  return api.getAllTasks();
+
+  try {
+    return await api.getAllTasks();
+  } on DioException catch (e) {
+    final error = ApiErrorHandler.handleDioError(e, context: 'MS To-Do');
+    ApiErrorHandler.reportError(error);
+    AppLogger.error('MS To-Do tasks fetch failed', e);
+    return [];
+  } catch (e) {
+    final error = ApiErrorHandler.handleError(e, context: 'MS To-Do');
+    ApiErrorHandler.reportError(error);
+    return [];
+  }
 });
 
-/// Provider for MS To-Do lists (projects)
+/// Provider for MS To-Do lists (projects) with error handling
 final msToDoProjectsProvider = FutureProvider<List<ProjectEntity>>((ref) async {
   final api = await ref.watch(msToDoApiProvider.future);
   if (api == null) return [];
-  return api.getAllLists();
+
+  try {
+    return await api.getAllLists();
+  } on DioException catch (e) {
+    final error = ApiErrorHandler.handleDioError(e, context: 'MS To-Do');
+    ApiErrorHandler.reportError(error);
+    return [];
+  } catch (e) {
+    final error = ApiErrorHandler.handleError(e, context: 'MS To-Do');
+    ApiErrorHandler.reportError(error);
+    return [];
+  }
 });
 
 /// Provider for local tasks from database

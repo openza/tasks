@@ -2,7 +2,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 // ignore: deprecated_member_use
 import 'package:flutter_riverpod/legacy.dart';
 
+import '../../core/constants/app_constants.dart';
 import '../../data/datasources/local/secure_storage.dart';
+import '../../data/datasources/remote/auth/oauth_service.dart';
+import '../../data/datasources/remote/auth/token_manager.dart';
 import '../../domain/entities/task.dart';
 
 /// Authentication state
@@ -189,4 +192,50 @@ final todoistTokenProvider = FutureProvider<String?>((ref) async {
 /// Provider for MS To-Do access token
 final msToDoTokenProvider = FutureProvider<String?>((ref) async {
   return SecureStorageService.instance.getMsToDoAccessToken();
+});
+
+/// Provider for OAuth service
+final oauthServiceProvider = Provider<OAuthService>((ref) {
+  return OAuthService();
+});
+
+/// Provider for Token Manager
+final tokenManagerProvider = Provider<TokenManager>((ref) {
+  return TokenManager.instance;
+});
+
+/// Provider for initiating Todoist OAuth
+final todoistOAuthProvider = FutureProvider.family<String?, void>((ref, _) async {
+  final oauth = ref.read(oauthServiceProvider);
+
+  final clientId = AppConstants.todoistClientId;
+  final clientSecret = AppConstants.todoistClientSecret;
+
+  if (clientId.isEmpty || clientSecret.isEmpty) {
+    throw Exception('Todoist OAuth credentials not configured. '
+        'Set TODOIST_CLIENT_ID and TODOIST_CLIENT_SECRET environment variables.');
+  }
+
+  return oauth.authenticateTodoist(
+    clientId: clientId,
+    clientSecret: clientSecret,
+  );
+});
+
+/// Provider for initiating MS To-Do OAuth
+final msToDoOAuthProvider = FutureProvider.family<String?, void>((ref, _) async {
+  final oauth = ref.read(oauthServiceProvider);
+
+  final clientId = AppConstants.msToDoClientId;
+  final tenantId = AppConstants.msToDoTenantId;
+
+  if (clientId.isEmpty) {
+    throw Exception('MS To-Do OAuth credentials not configured. '
+        'Set MSTODO_CLIENT_ID environment variable.');
+  }
+
+  return oauth.authenticateMsToDo(
+    clientId: clientId,
+    tenantId: tenantId,
+  );
 });
