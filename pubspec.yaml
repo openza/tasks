@@ -11,8 +11,8 @@ dependencies:
     sdk: flutter
 
   # State Management
-  flutter_riverpod: ^2.6.1
-  riverpod_annotation: ^2.6.1
+  flutter_riverpod: ^3.0.3
+  riverpod_annotation: ^3.0.3
 
   # Routing
   go_router: ^14.6.3
@@ -39,6 +39,7 @@ dependencies:
 
   # UI Components
   lucide_icons: ^0.257.0
+  flutter_svg: ^2.0.10+1
 
   # Utilities
   intl: ^0.20.1
@@ -46,10 +47,11 @@ dependencies:
   logger: ^2.5.0
   equatable: ^2.0.7
   collection: ^1.19.1
+  url_launcher: ^6.3.1
 
   # JSON Serialization
   json_annotation: ^4.9.0
-  freezed_annotation: ^2.4.4
+  freezed_annotation: ^3.0.0
 
   # Desktop Window Management
   window_manager: ^0.4.3
@@ -65,9 +67,9 @@ dev_dependencies:
   # Code Generation
   build_runner: ^2.4.13
   drift_dev: ^2.22.1
-  freezed: ^2.5.7
+  freezed: ^3.0.0
   json_serializable: ^6.9.0
-  riverpod_generator: ^2.6.3
+  riverpod_generator: ^3.0.3
   injectable_generator: ^2.6.2
 
 flutter:

@@ -5,6 +5,7 @@ import 'package:lucide_icons/lucide_icons.dart';
 
 import '../../../app/app_router.dart';
 import '../../../app/app_theme.dart';
+import '../common/openza_logo.dart';
 
 class DashboardLayout extends ConsumerStatefulWidget {
   final Widget child;
@@ -43,28 +44,7 @@ class _DashboardLayoutState extends ConsumerState<DashboardLayout> {
                   padding: const EdgeInsets.all(16),
                   child: Row(
                     children: [
-                      Container(
-                        width: 32,
-                        height: 32,
-                        decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                            colors: [AppTheme.primaryBlue, AppTheme.accentPink],
-                          ),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: const Icon(
-                          LucideIcons.checkSquare,
-                          color: Colors.white,
-                          size: 18,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Text(
-                        'Openza',
-                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                              fontWeight: FontWeight.w700,
-                            ),
-                      ),
+                      const OpenzaLogo(size: 32, showText: true),
                       const Spacer(),
                       IconButton(
                         icon: const Icon(LucideIcons.settings, size: 20),

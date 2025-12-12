@@ -3,102 +3,143 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
 import '../../../app/app_theme.dart';
+import '../../providers/task_provider.dart';
+import '../../widgets/tasks/task_list.dart';
+import '../../widgets/tasks/task_detail.dart';
+import '../../../domain/entities/task.dart';
 
-class OverdueScreen extends ConsumerWidget {
+class OverdueScreen extends ConsumerStatefulWidget {
   const OverdueScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<OverdueScreen> createState() => _OverdueScreenState();
+}
+
+class _OverdueScreenState extends ConsumerState<OverdueScreen> {
+  TaskEntity? _selectedTask;
+
+  @override
+  Widget build(BuildContext context) {
+    final overdueTasksAsync = ref.watch(overdueTasksProvider);
+    final unifiedDataAsync = ref.watch(unifiedDataProvider);
+
     return Container(
       color: AppTheme.gray50,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
         children: [
-          // Header with red accent for overdue
-          Container(
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surface,
-              border: Border(
-                bottom: BorderSide(color: Theme.of(context).dividerColor),
-              ),
-            ),
-            child: Row(
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(LucideIcons.alertCircle, size: 24, color: AppTheme.errorRed),
-                const SizedBox(width: 12),
-                Text(
-                  'Overdue',
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                        color: AppTheme.errorRed,
-                      ),
-                ),
-                const SizedBox(width: 12),
+                // Header
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding: const EdgeInsets.all(24),
                   decoration: BoxDecoration(
-                    color: AppTheme.errorRed.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    '4 tasks',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: AppTheme.errorRed,
-                      fontWeight: FontWeight.w600,
+                    color: Theme.of(context).colorScheme.surface,
+                    border: Border(
+                      bottom: BorderSide(color: Theme.of(context).dividerColor),
                     ),
                   ),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: AppTheme.errorRed.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Icon(
+                          LucideIcons.alertTriangle,
+                          size: 20,
+                          color: AppTheme.errorRed,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Overdue',
+                            style: Theme.of(context).textTheme.headlineSmall,
+                          ),
+                          overdueTasksAsync.when(
+                            data: (tasks) => Text(
+                              '${tasks.length} overdue task${tasks.length != 1 ? 's' : ''}',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
+                                  ?.copyWith(color: AppTheme.errorRed),
+                            ),
+                            loading: () => Text(
+                              'Loading...',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
+                                  ?.copyWith(color: AppTheme.gray500),
+                            ),
+                            error: (_, __) => const SizedBox.shrink(),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
-                const Spacer(),
+
+                // Task List
+                Expanded(
+                  child: overdueTasksAsync.when(
+                    data: (tasks) => unifiedDataAsync.when(
+                      data: (data) => TaskListWidget(
+                        tasks: tasks,
+                        projects: data.projects,
+                        filter: TaskFilter.overdue,
+                        emptyMessage: 'No overdue tasks - great job!',
+                        onTaskTap: (task) =>
+                            setState(() => _selectedTask = task),
+                        onTaskComplete: _completeTask,
+                      ),
+                      loading: () =>
+                          const Center(child: CircularProgressIndicator()),
+                      error: (e, _) => Center(child: Text('Error: $e')),
+                    ),
+                    loading: () =>
+                        const Center(child: CircularProgressIndicator()),
+                    error: (e, _) => Center(child: Text('Error: $e')),
+                  ),
+                ),
               ],
             ),
           ),
 
-          // Task List
-          Expanded(
-            child: _buildPlaceholderList(context),
-          ),
+          // Detail panel
+          if (_selectedTask != null)
+            unifiedDataAsync.when(
+              data: (data) => TaskDetail(
+                task: _selectedTask!,
+                project: _getProjectForTask(_selectedTask!, data.projects),
+                onClose: () => setState(() => _selectedTask = null),
+                onComplete: _completeTask,
+              ),
+              loading: () => const SizedBox.shrink(),
+              error: (_, __) => const SizedBox.shrink(),
+            ),
         ],
       ),
     );
   }
 
-  Widget _buildPlaceholderList(BuildContext context) {
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: 4,
-      itemBuilder: (context, index) {
-        final daysOverdue = index + 1;
-        return Card(
-          margin: const EdgeInsets.only(bottom: 8),
-          child: ListTile(
-            leading: Checkbox(
-              value: false,
-              onChanged: (value) {},
-            ),
-            title: Text('Overdue task ${index + 1}'),
-            subtitle: Text(
-              'This task was due $daysOverdue day${daysOverdue > 1 ? 's' : ''} ago',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            trailing: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: AppTheme.errorRed.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: Text(
-                '$daysOverdue day${daysOverdue > 1 ? 's' : ''} ago',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: AppTheme.errorRed,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ),
-          ),
-        );
-      },
-    );
+  void _completeTask(TaskEntity task) {
+    // TODO: Implement task completion logic
+  }
+
+  dynamic _getProjectForTask(TaskEntity task, List projects) {
+    if (task.projectId == null) return null;
+    try {
+      return projects.firstWhere(
+        (p) => p.id == task.projectId || p.id == 'todoist_${task.projectId}',
+      );
+    } catch (_) {
+      return null;
+    }
   }
 }
