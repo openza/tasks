@@ -4,11 +4,13 @@ import '../../../core/constants/api_endpoints.dart';
 import '../../../core/utils/logger.dart';
 import '../../../domain/entities/task.dart';
 import '../../../domain/entities/project.dart';
+import 'auth/token_manager.dart';
 
-/// Microsoft Graph API client for To-Do
+/// Microsoft Graph API client for To-Do with automatic token refresh
 class MsToDoApi {
   final Dio _dio;
-  final String _accessToken;
+  String _accessToken;
+  final TokenManager _tokenManager = TokenManager.instance;
 
   MsToDoApi({required String accessToken})
       : _accessToken = accessToken,
@@ -18,7 +20,47 @@ class MsToDoApi {
             'Authorization': 'Bearer $accessToken',
             'Content-Type': 'application/json',
           },
-        ));
+        )) {
+    _setupInterceptors();
+  }
+
+  void _setupInterceptors() {
+    _dio.interceptors.add(InterceptorsWrapper(
+      onError: (error, handler) async {
+        // Handle 401 Unauthorized - try to refresh token
+        if (error.response?.statusCode == 401) {
+          AppLogger.warning('MS To-Do: Received 401, attempting token refresh');
+
+          try {
+            final newToken = await _tokenManager.forceRefreshMsToDoToken();
+            if (newToken != null) {
+              _accessToken = newToken;
+
+              // Update the authorization header
+              _dio.options.headers['Authorization'] = 'Bearer $newToken';
+
+              // Retry the failed request with new token
+              final options = error.requestOptions;
+              options.headers['Authorization'] = 'Bearer $newToken';
+
+              AppLogger.info('MS To-Do: Retrying request with refreshed token');
+              final response = await _dio.fetch(options);
+              return handler.resolve(response);
+            }
+          } catch (e) {
+            AppLogger.error('MS To-Do: Token refresh failed during retry', e);
+          }
+        }
+        return handler.next(error);
+      },
+    ));
+  }
+
+  /// Update the access token (e.g., after manual refresh)
+  void updateAccessToken(String token) {
+    _accessToken = token;
+    _dio.options.headers['Authorization'] = 'Bearer $token';
+  }
 
   // ============ TASK LISTS (Projects) ============
 

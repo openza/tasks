@@ -5,6 +5,7 @@ import 'package:lucide_icons/lucide_icons.dart';
 
 import '../../../app/app_router.dart';
 import '../../../app/app_theme.dart';
+import '../common/api_error_listener.dart';
 import '../common/openza_logo.dart';
 
 class DashboardLayout extends ConsumerStatefulWidget {
@@ -23,7 +24,8 @@ class _DashboardLayoutState extends ConsumerState<DashboardLayout> {
   Widget build(BuildContext context) {
     final currentPath = GoRouterState.of(context).uri.path;
 
-    return Scaffold(
+    return ApiErrorListener(
+      child: Scaffold(
       body: Row(
         children: [
           // Sidebar
@@ -233,6 +235,7 @@ class _DashboardLayoutState extends ConsumerState<DashboardLayout> {
             child: widget.child,
           ),
         ],
+      ),
       ),
     );
   }

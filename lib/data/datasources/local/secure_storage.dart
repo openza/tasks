@@ -142,6 +142,17 @@ class SecureStorageService {
     return read(key: StorageKeys.msToDoRefreshToken);
   }
 
+  /// Get MS To-Do token expiry
+  Future<DateTime?> getMsToDoTokenExpiry() async {
+    final expiryStr = await read(key: StorageKeys.msToDoTokenExpiry);
+    if (expiryStr == null) return null;
+    try {
+      return DateTime.parse(expiryStr);
+    } catch (e) {
+      return null;
+    }
+  }
+
   /// Clear MS To-Do tokens
   Future<void> clearMsToDoTokens() async {
     await delete(key: StorageKeys.msToDoAccessToken);
