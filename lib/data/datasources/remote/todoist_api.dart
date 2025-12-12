@@ -1,7 +1,6 @@
 import 'package:dio/dio.dart';
 
 import '../../../core/constants/api_endpoints.dart';
-import '../../../core/constants/app_constants.dart';
 import '../../../core/utils/logger.dart';
 import '../../../domain/entities/task.dart';
 import '../../../domain/entities/project.dart';
@@ -27,25 +26,24 @@ class TodoistApi {
   /// Get all tasks with pagination
   Future<List<TaskEntity>> getAllTasks() async {
     final List<TaskEntity> allTasks = [];
-    String? cursor;
 
     try {
-      do {
-        final response = await _dio.get(
-          ApiEndpoints.todoistTasks,
-          queryParameters: {
-            'limit': AppConstants.todoistPageSize,
-            if (cursor != null) 'cursor': cursor,
-          },
-        );
+      final response = await _dio.get(ApiEndpoints.todoistTasks);
 
-        final List<dynamic> results = response.data['results'] ?? response.data;
-        cursor = response.data['next_cursor'];
+      // Todoist REST API v2 returns tasks directly as a List
+      final List<dynamic> results;
+      if (response.data is List) {
+        results = response.data;
+      } else if (response.data is Map && response.data['results'] != null) {
+        // Handle potential paginated response format
+        results = response.data['results'];
+      } else {
+        results = [];
+      }
 
-        for (final task in results) {
-          allTasks.add(_mapTodoistTask(task));
-        }
-      } while (cursor != null);
+      for (final task in results) {
+        allTasks.add(_mapTodoistTask(task));
+      }
 
       AppLogger.info('Fetched ${allTasks.length} tasks from Todoist');
       return allTasks;
