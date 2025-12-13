@@ -8,7 +8,6 @@ import '../../../core/constants/app_constants.dart';
 import '../../../data/datasources/remote/todoist_api.dart';
 import '../../../domain/entities/task.dart';
 import '../../providers/auth_provider.dart';
-import '../../providers/repository_provider.dart';
 import '../../providers/task_provider.dart';
 import '../../widgets/common/openza_logo.dart';
 
@@ -36,7 +35,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   final List<Map<String, dynamic>> _categories = [
-    {'id': 'provider', 'label': 'Active Provider', 'icon': LucideIcons.toggleRight},
+    {'id': 'provider', 'label': 'Providers', 'icon': LucideIcons.layers},
     {'id': 'todoist', 'label': 'Todoist', 'icon': LucideIcons.checkCircle},
     {'id': 'mstodo', 'label': 'Microsoft To-Do', 'icon': LucideIcons.layoutGrid},
     {'id': 'data', 'label': 'Data & Sync', 'icon': LucideIcons.refreshCw},
@@ -158,7 +157,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   Widget _buildProviderContent(BuildContext context) {
     final authState = ref.watch(authProvider);
-    final taskSource = ref.watch(taskSourceProvider);
 
     return Padding(
       padding: const EdgeInsets.all(24),
@@ -166,55 +164,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Active Provider',
+            'Connected Providers',
             style: Theme.of(context).textTheme.titleLarge,
           ),
           const SizedBox(height: 8),
           Text(
-            'Select which task provider to use as the primary source.',
+            'Manage your connected task providers. Use the sidebar dropdown to filter tasks by source.',
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   color: AppTheme.gray500,
                 ),
           ),
           const SizedBox(height: 24),
 
-          // Task source selection
-          _buildSourceOption(
-            context,
-            title: 'All Sources',
-            subtitle: 'Combine tasks from all connected providers',
-            icon: LucideIcons.layers,
-            isSelected: taskSource == TaskSource.all,
-            onTap: () => ref.read(taskSourceProvider.notifier).state = TaskSource.all,
-          ),
-          const SizedBox(height: 12),
-          _buildSourceOption(
-            context,
-            title: 'Local Only',
-            subtitle: 'Only show locally stored tasks',
-            icon: LucideIcons.database,
-            isSelected: taskSource == TaskSource.local,
-            onTap: () => ref.read(taskSourceProvider.notifier).state = TaskSource.local,
-          ),
-          const SizedBox(height: 12),
-          _buildSourceOption(
-            context,
-            title: 'Connected Providers',
-            subtitle: 'Only show tasks from connected providers',
-            icon: LucideIcons.cloud,
-            isSelected: taskSource == TaskSource.provider,
-            onTap: () => ref.read(taskSourceProvider.notifier).state = TaskSource.provider,
-          ),
-
-          const SizedBox(height: 32),
-          const Divider(),
-          const SizedBox(height: 16),
-
-          Text(
-            'Connected Providers',
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
-          const SizedBox(height: 12),
           _ProviderOption(
             name: 'Todoist',
             icon: LucideIcons.checkCircle,
@@ -241,70 +202,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             },
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildSourceOption(
-    BuildContext context, {
-    required String title,
-    required String subtitle,
-    required IconData icon,
-    required bool isSelected,
-    required VoidCallback onTap,
-  }) {
-    return Material(
-      color: isSelected
-          ? AppTheme.primaryBlue.withValues(alpha: 0.1)
-          : AppTheme.gray50,
-      borderRadius: BorderRadius.circular(12),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: isSelected
-                      ? AppTheme.primaryBlue.withValues(alpha: 0.2)
-                      : AppTheme.gray200,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Icon(
-                  icon,
-                  size: 20,
-                  color: isSelected ? AppTheme.primaryBlue : AppTheme.gray500,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: TextStyle(
-                        fontWeight: FontWeight.w600,
-                        color: isSelected ? AppTheme.primaryBlue : AppTheme.gray900,
-                      ),
-                    ),
-                    Text(
-                      subtitle,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: AppTheme.gray500,
-                          ),
-                    ),
-                  ],
-                ),
-              ),
-              if (isSelected)
-                Icon(LucideIcons.check, size: 20, color: AppTheme.primaryBlue),
-            ],
-          ),
-        ),
       ),
     );
   }

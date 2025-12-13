@@ -14,7 +14,7 @@ import 'auth_provider.dart';
 import 'database_provider.dart';
 
 /// Task source selection
-enum TaskSource { local, provider, all }
+enum TaskSource { all, local, todoist, msToDo }
 
 /// Task source state provider
 final taskSourceProvider = StateProvider<TaskSource>((ref) => TaskSource.all);
@@ -217,7 +217,7 @@ final unifiedDataProvider = FutureProvider<UnifiedData>((ref) async {
   List<LabelEntity> labels = [];
   List<TaskProvider> availableProviders = [TaskProvider.local];
 
-  // Always include local data if source is 'local' or 'all'
+  // Include local data if source is 'local' or 'all'
   if (taskSource == TaskSource.local || taskSource == TaskSource.all) {
     final localTasks = await ref.watch(localTasksProvider.future);
     final localProjects = await ref.watch(localProjectsProvider.future);
@@ -228,9 +228,8 @@ final unifiedDataProvider = FutureProvider<UnifiedData>((ref) async {
     labels.addAll(localLabels);
   }
 
-  // Include provider data if source is 'provider' or 'all'
-  if (taskSource == TaskSource.provider || taskSource == TaskSource.all) {
-    // Todoist
+  // Include Todoist data if source is 'todoist' or 'all'
+  if (taskSource == TaskSource.todoist || taskSource == TaskSource.all) {
     if (authState.todoistAuthenticated) {
       availableProviders.add(TaskProvider.todoist);
 
@@ -246,8 +245,10 @@ final unifiedDataProvider = FutureProvider<UnifiedData>((ref) async {
         // Handle error silently for now
       }
     }
+  }
 
-    // MS To-Do
+  // Include MS To-Do data if source is 'msToDo' or 'all'
+  if (taskSource == TaskSource.msToDo || taskSource == TaskSource.all) {
     if (authState.msToDoAuthenticated) {
       availableProviders.add(TaskProvider.msToDo);
 
