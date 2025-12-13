@@ -2,7 +2,7 @@
 <component type="desktop-application">
   <id>com.openza.tasks</id>
   <name>Openza Tasks</name>
-  <summary>Unified Task Manager for Todoist and Microsoft To-Do</summary>
+  <summary>Local-first task manager for your desktop</summary>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>MIT</project_license>
   <developer id="com.openza">
@@ -10,22 +10,32 @@
   </developer>
   <description>
     <p>
-      Openza Tasks is a unified task manager that brings together your tasks from
-      Todoist, Microsoft To-Do, and local storage in one place.
+      Openza Tasks is a local-first desktop task manager. Your tasks are stored
+      locally on your device - no account required, works completely offline.
     </p>
     <p>Features:</p>
     <ul>
-      <li>Connect to Todoist using your API key</li>
-      <li>Connect to Microsoft To-Do with OAuth sign-in</li>
-      <li>Create and manage local tasks offline</li>
-      <li>Unified view of all your tasks across providers</li>
+      <li>Local tasks stored on your device</li>
+      <li>Works offline - no account required</li>
       <li>Today view for tasks due today</li>
       <li>Overdue tasks tracking</li>
+      <li>View your Todoist tasks (connect via API key)</li>
+      <li>View your Microsoft To-Do tasks (connect via OAuth)</li>
     </ul>
   </description>
   <launchable type="desktop-id">com.openza.tasks.desktop</launchable>
   <url type="homepage">https://github.com/openza/tasks</url>
   <url type="bugtracker">https://github.com/openza/tasks/issues</url>
+  <screenshots>
+    <screenshot type="default">
+      <caption>Task list with labels and filters</caption>
+      <image>https://raw.githubusercontent.com/openza/tasks/main/assets/screenshots/main-view.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Connect to Todoist and Microsoft To-Do</caption>
+      <image>https://raw.githubusercontent.com/openza/tasks/main/assets/screenshots/settings.png</image>
+    </screenshot>
+  </screenshots>
   <content_rating type="oars-1.1" />
   <categories>
     <category>Office</category>
@@ -34,8 +44,8 @@
   <keywords>
     <keyword>tasks</keyword>
     <keyword>todo</keyword>
-    <keyword>todoist</keyword>
-    <keyword>microsoft</keyword>
+    <keyword>local-first</keyword>
+    <keyword>offline</keyword>
     <keyword>productivity</keyword>
   </keywords>
   <releases>
