@@ -46,6 +46,8 @@ class MsToDoApi {
               AppLogger.info('MS To-Do: Retrying request with refreshed token');
               final response = await _dio.fetch(options);
               return handler.resolve(response);
+            } else {
+              AppLogger.warning('MS To-Do: Token refresh returned null (cooldown or max attempts), not retrying');
             }
           } catch (e) {
             AppLogger.error('MS To-Do: Token refresh failed during retry', e);

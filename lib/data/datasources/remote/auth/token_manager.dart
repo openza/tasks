@@ -59,7 +59,7 @@ class TokenManager {
       return _refreshCompleter!.future;
     }
 
-    // Check cooldown
+    // Check cooldown - return null to prevent retry loops with stale tokens
     if (_lastRefreshAttempt != null) {
       final timeSinceLastAttempt = DateTime.now().difference(_lastRefreshAttempt!);
       final cooldown = Duration(seconds: AppConstants.tokenRefreshCooldownSeconds);
@@ -67,7 +67,7 @@ class TokenManager {
         AppLogger.debug(
           'Token refresh on cooldown, ${cooldown.inSeconds - timeSinceLastAttempt.inSeconds}s remaining',
         );
-        return _storage.getMsToDoAccessToken();
+        return null; // Return null to signal no fresh token available
       }
     }
 
