@@ -5,6 +5,8 @@ import 'package:lucide_icons/lucide_icons.dart';
 
 import '../../../app/app_router.dart';
 import '../../../app/app_theme.dart';
+import '../../providers/auth_provider.dart';
+import '../../providers/task_provider.dart';
 import '../common/api_error_listener.dart';
 import '../common/openza_logo.dart';
 
@@ -19,6 +21,92 @@ class DashboardLayout extends ConsumerStatefulWidget {
 
 class _DashboardLayoutState extends ConsumerState<DashboardLayout> {
   bool _isProjectsExpanded = true;
+
+  Widget _buildSourceSelector() {
+    final authState = ref.watch(authProvider);
+    final taskSource = ref.watch(taskSourceProvider);
+
+    // Build list of available sources
+    final sources = <_SourceOption>[
+      _SourceOption(
+        source: TaskSource.all,
+        label: 'All Sources',
+        icon: LucideIcons.layers,
+        color: AppTheme.primaryBlue,
+      ),
+      _SourceOption(
+        source: TaskSource.local,
+        label: 'Local',
+        icon: LucideIcons.database,
+        color: AppTheme.gray600,
+      ),
+    ];
+
+    if (authState.todoistAuthenticated) {
+      sources.add(_SourceOption(
+        source: TaskSource.todoist,
+        label: 'Todoist',
+        icon: LucideIcons.checkCircle,
+        color: const Color(0xFFE44332),
+      ));
+    }
+
+    if (authState.msToDoAuthenticated) {
+      sources.add(_SourceOption(
+        source: TaskSource.msToDo,
+        label: 'MS To-Do',
+        icon: LucideIcons.layoutGrid,
+        color: const Color(0xFF00A4EF),
+      ));
+    }
+
+    final selectedSource = sources.firstWhere(
+      (s) => s.source == taskSource,
+      orElse: () => sources.first,
+    );
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        decoration: BoxDecoration(
+          color: AppTheme.gray100,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: AppTheme.gray200),
+        ),
+        child: DropdownButton<TaskSource>(
+          value: selectedSource.source,
+          isExpanded: true,
+          underline: const SizedBox.shrink(),
+          icon: Icon(LucideIcons.chevronDown, size: 16, color: AppTheme.gray500),
+          items: sources.map((option) {
+            return DropdownMenuItem<TaskSource>(
+              value: option.source,
+              child: Row(
+                children: [
+                  Icon(option.icon, size: 16, color: option.color),
+                  const SizedBox(width: 8),
+                  Text(
+                    option.label,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                      color: AppTheme.gray700,
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }).toList(),
+          onChanged: (value) {
+            if (value != null) {
+              ref.read(taskSourceProvider.notifier).state = value;
+            }
+          },
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -72,7 +160,12 @@ class _DashboardLayoutState extends ConsumerState<DashboardLayout> {
                   ),
                 ),
 
-                const SizedBox(height: 24),
+                const SizedBox(height: 16),
+
+                // Provider Source Selector
+                _buildSourceSelector(),
+
+                const SizedBox(height: 16),
 
                 // Navigation Items
                 Expanded(
@@ -352,4 +445,18 @@ class _ProjectItem extends StatelessWidget {
       ),
     );
   }
+}
+
+class _SourceOption {
+  final TaskSource source;
+  final String label;
+  final IconData icon;
+  final Color color;
+
+  const _SourceOption({
+    required this.source,
+    required this.label,
+    required this.icon,
+    required this.color,
+  });
 }
