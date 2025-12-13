@@ -1,0 +1,65 @@
+---
+title: Installation
+description: How to install Openza Tasks on your Linux system
+---
+
+import { Tabs, TabItem, Steps } from '@astrojs/starlight/components';
+
+# Installation
+
+Openza Tasks is available as an AppImage and Flatpak for Linux systems.
+
+## Download
+
+<Tabs>
+  <TabItem label="AppImage">
+    Download the latest AppImage from the [GitHub Releases](https://github.com/openza/tasks/releases/latest) page.
+
+    <Steps>
+    1. Download the `.AppImage` file
+    2. Make it executable:
+       ```bash
+       chmod +x Openza-Tasks-*.AppImage
+       ```
+    3. Run the application:
+       ```bash
+       ./Openza-Tasks-*.AppImage
+       ```
+    </Steps>
+
+    **System Requirements:**
+    - Ubuntu 22.04+, Fedora 35+, or Debian 12+
+    - GLIBC 2.34 or newer
+  </TabItem>
+
+  <TabItem label="Flatpak">
+    Download the Flatpak bundle from [GitHub Releases](https://github.com/openza/tasks/releases/latest).
+
+    <Steps>
+    1. Install Flatpak if not already installed:
+       ```bash
+       # Ubuntu/Debian
+       sudo apt install flatpak
+
+       # Fedora
+       sudo dnf install flatpak
+       ```
+    2. Install the Openza Tasks Flatpak:
+       ```bash
+       flatpak install Openza-Tasks-*.flatpak
+       ```
+    3. Run the application:
+       ```bash
+       flatpak run com.openza.tasks
+       ```
+    </Steps>
+  </TabItem>
+</Tabs>
+
+## Build from Source
+
+If you prefer to build from source, see the [Building from Source](/tasks/development/building) guide.
+
+## Next Steps
+
+After installation, proceed to [Configuration](/tasks/getting-started/configuration) to set up your task providers.

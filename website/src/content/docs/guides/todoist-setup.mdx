@@ -1,0 +1,62 @@
+---
+title: Todoist Setup
+description: Connect your Todoist account to Openza Tasks
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+
+# Connecting Todoist
+
+Openza Tasks uses OAuth 2.0 to securely connect to your Todoist account.
+
+## Setup Process
+
+<Steps>
+1. **Launch Openza Tasks** and click "Connect with Todoist" on the login screen
+
+2. **Authorize the App**
+
+   A browser window will open asking you to log in to Todoist and authorize Openza Tasks
+
+3. **Grant Permissions**
+
+   Openza Tasks requests access to:
+   - Read your tasks and projects
+   - Create and update tasks
+   - Access labels and filters
+
+4. **Return to the App**
+
+   After authorization, you'll be redirected back to Openza Tasks with your tasks loaded
+</Steps>
+
+<Aside type="tip">
+  Openza Tasks stores your access token securely using your system's keyring/secret storage.
+</Aside>
+
+## What Syncs
+
+When connected to Todoist, the following items are synced:
+
+| Item | Synced |
+|------|--------|
+| Tasks | Yes |
+| Projects | Yes |
+| Labels | Yes |
+| Filters | Read-only |
+| Comments | Coming soon |
+
+## Troubleshooting
+
+### "Authentication Failed" Error
+
+If you see this error:
+1. Check your internet connection
+2. Try disconnecting and reconnecting your account
+3. Ensure you're logged into the correct Todoist account
+
+### Tasks Not Syncing
+
+1. Pull down to refresh manually
+2. Check Settings > Sync to verify sync is enabled
+3. Check that you have an active internet connection

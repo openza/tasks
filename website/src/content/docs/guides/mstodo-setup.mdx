@@ -1,0 +1,62 @@
+---
+title: Microsoft To-Do Setup
+description: Connect your Microsoft To-Do account to Openza Tasks
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+
+# Connecting Microsoft To-Do
+
+Openza Tasks uses Microsoft's OAuth 2.0 to securely connect to your Microsoft To-Do account.
+
+<Aside type="caution">
+  Microsoft To-Do integration requires a Microsoft personal or work/school account.
+</Aside>
+
+## Setup Process
+
+<Steps>
+1. **Launch Openza Tasks** and click "Connect with Microsoft" on the login screen
+
+2. **Sign in to Microsoft**
+
+   A browser window will open for Microsoft authentication
+
+3. **Grant Permissions**
+
+   Openza Tasks requests access to:
+   - Read and write your tasks
+   - Access your task lists
+   - Read your profile information
+
+4. **Return to the App**
+
+   After authorization, you'll be redirected back with your tasks loaded
+</Steps>
+
+## What Syncs
+
+| Item | Synced |
+|------|--------|
+| Tasks | Yes |
+| Lists | Yes |
+| Due Dates | Yes |
+| Recurrence | Yes |
+| Categories | Coming soon |
+
+## Troubleshooting
+
+### "Tenant Not Allowed" Error
+
+This can occur with some organizational accounts. Contact your IT administrator to allow third-party app access.
+
+### Token Refresh Issues
+
+If you're frequently being logged out:
+1. Disconnect your account in Settings
+2. Clear any cached data
+3. Reconnect your Microsoft account
+
+<Aside type="tip">
+  Your tokens are stored securely in your system's secret storage service (e.g., GNOME Keyring, KWallet).
+</Aside>

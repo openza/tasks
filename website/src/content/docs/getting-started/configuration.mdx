@@ -1,0 +1,40 @@
+---
+title: Configuration
+description: Configure Openza Tasks with your task providers
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+# Configuration
+
+Openza Tasks supports multiple task providers. You can connect one or more providers to sync your tasks.
+
+## Supported Providers
+
+| Provider | Status | Auth Method |
+|----------|--------|-------------|
+| Todoist | Fully Supported | OAuth 2.0 |
+| Microsoft To-Do | Fully Supported | OAuth 2.0 |
+| Local Tasks | Planned | N/A |
+
+## First Launch
+
+When you first launch Openza Tasks, you'll see the login screen where you can choose which provider to connect.
+
+<Aside type="tip">
+  You can add multiple accounts after the initial setup through the Settings menu.
+</Aside>
+
+## Provider Setup Guides
+
+- [Todoist Setup](/tasks/guides/todoist-setup) - Connect your Todoist account
+- [Microsoft To-Do Setup](/tasks/guides/mstodo-setup) - Connect your Microsoft account
+
+## Settings
+
+Access settings by clicking the gear icon in the sidebar. Available options include:
+
+- **Sync Settings** - Configure auto-sync interval
+- **Appearance** - Theme and display options
+- **Export** - Export your tasks to JSON
+- **Account Management** - Add or remove connected accounts
