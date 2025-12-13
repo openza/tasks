@@ -29,6 +29,7 @@ modules:
       - ln -s /app/openza/openza_flutter /app/bin/openza_flutter
       - install -Dm644 openza.desktop /app/share/applications/com.openza.tasks.desktop
       - install -Dm644 icon.png /app/share/icons/hicolor/256x256/apps/com.openza.tasks.png
+      - install -Dm644 metainfo.xml /app/share/metainfo/com.openza.tasks.metainfo.xml
     sources:
       - type: dir
         path: ../build/linux/x64/release/bundle
@@ -39,3 +40,6 @@ modules:
       - type: file
         path: ../assets/icons/icon-256.png
         dest-filename: icon.png
+      - type: file
+        path: com.openza.tasks.metainfo.xml
+        dest-filename: metainfo.xml

@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.openza.tasks</id>
+  <name>Openza Tasks</name>
+  <summary>Local-first task manager for your desktop</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <developer id="com.openza">
+    <name>Openza</name>
+  </developer>
+  <description>
+    <p>
+      Openza Tasks is a local-first desktop task manager. Your tasks are stored
+      locally on your device - no account required, works completely offline.
+    </p>
+    <p>Features:</p>
+    <ul>
+      <li>Local tasks stored on your device</li>
+      <li>Works offline - no account required</li>
+      <li>Today view for tasks due today</li>
+      <li>Overdue tasks tracking</li>
+      <li>View your Todoist tasks (connect via API key)</li>
+      <li>View your Microsoft To-Do tasks (connect via OAuth)</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">com.openza.tasks.desktop</launchable>
+  <url type="homepage">https://github.com/openza/tasks</url>
+  <url type="bugtracker">https://github.com/openza/tasks/issues</url>
+  <screenshots>
+    <screenshot type="default">
+      <caption>Task list with labels and filters</caption>
+      <image>https://raw.githubusercontent.com/openza/tasks/main/assets/screenshots/main-view.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Connect to Todoist and Microsoft To-Do</caption>
+      <image>https://raw.githubusercontent.com/openza/tasks/main/assets/screenshots/settings.png</image>
+    </screenshot>
+  </screenshots>
+  <content_rating type="oars-1.1" />
+  <categories>
+    <category>Office</category>
+    <category>ProjectManagement</category>
+  </categories>
+  <keywords>
+    <keyword>tasks</keyword>
+    <keyword>todo</keyword>
+    <keyword>local-first</keyword>
+    <keyword>offline</keyword>
+    <keyword>productivity</keyword>
+  </keywords>
+  <releases>
+    <release version="0.1.4" date="2025-12-13">
+      <description>
+        <p>Added AppStream metadata for better software center integration</p>
+      </description>
+    </release>
+    <release version="0.1.3" date="2025-12-13">
+      <description>
+        <p>Initial release with Linux packaging</p>
+        <ul>
+          <li>Todoist integration via API key</li>
+          <li>Microsoft To-Do integration via OAuth</li>
+          <li>Local task storage</li>
+          <li>Provider selector in sidebar</li>
+        </ul>
+      </description>
+    </release>
+  </releases>
+  <branding>
+    <color type="primary" scheme_preference="light">#3b82f6</color>
+    <color type="primary" scheme_preference="dark">#1d4ed8</color>
+  </branding>
+</component>
