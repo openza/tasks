@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Openza Tasks
+Comment=Unified Task Manager for Todoist and Microsoft To-Do
+Exec=openza_flutter
+Icon=openza
+Type=Application
+Categories=Office;ProjectManagement;
+Terminal=false
+StartupWMClass=openza_flutter
