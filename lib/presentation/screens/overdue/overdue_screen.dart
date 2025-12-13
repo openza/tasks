@@ -3,10 +3,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
 import '../../../app/app_theme.dart';
+import '../../../domain/entities/task.dart';
 import '../../providers/task_provider.dart';
+import '../../providers/repository_provider.dart';
 import '../../widgets/tasks/task_list.dart';
 import '../../widgets/tasks/task_detail.dart';
-import '../../../domain/entities/task.dart';
 
 class OverdueScreen extends ConsumerStatefulWidget {
   const OverdueScreen({super.key});
@@ -128,8 +129,14 @@ class _OverdueScreenState extends ConsumerState<OverdueScreen> {
     );
   }
 
-  void _completeTask(TaskEntity task) {
-    // TODO: Implement task completion logic
+  Future<void> _completeTask(TaskEntity task) async {
+    final repository = await ref.read(taskRepositoryProvider.future);
+    await repository.completeTask(task);
+    ref.invalidate(unifiedDataProvider);
+    ref.invalidate(overdueTasksProvider);
+    if (_selectedTask?.id == task.id) {
+      setState(() => _selectedTask = null);
+    }
   }
 
   dynamic _getProjectForTask(TaskEntity task, List projects) {

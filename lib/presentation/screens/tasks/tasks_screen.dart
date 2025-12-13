@@ -3,7 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
 import '../../../app/app_theme.dart';
+import '../../../domain/entities/task.dart';
 import '../../providers/task_provider.dart';
+import '../../providers/repository_provider.dart';
 import '../../widgets/tasks/tasks_with_tabs.dart';
 import '../../widgets/dialogs/create_task_dialog.dart';
 
@@ -85,24 +87,31 @@ class TasksScreen extends ConsumerWidget {
     );
 
     if (task != null) {
-      // TODO: Save task to database
-      // ref.read(databaseProvider).insertTask(task);
+      final repository = await ref.read(taskRepositoryProvider.future);
+      await repository.createTask(task);
+      ref.invalidate(localTasksProvider);
       ref.invalidate(unifiedDataProvider);
     }
   }
 
-  void _completeTask(WidgetRef ref, dynamic task) {
-    // TODO: Implement task completion logic
+  Future<void> _completeTask(WidgetRef ref, TaskEntity task) async {
+    final repository = await ref.read(taskRepositoryProvider.future);
+    await repository.completeTask(task);
+    ref.invalidate(localTasksProvider);
     ref.invalidate(unifiedDataProvider);
   }
 
-  void _updateTask(WidgetRef ref, dynamic task) {
-    // TODO: Implement task update logic
+  Future<void> _updateTask(WidgetRef ref, TaskEntity task) async {
+    final repository = await ref.read(taskRepositoryProvider.future);
+    await repository.updateTask(task);
+    ref.invalidate(localTasksProvider);
     ref.invalidate(unifiedDataProvider);
   }
 
-  void _deleteTask(WidgetRef ref, dynamic task) {
-    // TODO: Implement task deletion logic
+  Future<void> _deleteTask(WidgetRef ref, TaskEntity task) async {
+    final repository = await ref.read(taskRepositoryProvider.future);
+    await repository.deleteTask(task);
+    ref.invalidate(localTasksProvider);
     ref.invalidate(unifiedDataProvider);
   }
 }
