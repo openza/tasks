@@ -27,28 +27,7 @@ sudo apt-get update
 sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libstdc++-12-dev
 ```
 
-### 3. Register OAuth Applications
-
-This app requires you to register your own OAuth applications to authenticate with task providers.
-
-#### Todoist
-
-1. Go to [Todoist App Console](https://developer.todoist.com/appconsole.html)
-2. Create a new app
-3. Note your **Client ID** and **Client Secret**
-4. Set OAuth redirect URL to: `openza://auth/callback`
-
-#### Microsoft To-Do (Optional)
-
-1. Go to [Azure Portal - App Registrations](https://portal.azure.com/#blade/Microsoft_AAD_RegisteredApps/ApplicationsListBlade)
-2. Register a new application
-3. Note your **Application (client) ID**
-4. Add redirect URI: `openza://auth/mstodo/callback`
-5. Enable "Accounts in any organizational directory and personal Microsoft accounts"
-
-### 4. Build and Run
-
-Clone the repository and build with your OAuth credentials:
+### 3. Build and Run
 
 ```bash
 git clone https://github.com/openza/tasks.git
@@ -58,24 +37,18 @@ cd tasks
 flutter pub get
 
 # Run in development
-flutter run -d linux \
-  --dart-define=TODOIST_CLIENT_ID=your_client_id \
-  --dart-define=TODOIST_CLIENT_SECRET=your_client_secret
+flutter run -d linux
 
 # Build release
-flutter build linux --release \
-  --dart-define=TODOIST_CLIENT_ID=your_client_id \
-  --dart-define=TODOIST_CLIENT_SECRET=your_client_secret
+flutter build linux --release
 ```
 
-#### Environment Variables
+### 4. Connect to Todoist
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `TODOIST_CLIENT_ID` | Yes | Todoist OAuth Client ID |
-| `TODOIST_CLIENT_SECRET` | Yes | Todoist OAuth Client Secret |
-| `MSTODO_CLIENT_ID` | No | Microsoft Azure App Client ID |
-| `MSTODO_TENANT_ID` | No | Microsoft Azure Tenant ID (default: `common`) |
+1. Launch the app
+2. Go to **Settings → Todoist**
+3. Get your API token from [Todoist Settings → Integrations → Developer](https://todoist.com/app/settings/integrations/developer)
+4. Paste your API token and click **Connect**
 
 ### 5. Run the Built Application
 
@@ -96,7 +69,7 @@ flutter pub run build_runner build --delete-conflicting-outputs
 flutter test
 
 # Run with hot reload
-flutter run -d linux --dart-define=TODOIST_CLIENT_ID=xxx --dart-define=TODOIST_CLIENT_SECRET=xxx
+flutter run -d linux
 ```
 
 ## Project Structure
