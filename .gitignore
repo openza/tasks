@@ -64,3 +64,4 @@ website/.astro/
 
 # Rust
 rust/target/
+devtools_options.yaml
