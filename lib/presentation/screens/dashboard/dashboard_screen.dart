@@ -45,8 +45,9 @@ class DashboardScreen extends ConsumerWidget {
             ),
             const SizedBox(height: 24),
 
-            // Stats Cards
+            // Stats Cards - skipLoadingOnRefresh keeps previous data during refresh
             statsAsync.when(
+              skipLoadingOnRefresh: true,
               data: (stats) => _buildStatsGrid(context, stats),
               loading: () => _buildStatsGrid(context, {
                 'total': 0,
@@ -64,8 +65,9 @@ class DashboardScreen extends ConsumerWidget {
 
             const SizedBox(height: 32),
 
-            // Tasks by Context and Energy Level
+            // Tasks by Context and Energy Level - skipLoadingOnRefresh keeps previous data
             unifiedDataAsync.when(
+              skipLoadingOnRefresh: true,
               data: (data) => _buildDetailsSection(context, data.tasks),
               loading: () => _buildDetailsSection(context, []),
               error: (_, __) => _buildDetailsSection(context, []),

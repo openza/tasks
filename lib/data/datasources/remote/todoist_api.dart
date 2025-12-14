@@ -217,12 +217,16 @@ class TodoistApi {
     final todoistPriority = data['priority'] as int? ?? 1;
     final priority = 5 - todoistPriority; // Invert: 4->1, 3->2, 2->3, 1->4
 
+    // Add todoist_ prefix to IDs to match stored project/task IDs
+    final projectId = data['project_id'];
+    final parentId = data['parent_id'];
+
     return TaskEntity(
       id: 'todoist_${data['id']}',
       title: data['content'] ?? '',
       description: data['description'],
-      projectId: data['project_id']?.toString(),
-      parentId: data['parent_id']?.toString(),
+      projectId: projectId != null ? 'todoist_$projectId' : null,
+      parentId: parentId != null ? 'todoist_$parentId' : null,
       priority: priority,
       status: data['is_completed'] == true ? TaskStatus.completed : TaskStatus.pending,
       dueDate: dueDate,
@@ -245,11 +249,12 @@ class TodoistApi {
   }
 
   ProjectEntity _mapTodoistProject(Map<String, dynamic> data) {
+    final parentId = data['parent_id'];
     return ProjectEntity(
       id: 'todoist_${data['id']}',
       name: data['name'] ?? '',
       color: _todoistColorToHex(data['color']),
-      parentId: data['parent_id']?.toString(),
+      parentId: parentId != null ? 'todoist_$parentId' : null,
       sortOrder: data['order'] ?? 0,
       isFavorite: data['is_favorite'] ?? false,
       isArchived: data['is_archived'] ?? false,
@@ -260,13 +265,16 @@ class TodoistApi {
   }
 
   LabelEntity _mapTodoistLabel(Map<String, dynamic> data) {
+    // Use label name as ID basis because Todoist API returns label names
+    // (not IDs) on tasks. This ensures task_labels foreign key matches.
+    final name = data['name'] ?? '';
     return LabelEntity(
-      id: 'todoist_${data['id']}',
-      name: data['name'] ?? '',
+      id: 'todoist_label_$name',
+      name: name,
       color: _todoistColorToHex(data['color']),
       sortOrder: data['order'] ?? 0,
       createdAt: DateTime.now(),
-      integrations: {'todoist': {'id': data['id']}},
+      integrations: {'todoist': {'id': data['id'], 'name': name}},
       provider: TaskProvider.todoist,
     );
   }

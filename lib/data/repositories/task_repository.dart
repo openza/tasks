@@ -234,24 +234,48 @@ class TaskRepository {
   }
 
   Future<TaskEntity> _updateLocalTask(TaskEntity task) async {
-    await _database.updateTask(
-      task.id,
-      TasksCompanion(
-        title: Value(task.title),
-        description: Value(task.description),
-        projectId: Value(task.projectId),
-        priority: Value(task.priority),
-        status: Value(task.status.value),
-        dueDate: Value(task.dueDate),
-        dueTime: Value(task.dueTime),
-        estimatedDuration: Value(task.estimatedDuration),
-        energyLevel: Value(task.energyLevel),
-        context: Value(task.context.value),
-        focusTime: Value(task.focusTime),
-        notes: Value(task.notes),
-        updatedAt: Value(DateTime.now()),
-      ),
-    );
+    // Check if this is a synced task (has provider prefix)
+    // For synced tasks, only update local-enhancement fields to avoid
+    // conflicting with Rust sync engine which owns the core sync fields
+    final isSyncedTask = task.id.startsWith('todoist_') ||
+        task.id.startsWith('mstodo_');
+
+    if (isSyncedTask) {
+      // Only update local-enhancement fields for synced tasks
+      // Core fields (title, description, priority, status, due_date, etc.)
+      // are owned by the sync engine and should not be modified directly
+      await _database.updateTask(
+        task.id,
+        TasksCompanion(
+          estimatedDuration: Value(task.estimatedDuration),
+          energyLevel: Value(task.energyLevel),
+          context: Value(task.context.value),
+          focusTime: Value(task.focusTime),
+          notes: Value(task.notes),
+          updatedAt: Value(DateTime.now()),
+        ),
+      );
+    } else {
+      // Full update for local tasks
+      await _database.updateTask(
+        task.id,
+        TasksCompanion(
+          title: Value(task.title),
+          description: Value(task.description),
+          projectId: Value(task.projectId),
+          priority: Value(task.priority),
+          status: Value(task.status.value),
+          dueDate: Value(task.dueDate),
+          dueTime: Value(task.dueTime),
+          estimatedDuration: Value(task.estimatedDuration),
+          energyLevel: Value(task.energyLevel),
+          context: Value(task.context.value),
+          focusTime: Value(task.focusTime),
+          notes: Value(task.notes),
+          updatedAt: Value(DateTime.now()),
+        ),
+      );
+    }
     return task;
   }
 
@@ -305,61 +329,83 @@ class TaskRepository {
   // ============ COMPLETE ============
 
   /// Complete a task
+  /// Uses outbox pattern: updates local DB immediately and queues for sync
+  /// This ensures crash safety and offline support
   Future<TaskEntity> completeTask(TaskEntity task) async {
     final completedTask = task.copyWith(
       status: TaskStatus.completed,
       completedAt: DateTime.now(),
     );
 
+    // For synced tasks, use transactional outbox pattern
+    // For local tasks, just update directly
     switch (task.provider) {
       case TaskProvider.todoist:
-        if (_todoistApi != null) {
-          await _todoistApi!.completeTask(task.id);
-        }
+        // Queue for sync - Rust will push to API later
+        await _database.completeTaskWithQueue(
+          taskId: task.id,
+          provider: 'todoist',
+          providerTaskId: task.id,
+        );
         break;
       case TaskProvider.msToDo:
-        if (_msToDoApi != null) {
-          await _msToDoApi!.completeTask(task.projectId ?? 'tasks', task.id);
-        }
+        // Queue for sync - Rust will push to API later
+        await _database.completeTaskWithQueue(
+          taskId: task.id,
+          provider: 'mstodo',
+          providerTaskId: task.id,
+        );
         break;
+      case TaskProvider.local:
       default:
+        // Local tasks don't need sync queueing
+        await _database.completeTask(task.id);
         break;
     }
 
-    await _database.completeTask(task.id);
     return completedTask;
   }
 
   /// Reopen a completed task
+  /// Uses outbox pattern: updates local DB immediately and queues for sync
   Future<TaskEntity> reopenTask(TaskEntity task) async {
     final reopenedTask = task.copyWith(
       status: TaskStatus.pending,
       completedAt: null,
     );
 
+    // For synced tasks, use transactional outbox pattern
     switch (task.provider) {
       case TaskProvider.todoist:
-        if (_todoistApi != null) {
-          await _todoistApi!.reopenTask(task.id);
-        }
+        // Queue for sync - Rust will push to API later
+        await _database.reopenTaskWithQueue(
+          taskId: task.id,
+          provider: 'todoist',
+          providerTaskId: task.id,
+        );
         break;
       case TaskProvider.msToDo:
-        if (_msToDoApi != null) {
-          await _msToDoApi!.reopenTask(task.projectId ?? 'tasks', task.id);
-        }
+        // Queue for sync - Rust will push to API later
+        await _database.reopenTaskWithQueue(
+          taskId: task.id,
+          provider: 'mstodo',
+          providerTaskId: task.id,
+        );
         break;
+      case TaskProvider.local:
       default:
+        // Local tasks don't need sync queueing
+        await _database.updateTask(
+          task.id,
+          TasksCompanion(
+            status: const Value('pending'),
+            completedAt: const Value(null),
+            updatedAt: Value(DateTime.now()),
+          ),
+        );
         break;
     }
 
-    await _database.updateTask(
-      task.id,
-      TasksCompanion(
-        status: const Value('pending'),
-        completedAt: const Value(null),
-        updatedAt: Value(DateTime.now()),
-      ),
-    );
     return reopenedTask;
   }
 

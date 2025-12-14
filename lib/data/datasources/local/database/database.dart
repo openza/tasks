@@ -182,6 +182,69 @@ class AppDatabase extends _$AppDatabase {
     );
   }
 
+  /// Complete a task and queue for sync in the same transaction
+  /// This ensures atomicity - if the app crashes, both operations either
+  /// happen together or not at all
+  Future<void> completeTaskWithQueue({
+    required String taskId,
+    required String provider,
+    required String providerTaskId,
+  }) async {
+    await transaction(() async {
+      final now = DateTime.now();
+      final nowTimestamp = now.millisecondsSinceEpoch ~/ 1000;
+
+      // 1. Update task status
+      await (update(tasks)..where((t) => t.id.equals(taskId))).write(
+        TasksCompanion(
+          status: const Value('completed'),
+          completedAt: Value(now),
+          updatedAt: Value(now),
+        ),
+      );
+
+      // 2. Queue completion for sync (raw SQL since table is managed by Rust)
+      // Uses INSERT OR REPLACE to handle retries
+      final completionId = 'completion_${taskId}_$nowTimestamp';
+      await customStatement(
+        '''INSERT OR REPLACE INTO pending_completions
+           (id, task_id, provider, provider_task_id, completed, completed_at, created_at, retry_count)
+           VALUES (?, ?, ?, ?, 1, ?, ?, 0)''',
+        [completionId, taskId, provider, providerTaskId, nowTimestamp, nowTimestamp],
+      );
+    });
+  }
+
+  /// Reopen a task and queue for sync in the same transaction
+  Future<void> reopenTaskWithQueue({
+    required String taskId,
+    required String provider,
+    required String providerTaskId,
+  }) async {
+    await transaction(() async {
+      final now = DateTime.now();
+      final nowTimestamp = now.millisecondsSinceEpoch ~/ 1000;
+
+      // 1. Update task status
+      await (update(tasks)..where((t) => t.id.equals(taskId))).write(
+        TasksCompanion(
+          status: const Value('pending'),
+          completedAt: const Value(null),
+          updatedAt: Value(now),
+        ),
+      );
+
+      // 2. Queue reopen for sync (completed=0 means reopen)
+      final completionId = 'completion_${taskId}_$nowTimestamp';
+      await customStatement(
+        '''INSERT OR REPLACE INTO pending_completions
+           (id, task_id, provider, provider_task_id, completed, completed_at, created_at, retry_count)
+           VALUES (?, ?, ?, ?, 0, NULL, ?, 0)''',
+        [completionId, taskId, provider, providerTaskId, nowTimestamp],
+      );
+    });
+  }
+
   // ============ PROJECT OPERATIONS ============
 
   /// Get all projects
@@ -317,6 +380,17 @@ LazyDatabase _openConnection() {
   return LazyDatabase(() async {
     final dbFolder = await getApplicationDocumentsDirectory();
     final file = File(p.join(dbFolder.path, 'openza.db'));
-    return NativeDatabase.createInBackground(file);
+    return NativeDatabase.createInBackground(
+      file,
+      setup: (db) {
+        // Configure SQLite for safe concurrent access with Rust sync engine
+        // WAL mode allows concurrent readers during writes
+        // busy_timeout waits instead of failing immediately on lock contention
+        db.execute('PRAGMA journal_mode = WAL');
+        db.execute('PRAGMA busy_timeout = 5000');
+        db.execute('PRAGMA synchronous = NORMAL');
+        db.execute('PRAGMA foreign_keys = ON');
+      },
+    );
   });
 }

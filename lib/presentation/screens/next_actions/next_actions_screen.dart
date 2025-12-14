@@ -30,10 +30,7 @@ class _NextActionsScreenState extends ConsumerState<NextActionsScreen> {
         if (labelCounts.containsKey(label.name)) {
           labelCounts[label.name]!.count++;
         } else {
-          labelCounts[label.name] = _LabelWithCount(
-            label: label,
-            count: 1,
-          );
+          labelCounts[label.name] = _LabelWithCount(label: label, count: 1);
         }
       }
     }
@@ -94,20 +91,19 @@ class _NextActionsScreenState extends ConsumerState<NextActionsScreen> {
                             style: Theme.of(context).textTheme.headlineSmall,
                           ),
                           labeledTasksAsync.when(
-                            data: (tasks) => Text(
-                              '${tasks.length} labeled task${tasks.length != 1 ? 's' : ''}',
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .bodySmall
-                                  ?.copyWith(color: AppTheme.gray500),
-                            ),
-                            loading: () => Text(
-                              'Loading...',
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .bodySmall
-                                  ?.copyWith(color: AppTheme.gray500),
-                            ),
+                            skipLoadingOnRefresh: true,
+                            data:
+                                (tasks) => Text(
+                                  '${tasks.length} labeled task${tasks.length != 1 ? 's' : ''}',
+                                  style: Theme.of(context).textTheme.bodySmall
+                                      ?.copyWith(color: AppTheme.gray500),
+                                ),
+                            loading:
+                                () => Text(
+                                  'Loading...',
+                                  style: Theme.of(context).textTheme.bodySmall
+                                      ?.copyWith(color: AppTheme.gray500),
+                                ),
                             error: (_, __) => const SizedBox.shrink(),
                           ),
                         ],
@@ -118,6 +114,7 @@ class _NextActionsScreenState extends ConsumerState<NextActionsScreen> {
 
                 // Label Filter Bar
                 labeledTasksAsync.when(
+                  skipLoadingOnRefresh: true,
                   data: (tasks) => _buildLabelFilterBar(context, tasks),
                   loading: () => const SizedBox.shrink(),
                   error: (_, __) => const SizedBox.shrink(),
@@ -126,28 +123,35 @@ class _NextActionsScreenState extends ConsumerState<NextActionsScreen> {
                 // Task List
                 Expanded(
                   child: labeledTasksAsync.when(
+                    skipLoadingOnRefresh: true,
                     data: (tasks) {
                       final filteredTasks = _filterByLabel(tasks);
                       return unifiedDataAsync.when(
-                        data: (data) => TaskListWidget(
-                          tasks: filteredTasks,
-                          projects: data.projects,
-                          filter: TaskFilter.labeled,
-                          sortByLabels: true,
-                          emptyMessage: _selectedLabelFilter != null
-                              ? 'No tasks with "$_selectedLabelFilter" label'
-                              : 'No labeled tasks found',
-                          onTaskTap: (task) =>
-                              setState(() => _selectedTask = task),
-                          onTaskComplete: _completeTask,
-                        ),
-                        loading: () =>
-                            const Center(child: CircularProgressIndicator()),
+                        skipLoadingOnRefresh: true,
+                        data:
+                            (data) => TaskListWidget(
+                              tasks: filteredTasks,
+                              projects: data.projects,
+                              filter: TaskFilter.labeled,
+                              sortByLabels: true,
+                              emptyMessage:
+                                  _selectedLabelFilter != null
+                                      ? 'No tasks with "$_selectedLabelFilter" label'
+                                      : 'No labeled tasks found',
+                              onTaskTap:
+                                  (task) =>
+                                      setState(() => _selectedTask = task),
+                              onTaskComplete: _completeTask,
+                            ),
+                        loading:
+                            () => const Center(
+                              child: CircularProgressIndicator(),
+                            ),
                         error: (e, _) => Center(child: Text('Error: $e')),
                       );
                     },
-                    loading: () =>
-                        const Center(child: CircularProgressIndicator()),
+                    loading:
+                        () => const Center(child: CircularProgressIndicator()),
                     error: (e, _) => Center(child: Text('Error: $e')),
                   ),
                 ),
@@ -158,12 +162,14 @@ class _NextActionsScreenState extends ConsumerState<NextActionsScreen> {
           // Detail panel
           if (_selectedTask != null)
             unifiedDataAsync.when(
-              data: (data) => TaskDetail(
-                task: _selectedTask!,
-                project: _getProjectForTask(_selectedTask!, data.projects),
-                onClose: () => setState(() => _selectedTask = null),
-                onComplete: _completeTask,
-              ),
+              skipLoadingOnRefresh: true,
+              data:
+                  (data) => TaskDetail(
+                    task: _selectedTask!,
+                    project: _getProjectForTask(_selectedTask!, data.projects),
+                    onClose: () => setState(() => _selectedTask = null),
+                    onComplete: _completeTask,
+                  ),
               loading: () => const SizedBox.shrink(),
               error: (_, __) => const SizedBox.shrink(),
             ),
@@ -197,16 +203,20 @@ class _NextActionsScreenState extends ConsumerState<NextActionsScreen> {
             ),
             const SizedBox(width: 8),
             // Individual label filters
-            ...availableLabels.values.map((item) => Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: LabelBadge(
-                    label: item.label,
-                    count: item.count,
-                    isSelected: _selectedLabelFilter == item.label.name,
-                    onTap: () => setState(
-                        () => _selectedLabelFilter = item.label.name),
-                  ),
-                )),
+            ...availableLabels.values.map(
+              (item) => Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: LabelBadge(
+                  label: item.label,
+                  count: item.count,
+                  isSelected: _selectedLabelFilter == item.label.name,
+                  onTap:
+                      () => setState(
+                        () => _selectedLabelFilter = item.label.name,
+                      ),
+                ),
+              ),
+            ),
           ],
         ),
       ),
@@ -263,9 +273,7 @@ class _FilterButton extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(20),
-            border: isSelected
-                ? null
-                : Border.all(color: AppTheme.gray200),
+            border: isSelected ? null : Border.all(color: AppTheme.gray200),
           ),
           child: Text(
             '$label ($count)',

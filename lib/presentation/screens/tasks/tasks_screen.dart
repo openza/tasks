@@ -28,6 +28,7 @@ class TasksScreen extends ConsumerWidget {
         foregroundColor: Colors.white,
       ),
       body: unifiedDataAsync.when(
+        skipLoadingOnRefresh: true,
         data: (data) {
           // Filter tasks by project if projectId is provided
           final tasks = projectId != null

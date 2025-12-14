@@ -11,8 +11,15 @@ pub struct Repository {
 impl Repository {
     pub fn new(db_path: &str) -> SyncResult<Self> {
         let conn = Connection::open(db_path)?;
-        // Ensure foreign keys are enabled
-        conn.execute("PRAGMA foreign_keys = ON", [])?;
+        // Configure SQLite for safe concurrent access with Dart/Drift
+        // WAL mode allows concurrent readers during writes
+        // busy_timeout waits instead of failing immediately on lock contention
+        conn.execute_batch(
+            "PRAGMA journal_mode = WAL;
+             PRAGMA busy_timeout = 5000;
+             PRAGMA synchronous = NORMAL;
+             PRAGMA foreign_keys = ON;",
+        )?;
         Ok(Self { conn })
     }
 
@@ -63,6 +70,7 @@ impl Repository {
                     created_at: Utc.timestamp_opt(row.get::<_, i64>(17)?, 0).unwrap(),
                     updated_at: row.get::<_, Option<i64>>(18)?.map(|ts| Utc.timestamp_opt(ts, 0).unwrap()),
                     completed_at: row.get::<_, Option<i64>>(19)?.map(|ts| Utc.timestamp_opt(ts, 0).unwrap()),
+                    labels: Vec::new(), // Labels loaded separately via task_labels junction table
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -375,6 +383,35 @@ impl Repository {
             "DELETE FROM pending_completions WHERE id = ?1",
             params![completion_id],
         )?;
+        Ok(())
+    }
+
+    // ============ TASK LABELS OPERATIONS ============
+
+    /// Delete all label associations for a task
+    pub fn delete_task_labels(&self, task_id: &str) -> SyncResult<()> {
+        self.conn.execute(
+            "DELETE FROM task_labels WHERE task_id = ?1",
+            params![task_id],
+        )?;
+        Ok(())
+    }
+
+    /// Insert a task-label association
+    pub fn insert_task_label(&self, task_id: &str, label_id: &str) -> SyncResult<()> {
+        self.conn.execute(
+            "INSERT OR IGNORE INTO task_labels (task_id, label_id) VALUES (?1, ?2)",
+            params![task_id, label_id],
+        )?;
+        Ok(())
+    }
+
+    /// Sync labels for a task: delete existing associations and insert new ones
+    pub fn sync_task_labels(&self, task_id: &str, label_ids: &[String]) -> SyncResult<()> {
+        self.delete_task_labels(task_id)?;
+        for label_id in label_ids {
+            self.insert_task_label(task_id, label_id)?;
+        }
         Ok(())
     }
 }

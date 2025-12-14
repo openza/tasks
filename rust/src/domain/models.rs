@@ -42,6 +42,10 @@ pub struct Task {
     #[serde(default)]
     pub integrations: Option<serde_json::Value>,
 
+    // Label associations (synced via task_labels junction table)
+    #[serde(default)]
+    pub labels: Vec<String>,
+
     #[serde(default = "Utc::now")]
     pub created_at: DateTime<Utc>,
     #[serde(default)]

@@ -143,7 +143,10 @@ final msToDoProjectsProvider = FutureProvider<List<ProjectEntity>>((ref) async {
 });
 
 /// Provider for local tasks from database
+/// Uses .autoDispose(false) to keep data cached across rebuilds
 final localTasksProvider = FutureProvider<List<TaskEntity>>((ref) async {
+  // Keep provider alive so data persists and shows instantly on navigation
+  ref.keepAlive();
   final db = ref.watch(databaseProvider);
   final tasks = await db.getAllTasks();
 
@@ -172,6 +175,7 @@ final localTasksProvider = FutureProvider<List<TaskEntity>>((ref) async {
 
 /// Provider for local projects
 final localProjectsProvider = FutureProvider<List<ProjectEntity>>((ref) async {
+  ref.keepAlive();
   final db = ref.watch(databaseProvider);
   final projects = await db.getAllProjects();
 
@@ -193,6 +197,7 @@ final localProjectsProvider = FutureProvider<List<ProjectEntity>>((ref) async {
 
 /// Provider for local labels
 final localLabelsProvider = FutureProvider<List<LabelEntity>>((ref) async {
+  ref.keepAlive();
   final db = ref.watch(databaseProvider);
   final labels = await db.getAllLabels();
 
@@ -209,6 +214,7 @@ final localLabelsProvider = FutureProvider<List<LabelEntity>>((ref) async {
 
 /// Unified tasks provider - combines all sources based on taskSource
 final unifiedDataProvider = FutureProvider<UnifiedData>((ref) async {
+  ref.keepAlive();
   final authState = ref.watch(authProvider);
   final taskSource = ref.watch(taskSourceProvider);
 
@@ -217,41 +223,56 @@ final unifiedDataProvider = FutureProvider<UnifiedData>((ref) async {
   List<LabelEntity> labels = [];
   List<TaskProvider> availableProviders = [TaskProvider.local];
 
-  // Include local data if source is 'local' or 'all'
-  if (taskSource == TaskSource.local || taskSource == TaskSource.all) {
-    final localTasks = await ref.watch(localTasksProvider.future);
-    final localProjects = await ref.watch(localProjectsProvider.future);
-    final localLabels = await ref.watch(localLabelsProvider.future);
+  // Always include local data - all synced provider data (Todoist, MS To-Do)
+  // is stored in local DB by the Rust sync engine
+  final localTasks = await ref.watch(localTasksProvider.future);
+  final localProjects = await ref.watch(localProjectsProvider.future);
+  final localLabels = await ref.watch(localLabelsProvider.future);
 
+  // Filter by source if not 'all'
+  if (taskSource == TaskSource.all) {
     tasks.addAll(localTasks);
     projects.addAll(localProjects);
     labels.addAll(localLabels);
+  } else if (taskSource == TaskSource.local) {
+    // Only pure local tasks (no provider prefix)
+    tasks.addAll(localTasks.where((t) =>
+        !t.id.startsWith('todoist_') && !t.id.startsWith('mstodo_')));
+    projects.addAll(localProjects.where((p) =>
+        !p.id.startsWith('todoist_') && !p.id.startsWith('mstodo_')));
+    labels.addAll(localLabels.where((l) =>
+        !l.id.startsWith('todoist_') && !l.id.startsWith('mstodo_')));
+  } else if (taskSource == TaskSource.todoist) {
+    // Only Todoist tasks from local DB
+    tasks.addAll(localTasks.where((t) => t.id.startsWith('todoist_')));
+    projects.addAll(localProjects.where((p) => p.id.startsWith('todoist_')));
+    labels.addAll(localLabels.where((l) => l.id.startsWith('todoist_')));
+  } else if (taskSource == TaskSource.msToDo) {
+    // Only MS To-Do tasks from local DB
+    tasks.addAll(localTasks.where((t) => t.id.startsWith('mstodo_')));
+    projects.addAll(localProjects.where((p) => p.id.startsWith('mstodo_')));
+    labels.addAll(localLabels.where((l) => l.id.startsWith('mstodo_')));
   }
 
   // Include Todoist data if source is 'todoist' or 'all'
+  // Note: Todoist data is already synced to local DB by Rust sync engine,
+  // so we don't fetch from API here (that would cause duplicates).
+  // The todoistTasksProvider is only used during sync operations.
   if (taskSource == TaskSource.todoist || taskSource == TaskSource.all) {
     if (authState.todoistAuthenticated) {
       availableProviders.add(TaskProvider.todoist);
-
-      try {
-        final todoistTasks = await ref.watch(todoistTasksProvider.future);
-        final todoistProjects = await ref.watch(todoistProjectsProvider.future);
-        final todoistLabels = await ref.watch(todoistLabelsProvider.future);
-
-        tasks.addAll(todoistTasks);
-        projects.addAll(todoistProjects);
-        labels.addAll(todoistLabels);
-      } catch (_) {
-        // Handle error silently for now
-      }
+      // Todoist data is included via localTasksProvider (synced to local DB)
     }
   }
 
   // Include MS To-Do data if source is 'msToDo' or 'all'
+  // TODO: Once MS To-Do sync is implemented in Rust, remove API fetch
+  // and use local DB like Todoist (data will have 'mstodo_' prefix)
   if (taskSource == TaskSource.msToDo || taskSource == TaskSource.all) {
     if (authState.msToDoAuthenticated) {
       availableProviders.add(TaskProvider.msToDo);
 
+      // MS To-Do sync not yet implemented in Rust, so fetch from API
       try {
         final msToDoTasks = await ref.watch(msToDoTasksProvider.future);
         final msToDoProjects = await ref.watch(msToDoProjectsProvider.future);

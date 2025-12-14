@@ -1186,6 +1186,7 @@ dependencies = [
  "chrono",
  "flutter_rust_bridge",
  "flutter_rust_bridge_codegen",
+ "log",
  "rusqlite",
  "serde",
  "serde_json",
