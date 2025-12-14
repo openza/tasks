@@ -56,3 +56,14 @@ appimagetool-*.AppImage
 flatpak/build-dir/
 flatpak/repo/
 flatpak/build/
+
+# Rust build artifacts
+rust/target/
+
+# Website/docs build artifacts
+website/node_modules/
+website/dist/
+website/.astro/
+
+# Flutter DevTools
+devtools_options.yaml
