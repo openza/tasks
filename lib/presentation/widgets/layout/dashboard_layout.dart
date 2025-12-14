@@ -7,6 +7,7 @@ import '../../../app/app_router.dart';
 import '../../../app/app_theme.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/task_provider.dart';
+import '../badges/sync_badge.dart';
 import '../common/api_error_listener.dart';
 import '../common/openza_logo.dart';
 
@@ -136,6 +137,8 @@ class _DashboardLayoutState extends ConsumerState<DashboardLayout> {
                     children: [
                       const OpenzaLogo(size: 32, showText: true),
                       const Spacer(),
+                      const SyncBadge(),
+                      const SizedBox(width: 4),
                       IconButton(
                         icon: const Icon(LucideIcons.settings, size: 20),
                         onPressed: () => context.go(AppRoutes.settings),

@@ -13,6 +13,7 @@ export 'tasks/tasks_with_tabs.dart';
 export 'badges/priority_badge.dart';
 export 'badges/label_badge.dart';
 export 'badges/project_badge.dart';
+export 'badges/sync_badge.dart';
 
 // Dialogs
 export 'dialogs/create_task_dialog.dart';

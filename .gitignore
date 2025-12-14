@@ -56,3 +56,11 @@ appimagetool-*.AppImage
 flatpak/build-dir/
 flatpak/repo/
 flatpak/build/
+
+# Website (Astro/Node.js)
+node_modules/
+website/dist/
+website/.astro/
+
+# Rust
+rust/target/
