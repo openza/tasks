@@ -15,7 +15,10 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$ProjectEntity {
 
- String get id; String get name; String? get description; String get color; String? get icon; String? get parentId; int get sortOrder; bool get isFavorite; bool get isArchived; Map<String, dynamic>? get integrations; DateTime get createdAt; DateTime? get updatedAt; TaskProvider? get provider; int? get taskCount;
+ String get id; String? get externalId;// Provider's original ID
+ String get integrationId;// FK to integrations table
+ String get name; String? get description; String get color; String? get icon; String? get parentId; int get sortOrder; bool get isFavorite; bool get isArchived; Map<String, dynamic>? get providerMetadata;// Provider-specific unmapped data
+ DateTime get createdAt; DateTime? get updatedAt; int? get taskCount;
 /// Create a copy of ProjectEntity
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -28,16 +31,16 @@ $ProjectEntityCopyWith<ProjectEntity> get copyWith => _$ProjectEntityCopyWithImp
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is ProjectEntity&&(identical(other.id, id) || other.id == id)&&(identical(other.name, name) || other.name == name)&&(identical(other.description, description) || other.description == description)&&(identical(other.color, color) || other.color == color)&&(identical(other.icon, icon) || other.icon == icon)&&(identical(other.parentId, parentId) || other.parentId == parentId)&&(identical(other.sortOrder, sortOrder) || other.sortOrder == sortOrder)&&(identical(other.isFavorite, isFavorite) || other.isFavorite == isFavorite)&&(identical(other.isArchived, isArchived) || other.isArchived == isArchived)&&const DeepCollectionEquality().equals(other.integrations, integrations)&&(identical(other.createdAt, createdAt) || other.createdAt == createdAt)&&(identical(other.updatedAt, updatedAt) || other.updatedAt == updatedAt)&&(identical(other.provider, provider) || other.provider == provider)&&(identical(other.taskCount, taskCount) || other.taskCount == taskCount));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is ProjectEntity&&(identical(other.id, id) || other.id == id)&&(identical(other.externalId, externalId) || other.externalId == externalId)&&(identical(other.integrationId, integrationId) || other.integrationId == integrationId)&&(identical(other.name, name) || other.name == name)&&(identical(other.description, description) || other.description == description)&&(identical(other.color, color) || other.color == color)&&(identical(other.icon, icon) || other.icon == icon)&&(identical(other.parentId, parentId) || other.parentId == parentId)&&(identical(other.sortOrder, sortOrder) || other.sortOrder == sortOrder)&&(identical(other.isFavorite, isFavorite) || other.isFavorite == isFavorite)&&(identical(other.isArchived, isArchived) || other.isArchived == isArchived)&&const DeepCollectionEquality().equals(other.providerMetadata, providerMetadata)&&(identical(other.createdAt, createdAt) || other.createdAt == createdAt)&&(identical(other.updatedAt, updatedAt) || other.updatedAt == updatedAt)&&(identical(other.taskCount, taskCount) || other.taskCount == taskCount));
 }
 
 @JsonKey(includeFromJson: false, includeToJson: false)
 @override
-int get hashCode => Object.hash(runtimeType,id,name,description,color,icon,parentId,sortOrder,isFavorite,isArchived,const DeepCollectionEquality().hash(integrations),createdAt,updatedAt,provider,taskCount);
+int get hashCode => Object.hash(runtimeType,id,externalId,integrationId,name,description,color,icon,parentId,sortOrder,isFavorite,isArchived,const DeepCollectionEquality().hash(providerMetadata),createdAt,updatedAt,taskCount);
 
 @override
 String toString() {
-  return 'ProjectEntity(id: $id, name: $name, description: $description, color: $color, icon: $icon, parentId: $parentId, sortOrder: $sortOrder, isFavorite: $isFavorite, isArchived: $isArchived, integrations: $integrations, createdAt: $createdAt, updatedAt: $updatedAt, provider: $provider, taskCount: $taskCount)';
+  return 'ProjectEntity(id: $id, externalId: $externalId, integrationId: $integrationId, name: $name, description: $description, color: $color, icon: $icon, parentId: $parentId, sortOrder: $sortOrder, isFavorite: $isFavorite, isArchived: $isArchived, providerMetadata: $providerMetadata, createdAt: $createdAt, updatedAt: $updatedAt, taskCount: $taskCount)';
 }
 
 
@@ -48,7 +51,7 @@ abstract mixin class $ProjectEntityCopyWith<$Res>  {
   factory $ProjectEntityCopyWith(ProjectEntity value, $Res Function(ProjectEntity) _then) = _$ProjectEntityCopyWithImpl;
 @useResult
 $Res call({
- String id, String name, String? description, String color, String? icon, String? parentId, int sortOrder, bool isFavorite, bool isArchived, Map<String, dynamic>? integrations, DateTime createdAt, DateTime? updatedAt, TaskProvider? provider, int? taskCount
+ String id, String? externalId, String integrationId, String name, String? description, String color, String? icon, String? parentId, int sortOrder, bool isFavorite, bool isArchived, Map<String, dynamic>? providerMetadata, DateTime createdAt, DateTime? updatedAt, int? taskCount
 });
 
 
@@ -65,9 +68,11 @@ class _$ProjectEntityCopyWithImpl<$Res>
 
 /// Create a copy of ProjectEntity
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? name = null,Object? description = freezed,Object? color = null,Object? icon = freezed,Object? parentId = freezed,Object? sortOrder = null,Object? isFavorite = null,Object? isArchived = null,Object? integrations = freezed,Object? createdAt = null,Object? updatedAt = freezed,Object? provider = freezed,Object? taskCount = freezed,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? externalId = freezed,Object? integrationId = null,Object? name = null,Object? description = freezed,Object? color = null,Object? icon = freezed,Object? parentId = freezed,Object? sortOrder = null,Object? isFavorite = null,Object? isArchived = null,Object? providerMetadata = freezed,Object? createdAt = null,Object? updatedAt = freezed,Object? taskCount = freezed,}) {
   return _then(_self.copyWith(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
+as String,externalId: freezed == externalId ? _self.externalId : externalId // ignore: cast_nullable_to_non_nullable
+as String?,integrationId: null == integrationId ? _self.integrationId : integrationId // ignore: cast_nullable_to_non_nullable
 as String,name: null == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
 as String,description: freezed == description ? _self.description : description // ignore: cast_nullable_to_non_nullable
 as String?,color: null == color ? _self.color : color // ignore: cast_nullable_to_non_nullable
@@ -76,11 +81,10 @@ as String?,parentId: freezed == parentId ? _self.parentId : parentId // ignore: 
 as String?,sortOrder: null == sortOrder ? _self.sortOrder : sortOrder // ignore: cast_nullable_to_non_nullable
 as int,isFavorite: null == isFavorite ? _self.isFavorite : isFavorite // ignore: cast_nullable_to_non_nullable
 as bool,isArchived: null == isArchived ? _self.isArchived : isArchived // ignore: cast_nullable_to_non_nullable
-as bool,integrations: freezed == integrations ? _self.integrations : integrations // ignore: cast_nullable_to_non_nullable
+as bool,providerMetadata: freezed == providerMetadata ? _self.providerMetadata : providerMetadata // ignore: cast_nullable_to_non_nullable
 as Map<String, dynamic>?,createdAt: null == createdAt ? _self.createdAt : createdAt // ignore: cast_nullable_to_non_nullable
 as DateTime,updatedAt: freezed == updatedAt ? _self.updatedAt : updatedAt // ignore: cast_nullable_to_non_nullable
-as DateTime?,provider: freezed == provider ? _self.provider : provider // ignore: cast_nullable_to_non_nullable
-as TaskProvider?,taskCount: freezed == taskCount ? _self.taskCount : taskCount // ignore: cast_nullable_to_non_nullable
+as DateTime?,taskCount: freezed == taskCount ? _self.taskCount : taskCount // ignore: cast_nullable_to_non_nullable
 as int?,
   ));
 }
@@ -163,10 +167,10 @@ return $default(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( String id,  String name,  String? description,  String color,  String? icon,  String? parentId,  int sortOrder,  bool isFavorite,  bool isArchived,  Map<String, dynamic>? integrations,  DateTime createdAt,  DateTime? updatedAt,  TaskProvider? provider,  int? taskCount)?  $default,{required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( String id,  String? externalId,  String integrationId,  String name,  String? description,  String color,  String? icon,  String? parentId,  int sortOrder,  bool isFavorite,  bool isArchived,  Map<String, dynamic>? providerMetadata,  DateTime createdAt,  DateTime? updatedAt,  int? taskCount)?  $default,{required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case _ProjectEntity() when $default != null:
-return $default(_that.id,_that.name,_that.description,_that.color,_that.icon,_that.parentId,_that.sortOrder,_that.isFavorite,_that.isArchived,_that.integrations,_that.createdAt,_that.updatedAt,_that.provider,_that.taskCount);case _:
+return $default(_that.id,_that.externalId,_that.integrationId,_that.name,_that.description,_that.color,_that.icon,_that.parentId,_that.sortOrder,_that.isFavorite,_that.isArchived,_that.providerMetadata,_that.createdAt,_that.updatedAt,_that.taskCount);case _:
   return orElse();
 
 }
@@ -184,10 +188,10 @@ return $default(_that.id,_that.name,_that.description,_that.color,_that.icon,_th
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( String id,  String name,  String? description,  String color,  String? icon,  String? parentId,  int sortOrder,  bool isFavorite,  bool isArchived,  Map<String, dynamic>? integrations,  DateTime createdAt,  DateTime? updatedAt,  TaskProvider? provider,  int? taskCount)  $default,) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( String id,  String? externalId,  String integrationId,  String name,  String? description,  String color,  String? icon,  String? parentId,  int sortOrder,  bool isFavorite,  bool isArchived,  Map<String, dynamic>? providerMetadata,  DateTime createdAt,  DateTime? updatedAt,  int? taskCount)  $default,) {final _that = this;
 switch (_that) {
 case _ProjectEntity():
-return $default(_that.id,_that.name,_that.description,_that.color,_that.icon,_that.parentId,_that.sortOrder,_that.isFavorite,_that.isArchived,_that.integrations,_that.createdAt,_that.updatedAt,_that.provider,_that.taskCount);}
+return $default(_that.id,_that.externalId,_that.integrationId,_that.name,_that.description,_that.color,_that.icon,_that.parentId,_that.sortOrder,_that.isFavorite,_that.isArchived,_that.providerMetadata,_that.createdAt,_that.updatedAt,_that.taskCount);}
 }
 /// A variant of `when` that fallback to returning `null`
 ///
@@ -201,10 +205,10 @@ return $default(_that.id,_that.name,_that.description,_that.color,_that.icon,_th
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( String id,  String name,  String? description,  String color,  String? icon,  String? parentId,  int sortOrder,  bool isFavorite,  bool isArchived,  Map<String, dynamic>? integrations,  DateTime createdAt,  DateTime? updatedAt,  TaskProvider? provider,  int? taskCount)?  $default,) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( String id,  String? externalId,  String integrationId,  String name,  String? description,  String color,  String? icon,  String? parentId,  int sortOrder,  bool isFavorite,  bool isArchived,  Map<String, dynamic>? providerMetadata,  DateTime createdAt,  DateTime? updatedAt,  int? taskCount)?  $default,) {final _that = this;
 switch (_that) {
 case _ProjectEntity() when $default != null:
-return $default(_that.id,_that.name,_that.description,_that.color,_that.icon,_that.parentId,_that.sortOrder,_that.isFavorite,_that.isArchived,_that.integrations,_that.createdAt,_that.updatedAt,_that.provider,_that.taskCount);case _:
+return $default(_that.id,_that.externalId,_that.integrationId,_that.name,_that.description,_that.color,_that.icon,_that.parentId,_that.sortOrder,_that.isFavorite,_that.isArchived,_that.providerMetadata,_that.createdAt,_that.updatedAt,_that.taskCount);case _:
   return null;
 
 }
@@ -216,10 +220,14 @@ return $default(_that.id,_that.name,_that.description,_that.color,_that.icon,_th
 @JsonSerializable()
 
 class _ProjectEntity extends ProjectEntity {
-  const _ProjectEntity({required this.id, required this.name, this.description, this.color = '#808080', this.icon, this.parentId, this.sortOrder = 0, this.isFavorite = false, this.isArchived = false, final  Map<String, dynamic>? integrations, required this.createdAt, this.updatedAt, this.provider, this.taskCount}): _integrations = integrations,super._();
+  const _ProjectEntity({required this.id, this.externalId, required this.integrationId, required this.name, this.description, this.color = '#808080', this.icon, this.parentId, this.sortOrder = 0, this.isFavorite = false, this.isArchived = false, final  Map<String, dynamic>? providerMetadata, required this.createdAt, this.updatedAt, this.taskCount}): _providerMetadata = providerMetadata,super._();
   factory _ProjectEntity.fromJson(Map<String, dynamic> json) => _$ProjectEntityFromJson(json);
 
 @override final  String id;
+@override final  String? externalId;
+// Provider's original ID
+@override final  String integrationId;
+// FK to integrations table
 @override final  String name;
 @override final  String? description;
 @override@JsonKey() final  String color;
@@ -228,18 +236,18 @@ class _ProjectEntity extends ProjectEntity {
 @override@JsonKey() final  int sortOrder;
 @override@JsonKey() final  bool isFavorite;
 @override@JsonKey() final  bool isArchived;
- final  Map<String, dynamic>? _integrations;
-@override Map<String, dynamic>? get integrations {
-  final value = _integrations;
+ final  Map<String, dynamic>? _providerMetadata;
+@override Map<String, dynamic>? get providerMetadata {
+  final value = _providerMetadata;
   if (value == null) return null;
-  if (_integrations is EqualUnmodifiableMapView) return _integrations;
+  if (_providerMetadata is EqualUnmodifiableMapView) return _providerMetadata;
   // ignore: implicit_dynamic_type
   return EqualUnmodifiableMapView(value);
 }
 
+// Provider-specific unmapped data
 @override final  DateTime createdAt;
 @override final  DateTime? updatedAt;
-@override final  TaskProvider? provider;
 @override final  int? taskCount;
 
 /// Create a copy of ProjectEntity
@@ -255,16 +263,16 @@ Map<String, dynamic> toJson() {
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _ProjectEntity&&(identical(other.id, id) || other.id == id)&&(identical(other.name, name) || other.name == name)&&(identical(other.description, description) || other.description == description)&&(identical(other.color, color) || other.color == color)&&(identical(other.icon, icon) || other.icon == icon)&&(identical(other.parentId, parentId) || other.parentId == parentId)&&(identical(other.sortOrder, sortOrder) || other.sortOrder == sortOrder)&&(identical(other.isFavorite, isFavorite) || other.isFavorite == isFavorite)&&(identical(other.isArchived, isArchived) || other.isArchived == isArchived)&&const DeepCollectionEquality().equals(other._integrations, _integrations)&&(identical(other.createdAt, createdAt) || other.createdAt == createdAt)&&(identical(other.updatedAt, updatedAt) || other.updatedAt == updatedAt)&&(identical(other.provider, provider) || other.provider == provider)&&(identical(other.taskCount, taskCount) || other.taskCount == taskCount));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is _ProjectEntity&&(identical(other.id, id) || other.id == id)&&(identical(other.externalId, externalId) || other.externalId == externalId)&&(identical(other.integrationId, integrationId) || other.integrationId == integrationId)&&(identical(other.name, name) || other.name == name)&&(identical(other.description, description) || other.description == description)&&(identical(other.color, color) || other.color == color)&&(identical(other.icon, icon) || other.icon == icon)&&(identical(other.parentId, parentId) || other.parentId == parentId)&&(identical(other.sortOrder, sortOrder) || other.sortOrder == sortOrder)&&(identical(other.isFavorite, isFavorite) || other.isFavorite == isFavorite)&&(identical(other.isArchived, isArchived) || other.isArchived == isArchived)&&const DeepCollectionEquality().equals(other._providerMetadata, _providerMetadata)&&(identical(other.createdAt, createdAt) || other.createdAt == createdAt)&&(identical(other.updatedAt, updatedAt) || other.updatedAt == updatedAt)&&(identical(other.taskCount, taskCount) || other.taskCount == taskCount));
 }
 
 @JsonKey(includeFromJson: false, includeToJson: false)
 @override
-int get hashCode => Object.hash(runtimeType,id,name,description,color,icon,parentId,sortOrder,isFavorite,isArchived,const DeepCollectionEquality().hash(_integrations),createdAt,updatedAt,provider,taskCount);
+int get hashCode => Object.hash(runtimeType,id,externalId,integrationId,name,description,color,icon,parentId,sortOrder,isFavorite,isArchived,const DeepCollectionEquality().hash(_providerMetadata),createdAt,updatedAt,taskCount);
 
 @override
 String toString() {
-  return 'ProjectEntity(id: $id, name: $name, description: $description, color: $color, icon: $icon, parentId: $parentId, sortOrder: $sortOrder, isFavorite: $isFavorite, isArchived: $isArchived, integrations: $integrations, createdAt: $createdAt, updatedAt: $updatedAt, provider: $provider, taskCount: $taskCount)';
+  return 'ProjectEntity(id: $id, externalId: $externalId, integrationId: $integrationId, name: $name, description: $description, color: $color, icon: $icon, parentId: $parentId, sortOrder: $sortOrder, isFavorite: $isFavorite, isArchived: $isArchived, providerMetadata: $providerMetadata, createdAt: $createdAt, updatedAt: $updatedAt, taskCount: $taskCount)';
 }
 
 
@@ -275,7 +283,7 @@ abstract mixin class _$ProjectEntityCopyWith<$Res> implements $ProjectEntityCopy
   factory _$ProjectEntityCopyWith(_ProjectEntity value, $Res Function(_ProjectEntity) _then) = __$ProjectEntityCopyWithImpl;
 @override @useResult
 $Res call({
- String id, String name, String? description, String color, String? icon, String? parentId, int sortOrder, bool isFavorite, bool isArchived, Map<String, dynamic>? integrations, DateTime createdAt, DateTime? updatedAt, TaskProvider? provider, int? taskCount
+ String id, String? externalId, String integrationId, String name, String? description, String color, String? icon, String? parentId, int sortOrder, bool isFavorite, bool isArchived, Map<String, dynamic>? providerMetadata, DateTime createdAt, DateTime? updatedAt, int? taskCount
 });
 
 
@@ -292,9 +300,11 @@ class __$ProjectEntityCopyWithImpl<$Res>
 
 /// Create a copy of ProjectEntity
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? id = null,Object? name = null,Object? description = freezed,Object? color = null,Object? icon = freezed,Object? parentId = freezed,Object? sortOrder = null,Object? isFavorite = null,Object? isArchived = null,Object? integrations = freezed,Object? createdAt = null,Object? updatedAt = freezed,Object? provider = freezed,Object? taskCount = freezed,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? id = null,Object? externalId = freezed,Object? integrationId = null,Object? name = null,Object? description = freezed,Object? color = null,Object? icon = freezed,Object? parentId = freezed,Object? sortOrder = null,Object? isFavorite = null,Object? isArchived = null,Object? providerMetadata = freezed,Object? createdAt = null,Object? updatedAt = freezed,Object? taskCount = freezed,}) {
   return _then(_ProjectEntity(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
+as String,externalId: freezed == externalId ? _self.externalId : externalId // ignore: cast_nullable_to_non_nullable
+as String?,integrationId: null == integrationId ? _self.integrationId : integrationId // ignore: cast_nullable_to_non_nullable
 as String,name: null == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
 as String,description: freezed == description ? _self.description : description // ignore: cast_nullable_to_non_nullable
 as String?,color: null == color ? _self.color : color // ignore: cast_nullable_to_non_nullable
@@ -303,11 +313,10 @@ as String?,parentId: freezed == parentId ? _self.parentId : parentId // ignore: 
 as String?,sortOrder: null == sortOrder ? _self.sortOrder : sortOrder // ignore: cast_nullable_to_non_nullable
 as int,isFavorite: null == isFavorite ? _self.isFavorite : isFavorite // ignore: cast_nullable_to_non_nullable
 as bool,isArchived: null == isArchived ? _self.isArchived : isArchived // ignore: cast_nullable_to_non_nullable
-as bool,integrations: freezed == integrations ? _self._integrations : integrations // ignore: cast_nullable_to_non_nullable
+as bool,providerMetadata: freezed == providerMetadata ? _self._providerMetadata : providerMetadata // ignore: cast_nullable_to_non_nullable
 as Map<String, dynamic>?,createdAt: null == createdAt ? _self.createdAt : createdAt // ignore: cast_nullable_to_non_nullable
 as DateTime,updatedAt: freezed == updatedAt ? _self.updatedAt : updatedAt // ignore: cast_nullable_to_non_nullable
-as DateTime?,provider: freezed == provider ? _self.provider : provider // ignore: cast_nullable_to_non_nullable
-as TaskProvider?,taskCount: freezed == taskCount ? _self.taskCount : taskCount // ignore: cast_nullable_to_non_nullable
+as DateTime?,taskCount: freezed == taskCount ? _self.taskCount : taskCount // ignore: cast_nullable_to_non_nullable
 as int?,
   ));
 }

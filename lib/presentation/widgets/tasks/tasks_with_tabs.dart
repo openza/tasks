@@ -20,7 +20,7 @@ enum TaskSortOption {
   const TaskSortOption(this.displayName, this.icon);
 }
 
-/// Widget displaying tasks organized in tabs (All, Active, Completed)
+/// Widget displaying tasks with filters and detail panel
 class TasksWithTabs extends StatefulWidget {
   final List<TaskEntity> tasks;
   final List<ProjectEntity> projects;
@@ -41,26 +41,12 @@ class TasksWithTabs extends StatefulWidget {
   State<TasksWithTabs> createState() => _TasksWithTabsState();
 }
 
-class _TasksWithTabsState extends State<TasksWithTabs>
-    with SingleTickerProviderStateMixin {
-  late TabController _tabController;
+class _TasksWithTabsState extends State<TasksWithTabs> {
   TaskEntity? _selectedTask;
   String _searchQuery = '';
   String? _selectedProjectId;
   int? _selectedPriority;
   TaskSortOption _sortOption = TaskSortOption.priority;
-
-  @override
-  void initState() {
-    super.initState();
-    _tabController = TabController(length: 3, vsync: this);
-  }
-
-  @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
-  }
 
   List<TaskEntity> get _filteredTasks {
     var tasks = widget.tasks;
@@ -158,51 +144,24 @@ class _TasksWithTabsState extends State<TasksWithTabs>
     return sorted;
   }
 
-  List<TaskEntity> get _activeTasks =>
-      _filteredTasks.where((t) => !t.isCompleted).toList();
-
-  List<TaskEntity> get _completedTasks =>
-      _filteredTasks.where((t) => t.isCompleted).toList();
-
   @override
   Widget build(BuildContext context) {
+    final activeTasks = _filteredTasks.where((t) => !t.isCompleted).toList();
+
     return Row(
       children: [
         Expanded(
           child: Column(
             children: [
-              _buildHeader(context),
+              _buildHeader(context, activeTasks.length),
               _buildFilters(context),
-              _buildTabBar(context),
               Expanded(
-                child: TabBarView(
-                  controller: _tabController,
-                  children: [
-                    // All tasks
-                    TaskListWidget(
-                      tasks: _filteredTasks,
-                      projects: widget.projects,
-                      emptyMessage: 'No tasks found',
-                      onTaskTap: _selectTask,
-                      onTaskComplete: widget.onTaskComplete,
-                    ),
-                    // Active tasks
-                    TaskListWidget(
-                      tasks: _activeTasks,
-                      projects: widget.projects,
-                      emptyMessage: 'No active tasks',
-                      onTaskTap: _selectTask,
-                      onTaskComplete: widget.onTaskComplete,
-                    ),
-                    // Completed tasks
-                    TaskListWidget(
-                      tasks: _completedTasks,
-                      projects: widget.projects,
-                      emptyMessage: 'No completed tasks',
-                      onTaskTap: _selectTask,
-                      onTaskComplete: widget.onTaskComplete,
-                    ),
-                  ],
+                child: TaskListWidget(
+                  tasks: activeTasks,
+                  projects: widget.projects,
+                  emptyMessage: 'No tasks found',
+                  onTaskTap: _selectTask,
+                  onTaskComplete: widget.onTaskComplete,
                 ),
               ),
             ],
@@ -225,22 +184,14 @@ class _TasksWithTabsState extends State<TasksWithTabs>
             },
             onComplete: (task) {
               widget.onTaskComplete?.call(task);
-              // Update selected task state
-              setState(() {
-                _selectedTask = task.copyWith(
-                  status: task.isCompleted
-                      ? TaskStatus.pending
-                      : TaskStatus.completed,
-                  completedAt: task.isCompleted ? null : DateTime.now(),
-                );
-              });
+              setState(() => _selectedTask = null);
             },
           ),
       ],
     );
   }
 
-  Widget _buildHeader(BuildContext context) {
+  Widget _buildHeader(BuildContext context, int taskCount) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
       child: Row(
@@ -251,56 +202,23 @@ class _TasksWithTabsState extends State<TasksWithTabs>
                   fontWeight: FontWeight.bold,
                 ),
           ),
+          const SizedBox(width: 12),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              color: AppTheme.primaryBlue.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Text(
+              '$taskCount active',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+                color: AppTheme.primaryBlue,
+              ),
+            ),
+          ),
           const Spacer(),
-          _buildStatsRow(context),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStatsRow(BuildContext context) {
-    final active = _activeTasks.length;
-    final completed = _completedTasks.length;
-    final total = _filteredTasks.length;
-
-    return Row(
-      children: [
-        _buildStatBadge(context, 'Total', total, AppTheme.gray500),
-        const SizedBox(width: 8),
-        _buildStatBadge(context, 'Active', active, AppTheme.primaryBlue),
-        const SizedBox(width: 8),
-        _buildStatBadge(context, 'Done', completed, AppTheme.successGreen),
-      ],
-    );
-  }
-
-  Widget _buildStatBadge(
-      BuildContext context, String label, int count, Color color) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            count.toString(),
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: color,
-            ),
-          ),
-          const SizedBox(width: 4),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 11,
-              color: color,
-            ),
-          ),
         ],
       ),
     );
@@ -445,88 +363,6 @@ class _TasksWithTabsState extends State<TasksWithTabs>
         isExpanded: true,
         underline: const SizedBox.shrink(),
         icon: Icon(LucideIcons.chevronDown, size: 16, color: AppTheme.gray400),
-      ),
-    );
-  }
-
-  Widget _buildTabBar(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16),
-      decoration: BoxDecoration(
-        color: AppTheme.gray100,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: TabBar(
-        controller: _tabController,
-        indicator: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(6),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.05),
-              blurRadius: 2,
-              offset: const Offset(0, 1),
-            ),
-          ],
-        ),
-        indicatorSize: TabBarIndicatorSize.tab,
-        labelColor: AppTheme.gray900,
-        unselectedLabelColor: AppTheme.gray500,
-        labelStyle: const TextStyle(
-          fontSize: 13,
-          fontWeight: FontWeight.w500,
-        ),
-        dividerColor: Colors.transparent,
-        tabs: [
-          Tab(
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Text('All'),
-                const SizedBox(width: 6),
-                _buildTabBadge(_filteredTasks.length),
-              ],
-            ),
-          ),
-          Tab(
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Text('Active'),
-                const SizedBox(width: 6),
-                _buildTabBadge(_activeTasks.length),
-              ],
-            ),
-          ),
-          Tab(
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Text('Completed'),
-                const SizedBox(width: 6),
-                _buildTabBadge(_completedTasks.length),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildTabBadge(int count) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(
-        color: AppTheme.gray200,
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Text(
-        count.toString(),
-        style: TextStyle(
-          fontSize: 10,
-          fontWeight: FontWeight.w600,
-          color: AppTheme.gray600,
-        ),
       ),
     );
   }

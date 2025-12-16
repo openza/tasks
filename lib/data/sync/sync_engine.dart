@@ -98,8 +98,8 @@ class SyncEngine {
 
   /// Get the database path
   Future<String> _getDatabasePath() async {
-    final dbFolder = await getApplicationDocumentsDirectory();
-    return p.join(dbFolder.path, 'openza.db');
+    final dbFolder = await getApplicationSupportDirectory();
+    return p.join(dbFolder.path, 'openza_tasks.db');
   }
 
   /// Fetch all data from Todoist (does not write to DB)
@@ -299,15 +299,11 @@ class SyncEngine {
     if (_todoistApi == null) return false;
 
     try {
-      // Extract the actual Todoist task ID (remove 'todoist_' prefix)
-      final actualTaskId = taskId.startsWith('todoist_')
-          ? taskId.substring(8)
-          : taskId;
-
+      // taskId is now the provider's external ID directly
       if (completed) {
-        await _todoistApi.completeTask(actualTaskId);
+        await _todoistApi.completeTask(taskId);
       } else {
-        await _todoistApi.reopenTask(actualTaskId);
+        await _todoistApi.reopenTask(taskId);
       }
       return true;
     } catch (e) {
@@ -371,38 +367,54 @@ class SyncEngine {
   }
 
   // JSON conversion helpers
-  // Note: source_task and integrations are omitted to avoid serialization issues
-  // with complex nested objects. These can be added back once basic sync works.
   Map<String, dynamic> _taskToJson(TaskEntity task) => {
     'id': task.id,
+    'external_id': task.externalId,
+    'integration_id': task.integrationId,
     'title': task.title,
     'description': task.description,
-    'is_completed': task.isCompleted,
+    'status': task.status.name,
     'priority': task.priority,
     'due_date': _formatDateTime(task.dueDate),
+    'due_time': task.dueTime,
     'project_id': task.projectId,
-    'labels': task.labels.map((l) => l.id).toList(),
-    'order': 0,
     'parent_id': task.parentId,
+    'labels': task.labels.map((l) => l.id).toList(),
+    'notes': task.notes,
     'created_at': _formatDateTime(task.createdAt),
     'updated_at': _formatDateTime(task.updatedAt),
+    'completed_at': _formatDateTime(task.completedAt),
+    'provider_metadata': task.providerMetadata,
   };
 
   Map<String, dynamic> _projectToJson(ProjectEntity project) => {
     'id': project.id,
+    'external_id': project.externalId,
+    'integration_id': project.integrationId,
     'name': project.name,
+    'description': project.description,
     'color': project.color,
-    'is_favorite': project.isFavorite,
-    'order': project.sortOrder,
+    'icon': project.icon,
     'parent_id': project.parentId,
+    'sort_order': project.sortOrder,
+    'is_favorite': project.isFavorite,
+    'is_archived': project.isArchived,
+    'created_at': _formatDateTime(project.createdAt),
+    'updated_at': _formatDateTime(project.updatedAt),
+    'provider_metadata': project.providerMetadata,
   };
 
   Map<String, dynamic> _labelToJson(LabelEntity label) => {
     'id': label.id,
+    'external_id': label.externalId,
+    'integration_id': label.integrationId,
     'name': label.name,
     'color': label.color,
-    'order': label.sortOrder,
-    'is_favorite': false,
+    'description': label.description,
+    'sort_order': label.sortOrder,
+    'is_favorite': label.isFavorite,
+    'created_at': _formatDateTime(label.createdAt),
+    'provider_metadata': label.providerMetadata,
   };
 
   /// Perform full sync with Todoist (legacy method for compatibility)

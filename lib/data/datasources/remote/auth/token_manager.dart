@@ -105,7 +105,7 @@ class TokenManager {
     final tenantId = AppConstants.msToDoTenantId;
 
     if (clientId.isEmpty) {
-      AppLogger.warning('MS To-Do client ID not configured');
+      AppLogger.debug('MS To-Do client ID not configured');
       return null;
     }
 

@@ -87,18 +87,18 @@ impl SyncEngine {
         result
     }
 
-    /// Perform initial sync: clear existing provider data and insert fresh data
+    /// Perform initial sync: clear existing integration data and insert fresh data
     /// All operations are wrapped in a transaction for atomicity
     pub fn initial_sync(
         &self,
-        provider: &str,
+        integration_id: &str,
         remote_tasks: Vec<Task>,
         remote_projects: Vec<Project>,
         remote_labels: Vec<Label>,
     ) -> SyncResult<SyncSummary> {
         info!(
             "[{}] Starting initial sync: {} tasks, {} projects, {} labels",
-            provider,
+            integration_id,
             remote_tasks.len(),
             remote_projects.len(),
             remote_labels.len()
@@ -108,7 +108,7 @@ impl SyncEngine {
 
         // Ensure required tables/rows exist (outside transaction - DDL)
         repo.ensure_pending_completions_table()?;
-        repo.ensure_integration_exists(provider)?;
+        repo.ensure_integration_exists(integration_id)?;
 
         // Build set of valid project IDs before transaction
         let valid_project_ids: HashSet<String> =
@@ -120,46 +120,41 @@ impl SyncEngine {
         // Wrap all sync operations in a transaction for atomicity
         let tx = repo.begin_transaction()?;
 
-        // Clear existing data for this provider
-        debug!("[{}] Clearing existing data before initial sync", provider);
+        // Clear existing data for this integration
+        debug!("[{}] Clearing existing data before initial sync", integration_id);
         let tasks_deleted = {
-            let prefix = format!("{}_", provider);
             tx.execute(
-                "DELETE FROM tasks WHERE json_extract(integrations, '$.provider') = ?1 OR id LIKE ?2",
-                rusqlite::params![provider, format!("{}%", prefix)],
+                "DELETE FROM tasks WHERE integration_id = ?1",
+                rusqlite::params![integration_id],
             )? as i32
         };
-        debug!("[{}] Cleared {} existing tasks", provider, tasks_deleted);
-        {
-            let prefix = format!("{}_", provider);
-            tx.execute(
-                "DELETE FROM projects WHERE json_extract(integrations, '$.provider') = ?1 OR id LIKE ?2",
-                rusqlite::params![provider, format!("{}%", prefix)],
-            )?;
-        }
-        {
-            let prefix = format!("{}_", provider);
-            tx.execute(
-                "DELETE FROM labels WHERE json_extract(integrations, '$.provider') = ?1 OR id LIKE ?2",
-                rusqlite::params![provider, format!("{}%", prefix)],
-            )?;
-        }
+        debug!("[{}] Cleared {} existing tasks", integration_id, tasks_deleted);
+        tx.execute(
+            "DELETE FROM projects WHERE integration_id = ?1",
+            rusqlite::params![integration_id],
+        )?;
+        tx.execute(
+            "DELETE FROM labels WHERE integration_id = ?1",
+            rusqlite::params![integration_id],
+        )?;
 
         // Insert projects first (foreign key dependency)
         for project in &remote_projects {
-            let integrations_json = project
-                .integrations
+            let provider_metadata_json = project
+                .provider_metadata
                 .as_ref()
                 .map(|v| serde_json::to_string(v))
                 .transpose()?;
 
             tx.execute(
-                "INSERT OR REPLACE INTO projects (id, name, description, color, icon, parent_id,
-                                                  sort_order, is_favorite, is_archived, integrations,
-                                                  created_at, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                "INSERT OR REPLACE INTO projects (id, external_id, integration_id, name, description,
+                                                  color, icon, parent_id, sort_order, is_favorite,
+                                                  is_archived, provider_metadata, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
                 rusqlite::params![
                     project.id,
+                    project.external_id,
+                    project.integration_id,
                     project.name,
                     project.description,
                     project.color,
@@ -168,7 +163,7 @@ impl SyncEngine {
                     project.sort_order,
                     project.is_favorite,
                     project.is_archived,
-                    integrations_json,
+                    provider_metadata_json,
                     project.created_at.timestamp(),
                     project.updated_at.map(|dt| dt.timestamp()),
                 ],
@@ -177,23 +172,27 @@ impl SyncEngine {
 
         // Insert labels
         for label in &remote_labels {
-            let integrations_json = label
-                .integrations
+            let provider_metadata_json = label
+                .provider_metadata
                 .as_ref()
                 .map(|v| serde_json::to_string(v))
                 .transpose()?;
 
             tx.execute(
-                "INSERT OR REPLACE INTO labels (id, name, color, description, sort_order,
-                                                integrations, created_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                "INSERT OR REPLACE INTO labels (id, external_id, integration_id, name, color,
+                                                description, sort_order, is_favorite,
+                                                provider_metadata, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
                 rusqlite::params![
                     label.id,
+                    label.external_id,
+                    label.integration_id,
                     label.name,
                     label.color,
                     label.description,
                     label.sort_order,
-                    integrations_json,
+                    label.is_favorite,
+                    provider_metadata_json,
                     label.created_at.timestamp(),
                 ],
             )?;
@@ -201,25 +200,21 @@ impl SyncEngine {
 
         // Insert tasks in sorted order
         for task in &sorted_tasks {
-            let source_task_json = task
-                .source_task
-                .as_ref()
-                .map(|v| serde_json::to_string(v))
-                .transpose()?;
-            let integrations_json = task
-                .integrations
+            let provider_metadata_json = task
+                .provider_metadata
                 .as_ref()
                 .map(|v| serde_json::to_string(v))
                 .transpose()?;
 
             tx.execute(
-                "INSERT INTO tasks (id, title, description, project_id, parent_id, priority, status,
-                                   due_date, due_time, estimated_duration, actual_duration,
-                                   energy_level, context, focus_time, notes, source_task, integrations,
-                                   created_at, updated_at, completed_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
+                "INSERT INTO tasks (id, external_id, integration_id, title, description, project_id,
+                                   parent_id, priority, status, due_date, due_time, notes,
+                                   provider_metadata, created_at, updated_at, completed_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
                 rusqlite::params![
                     task.id,
+                    task.external_id,
+                    task.integration_id,
                     task.title,
                     task.description,
                     task.project_id,
@@ -228,14 +223,8 @@ impl SyncEngine {
                     task.status,
                     task.due_date.map(|dt| dt.timestamp()),
                     task.due_time,
-                    task.estimated_duration,
-                    task.actual_duration,
-                    task.energy_level,
-                    task.context,
-                    task.focus_time,
                     task.notes,
-                    source_task_json,
-                    integrations_json,
+                    provider_metadata_json,
                     task.created_at.timestamp(),
                     task.updated_at.unwrap_or(task.created_at).timestamp(),
                     task.completed_at.map(|dt| dt.timestamp()),
@@ -257,7 +246,7 @@ impl SyncEngine {
 
         info!(
             "[{}] Initial sync complete: +{} tasks, {} projects, {} labels (deleted {} old)",
-            provider,
+            integration_id,
             sorted_tasks.len(),
             remote_projects.len(),
             remote_labels.len(),
@@ -281,7 +270,7 @@ impl SyncEngine {
     /// All write operations are wrapped in a transaction for atomicity
     pub fn incremental_sync(
         &self,
-        provider: &str,
+        integration_id: &str,
         remote_tasks: Vec<Task>,
         remote_projects: Vec<Project>,
         remote_labels: Vec<Label>,
@@ -289,7 +278,7 @@ impl SyncEngine {
     ) -> SyncResult<SyncSummary> {
         info!(
             "[{}] Starting incremental sync: {} tasks, {} projects, {} labels (token: {:?})",
-            provider,
+            integration_id,
             remote_tasks.len(),
             remote_projects.len(),
             remote_labels.len(),
@@ -300,7 +289,7 @@ impl SyncEngine {
 
         // Ensure required tables/rows exist (outside transaction - DDL)
         repo.ensure_pending_completions_table()?;
-        repo.ensure_integration_exists(provider)?;
+        repo.ensure_integration_exists(integration_id)?;
 
         // Build set of valid project IDs before transaction
         let valid_project_ids: HashSet<String> =
@@ -310,7 +299,7 @@ impl SyncEngine {
         let sorted_tasks = Self::prepare_tasks_for_insert(remote_tasks, &valid_project_ids);
 
         // Get existing local tasks BEFORE transaction (read operation)
-        let local_tasks = repo.get_tasks_by_provider(provider)?;
+        let local_tasks = repo.get_tasks_by_integration(integration_id)?;
         let local_task_map: HashMap<String, Task> =
             local_tasks.into_iter().map(|t| (t.id.clone(), t)).collect();
 
@@ -327,19 +316,21 @@ impl SyncEngine {
 
         // Sync projects first (upsert)
         for project in &remote_projects {
-            let integrations_json = project
-                .integrations
+            let provider_metadata_json = project
+                .provider_metadata
                 .as_ref()
                 .map(|v| serde_json::to_string(v))
                 .transpose()?;
 
             tx.execute(
-                "INSERT OR REPLACE INTO projects (id, name, description, color, icon, parent_id,
-                                                  sort_order, is_favorite, is_archived, integrations,
-                                                  created_at, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                "INSERT OR REPLACE INTO projects (id, external_id, integration_id, name, description,
+                                                  color, icon, parent_id, sort_order, is_favorite,
+                                                  is_archived, provider_metadata, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
                 rusqlite::params![
                     project.id,
+                    project.external_id,
+                    project.integration_id,
                     project.name,
                     project.description,
                     project.color,
@@ -348,7 +339,7 @@ impl SyncEngine {
                     project.sort_order,
                     project.is_favorite,
                     project.is_archived,
-                    integrations_json,
+                    provider_metadata_json,
                     project.created_at.timestamp(),
                     project.updated_at.map(|dt| dt.timestamp()),
                 ],
@@ -357,23 +348,27 @@ impl SyncEngine {
 
         // Sync labels
         for label in &remote_labels {
-            let integrations_json = label
-                .integrations
+            let provider_metadata_json = label
+                .provider_metadata
                 .as_ref()
                 .map(|v| serde_json::to_string(v))
                 .transpose()?;
 
             tx.execute(
-                "INSERT OR REPLACE INTO labels (id, name, color, description, sort_order,
-                                                integrations, created_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                "INSERT OR REPLACE INTO labels (id, external_id, integration_id, name, color,
+                                                description, sort_order, is_favorite,
+                                                provider_metadata, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
                 rusqlite::params![
                     label.id,
+                    label.external_id,
+                    label.integration_id,
                     label.name,
                     label.color,
                     label.description,
                     label.sort_order,
-                    integrations_json,
+                    label.is_favorite,
+                    provider_metadata_json,
                     label.created_at.timestamp(),
                 ],
             )?;
@@ -381,19 +376,14 @@ impl SyncEngine {
 
         // Process remote tasks in sorted order
         for task in &sorted_tasks {
-            let source_task_json = task
-                .source_task
-                .as_ref()
-                .map(|v| serde_json::to_string(v))
-                .transpose()?;
-            let integrations_json = task
-                .integrations
+            let provider_metadata_json = task
+                .provider_metadata
                 .as_ref()
                 .map(|v| serde_json::to_string(v))
                 .transpose()?;
 
             if local_task_map.contains_key(&task.id) {
-                // Task exists locally - update sync fields only, preserve local-only fields
+                // Task exists locally - update
                 tx.execute(
                     "UPDATE tasks SET
                         title = ?2,
@@ -404,10 +394,9 @@ impl SyncEngine {
                         status = ?7,
                         due_date = ?8,
                         due_time = ?9,
-                        source_task = ?10,
-                        integrations = ?11,
-                        updated_at = ?12,
-                        completed_at = ?13
+                        provider_metadata = ?10,
+                        updated_at = ?11,
+                        completed_at = ?12
                      WHERE id = ?1",
                     rusqlite::params![
                         task.id,
@@ -419,8 +408,7 @@ impl SyncEngine {
                         task.status,
                         task.due_date.map(|dt| dt.timestamp()),
                         task.due_time,
-                        source_task_json,
-                        integrations_json,
+                        provider_metadata_json,
                         task.updated_at.unwrap_or(task.created_at).timestamp(),
                         task.completed_at.map(|dt| dt.timestamp()),
                     ],
@@ -429,13 +417,14 @@ impl SyncEngine {
             } else {
                 // New task from remote
                 tx.execute(
-                    "INSERT INTO tasks (id, title, description, project_id, parent_id, priority, status,
-                                       due_date, due_time, estimated_duration, actual_duration,
-                                       energy_level, context, focus_time, notes, source_task, integrations,
-                                       created_at, updated_at, completed_at)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
+                    "INSERT INTO tasks (id, external_id, integration_id, title, description, project_id,
+                                       parent_id, priority, status, due_date, due_time, notes,
+                                       provider_metadata, created_at, updated_at, completed_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
                     rusqlite::params![
                         task.id,
+                        task.external_id,
+                        task.integration_id,
                         task.title,
                         task.description,
                         task.project_id,
@@ -444,14 +433,8 @@ impl SyncEngine {
                         task.status,
                         task.due_date.map(|dt| dt.timestamp()),
                         task.due_time,
-                        task.estimated_duration,
-                        task.actual_duration,
-                        task.energy_level,
-                        task.context,
-                        task.focus_time,
                         task.notes,
-                        source_task_json,
-                        integrations_json,
+                        provider_metadata_json,
                         task.created_at.timestamp(),
                         task.updated_at.unwrap_or(task.created_at).timestamp(),
                         task.completed_at.map(|dt| dt.timestamp()),
@@ -470,14 +453,13 @@ impl SyncEngine {
             }
         }
 
-        // Detect deleted tasks (in local but not in remote)
-        // Only for full sync (when sync_token indicates full refresh)
-        if sync_token.as_deref() == Some("*") || sync_token.is_none() {
-            for (local_id, _) in &local_task_map {
-                if !remote_task_ids.contains(local_id) {
-                    tx.execute("DELETE FROM tasks WHERE id = ?1", rusqlite::params![local_id])?;
-                    tasks_deleted += 1;
-                }
+        // Detect deleted/completed tasks (in local but not in remote)
+        // Todoist REST API only returns active tasks, so any task not in
+        // the response was either deleted or completed - remove it locally
+        for (local_id, _) in &local_task_map {
+            if !remote_task_ids.contains(local_id) {
+                tx.execute("DELETE FROM tasks WHERE id = ?1", rusqlite::params![local_id])?;
+                tasks_deleted += 1;
             }
         }
 
@@ -486,7 +468,7 @@ impl SyncEngine {
 
         info!(
             "[{}] Incremental sync complete: +{} tasks, ~{} updated, -{} deleted",
-            provider, tasks_added, tasks_updated, tasks_deleted
+            integration_id, tasks_added, tasks_updated, tasks_deleted
         );
 
         Ok(SyncSummary {
@@ -501,27 +483,27 @@ impl SyncEngine {
         })
     }
 
-    /// Clear all data for a provider (for re-sync)
-    pub fn clear_provider_data(&self, provider: &str) -> SyncResult<i32> {
-        info!("[{}] Clearing all provider data for re-sync", provider);
+    /// Clear all data for an integration (for re-sync)
+    pub fn clear_integration_data(&self, integration_id: &str) -> SyncResult<i32> {
+        info!("[{}] Clearing all integration data for re-sync", integration_id);
         let repo = Repository::new(&self.db_path)?;
-        let deleted = repo.delete_tasks_by_provider(provider)?;
-        repo.delete_projects_by_provider(provider)?;
-        repo.delete_labels_by_provider(provider)?;
-        info!("[{}] Cleared {} tasks", provider, deleted);
+        let deleted = repo.delete_tasks_by_integration(integration_id)?;
+        repo.delete_projects_by_integration(integration_id)?;
+        repo.delete_labels_by_integration(integration_id)?;
+        info!("[{}] Cleared {} tasks", integration_id, deleted);
         Ok(deleted)
     }
 
     /// Get pending completions to push to provider
     pub fn get_pending_completions(
         &self,
-        provider: &str,
+        integration_id: &str,
     ) -> SyncResult<Vec<crate::domain::PendingCompletion>> {
         let repo = Repository::new(&self.db_path)?;
         repo.ensure_pending_completions_table()?;
-        let completions = repo.get_pending_completions(provider)?;
+        let completions = repo.get_pending_completions(integration_id)?;
         if !completions.is_empty() {
-            debug!("[{}] Found {} pending completions to sync", provider, completions.len());
+            debug!("[{}] Found {} pending completions to sync", integration_id, completions.len());
         }
         Ok(completions)
     }
@@ -534,14 +516,14 @@ impl SyncEngine {
     }
 
     /// Update sync token after successful sync
-    pub fn update_sync_token(&self, provider: &str, sync_token: &str) -> SyncResult<()> {
+    pub fn update_sync_token(&self, integration_id: &str, sync_token: &str) -> SyncResult<()> {
         let repo = Repository::new(&self.db_path)?;
-        repo.update_sync_token(provider, sync_token)
+        repo.update_sync_token(integration_id, sync_token)
     }
 
-    /// Get current sync token for a provider
-    pub fn get_sync_token(&self, provider: &str) -> SyncResult<Option<String>> {
+    /// Get current sync token for an integration
+    pub fn get_sync_token(&self, integration_id: &str) -> SyncResult<Option<String>> {
         let repo = Repository::new(&self.db_path)?;
-        repo.get_sync_token(provider)
+        repo.get_sync_token(integration_id)
     }
 }

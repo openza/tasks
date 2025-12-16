@@ -6,6 +6,10 @@ use serde::{Deserialize, Serialize};
 #[serde(default)]
 pub struct Task {
     pub id: String,
+    #[serde(default)]
+    pub external_id: Option<String>,
+    #[serde(default = "default_integration_id")]
+    pub integration_id: String,
     pub title: String,
     #[serde(default)]
     pub description: Option<String>,
@@ -21,26 +25,12 @@ pub struct Task {
     pub due_date: Option<DateTime<Utc>>,
     #[serde(default)]
     pub due_time: Option<String>,
-
-    // Enhanced local-only fields
-    #[serde(default)]
-    pub estimated_duration: Option<i32>,
-    #[serde(default)]
-    pub actual_duration: Option<i32>,
-    #[serde(default = "default_energy_level")]
-    pub energy_level: i32,
-    #[serde(default = "default_context")]
-    pub context: String,
-    #[serde(default)]
-    pub focus_time: bool,
     #[serde(default)]
     pub notes: Option<String>,
 
-    // Integration fields (stored as JSON TEXT in SQLite)
+    // Provider-specific data (stored as JSON TEXT in SQLite)
     #[serde(default)]
-    pub source_task: Option<serde_json::Value>,
-    #[serde(default)]
-    pub integrations: Option<serde_json::Value>,
+    pub provider_metadata: Option<serde_json::Value>,
 
     // Label associations (synced via task_labels junction table)
     #[serde(default)]
@@ -56,14 +46,17 @@ pub struct Task {
 
 fn default_priority() -> i32 { 2 }
 fn default_status() -> String { "pending".to_string() }
-fn default_energy_level() -> i32 { 2 }
-fn default_context() -> String { "work".to_string() }
+fn default_integration_id() -> String { "openza_tasks".to_string() }
 
 /// Project model matching the SQLite schema
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct Project {
     pub id: String,
+    #[serde(default)]
+    pub external_id: Option<String>,
+    #[serde(default = "default_integration_id")]
+    pub integration_id: String,
     pub name: String,
     #[serde(default)]
     pub description: Option<String>,
@@ -80,7 +73,7 @@ pub struct Project {
     #[serde(default)]
     pub is_archived: bool,
     #[serde(default)]
-    pub integrations: Option<serde_json::Value>,
+    pub provider_metadata: Option<serde_json::Value>,
     #[serde(default = "Utc::now")]
     pub created_at: DateTime<Utc>,
     #[serde(default)]
@@ -94,6 +87,10 @@ fn default_color() -> String { "#808080".to_string() }
 #[serde(default)]
 pub struct Label {
     pub id: String,
+    #[serde(default)]
+    pub external_id: Option<String>,
+    #[serde(default = "default_integration_id")]
+    pub integration_id: String,
     pub name: String,
     #[serde(default = "default_color")]
     pub color: String,
@@ -104,7 +101,7 @@ pub struct Label {
     #[serde(default)]
     pub is_favorite: bool,
     #[serde(default)]
-    pub integrations: Option<serde_json::Value>,
+    pub provider_metadata: Option<serde_json::Value>,
     #[serde(default = "Utc::now")]
     pub created_at: DateTime<Utc>,
 }

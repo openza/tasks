@@ -217,12 +217,15 @@ class TodoistApi {
     final todoistPriority = data['priority'] as int? ?? 1;
     final priority = 5 - todoistPriority; // Invert: 4->1, 3->2, 2->3, 1->4
 
-    // Add todoist_ prefix to IDs to match stored project/task IDs
+    // Generate UUID for local ID, store Todoist ID in externalId
+    final todoistId = data['id'].toString();
     final projectId = data['project_id'];
     final parentId = data['parent_id'];
 
     return TaskEntity(
-      id: 'todoist_${data['id']}',
+      id: 'todoist_$todoistId', // Temporary ID format during sync
+      externalId: todoistId,
+      integrationId: 'todoist',
       title: data['content'] ?? '',
       description: data['description'],
       projectId: projectId != null ? 'todoist_$projectId' : null,
@@ -236,22 +239,30 @@ class TodoistApi {
       labels: (data['labels'] as List<dynamic>?)
               ?.map((l) => LabelEntity(
                     id: 'todoist_label_$l',
+                    externalId: l.toString(),
+                    integrationId: 'todoist',
                     name: l.toString(),
                     createdAt: DateTime.now(),
-                    provider: TaskProvider.todoist,
                   ))
               .toList() ??
           [],
-      sourceTask: data,
-      integrations: {'todoist': {'id': data['id'], 'synced_at': DateTime.now().toIso8601String()}},
-      provider: TaskProvider.todoist,
+      providerMetadata: {
+        'todoist': {
+          'id': data['id'],
+          'synced_at': DateTime.now().toIso8601String(),
+        }
+      },
     );
   }
 
   ProjectEntity _mapTodoistProject(Map<String, dynamic> data) {
+    final todoistId = data['id'].toString();
     final parentId = data['parent_id'];
+
     return ProjectEntity(
-      id: 'todoist_${data['id']}',
+      id: 'todoist_$todoistId',
+      externalId: todoistId,
+      integrationId: 'todoist',
       name: data['name'] ?? '',
       color: _todoistColorToHex(data['color']),
       parentId: parentId != null ? 'todoist_$parentId' : null,
@@ -259,8 +270,9 @@ class TodoistApi {
       isFavorite: data['is_favorite'] ?? false,
       isArchived: data['is_archived'] ?? false,
       createdAt: DateTime.now(),
-      integrations: {'todoist': {'id': data['id']}},
-      provider: TaskProvider.todoist,
+      providerMetadata: {
+        'todoist': {'id': data['id']}
+      },
     );
   }
 
@@ -268,14 +280,18 @@ class TodoistApi {
     // Use label name as ID basis because Todoist API returns label names
     // (not IDs) on tasks. This ensures task_labels foreign key matches.
     final name = data['name'] ?? '';
+
     return LabelEntity(
       id: 'todoist_label_$name',
+      externalId: data['id'].toString(),
+      integrationId: 'todoist',
       name: name,
       color: _todoistColorToHex(data['color']),
       sortOrder: data['order'] ?? 0,
       createdAt: DateTime.now(),
-      integrations: {'todoist': {'id': data['id'], 'name': name}},
-      provider: TaskProvider.todoist,
+      providerMetadata: {
+        'todoist': {'id': data['id'], 'name': name}
+      },
     );
   }
 

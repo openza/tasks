@@ -1,7 +1,5 @@
 import 'package:freezed_annotation/freezed_annotation.dart';
 
-import 'task.dart';
-
 part 'project.freezed.dart';
 part 'project.g.dart';
 
@@ -12,6 +10,8 @@ sealed class ProjectEntity with _$ProjectEntity {
 
   const factory ProjectEntity({
     required String id,
+    String? externalId,           // Provider's original ID
+    required String integrationId, // FK to integrations table
     required String name,
     String? description,
     @Default('#808080') String color,
@@ -20,14 +20,19 @@ sealed class ProjectEntity with _$ProjectEntity {
     @Default(0) int sortOrder,
     @Default(false) bool isFavorite,
     @Default(false) bool isArchived,
-    Map<String, dynamic>? integrations,
+    Map<String, dynamic>? providerMetadata, // Provider-specific unmapped data
     required DateTime createdAt,
     DateTime? updatedAt,
-    TaskProvider? provider,
     int? taskCount,
   }) = _ProjectEntity;
 
   bool get isInbox => id == 'proj_inbox' || name.toLowerCase() == 'inbox';
+
+  /// Check if this is a native (Openza Tasks) project
+  bool get isNative => integrationId == 'openza_tasks';
+
+  /// Check if this is an external provider project
+  bool get isExternal => !isNative;
 
   factory ProjectEntity.fromJson(Map<String, dynamic> json) =>
       _$ProjectEntityFromJson(json);

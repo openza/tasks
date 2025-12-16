@@ -7,6 +7,7 @@ import '../presentation/screens/today/today_screen.dart';
 import '../presentation/screens/overdue/overdue_screen.dart';
 import '../presentation/screens/next_actions/next_actions_screen.dart';
 import '../presentation/screens/tasks/tasks_screen.dart';
+import '../presentation/screens/completed/completed_screen.dart';
 import '../presentation/screens/profile/profile_screen.dart';
 import '../presentation/screens/auth/login_screen.dart';
 import '../presentation/screens/settings/settings_screen.dart';
@@ -20,6 +21,7 @@ class AppRoutes {
   static const String overdue = '/overdue';
   static const String nextActions = '/next-actions';
   static const String tasks = '/tasks';
+  static const String completed = '/completed';
   static const String profile = '/profile';
   static const String settings = '/settings';
 }
@@ -100,6 +102,14 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                 child: TasksScreen(projectId: projectId),
               );
             },
+          ),
+          GoRoute(
+            path: AppRoutes.completed,
+            name: 'completed',
+            pageBuilder: (context, state) => NoTransitionPage(
+              key: state.pageKey,
+              child: const CompletedScreen(),
+            ),
           ),
           GoRoute(
             path: AppRoutes.profile,

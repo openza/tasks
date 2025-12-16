@@ -30,46 +30,37 @@ impl Repository {
 
     // ============ TASK OPERATIONS ============
 
-    /// Get all tasks for a specific provider
-    pub fn get_tasks_by_provider(&self, provider: &str) -> SyncResult<Vec<Task>> {
+    /// Get all tasks for a specific integration
+    pub fn get_tasks_by_integration(&self, integration_id: &str) -> SyncResult<Vec<Task>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, title, description, project_id, parent_id, priority, status,
-                    due_date, due_time, estimated_duration, actual_duration,
-                    energy_level, context, focus_time, notes, source_task, integrations,
+            "SELECT id, external_id, integration_id, title, description, project_id, parent_id,
+                    priority, status, due_date, due_time, notes, provider_metadata,
                     created_at, updated_at, completed_at
              FROM tasks
-             WHERE json_extract(integrations, '$.provider') = ?1
-                OR id LIKE ?2",
+             WHERE integration_id = ?1",
         )?;
 
-        let prefix = format!("{}_", provider);
         let tasks = stmt
-            .query_map(params![provider, format!("{}%", prefix)], |row| {
+            .query_map(params![integration_id], |row| {
                 Ok(Task {
                     id: row.get(0)?,
-                    title: row.get(1)?,
-                    description: row.get(2)?,
-                    project_id: row.get(3)?,
-                    parent_id: row.get(4)?,
-                    priority: row.get(5)?,
-                    status: row.get(6)?,
-                    due_date: row.get::<_, Option<i64>>(7)?.map(|ts| Utc.timestamp_opt(ts, 0).unwrap()),
-                    due_time: row.get(8)?,
-                    estimated_duration: row.get(9)?,
-                    actual_duration: row.get(10)?,
-                    energy_level: row.get(11)?,
-                    context: row.get(12)?,
-                    focus_time: row.get(13)?,
-                    notes: row.get(14)?,
-                    source_task: row
-                        .get::<_, Option<String>>(15)?
+                    external_id: row.get(1)?,
+                    integration_id: row.get(2)?,
+                    title: row.get(3)?,
+                    description: row.get(4)?,
+                    project_id: row.get(5)?,
+                    parent_id: row.get(6)?,
+                    priority: row.get(7)?,
+                    status: row.get(8)?,
+                    due_date: row.get::<_, Option<i64>>(9)?.map(|ts| Utc.timestamp_opt(ts, 0).unwrap()),
+                    due_time: row.get(10)?,
+                    notes: row.get(11)?,
+                    provider_metadata: row
+                        .get::<_, Option<String>>(12)?
                         .and_then(|s| serde_json::from_str(&s).ok()),
-                    integrations: row
-                        .get::<_, Option<String>>(16)?
-                        .and_then(|s| serde_json::from_str(&s).ok()),
-                    created_at: Utc.timestamp_opt(row.get::<_, i64>(17)?, 0).unwrap(),
-                    updated_at: row.get::<_, Option<i64>>(18)?.map(|ts| Utc.timestamp_opt(ts, 0).unwrap()),
-                    completed_at: row.get::<_, Option<i64>>(19)?.map(|ts| Utc.timestamp_opt(ts, 0).unwrap()),
+                    created_at: Utc.timestamp_opt(row.get::<_, i64>(13)?, 0).unwrap(),
+                    updated_at: row.get::<_, Option<i64>>(14)?.map(|ts| Utc.timestamp_opt(ts, 0).unwrap()),
+                    completed_at: row.get::<_, Option<i64>>(15)?.map(|ts| Utc.timestamp_opt(ts, 0).unwrap()),
                     labels: Vec::new(), // Labels loaded separately via task_labels junction table
                 })
             })?
@@ -78,39 +69,32 @@ impl Repository {
         Ok(tasks)
     }
 
-    /// Delete all tasks for a specific provider (for clear and re-sync)
-    pub fn delete_tasks_by_provider(&self, provider: &str) -> SyncResult<i32> {
-        let prefix = format!("{}_", provider);
+    /// Delete all tasks for a specific integration
+    pub fn delete_tasks_by_integration(&self, integration_id: &str) -> SyncResult<i32> {
         let deleted = self.conn.execute(
-            "DELETE FROM tasks
-             WHERE json_extract(integrations, '$.provider') = ?1
-                OR id LIKE ?2",
-            params![provider, format!("{}%", prefix)],
+            "DELETE FROM tasks WHERE integration_id = ?1",
+            params![integration_id],
         )?;
         Ok(deleted as i32)
     }
 
     /// Insert a task
     pub fn insert_task(&self, task: &Task) -> SyncResult<()> {
-        let source_task_json = task
-            .source_task
-            .as_ref()
-            .map(|v| serde_json::to_string(v))
-            .transpose()?;
-        let integrations_json = task
-            .integrations
+        let provider_metadata_json = task
+            .provider_metadata
             .as_ref()
             .map(|v| serde_json::to_string(v))
             .transpose()?;
 
         self.conn.execute(
-            "INSERT INTO tasks (id, title, description, project_id, parent_id, priority, status,
-                               due_date, due_time, estimated_duration, actual_duration,
-                               energy_level, context, focus_time, notes, source_task, integrations,
-                               created_at, updated_at, completed_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
+            "INSERT INTO tasks (id, external_id, integration_id, title, description, project_id,
+                               parent_id, priority, status, due_date, due_time, notes,
+                               provider_metadata, created_at, updated_at, completed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
             params![
                 task.id,
+                task.external_id,
+                task.integration_id,
                 task.title,
                 task.description,
                 task.project_id,
@@ -119,36 +103,24 @@ impl Repository {
                 task.status,
                 task.due_date.map(|dt| dt.timestamp()),
                 task.due_time,
-                task.estimated_duration,
-                task.actual_duration,
-                task.energy_level,
-                task.context,
-                task.focus_time,
                 task.notes,
-                source_task_json,
-                integrations_json,
+                provider_metadata_json,
                 task.created_at.timestamp(),
-                task.updated_at.unwrap_or(task.created_at).timestamp(), // Use created_at as fallback
+                task.updated_at.unwrap_or(task.created_at).timestamp(),
                 task.completed_at.map(|dt| dt.timestamp()),
             ],
         )?;
         Ok(())
     }
 
-    /// Update a task (preserving local-only fields)
+    /// Update a task
     pub fn update_task(&self, task: &Task) -> SyncResult<()> {
-        let source_task_json = task
-            .source_task
-            .as_ref()
-            .map(|v| serde_json::to_string(v))
-            .transpose()?;
-        let integrations_json = task
-            .integrations
+        let provider_metadata_json = task
+            .provider_metadata
             .as_ref()
             .map(|v| serde_json::to_string(v))
             .transpose()?;
 
-        // Update synced fields only, preserve local-only fields (energy_level, context, notes, focus_time)
         self.conn.execute(
             "UPDATE tasks SET
                 title = ?2,
@@ -159,10 +131,9 @@ impl Repository {
                 status = ?7,
                 due_date = ?8,
                 due_time = ?9,
-                source_task = ?10,
-                integrations = ?11,
-                updated_at = ?12,
-                completed_at = ?13
+                provider_metadata = ?10,
+                updated_at = ?11,
+                completed_at = ?12
              WHERE id = ?1",
             params![
                 task.id,
@@ -174,9 +145,8 @@ impl Repository {
                 task.status,
                 task.due_date.map(|dt| dt.timestamp()),
                 task.due_time,
-                source_task_json,
-                integrations_json,
-                task.updated_at.unwrap_or(task.created_at).timestamp(), // Use created_at as fallback
+                provider_metadata_json,
+                task.updated_at.unwrap_or(task.created_at).timestamp(),
                 task.completed_at.map(|dt| dt.timestamp()),
             ],
         )?;
@@ -192,33 +162,32 @@ impl Repository {
 
     // ============ PROJECT OPERATIONS ============
 
-    /// Delete all projects for a specific provider
-    pub fn delete_projects_by_provider(&self, provider: &str) -> SyncResult<i32> {
-        let prefix = format!("{}_", provider);
+    /// Delete all projects for a specific integration
+    pub fn delete_projects_by_integration(&self, integration_id: &str) -> SyncResult<i32> {
         let deleted = self.conn.execute(
-            "DELETE FROM projects
-             WHERE json_extract(integrations, '$.provider') = ?1
-                OR id LIKE ?2",
-            params![provider, format!("{}%", prefix)],
+            "DELETE FROM projects WHERE integration_id = ?1",
+            params![integration_id],
         )?;
         Ok(deleted as i32)
     }
 
     /// Insert a project
     pub fn insert_project(&self, project: &Project) -> SyncResult<()> {
-        let integrations_json = project
-            .integrations
+        let provider_metadata_json = project
+            .provider_metadata
             .as_ref()
             .map(|v| serde_json::to_string(v))
             .transpose()?;
 
         self.conn.execute(
-            "INSERT OR REPLACE INTO projects (id, name, description, color, icon, parent_id,
-                                              sort_order, is_favorite, is_archived, integrations,
-                                              created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            "INSERT OR REPLACE INTO projects (id, external_id, integration_id, name, description,
+                                              color, icon, parent_id, sort_order, is_favorite,
+                                              is_archived, provider_metadata, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
             params![
                 project.id,
+                project.external_id,
+                project.integration_id,
                 project.name,
                 project.description,
                 project.color,
@@ -227,7 +196,7 @@ impl Repository {
                 project.sort_order,
                 project.is_favorite,
                 project.is_archived,
-                integrations_json,
+                provider_metadata_json,
                 project.created_at.timestamp(),
                 project.updated_at.map(|dt| dt.timestamp()),
             ],
@@ -237,37 +206,38 @@ impl Repository {
 
     // ============ LABEL OPERATIONS ============
 
-    /// Delete all labels for a specific provider
-    pub fn delete_labels_by_provider(&self, provider: &str) -> SyncResult<i32> {
-        let prefix = format!("{}_", provider);
+    /// Delete all labels for a specific integration
+    pub fn delete_labels_by_integration(&self, integration_id: &str) -> SyncResult<i32> {
         let deleted = self.conn.execute(
-            "DELETE FROM labels
-             WHERE json_extract(integrations, '$.provider') = ?1
-                OR id LIKE ?2",
-            params![provider, format!("{}%", prefix)],
+            "DELETE FROM labels WHERE integration_id = ?1",
+            params![integration_id],
         )?;
         Ok(deleted as i32)
     }
 
     /// Insert a label
     pub fn insert_label(&self, label: &Label) -> SyncResult<()> {
-        let integrations_json = label
-            .integrations
+        let provider_metadata_json = label
+            .provider_metadata
             .as_ref()
             .map(|v| serde_json::to_string(v))
             .transpose()?;
 
         self.conn.execute(
-            "INSERT OR REPLACE INTO labels (id, name, color, description, sort_order,
-                                            integrations, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            "INSERT OR REPLACE INTO labels (id, external_id, integration_id, name, color,
+                                            description, sort_order, is_favorite,
+                                            provider_metadata, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             params![
                 label.id,
+                label.external_id,
+                label.integration_id,
                 label.name,
                 label.color,
                 label.description,
                 label.sort_order,
-                integrations_json,
+                label.is_favorite,
+                provider_metadata_json,
                 label.created_at.timestamp(),
             ],
         )?;
@@ -276,36 +246,43 @@ impl Repository {
 
     // ============ SYNC METADATA OPERATIONS ============
 
-    /// Get sync token for a provider
-    pub fn get_sync_token(&self, provider: &str) -> SyncResult<Option<String>> {
+    /// Get sync token for an integration
+    pub fn get_sync_token(&self, integration_id: &str) -> SyncResult<Option<String>> {
         let token = self
             .conn
             .query_row(
                 "SELECT sync_token FROM integrations WHERE id = ?1",
-                params![provider],
+                params![integration_id],
                 |row| row.get(0),
             )
             .optional()?;
         Ok(token)
     }
 
-    /// Ensure an integration row exists for a provider
-    pub fn ensure_integration_exists(&self, provider: &str) -> SyncResult<()> {
+    /// Ensure an integration row exists
+    pub fn ensure_integration_exists(&self, integration_id: &str) -> SyncResult<()> {
+        // Get display name and color based on integration
+        let (display_name, color, icon) = match integration_id {
+            "todoist" => ("Todoist", "#E44332", "check-circle"),
+            "msToDo" => ("Microsoft To-Do", "#00A4EF", "layout-grid"),
+            _ => (integration_id, "#808080", "database"),
+        };
+
         self.conn.execute(
-            "INSERT OR IGNORE INTO integrations (id, name, is_active, created_at)
-             VALUES (?1, ?2, 1, ?3)",
-            params![provider, provider, Utc::now().timestamp()],
+            "INSERT OR IGNORE INTO integrations (id, name, display_name, color, icon, is_active, is_configured, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, 1, 1, ?6)",
+            params![integration_id, integration_id, display_name, color, icon, Utc::now().timestamp()],
         )?;
         Ok(())
     }
 
-    /// Update sync token for a provider
-    pub fn update_sync_token(&self, provider: &str, sync_token: &str) -> SyncResult<()> {
+    /// Update sync token for an integration
+    pub fn update_sync_token(&self, integration_id: &str, sync_token: &str) -> SyncResult<()> {
         // Ensure the integration row exists first
-        self.ensure_integration_exists(provider)?;
+        self.ensure_integration_exists(integration_id)?;
         self.conn.execute(
             "UPDATE integrations SET sync_token = ?2, last_sync_at = ?3 WHERE id = ?1",
-            params![provider, sync_token, Utc::now().timestamp()],
+            params![integration_id, sync_token, Utc::now().timestamp()],
         )?;
         Ok(())
     }
@@ -350,8 +327,8 @@ impl Repository {
         Ok(())
     }
 
-    /// Get pending completions for a provider
-    pub fn get_pending_completions(&self, provider: &str) -> SyncResult<Vec<PendingCompletion>> {
+    /// Get pending completions for an integration
+    pub fn get_pending_completions(&self, integration_id: &str) -> SyncResult<Vec<PendingCompletion>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, task_id, provider, provider_task_id, completed, completed_at, created_at, retry_count
              FROM pending_completions
@@ -360,7 +337,7 @@ impl Repository {
         )?;
 
         let completions = stmt
-            .query_map(params![provider], |row| {
+            .query_map(params![integration_id], |row| {
                 Ok(PendingCompletion {
                     id: row.get(0)?,
                     task_id: row.get(1)?,

@@ -90,10 +90,10 @@ pub fn incremental_sync(
     }
 }
 
-/// Clear all data for a provider (for re-sync)
+/// Clear all data for an integration (for re-sync)
 pub fn clear_provider_data(db_path: String, provider: String) -> String {
     let engine = SyncEngine::new(db_path);
-    match engine.clear_provider_data(&provider) {
+    match engine.clear_integration_data(&provider) {
         Ok(deleted) => serde_json::to_string(&serde_json::json!({
             "success": true,
             "deleted": deleted

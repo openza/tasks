@@ -46,6 +46,8 @@ app.*.map.json
 
 # Local Configuration
 .env
+.env.local
+.env*.local
 .claude/
 
 # Build artifacts
@@ -65,3 +67,6 @@ website/.astro/
 # Rust
 rust/target/
 devtools_options.yaml
+
+# Compiled Rust library
+linux/libopenza_sync.so

@@ -230,7 +230,12 @@ class ApiErrorHandler {
 
   /// Log and emit an API error
   static void reportError(ApiError error) {
-    AppLogger.error('API Error: ${error.message}', error.originalError);
+    // Use debug level for authentication errors (expected when service not configured)
+    if (error.type == ApiErrorType.unauthorized) {
+      AppLogger.debug('API Error: ${error.message}');
+    } else {
+      AppLogger.error('API Error: ${error.message}', error.originalError);
+    }
     ApiErrorStream.add(error);
   }
 }

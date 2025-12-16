@@ -6,19 +6,18 @@ import '../../core/constants/app_constants.dart';
 import '../../data/datasources/local/secure_storage.dart';
 import '../../data/datasources/remote/auth/oauth_service.dart';
 import '../../data/datasources/remote/auth/token_manager.dart';
-import '../../domain/entities/task.dart';
 
 /// Authentication state
 class AuthState {
   final bool isLoading;
-  final TaskProvider? activeProvider;
+  final String? activeIntegrationId;
   final bool todoistAuthenticated;
   final bool msToDoAuthenticated;
   final String? error;
 
   const AuthState({
     this.isLoading = false,
-    this.activeProvider,
+    this.activeIntegrationId,
     this.todoistAuthenticated = false,
     this.msToDoAuthenticated = false,
     this.error,
@@ -28,14 +27,15 @@ class AuthState {
 
   AuthState copyWith({
     bool? isLoading,
-    TaskProvider? activeProvider,
+    String? activeIntegrationId,
+    bool clearActiveIntegrationId = false,
     bool? todoistAuthenticated,
     bool? msToDoAuthenticated,
     String? error,
   }) {
     return AuthState(
       isLoading: isLoading ?? this.isLoading,
-      activeProvider: activeProvider ?? this.activeProvider,
+      activeIntegrationId: clearActiveIntegrationId ? null : (activeIntegrationId ?? this.activeIntegrationId),
       todoistAuthenticated: todoistAuthenticated ?? this.todoistAuthenticated,
       msToDoAuthenticated: msToDoAuthenticated ?? this.msToDoAuthenticated,
       error: error,
@@ -55,29 +55,40 @@ class AuthNotifier extends StateNotifier<AuthState> {
     try {
       final todoistToken = await _storage.getTodoistAccessToken();
       final msToDoToken = await _storage.getMsToDoAccessToken();
-      final activeProviderStr = await _storage.getActiveProvider();
+      final activeIntegrationId = await _storage.getActiveProvider();
 
-      TaskProvider? activeProvider;
-      if (activeProviderStr == 'todoist') {
-        activeProvider = TaskProvider.todoist;
-      } else if (activeProviderStr == 'msToDo') {
-        activeProvider = TaskProvider.msToDo;
+      // Check if MS To-Do is properly configured (client ID must be set for token refresh)
+      final msToDoConfigured = AppConstants.msToDoClientId.isNotEmpty;
+      final msToDoValid = msToDoToken != null && msToDoConfigured;
+
+      // If MS To-Do token exists but client ID is not configured, clear the invalid tokens
+      if (msToDoToken != null && !msToDoConfigured) {
+        await _storage.clearMsToDoTokens();
       }
 
-      // Auto-select active provider if not set
-      if (activeProvider == null) {
+      String? effectiveIntegrationId = activeIntegrationId;
+
+      // Validate active integration
+      if (effectiveIntegrationId == 'todoist' && todoistToken == null) {
+        effectiveIntegrationId = null;
+      } else if (effectiveIntegrationId == 'msToDo' && !msToDoValid) {
+        effectiveIntegrationId = null;
+      }
+
+      // Auto-select active integration if not set
+      if (effectiveIntegrationId == null) {
         if (todoistToken != null) {
-          activeProvider = TaskProvider.todoist;
-        } else if (msToDoToken != null) {
-          activeProvider = TaskProvider.msToDo;
+          effectiveIntegrationId = 'todoist';
+        } else if (msToDoValid) {
+          effectiveIntegrationId = 'msToDo';
         }
       }
 
       state = AuthState(
         isLoading: false,
-        activeProvider: activeProvider,
+        activeIntegrationId: effectiveIntegrationId,
         todoistAuthenticated: todoistToken != null,
-        msToDoAuthenticated: msToDoToken != null,
+        msToDoAuthenticated: msToDoValid,
       );
     } catch (e) {
       state = AuthState(
@@ -93,10 +104,10 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
     state = state.copyWith(
       todoistAuthenticated: true,
-      activeProvider: state.activeProvider ?? TaskProvider.todoist,
+      activeIntegrationId: state.activeIntegrationId ?? 'todoist',
     );
 
-    if (state.activeProvider == TaskProvider.todoist) {
+    if (state.activeIntegrationId == 'todoist') {
       await _storage.storeActiveProvider('todoist');
     }
   }
@@ -115,34 +126,33 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
     state = state.copyWith(
       msToDoAuthenticated: true,
-      activeProvider: state.activeProvider ?? TaskProvider.msToDo,
+      activeIntegrationId: state.activeIntegrationId ?? 'msToDo',
     );
 
-    if (state.activeProvider == TaskProvider.msToDo) {
+    if (state.activeIntegrationId == 'msToDo') {
       await _storage.storeActiveProvider('msToDo');
     }
   }
 
-  /// Set active provider
-  Future<void> setActiveProvider(TaskProvider provider) async {
-    state = state.copyWith(activeProvider: provider);
-
-    final providerStr = provider == TaskProvider.todoist ? 'todoist' : 'msToDo';
-    await _storage.storeActiveProvider(providerStr);
+  /// Set active integration by ID
+  Future<void> setActiveIntegration(String integrationId) async {
+    state = state.copyWith(activeIntegrationId: integrationId);
+    await _storage.storeActiveProvider(integrationId);
   }
 
   /// Sign out from Todoist
   Future<void> signOutTodoist() async {
     await _storage.clearTodoistTokens();
 
-    TaskProvider? newActive = state.activeProvider;
-    if (state.activeProvider == TaskProvider.todoist) {
-      newActive = state.msToDoAuthenticated ? TaskProvider.msToDo : null;
+    String? newActiveId = state.activeIntegrationId;
+    if (state.activeIntegrationId == 'todoist') {
+      newActiveId = state.msToDoAuthenticated ? 'msToDo' : null;
     }
 
     state = state.copyWith(
       todoistAuthenticated: false,
-      activeProvider: newActive,
+      activeIntegrationId: newActiveId,
+      clearActiveIntegrationId: newActiveId == null,
     );
   }
 
@@ -150,14 +160,15 @@ class AuthNotifier extends StateNotifier<AuthState> {
   Future<void> signOutMsToDo() async {
     await _storage.clearMsToDoTokens();
 
-    TaskProvider? newActive = state.activeProvider;
-    if (state.activeProvider == TaskProvider.msToDo) {
-      newActive = state.todoistAuthenticated ? TaskProvider.todoist : null;
+    String? newActiveId = state.activeIntegrationId;
+    if (state.activeIntegrationId == 'msToDo') {
+      newActiveId = state.todoistAuthenticated ? 'todoist' : null;
     }
 
     state = state.copyWith(
       msToDoAuthenticated: false,
-      activeProvider: newActive,
+      activeIntegrationId: newActiveId,
+      clearActiveIntegrationId: newActiveId == null,
     );
   }
 

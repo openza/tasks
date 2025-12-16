@@ -2,18 +2,17 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
 import '../../../app/app_theme.dart';
-import '../../../domain/entities/task.dart';
 
 /// Badge showing task priority
 class PriorityBadge extends StatelessWidget {
   final int priority;
-  final TaskProvider? provider;
+  final String? integrationId;
   final bool showLabel;
 
   const PriorityBadge({
     super.key,
     required this.priority,
-    this.provider,
+    this.integrationId,
     this.showLabel = false,
   });
 
@@ -68,8 +67,8 @@ class PriorityBadge extends StatelessWidget {
   }
 
   IconData _getPriorityIcon() {
-    // Use different icons based on provider
-    if (provider == TaskProvider.msToDo) {
+    // Use different icons based on integration
+    if (integrationId == 'msToDo') {
       return priority == 1 ? LucideIcons.star : LucideIcons.chevronUp;
     }
     // Todoist / default

@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:drift/drift.dart';
 
 import '../../domain/entities/task.dart';
@@ -24,27 +26,29 @@ class TaskRepository {
 
   /// Create a new task
   Future<TaskEntity> createTask(TaskEntity task) async {
-    switch (task.provider) {
-      case TaskProvider.todoist:
+    switch (task.integrationId) {
+      case 'todoist':
         if (_todoistApi != null) {
           return _createTodoistTask(task);
         }
         break;
-      case TaskProvider.msToDo:
+      case 'msToDo':
         if (_msToDoApi != null) {
           return _createMsToDoTask(task);
         }
         break;
-      case TaskProvider.local:
-      default:
-        return _createLocalTask(task);
     }
     return _createLocalTask(task);
   }
 
   Future<TaskEntity> _createLocalTask(TaskEntity task) async {
+    final providerMetadataJson = task.providerMetadata != null
+        ? jsonEncode(task.providerMetadata)
+        : null;
+
     await _database.createTask(TasksCompanion.insert(
       id: task.id,
+      integrationId: task.integrationId,
       title: task.title,
       description: Value(task.description),
       projectId: Value(task.projectId),
@@ -53,11 +57,9 @@ class TaskRepository {
       status: Value(task.status.value),
       dueDate: Value(task.dueDate),
       dueTime: Value(task.dueTime),
-      estimatedDuration: Value(task.estimatedDuration),
-      energyLevel: Value(task.energyLevel),
-      context: Value(task.context.value),
-      focusTime: Value(task.focusTime),
       notes: Value(task.notes),
+      providerMetadata: Value(providerMetadataJson),
+      externalId: Value(task.externalId),
     ));
 
     // Add labels
@@ -84,7 +86,7 @@ class TaskRepository {
     }
 
     // Also save locally for offline access
-    await _createLocalTask(createdTask.copyWith(provider: TaskProvider.todoist));
+    await _createLocalTask(createdTask);
 
     return createdTask;
   }
@@ -100,7 +102,7 @@ class TaskRepository {
     );
 
     // Also save locally for offline access
-    await _createLocalTask(createdTask.copyWith(provider: TaskProvider.msToDo));
+    await _createLocalTask(createdTask);
 
     return createdTask;
   }
@@ -140,8 +142,18 @@ class TaskRepository {
 
     for (final t in dbTasks) {
       final labels = await _database.getLabelsForTask(t.id);
+
+      Map<String, dynamic>? providerMetadata;
+      if (t.providerMetadata != null) {
+        try {
+          providerMetadata = jsonDecode(t.providerMetadata!) as Map<String, dynamic>;
+        } catch (_) {}
+      }
+
       tasks.add(TaskEntity(
         id: t.id,
+        externalId: t.externalId,
+        integrationId: t.integrationId,
         title: t.title,
         description: t.description,
         projectId: t.projectId,
@@ -150,24 +162,21 @@ class TaskRepository {
         status: TaskStatus.fromString(t.status),
         dueDate: t.dueDate,
         dueTime: t.dueTime,
-        estimatedDuration: t.estimatedDuration,
-        actualDuration: t.actualDuration,
-        energyLevel: t.energyLevel,
-        context: TaskContext.fromString(t.context),
-        focusTime: t.focusTime,
         notes: t.notes,
+        providerMetadata: providerMetadata,
         createdAt: t.createdAt,
         updatedAt: t.updatedAt,
         completedAt: t.completedAt,
         labels: labels
             .map((l) => LabelEntity(
                   id: l.id,
+                  externalId: l.externalId,
+                  integrationId: l.integrationId,
                   name: l.name,
                   color: l.color,
                   createdAt: l.createdAt,
                 ))
             .toList(),
-        provider: TaskProvider.local,
       ));
     }
 
@@ -180,8 +189,18 @@ class TaskRepository {
     if (dbTask == null) return null;
 
     final labels = await _database.getLabelsForTask(id);
+
+    Map<String, dynamic>? providerMetadata;
+    if (dbTask.providerMetadata != null) {
+      try {
+        providerMetadata = jsonDecode(dbTask.providerMetadata!) as Map<String, dynamic>;
+      } catch (_) {}
+    }
+
     return TaskEntity(
       id: dbTask.id,
+      externalId: dbTask.externalId,
+      integrationId: dbTask.integrationId,
       title: dbTask.title,
       description: dbTask.description,
       projectId: dbTask.projectId,
@@ -190,24 +209,21 @@ class TaskRepository {
       status: TaskStatus.fromString(dbTask.status),
       dueDate: dbTask.dueDate,
       dueTime: dbTask.dueTime,
-      estimatedDuration: dbTask.estimatedDuration,
-      actualDuration: dbTask.actualDuration,
-      energyLevel: dbTask.energyLevel,
-      context: TaskContext.fromString(dbTask.context),
-      focusTime: dbTask.focusTime,
       notes: dbTask.notes,
+      providerMetadata: providerMetadata,
       createdAt: dbTask.createdAt,
       updatedAt: dbTask.updatedAt,
       completedAt: dbTask.completedAt,
       labels: labels
           .map((l) => LabelEntity(
                 id: l.id,
+                externalId: l.externalId,
+                integrationId: l.integrationId,
                 name: l.name,
                 color: l.color,
                 createdAt: l.createdAt,
               ))
           .toList(),
-      provider: TaskProvider.local,
     );
   }
 
@@ -215,30 +231,30 @@ class TaskRepository {
 
   /// Update a task
   Future<TaskEntity> updateTask(TaskEntity task) async {
-    switch (task.provider) {
-      case TaskProvider.todoist:
+    switch (task.integrationId) {
+      case 'todoist':
         if (_todoistApi != null) {
           return _updateTodoistTask(task);
         }
         break;
-      case TaskProvider.msToDo:
+      case 'msToDo':
         if (_msToDoApi != null) {
           return _updateMsToDoTask(task);
         }
         break;
-      case TaskProvider.local:
-      default:
-        return _updateLocalTask(task);
     }
     return _updateLocalTask(task);
   }
 
   Future<TaskEntity> _updateLocalTask(TaskEntity task) async {
-    // Check if this is a synced task (has provider prefix)
+    // Check if this is a synced task (has external_id or integration prefix)
     // For synced tasks, only update local-enhancement fields to avoid
     // conflicting with Rust sync engine which owns the core sync fields
-    final isSyncedTask = task.id.startsWith('todoist_') ||
-        task.id.startsWith('mstodo_');
+    final isSyncedTask = task.integrationId != 'openza_tasks';
+
+    final providerMetadataJson = task.providerMetadata != null
+        ? jsonEncode(task.providerMetadata)
+        : null;
 
     if (isSyncedTask) {
       // Only update local-enhancement fields for synced tasks
@@ -247,11 +263,8 @@ class TaskRepository {
       await _database.updateTask(
         task.id,
         TasksCompanion(
-          estimatedDuration: Value(task.estimatedDuration),
-          energyLevel: Value(task.energyLevel),
-          context: Value(task.context.value),
-          focusTime: Value(task.focusTime),
           notes: Value(task.notes),
+          providerMetadata: Value(providerMetadataJson),
           updatedAt: Value(DateTime.now()),
         ),
       );
@@ -267,11 +280,8 @@ class TaskRepository {
           status: Value(task.status.value),
           dueDate: Value(task.dueDate),
           dueTime: Value(task.dueTime),
-          estimatedDuration: Value(task.estimatedDuration),
-          energyLevel: Value(task.energyLevel),
-          context: Value(task.context.value),
-          focusTime: Value(task.focusTime),
           notes: Value(task.notes),
+          providerMetadata: Value(providerMetadataJson),
           updatedAt: Value(DateTime.now()),
         ),
       );
@@ -280,8 +290,11 @@ class TaskRepository {
   }
 
   Future<TaskEntity> _updateTodoistTask(TaskEntity task) async {
+    // Get the external ID for API call
+    final apiTaskId = task.externalId ?? task.id;
+
     await _todoistApi!.updateTask(
-      taskId: task.id,
+      taskId: apiTaskId,
       content: task.title,
       description: task.description,
       priority: _mapPriorityToTodoist(task.priority),
@@ -293,9 +306,13 @@ class TaskRepository {
   }
 
   Future<TaskEntity> _updateMsToDoTask(TaskEntity task) async {
+    // Get the external ID and list ID for API call
+    final apiTaskId = task.externalId ?? task.id;
+    final listId = task.projectId ?? 'tasks';
+
     await _msToDoApi!.updateTask(
-      listId: task.projectId ?? 'tasks',
-      taskId: task.id,
+      listId: listId,
+      taskId: apiTaskId,
       title: task.title,
       body: task.description,
       dueDate: task.dueDate,
@@ -309,18 +326,20 @@ class TaskRepository {
 
   /// Delete a task
   Future<void> deleteTask(TaskEntity task) async {
-    switch (task.provider) {
-      case TaskProvider.todoist:
+    // Get external ID for API calls
+    final apiTaskId = task.externalId ?? task.id;
+
+    switch (task.integrationId) {
+      case 'todoist':
         if (_todoistApi != null) {
-          await _todoistApi!.deleteTask(task.id);
+          await _todoistApi!.deleteTask(apiTaskId);
         }
         break;
-      case TaskProvider.msToDo:
+      case 'msToDo':
         if (_msToDoApi != null) {
-          await _msToDoApi!.deleteTask(task.projectId ?? 'tasks', task.id);
+          final listId = task.projectId ?? 'tasks';
+          await _msToDoApi!.deleteTask(listId, apiTaskId);
         }
-        break;
-      default:
         break;
     }
     await _database.deleteTask(task.id);
@@ -337,26 +356,28 @@ class TaskRepository {
       completedAt: DateTime.now(),
     );
 
+    // Get external ID for provider API
+    final providerTaskId = task.externalId ?? task.id;
+
     // For synced tasks, use transactional outbox pattern
     // For local tasks, just update directly
-    switch (task.provider) {
-      case TaskProvider.todoist:
+    switch (task.integrationId) {
+      case 'todoist':
         // Queue for sync - Rust will push to API later
         await _database.completeTaskWithQueue(
           taskId: task.id,
           provider: 'todoist',
-          providerTaskId: task.id,
+          providerTaskId: providerTaskId,
         );
         break;
-      case TaskProvider.msToDo:
+      case 'msToDo':
         // Queue for sync - Rust will push to API later
         await _database.completeTaskWithQueue(
           taskId: task.id,
           provider: 'mstodo',
-          providerTaskId: task.id,
+          providerTaskId: providerTaskId,
         );
         break;
-      case TaskProvider.local:
       default:
         // Local tasks don't need sync queueing
         await _database.completeTask(task.id);
@@ -374,25 +395,27 @@ class TaskRepository {
       completedAt: null,
     );
 
+    // Get external ID for provider API
+    final providerTaskId = task.externalId ?? task.id;
+
     // For synced tasks, use transactional outbox pattern
-    switch (task.provider) {
-      case TaskProvider.todoist:
+    switch (task.integrationId) {
+      case 'todoist':
         // Queue for sync - Rust will push to API later
         await _database.reopenTaskWithQueue(
           taskId: task.id,
           provider: 'todoist',
-          providerTaskId: task.id,
+          providerTaskId: providerTaskId,
         );
         break;
-      case TaskProvider.msToDo:
+      case 'msToDo':
         // Queue for sync - Rust will push to API later
         await _database.reopenTaskWithQueue(
           taskId: task.id,
           provider: 'mstodo',
-          providerTaskId: task.id,
+          providerTaskId: providerTaskId,
         );
         break;
-      case TaskProvider.local:
       default:
         // Local tasks don't need sync queueing
         await _database.updateTask(
