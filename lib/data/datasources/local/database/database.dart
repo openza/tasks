@@ -405,6 +405,24 @@ class AppDatabase extends _$AppDatabase {
     );
   }
 
+  /// Ensure the pending_completions table exists.
+  /// This table is normally created by the Rust sync engine, but we need it
+  /// available before the first sync if the user completes a task offline.
+  Future<void> _ensurePendingCompletionsTable() async {
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS pending_completions (
+        id TEXT PRIMARY KEY NOT NULL,
+        task_id TEXT NOT NULL,
+        provider TEXT NOT NULL,
+        provider_task_id TEXT NOT NULL,
+        completed INTEGER NOT NULL DEFAULT 1,
+        completed_at INTEGER,
+        created_at INTEGER NOT NULL,
+        retry_count INTEGER NOT NULL DEFAULT 0
+      )
+    ''');
+  }
+
   /// Complete a task and queue for sync in the same transaction
   /// This ensures atomicity - if the app crashes, both operations either
   /// happen together or not at all
@@ -413,6 +431,9 @@ class AppDatabase extends _$AppDatabase {
     required String provider,
     required String providerTaskId,
   }) async {
+    // Ensure table exists before transaction (cannot run DDL inside transaction)
+    await _ensurePendingCompletionsTable();
+
     await transaction(() async {
       final now = DateTime.now();
       final nowTimestamp = now.millisecondsSinceEpoch ~/ 1000;
@@ -444,6 +465,9 @@ class AppDatabase extends _$AppDatabase {
     required String provider,
     required String providerTaskId,
   }) async {
+    // Ensure table exists before transaction (cannot run DDL inside transaction)
+    await _ensurePendingCompletionsTable();
+
     await transaction(() async {
       final now = DateTime.now();
       final nowTimestamp = now.millisecondsSinceEpoch ~/ 1000;
@@ -682,10 +706,23 @@ Future<void> _migrateOldDatabaseIfExists(File newDbFile) async {
       // Ensure new directory exists
       await newDbFile.parent.create(recursive: true);
 
-      // Copy old database to new location
+      // Checkpoint WAL to flush all pending transactions to the main database file.
+      // This is CRITICAL for safe migration: without it, uncommitted WAL transactions
+      // could be lost or cause corruption when files are copied separately.
+      // TRUNCATE mode checkpoints and then truncates the WAL file to zero bytes.
+      final tempDb = NativeDatabase(oldDbFile);
+      try {
+        await tempDb.ensureOpen(_NoOpVersionDelegate());
+        await tempDb.runCustom('PRAGMA wal_checkpoint(TRUNCATE)');
+      } finally {
+        await tempDb.close();
+      }
+
+      // Now safe to copy - WAL has been flushed to main db file
       await oldDbFile.copy(newDbFile.path);
 
-      // Also copy WAL and SHM files if they exist (for WAL mode databases)
+      // WAL and SHM files should be empty/gone after TRUNCATE checkpoint,
+      // but copy them if they still exist for safety
       final oldWalFile = File('${oldDbFile.path}-wal');
       final oldShmFile = File('${oldDbFile.path}-shm');
 
@@ -708,5 +745,17 @@ Future<void> _migrateOldDatabaseIfExists(File newDbFile) async {
     // Log error but don't crash the app
     // ignore: avoid_print
     print('Warning: Failed to migrate old database: $e');
+  }
+}
+
+/// A no-op version delegate for opening a database without migration
+/// Used only for WAL checkpointing before file-level operations
+class _NoOpVersionDelegate extends QueryExecutorUser {
+  @override
+  int get schemaVersion => 1;
+
+  @override
+  Future<void> beforeOpen(QueryExecutor executor, OpeningDetails details) async {
+    // No-op: we just need to open the database to run checkpoint
   }
 }

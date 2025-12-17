@@ -1,7 +1,20 @@
-use chrono::{TimeZone, Utc};
+use chrono::{DateTime, TimeZone, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::domain::{Label, PendingCompletion, Project, SyncResult, Task};
+
+/// Safely convert a Unix timestamp to DateTime<Utc>, returning a default on invalid timestamps.
+/// This prevents panics from invalid/corrupted data in the database.
+fn timestamp_to_datetime(ts: i64) -> DateTime<Utc> {
+    Utc.timestamp_opt(ts, 0)
+        .single()
+        .unwrap_or_else(Utc::now)
+}
+
+/// Safely convert an optional Unix timestamp to Option<DateTime<Utc>>.
+fn timestamp_to_datetime_opt(ts: Option<i64>) -> Option<DateTime<Utc>> {
+    ts.and_then(|t| Utc.timestamp_opt(t, 0).single())
+}
 
 /// Database repository for sync operations
 pub struct Repository {
@@ -52,15 +65,15 @@ impl Repository {
                     parent_id: row.get(6)?,
                     priority: row.get(7)?,
                     status: row.get(8)?,
-                    due_date: row.get::<_, Option<i64>>(9)?.map(|ts| Utc.timestamp_opt(ts, 0).unwrap()),
+                    due_date: timestamp_to_datetime_opt(row.get(9)?),
                     due_time: row.get(10)?,
                     notes: row.get(11)?,
                     provider_metadata: row
                         .get::<_, Option<String>>(12)?
                         .and_then(|s| serde_json::from_str(&s).ok()),
-                    created_at: Utc.timestamp_opt(row.get::<_, i64>(13)?, 0).unwrap(),
-                    updated_at: row.get::<_, Option<i64>>(14)?.map(|ts| Utc.timestamp_opt(ts, 0).unwrap()),
-                    completed_at: row.get::<_, Option<i64>>(15)?.map(|ts| Utc.timestamp_opt(ts, 0).unwrap()),
+                    created_at: timestamp_to_datetime(row.get::<_, i64>(13)?),
+                    updated_at: timestamp_to_datetime_opt(row.get(14)?),
+                    completed_at: timestamp_to_datetime_opt(row.get(15)?),
                     labels: Vec::new(), // Labels loaded separately via task_labels junction table
                 })
             })?
@@ -344,8 +357,8 @@ impl Repository {
                     provider: row.get(2)?,
                     provider_task_id: row.get(3)?,
                     completed: row.get(4)?,
-                    completed_at: row.get::<_, Option<i64>>(5)?.map(|ts| Utc.timestamp_opt(ts, 0).unwrap()),
-                    created_at: Utc.timestamp_opt(row.get::<_, i64>(6)?, 0).unwrap(),
+                    completed_at: timestamp_to_datetime_opt(row.get(5)?),
+                    created_at: timestamp_to_datetime(row.get::<_, i64>(6)?),
                     retry_count: row.get(7)?,
                 })
             })?

@@ -218,9 +218,9 @@ class SyncEngine {
 
     try {
       final dbPath = await _getDatabasePath();
-      final tasksJson = jsonEncode(tasks.map((t) => _taskToJson(t)).toList());
-      final projectsJson = jsonEncode(projects.map((p) => _projectToJson(p)).toList());
-      final labelsJson = jsonEncode(labels.map((l) => _labelToJson(l)).toList());
+      final tasksJson = _sanitizeForFfi(jsonEncode(tasks.map((t) => _taskToJson(t)).toList()));
+      final projectsJson = _sanitizeForFfi(jsonEncode(projects.map((p) => _projectToJson(p)).toList()));
+      final labelsJson = _sanitizeForFfi(jsonEncode(labels.map((l) => _labelToJson(l)).toList()));
 
       AppLogger.info('Starting incremental sync via Rust FFI...');
 
