@@ -374,7 +374,7 @@ class TaskRepository {
         // Queue for sync - Rust will push to API later
         await _database.completeTaskWithQueue(
           taskId: task.id,
-          provider: 'mstodo',
+          provider: 'msToDo',
           providerTaskId: providerTaskId,
         );
         break;
@@ -412,7 +412,7 @@ class TaskRepository {
         // Queue for sync - Rust will push to API later
         await _database.reopenTaskWithQueue(
           taskId: task.id,
-          provider: 'mstodo',
+          provider: 'msToDo',
           providerTaskId: providerTaskId,
         );
         break;
