@@ -291,9 +291,12 @@ impl SyncEngine {
         repo.ensure_pending_completions_table()?;
         repo.ensure_integration_exists(integration_id)?;
 
-        // Build set of valid project IDs before transaction
-        let valid_project_ids: HashSet<String> =
+        // Build set of valid project IDs: include both remote projects and existing local projects
+        // This prevents orphaning tasks that reference projects synced in previous batches
+        let local_project_ids = repo.get_project_ids_by_integration(integration_id)?;
+        let mut valid_project_ids: HashSet<String> =
             remote_projects.iter().map(|p| p.id.clone()).collect();
+        valid_project_ids.extend(local_project_ids);
 
         // Prepare tasks (sort and validate references)
         let sorted_tasks = Self::prepare_tasks_for_insert(remote_tasks, &valid_project_ids);
@@ -453,13 +456,18 @@ impl SyncEngine {
             }
         }
 
-        // Detect deleted/completed tasks (in local but not in remote)
+        // Detect deleted tasks (in local but not in remote)
         // Todoist REST API only returns active tasks, so any task not in
-        // the response was either deleted or completed - remove it locally
-        for (local_id, _) in &local_task_map {
+        // the response was either deleted remotely or completed.
+        // Preserve locally-completed tasks for history - only delete if
+        // the task was NOT completed locally (status != 'completed')
+        for (local_id, local_task) in &local_task_map {
             if !remote_task_ids.contains(local_id) {
-                tx.execute("DELETE FROM tasks WHERE id = ?1", rusqlite::params![local_id])?;
-                tasks_deleted += 1;
+                // Skip deletion for locally-completed tasks to preserve history
+                if local_task.status != "completed" {
+                    tx.execute("DELETE FROM tasks WHERE id = ?1", rusqlite::params![local_id])?;
+                    tasks_deleted += 1;
+                }
             }
         }
 

@@ -109,15 +109,18 @@ class AppDatabase extends _$AppDatabase {
     await customStatement("UPDATE labels SET external_id = SUBSTR(id, 15), integration_id = 'todoist' WHERE id LIKE 'todoist_label_%'");
 
     // Step 6: Recreate tables to remove deprecated columns
+    // Disable foreign keys during table recreation to avoid constraint violations
+    await customStatement('PRAGMA foreign_keys = OFF');
+
     // Tasks table - remove: estimated_duration, actual_duration, energy_level, context, focus_time, source_task
     await customStatement('''
       CREATE TABLE IF NOT EXISTS tasks_new (
         id TEXT PRIMARY KEY NOT NULL,
         external_id TEXT,
-        integration_id TEXT NOT NULL DEFAULT 'openza_tasks',
+        integration_id TEXT NOT NULL DEFAULT 'openza_tasks' REFERENCES integrations(id),
         title TEXT NOT NULL,
         description TEXT,
-        project_id TEXT,
+        project_id TEXT REFERENCES projects(id),
         parent_id TEXT,
         priority INTEGER NOT NULL DEFAULT 2,
         status TEXT NOT NULL DEFAULT 'pending',
@@ -152,7 +155,7 @@ class AppDatabase extends _$AppDatabase {
       CREATE TABLE IF NOT EXISTS projects_new (
         id TEXT PRIMARY KEY NOT NULL,
         external_id TEXT,
-        integration_id TEXT NOT NULL DEFAULT 'openza_tasks',
+        integration_id TEXT NOT NULL DEFAULT 'openza_tasks' REFERENCES integrations(id),
         name TEXT NOT NULL,
         description TEXT,
         color TEXT,
@@ -186,7 +189,7 @@ class AppDatabase extends _$AppDatabase {
       CREATE TABLE IF NOT EXISTS labels_new (
         id TEXT PRIMARY KEY NOT NULL,
         external_id TEXT,
-        integration_id TEXT NOT NULL DEFAULT 'openza_tasks',
+        integration_id TEXT NOT NULL DEFAULT 'openza_tasks' REFERENCES integrations(id),
         name TEXT NOT NULL,
         color TEXT,
         description TEXT,
@@ -218,6 +221,9 @@ class AppDatabase extends _$AppDatabase {
     await customStatement('CREATE INDEX IF NOT EXISTS idx_tasks_due_date ON tasks(due_date)');
     await customStatement('CREATE INDEX IF NOT EXISTS idx_projects_integration_id ON projects(integration_id)');
     await customStatement('CREATE INDEX IF NOT EXISTS idx_labels_integration_id ON labels(integration_id)');
+
+    // Re-enable foreign keys after table recreation
+    await customStatement('PRAGMA foreign_keys = ON');
   }
 
   /// Insert default integration providers
@@ -357,8 +363,7 @@ class AppDatabase extends _$AppDatabase {
           ..where((t) =>
               t.dueDate.isBiggerOrEqualValue(todayStart) &
               t.dueDate.isSmallerThanValue(todayEnd) &
-              t.status.equals('pending').not() |
-              t.status.equals('in_progress')))
+              (t.status.equals('pending') | t.status.equals('in_progress'))))
         .get();
   }
 

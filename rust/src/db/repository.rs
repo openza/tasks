@@ -404,4 +404,17 @@ impl Repository {
         }
         Ok(())
     }
+
+    // ============ PROJECT ID OPERATIONS ============
+
+    /// Get all project IDs for a specific integration
+    pub fn get_project_ids_by_integration(&self, integration_id: &str) -> SyncResult<Vec<String>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id FROM projects WHERE integration_id = ?1")?;
+        let ids = stmt
+            .query_map(params![integration_id], |row| row.get(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(ids)
+    }
 }
