@@ -13,28 +13,29 @@ Openza Tasks supports multiple task providers. You can connect one or more provi
 
 | Provider | Status | Auth Method |
 |----------|--------|-------------|
-| Todoist | Fully Supported | OAuth 2.0 |
+| Local Tasks | Fully Supported | N/A (offline) |
+| Todoist | Fully Supported | API Token |
 | Microsoft To-Do | Fully Supported | OAuth 2.0 |
-| Local Tasks | Planned | N/A |
 
 ## First Launch
 
-When you first launch Openza Tasks, you'll see the login screen where you can choose which provider to connect.
+When you first launch Openza Tasks, you can start using it immediately with local tasks. To sync with external providers, go to Settings to connect your accounts.
 
 <Aside type="tip">
-  You can add multiple accounts after the initial setup through the Settings menu.
+  Local tasks work completely offline and are stored on your device.
 </Aside>
 
 ## Provider Setup Guides
 
-- [Todoist Setup](/tasks/guides/todoist-setup) - Connect your Todoist account
-- [Microsoft To-Do Setup](/tasks/guides/mstodo-setup) - Connect your Microsoft account
+- [Todoist Setup](/tasks/guides/todoist-setup) - Connect your Todoist account with API token
+- [Microsoft To-Do Setup](/tasks/guides/mstodo-setup) - Connect your Microsoft account via OAuth
 
 ## Settings
 
 Access settings by clicking the gear icon in the sidebar. Available options include:
 
-- **Sync Settings** - Configure auto-sync interval
-- **Appearance** - Theme and display options
-- **Export** - Export your tasks to JSON
-- **Account Management** - Add or remove connected accounts
+- **Providers** - View and switch between connected providers
+- **Todoist** - Connect or disconnect your Todoist account
+- **Microsoft To-Do** - Connect or disconnect your Microsoft account
+- **Data & Sync** - Sync your tasks manually
+- **About** - App version and information
