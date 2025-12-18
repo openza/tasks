@@ -26,8 +26,10 @@ lib/
 │   ├── datasources/
 │   │   ├── local/         # SQLite (Drift)
 │   │   └── remote/        # API clients
-│   ├── models/            # Data models
-│   └── repositories/      # Repository implementations
+│   ├── repositories/      # Repository implementations
+│   └── sync/              # Rust FFI bridge
+│       ├── sync_engine.dart
+│       └── sync_ffi.dart
 │
 ├── domain/                 # Business logic
 │   ├── entities/          # Domain entities (Freezed)
@@ -40,6 +42,16 @@ lib/
 │   └── widgets/           # Reusable components
 │
 └── main.dart              # Entry point
+
+rust/                       # Rust sync engine
+├── src/
+│   ├── api.rs             # Todoist API client
+│   ├── db/                # SQLite repository
+│   ├── domain/            # Models and errors
+│   ├── ffi.rs             # FFI exports
+│   ├── lib.rs             # Crate entry
+│   └── sync/              # Sync engine logic
+└── Cargo.toml
 ```
 
 ## Key Technologies
@@ -49,7 +61,8 @@ lib/
 | State Management | Riverpod 3 |
 | Navigation | GoRouter |
 | Database | Drift (SQLite) |
-| HTTP Client | Dio |
+| Sync Engine | Rust + FFI |
+| HTTP Client | Dio (Dart), reqwest (Rust) |
 | Code Generation | Freezed, Riverpod Generator |
 | Secure Storage | flutter_secure_storage |
 
