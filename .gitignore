@@ -61,12 +61,15 @@ flatpak/build/
 
 # Website (Astro/Node.js)
 node_modules/
+website/node_modules/
 website/dist/
 website/.astro/
 
-# Rust
+# Rust build artifacts
 rust/target/
-devtools_options.yaml
 
 # Compiled Rust library
 linux/libopenza_sync.so
+
+# Flutter DevTools
+devtools_options.yaml
