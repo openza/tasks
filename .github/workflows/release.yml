@@ -21,6 +21,9 @@ jobs:
         with:
           channel: 'stable'
 
+      - name: Setup Rust
+        uses: dtolnay/rust-action@stable
+
       - name: Install Linux dependencies
         run: |
           sudo apt-get update
