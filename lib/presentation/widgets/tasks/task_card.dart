@@ -1,15 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
 import '../../../app/app_theme.dart';
 import '../../../core/utils/date_utils.dart';
 import '../../../domain/entities/task.dart';
 import '../../../domain/entities/project.dart';
+import '../../providers/integration_provider.dart';
 import '../badges/priority_badge.dart';
 import '../badges/label_badge.dart';
 
 /// Card widget for displaying a single task
-class TaskCard extends StatelessWidget {
+class TaskCard extends ConsumerWidget {
   final TaskEntity task;
   final ProjectEntity? project;
   final VoidCallback? onTap;
@@ -26,7 +28,7 @@ class TaskCard extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
       child: InkWell(
@@ -80,7 +82,7 @@ class TaskCard extends StatelessWidget {
 
                     // Metadata row
                     const SizedBox(height: 8),
-                    _buildMetadataRow(context),
+                    _buildMetadataRow(context, ref),
                   ],
                 ),
               ),
@@ -112,7 +114,7 @@ class TaskCard extends StatelessWidget {
     );
   }
 
-  Widget _buildMetadataRow(BuildContext context) {
+  Widget _buildMetadataRow(BuildContext context, WidgetRef ref) {
     return Wrap(
       spacing: 8,
       runSpacing: 4,
@@ -133,7 +135,7 @@ class TaskCard extends StatelessWidget {
           ),
 
         // Priority
-        PriorityBadge(priority: task.priority, provider: task.provider),
+        PriorityBadge(priority: task.priority),
 
         // Project
         if (showProject && project != null)
@@ -156,29 +158,8 @@ class TaskCard extends StatelessWidget {
         // Due date
         if (task.dueDate != null) _buildDueDate(),
 
-        // Energy level indicator
-        if (task.energyLevel >= 3) _buildEnergyIndicator(),
-
-        // Focus time indicator
-        if (task.focusTime)
-          const Text('🧠', style: TextStyle(fontSize: 12)),
-
-        // Estimated duration
-        if (task.estimatedDuration != null)
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(LucideIcons.clock, size: 10, color: AppTheme.gray400),
-              const SizedBox(width: 2),
-              Text(
-                '${task.estimatedDuration}m',
-                style: TextStyle(fontSize: 10, color: AppTheme.gray500),
-              ),
-            ],
-          ),
-
-        // Provider indicator
-        _buildProviderIndicator(),
+        // Integration indicator
+        _buildIntegrationIndicator(ref),
       ],
     );
   }
@@ -226,44 +207,19 @@ class TaskCard extends StatelessWidget {
     );
   }
 
-  Widget _buildEnergyIndicator() {
-    String emoji;
-    switch (task.energyLevel) {
-      case 3:
-        emoji = '🟠';
-        break;
-      case 4:
-        emoji = '🔴';
-        break;
-      case 5:
-        emoji = '⚡';
-        break;
-      default:
-        return const SizedBox.shrink();
-    }
-    return Text(emoji, style: const TextStyle(fontSize: 12));
-  }
-
-  Widget _buildProviderIndicator() {
-    if (task.provider == null || task.provider == TaskProvider.local) {
+  Widget _buildIntegrationIndicator(WidgetRef ref) {
+    // Don't show indicator for native tasks
+    if (task.isNative) {
       return const SizedBox.shrink();
     }
 
-    Color color;
-    String label;
-
-    switch (task.provider) {
-      case TaskProvider.todoist:
-        color = const Color(0xFFE44332);
-        label = 'Todoist';
-        break;
-      case TaskProvider.msToDo:
-        color = const Color(0xFF00A4EF);
-        label = 'MS To-Do';
-        break;
-      default:
-        return const SizedBox.shrink();
+    final integration = ref.watch(integrationByIdProvider(task.integrationId));
+    if (integration == null) {
+      return const SizedBox.shrink();
     }
+
+    final color = integration.colorValue;
+    final label = integration.displayName;
 
     return Row(
       mainAxisSize: MainAxisSize.min,

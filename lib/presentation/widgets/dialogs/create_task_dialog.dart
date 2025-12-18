@@ -52,9 +52,6 @@ class _CreateTaskDialogState extends State<CreateTaskDialog> {
   int _priority = 4; // Default: Low
   DateTime? _dueDate;
   final List<LabelEntity> _selectedLabels = [];
-  int _energyLevel = 2; // Default: Medium
-  bool _focusTime = false;
-  int? _estimatedDuration;
 
   @override
   void initState() {
@@ -75,7 +72,7 @@ class _CreateTaskDialogState extends State<CreateTaskDialog> {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Container(
         width: 500,
-        constraints: const BoxConstraints(maxHeight: 700),
+        constraints: const BoxConstraints(maxHeight: 600),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -102,11 +99,7 @@ class _CreateTaskDialogState extends State<CreateTaskDialog> {
                       const SizedBox(height: 16),
                       if (widget.labels.isNotEmpty) ...[
                         _buildLabelsSelector(context),
-                        const SizedBox(height: 16),
                       ],
-                      _buildDivider(),
-                      const SizedBox(height: 16),
-                      _buildAdvancedOptions(context),
                     ],
                   ),
                 ),
@@ -218,7 +211,7 @@ class _CreateTaskDialogState extends State<CreateTaskDialog> {
         _buildSectionLabel(context, LucideIcons.folder, 'Project'),
         const SizedBox(height: 8),
         DropdownButtonFormField<String?>(
-          initialValue: _selectedProjectId,
+          value: _selectedProjectId,
           decoration: InputDecoration(
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(8),
@@ -328,67 +321,27 @@ class _CreateTaskDialogState extends State<CreateTaskDialog> {
                 Icon(
                   LucideIcons.calendar,
                   size: 18,
-                  color:
-                      _dueDate != null ? AppTheme.primaryBlue : AppTheme.gray400,
+                  color: _dueDate != null ? AppTheme.primaryBlue : AppTheme.gray400,
                 ),
                 const SizedBox(width: 12),
-                Text(
-                  _dueDate != null
-                      ? _formatDate(_dueDate!)
-                      : 'No due date',
-                  style: TextStyle(
-                    color: _dueDate != null
-                        ? AppTheme.gray900
-                        : AppTheme.gray500,
+                Expanded(
+                  child: Text(
+                    _dueDate != null ? _formatDate(_dueDate!) : 'No due date',
+                    style: TextStyle(
+                      color: _dueDate != null ? AppTheme.gray700 : AppTheme.gray400,
+                    ),
                   ),
                 ),
-                const Spacer(),
                 if (_dueDate != null)
                   GestureDetector(
                     onTap: () => setState(() => _dueDate = null),
-                    child: Icon(
-                      LucideIcons.x,
-                      size: 16,
-                      color: AppTheme.gray400,
-                    ),
+                    child: Icon(LucideIcons.x, size: 16, color: AppTheme.gray400),
                   ),
               ],
             ),
           ),
         ),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            _buildQuickDateChip('Today', DateTime.now()),
-            const SizedBox(width: 8),
-            _buildQuickDateChip(
-                'Tomorrow', DateTime.now().add(const Duration(days: 1))),
-            const SizedBox(width: 8),
-            _buildQuickDateChip(
-                'Next Week', DateTime.now().add(const Duration(days: 7))),
-          ],
-        ),
       ],
-    );
-  }
-
-  Widget _buildQuickDateChip(String label, DateTime date) {
-    return GestureDetector(
-      onTap: () => setState(() => _dueDate = date),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        decoration: BoxDecoration(
-          color: AppTheme.gray100,
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 12,
-            color: AppTheme.gray600,
-          ),
-        ),
-      ),
     );
   }
 
@@ -403,7 +356,6 @@ class _CreateTaskDialogState extends State<CreateTaskDialog> {
           runSpacing: 8,
           children: widget.labels.map((label) {
             final isSelected = _selectedLabels.contains(label);
-            final color = _parseColor(label.color);
             return GestureDetector(
               onTap: () {
                 setState(() {
@@ -417,25 +369,32 @@ class _CreateTaskDialogState extends State<CreateTaskDialog> {
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                 decoration: BoxDecoration(
-                  color: isSelected ? color : color.withValues(alpha: 0.1),
+                  color: isSelected
+                      ? _parseColor(label.color).withValues(alpha: 0.15)
+                      : AppTheme.gray50,
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(
-                    color: color.withValues(alpha: 0.3),
+                    color: isSelected ? _parseColor(label.color) : AppTheme.gray200,
                   ),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    if (isSelected) ...[
-                      Icon(LucideIcons.check, size: 12, color: Colors.white),
-                      const SizedBox(width: 4),
-                    ],
+                    Container(
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: _parseColor(label.color),
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
                     Text(
                       label.name,
                       style: TextStyle(
                         fontSize: 12,
-                        color: isSelected ? Colors.white : color,
-                        fontWeight: FontWeight.w500,
+                        fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+                        color: isSelected ? _parseColor(label.color) : AppTheme.gray600,
                       ),
                     ),
                   ],
@@ -445,142 +404,6 @@ class _CreateTaskDialogState extends State<CreateTaskDialog> {
           }).toList(),
         ),
       ],
-    );
-  }
-
-  Widget _buildAdvancedOptions(BuildContext context) {
-    return ExpansionTile(
-      tilePadding: EdgeInsets.zero,
-      title: Text(
-        'Advanced Options',
-        style: TextStyle(
-          fontSize: 14,
-          fontWeight: FontWeight.w500,
-          color: AppTheme.gray600,
-        ),
-      ),
-      children: [
-        const SizedBox(height: 8),
-        // Energy level
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _buildSectionLabel(context, LucideIcons.zap, 'Energy Level'),
-            const SizedBox(height: 8),
-            Row(
-              children: List.generate(5, (index) {
-                final level = index + 1;
-                final isSelected = _energyLevel >= level;
-                return Expanded(
-                  child: GestureDetector(
-                    onTap: () => setState(() => _energyLevel = level),
-                    child: Container(
-                      margin: EdgeInsets.only(right: index < 4 ? 4 : 0),
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                      decoration: BoxDecoration(
-                        color: isSelected
-                            ? (AppTheme.energyColors[level] ?? AppTheme.gray300)
-                                .withValues(alpha: 0.2)
-                            : AppTheme.gray50,
-                        borderRadius: BorderRadius.circular(4),
-                        border: Border.all(
-                          color: isSelected
-                              ? AppTheme.energyColors[level] ?? AppTheme.gray300
-                              : AppTheme.gray200,
-                        ),
-                      ),
-                      child: Text(
-                        level.toString(),
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: isSelected
-                              ? AppTheme.energyColors[level]
-                              : AppTheme.gray500,
-                        ),
-                      ),
-                    ),
-                  ),
-                );
-              }),
-            ),
-          ],
-        ),
-        const SizedBox(height: 16),
-        // Focus time
-        Row(
-          children: [
-            Icon(LucideIcons.brain, size: 16, color: AppTheme.gray500),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                'Requires Focus Time',
-                style: TextStyle(
-                  fontSize: 13,
-                  color: AppTheme.gray700,
-                ),
-              ),
-            ),
-            Switch(
-              value: _focusTime,
-              onChanged: (value) => setState(() => _focusTime = value),
-            ),
-          ],
-        ),
-        const SizedBox(height: 16),
-        // Estimated duration
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _buildSectionLabel(context, LucideIcons.clock, 'Estimated Duration'),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                _buildDurationChip(15),
-                const SizedBox(width: 8),
-                _buildDurationChip(30),
-                const SizedBox(width: 8),
-                _buildDurationChip(60),
-                const SizedBox(width: 8),
-                _buildDurationChip(120),
-              ],
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Widget _buildDurationChip(int minutes) {
-    final isSelected = _estimatedDuration == minutes;
-    return Expanded(
-      child: GestureDetector(
-        onTap: () => setState(() {
-          _estimatedDuration = isSelected ? null : minutes;
-        }),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          decoration: BoxDecoration(
-            color: isSelected
-                ? AppTheme.primaryBlue.withValues(alpha: 0.1)
-                : AppTheme.gray50,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(
-              color: isSelected ? AppTheme.primaryBlue : AppTheme.gray200,
-            ),
-          ),
-          child: Text(
-            minutes < 60 ? '${minutes}m' : '${minutes ~/ 60}h',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
-              color: isSelected ? AppTheme.primaryBlue : AppTheme.gray600,
-            ),
-          ),
-        ),
-      ),
     );
   }
 
@@ -660,6 +483,7 @@ class _CreateTaskDialogState extends State<CreateTaskDialog> {
     final now = DateTime.now();
     final task = TaskEntity(
       id: const Uuid().v4(),
+      integrationId: 'openza_tasks',
       title: _titleController.text.trim(),
       description: _descriptionController.text.trim().isNotEmpty
           ? _descriptionController.text.trim()
@@ -669,10 +493,6 @@ class _CreateTaskDialogState extends State<CreateTaskDialog> {
       projectId: _selectedProjectId,
       dueDate: _dueDate,
       labels: _selectedLabels,
-      energyLevel: _energyLevel,
-      focusTime: _focusTime,
-      estimatedDuration: _estimatedDuration,
-      provider: TaskProvider.local,
       createdAt: now,
       updatedAt: now,
     );

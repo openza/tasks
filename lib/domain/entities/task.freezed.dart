@@ -15,12 +15,13 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$TaskEntity {
 
- String get id; String get title; String? get description; String? get projectId; String? get parentId; int get priority; TaskStatus get status; DateTime? get dueDate; String? get dueTime;// Enhanced local features
- int? get estimatedDuration; int? get actualDuration; int get energyLevel; TaskContext get context; bool get focusTime; String? get notes;// External integration data
- Map<String, dynamic>? get sourceTask; Map<String, dynamic>? get integrations;// Timestamps
+ String get id; String? get externalId;// Provider's original ID
+ String get integrationId;// FK to integrations table
+ String get title; String? get description; String? get projectId; String? get parentId; int get priority; TaskStatus get status; DateTime? get dueDate; String? get dueTime; String? get notes;// Long description/reference material
+ Map<String, dynamic>? get providerMetadata;// Provider-specific unmapped data
+// Timestamps
  DateTime get createdAt; DateTime? get updatedAt; DateTime? get completedAt;// Joined data (populated from relations)
- List<LabelEntity> get labels; ProjectEntity? get project;// Source provider
- TaskProvider? get provider;
+ List<LabelEntity> get labels; ProjectEntity? get project;
 /// Create a copy of TaskEntity
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -33,16 +34,16 @@ $TaskEntityCopyWith<TaskEntity> get copyWith => _$TaskEntityCopyWithImpl<TaskEnt
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is TaskEntity&&(identical(other.id, id) || other.id == id)&&(identical(other.title, title) || other.title == title)&&(identical(other.description, description) || other.description == description)&&(identical(other.projectId, projectId) || other.projectId == projectId)&&(identical(other.parentId, parentId) || other.parentId == parentId)&&(identical(other.priority, priority) || other.priority == priority)&&(identical(other.status, status) || other.status == status)&&(identical(other.dueDate, dueDate) || other.dueDate == dueDate)&&(identical(other.dueTime, dueTime) || other.dueTime == dueTime)&&(identical(other.estimatedDuration, estimatedDuration) || other.estimatedDuration == estimatedDuration)&&(identical(other.actualDuration, actualDuration) || other.actualDuration == actualDuration)&&(identical(other.energyLevel, energyLevel) || other.energyLevel == energyLevel)&&(identical(other.context, context) || other.context == context)&&(identical(other.focusTime, focusTime) || other.focusTime == focusTime)&&(identical(other.notes, notes) || other.notes == notes)&&const DeepCollectionEquality().equals(other.sourceTask, sourceTask)&&const DeepCollectionEquality().equals(other.integrations, integrations)&&(identical(other.createdAt, createdAt) || other.createdAt == createdAt)&&(identical(other.updatedAt, updatedAt) || other.updatedAt == updatedAt)&&(identical(other.completedAt, completedAt) || other.completedAt == completedAt)&&const DeepCollectionEquality().equals(other.labels, labels)&&(identical(other.project, project) || other.project == project)&&(identical(other.provider, provider) || other.provider == provider));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is TaskEntity&&(identical(other.id, id) || other.id == id)&&(identical(other.externalId, externalId) || other.externalId == externalId)&&(identical(other.integrationId, integrationId) || other.integrationId == integrationId)&&(identical(other.title, title) || other.title == title)&&(identical(other.description, description) || other.description == description)&&(identical(other.projectId, projectId) || other.projectId == projectId)&&(identical(other.parentId, parentId) || other.parentId == parentId)&&(identical(other.priority, priority) || other.priority == priority)&&(identical(other.status, status) || other.status == status)&&(identical(other.dueDate, dueDate) || other.dueDate == dueDate)&&(identical(other.dueTime, dueTime) || other.dueTime == dueTime)&&(identical(other.notes, notes) || other.notes == notes)&&const DeepCollectionEquality().equals(other.providerMetadata, providerMetadata)&&(identical(other.createdAt, createdAt) || other.createdAt == createdAt)&&(identical(other.updatedAt, updatedAt) || other.updatedAt == updatedAt)&&(identical(other.completedAt, completedAt) || other.completedAt == completedAt)&&const DeepCollectionEquality().equals(other.labels, labels)&&(identical(other.project, project) || other.project == project));
 }
 
 @JsonKey(includeFromJson: false, includeToJson: false)
 @override
-int get hashCode => Object.hashAll([runtimeType,id,title,description,projectId,parentId,priority,status,dueDate,dueTime,estimatedDuration,actualDuration,energyLevel,context,focusTime,notes,const DeepCollectionEquality().hash(sourceTask),const DeepCollectionEquality().hash(integrations),createdAt,updatedAt,completedAt,const DeepCollectionEquality().hash(labels),project,provider]);
+int get hashCode => Object.hash(runtimeType,id,externalId,integrationId,title,description,projectId,parentId,priority,status,dueDate,dueTime,notes,const DeepCollectionEquality().hash(providerMetadata),createdAt,updatedAt,completedAt,const DeepCollectionEquality().hash(labels),project);
 
 @override
 String toString() {
-  return 'TaskEntity(id: $id, title: $title, description: $description, projectId: $projectId, parentId: $parentId, priority: $priority, status: $status, dueDate: $dueDate, dueTime: $dueTime, estimatedDuration: $estimatedDuration, actualDuration: $actualDuration, energyLevel: $energyLevel, context: $context, focusTime: $focusTime, notes: $notes, sourceTask: $sourceTask, integrations: $integrations, createdAt: $createdAt, updatedAt: $updatedAt, completedAt: $completedAt, labels: $labels, project: $project, provider: $provider)';
+  return 'TaskEntity(id: $id, externalId: $externalId, integrationId: $integrationId, title: $title, description: $description, projectId: $projectId, parentId: $parentId, priority: $priority, status: $status, dueDate: $dueDate, dueTime: $dueTime, notes: $notes, providerMetadata: $providerMetadata, createdAt: $createdAt, updatedAt: $updatedAt, completedAt: $completedAt, labels: $labels, project: $project)';
 }
 
 
@@ -53,7 +54,7 @@ abstract mixin class $TaskEntityCopyWith<$Res>  {
   factory $TaskEntityCopyWith(TaskEntity value, $Res Function(TaskEntity) _then) = _$TaskEntityCopyWithImpl;
 @useResult
 $Res call({
- String id, String title, String? description, String? projectId, String? parentId, int priority, TaskStatus status, DateTime? dueDate, String? dueTime, int? estimatedDuration, int? actualDuration, int energyLevel, TaskContext context, bool focusTime, String? notes, Map<String, dynamic>? sourceTask, Map<String, dynamic>? integrations, DateTime createdAt, DateTime? updatedAt, DateTime? completedAt, List<LabelEntity> labels, ProjectEntity? project, TaskProvider? provider
+ String id, String? externalId, String integrationId, String title, String? description, String? projectId, String? parentId, int priority, TaskStatus status, DateTime? dueDate, String? dueTime, String? notes, Map<String, dynamic>? providerMetadata, DateTime createdAt, DateTime? updatedAt, DateTime? completedAt, List<LabelEntity> labels, ProjectEntity? project
 });
 
 
@@ -70,9 +71,11 @@ class _$TaskEntityCopyWithImpl<$Res>
 
 /// Create a copy of TaskEntity
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? title = null,Object? description = freezed,Object? projectId = freezed,Object? parentId = freezed,Object? priority = null,Object? status = null,Object? dueDate = freezed,Object? dueTime = freezed,Object? estimatedDuration = freezed,Object? actualDuration = freezed,Object? energyLevel = null,Object? context = null,Object? focusTime = null,Object? notes = freezed,Object? sourceTask = freezed,Object? integrations = freezed,Object? createdAt = null,Object? updatedAt = freezed,Object? completedAt = freezed,Object? labels = null,Object? project = freezed,Object? provider = freezed,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? externalId = freezed,Object? integrationId = null,Object? title = null,Object? description = freezed,Object? projectId = freezed,Object? parentId = freezed,Object? priority = null,Object? status = null,Object? dueDate = freezed,Object? dueTime = freezed,Object? notes = freezed,Object? providerMetadata = freezed,Object? createdAt = null,Object? updatedAt = freezed,Object? completedAt = freezed,Object? labels = null,Object? project = freezed,}) {
   return _then(_self.copyWith(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
+as String,externalId: freezed == externalId ? _self.externalId : externalId // ignore: cast_nullable_to_non_nullable
+as String?,integrationId: null == integrationId ? _self.integrationId : integrationId // ignore: cast_nullable_to_non_nullable
 as String,title: null == title ? _self.title : title // ignore: cast_nullable_to_non_nullable
 as String,description: freezed == description ? _self.description : description // ignore: cast_nullable_to_non_nullable
 as String?,projectId: freezed == projectId ? _self.projectId : projectId // ignore: cast_nullable_to_non_nullable
@@ -81,21 +84,14 @@ as String?,priority: null == priority ? _self.priority : priority // ignore: cas
 as int,status: null == status ? _self.status : status // ignore: cast_nullable_to_non_nullable
 as TaskStatus,dueDate: freezed == dueDate ? _self.dueDate : dueDate // ignore: cast_nullable_to_non_nullable
 as DateTime?,dueTime: freezed == dueTime ? _self.dueTime : dueTime // ignore: cast_nullable_to_non_nullable
-as String?,estimatedDuration: freezed == estimatedDuration ? _self.estimatedDuration : estimatedDuration // ignore: cast_nullable_to_non_nullable
-as int?,actualDuration: freezed == actualDuration ? _self.actualDuration : actualDuration // ignore: cast_nullable_to_non_nullable
-as int?,energyLevel: null == energyLevel ? _self.energyLevel : energyLevel // ignore: cast_nullable_to_non_nullable
-as int,context: null == context ? _self.context : context // ignore: cast_nullable_to_non_nullable
-as TaskContext,focusTime: null == focusTime ? _self.focusTime : focusTime // ignore: cast_nullable_to_non_nullable
-as bool,notes: freezed == notes ? _self.notes : notes // ignore: cast_nullable_to_non_nullable
-as String?,sourceTask: freezed == sourceTask ? _self.sourceTask : sourceTask // ignore: cast_nullable_to_non_nullable
-as Map<String, dynamic>?,integrations: freezed == integrations ? _self.integrations : integrations // ignore: cast_nullable_to_non_nullable
+as String?,notes: freezed == notes ? _self.notes : notes // ignore: cast_nullable_to_non_nullable
+as String?,providerMetadata: freezed == providerMetadata ? _self.providerMetadata : providerMetadata // ignore: cast_nullable_to_non_nullable
 as Map<String, dynamic>?,createdAt: null == createdAt ? _self.createdAt : createdAt // ignore: cast_nullable_to_non_nullable
 as DateTime,updatedAt: freezed == updatedAt ? _self.updatedAt : updatedAt // ignore: cast_nullable_to_non_nullable
 as DateTime?,completedAt: freezed == completedAt ? _self.completedAt : completedAt // ignore: cast_nullable_to_non_nullable
 as DateTime?,labels: null == labels ? _self.labels : labels // ignore: cast_nullable_to_non_nullable
 as List<LabelEntity>,project: freezed == project ? _self.project : project // ignore: cast_nullable_to_non_nullable
-as ProjectEntity?,provider: freezed == provider ? _self.provider : provider // ignore: cast_nullable_to_non_nullable
-as TaskProvider?,
+as ProjectEntity?,
   ));
 }
 /// Create a copy of TaskEntity
@@ -189,10 +185,10 @@ return $default(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( String id,  String title,  String? description,  String? projectId,  String? parentId,  int priority,  TaskStatus status,  DateTime? dueDate,  String? dueTime,  int? estimatedDuration,  int? actualDuration,  int energyLevel,  TaskContext context,  bool focusTime,  String? notes,  Map<String, dynamic>? sourceTask,  Map<String, dynamic>? integrations,  DateTime createdAt,  DateTime? updatedAt,  DateTime? completedAt,  List<LabelEntity> labels,  ProjectEntity? project,  TaskProvider? provider)?  $default,{required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( String id,  String? externalId,  String integrationId,  String title,  String? description,  String? projectId,  String? parentId,  int priority,  TaskStatus status,  DateTime? dueDate,  String? dueTime,  String? notes,  Map<String, dynamic>? providerMetadata,  DateTime createdAt,  DateTime? updatedAt,  DateTime? completedAt,  List<LabelEntity> labels,  ProjectEntity? project)?  $default,{required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case _TaskEntity() when $default != null:
-return $default(_that.id,_that.title,_that.description,_that.projectId,_that.parentId,_that.priority,_that.status,_that.dueDate,_that.dueTime,_that.estimatedDuration,_that.actualDuration,_that.energyLevel,_that.context,_that.focusTime,_that.notes,_that.sourceTask,_that.integrations,_that.createdAt,_that.updatedAt,_that.completedAt,_that.labels,_that.project,_that.provider);case _:
+return $default(_that.id,_that.externalId,_that.integrationId,_that.title,_that.description,_that.projectId,_that.parentId,_that.priority,_that.status,_that.dueDate,_that.dueTime,_that.notes,_that.providerMetadata,_that.createdAt,_that.updatedAt,_that.completedAt,_that.labels,_that.project);case _:
   return orElse();
 
 }
@@ -210,10 +206,10 @@ return $default(_that.id,_that.title,_that.description,_that.projectId,_that.par
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( String id,  String title,  String? description,  String? projectId,  String? parentId,  int priority,  TaskStatus status,  DateTime? dueDate,  String? dueTime,  int? estimatedDuration,  int? actualDuration,  int energyLevel,  TaskContext context,  bool focusTime,  String? notes,  Map<String, dynamic>? sourceTask,  Map<String, dynamic>? integrations,  DateTime createdAt,  DateTime? updatedAt,  DateTime? completedAt,  List<LabelEntity> labels,  ProjectEntity? project,  TaskProvider? provider)  $default,) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( String id,  String? externalId,  String integrationId,  String title,  String? description,  String? projectId,  String? parentId,  int priority,  TaskStatus status,  DateTime? dueDate,  String? dueTime,  String? notes,  Map<String, dynamic>? providerMetadata,  DateTime createdAt,  DateTime? updatedAt,  DateTime? completedAt,  List<LabelEntity> labels,  ProjectEntity? project)  $default,) {final _that = this;
 switch (_that) {
 case _TaskEntity():
-return $default(_that.id,_that.title,_that.description,_that.projectId,_that.parentId,_that.priority,_that.status,_that.dueDate,_that.dueTime,_that.estimatedDuration,_that.actualDuration,_that.energyLevel,_that.context,_that.focusTime,_that.notes,_that.sourceTask,_that.integrations,_that.createdAt,_that.updatedAt,_that.completedAt,_that.labels,_that.project,_that.provider);}
+return $default(_that.id,_that.externalId,_that.integrationId,_that.title,_that.description,_that.projectId,_that.parentId,_that.priority,_that.status,_that.dueDate,_that.dueTime,_that.notes,_that.providerMetadata,_that.createdAt,_that.updatedAt,_that.completedAt,_that.labels,_that.project);}
 }
 /// A variant of `when` that fallback to returning `null`
 ///
@@ -227,10 +223,10 @@ return $default(_that.id,_that.title,_that.description,_that.projectId,_that.par
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( String id,  String title,  String? description,  String? projectId,  String? parentId,  int priority,  TaskStatus status,  DateTime? dueDate,  String? dueTime,  int? estimatedDuration,  int? actualDuration,  int energyLevel,  TaskContext context,  bool focusTime,  String? notes,  Map<String, dynamic>? sourceTask,  Map<String, dynamic>? integrations,  DateTime createdAt,  DateTime? updatedAt,  DateTime? completedAt,  List<LabelEntity> labels,  ProjectEntity? project,  TaskProvider? provider)?  $default,) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( String id,  String? externalId,  String integrationId,  String title,  String? description,  String? projectId,  String? parentId,  int priority,  TaskStatus status,  DateTime? dueDate,  String? dueTime,  String? notes,  Map<String, dynamic>? providerMetadata,  DateTime createdAt,  DateTime? updatedAt,  DateTime? completedAt,  List<LabelEntity> labels,  ProjectEntity? project)?  $default,) {final _that = this;
 switch (_that) {
 case _TaskEntity() when $default != null:
-return $default(_that.id,_that.title,_that.description,_that.projectId,_that.parentId,_that.priority,_that.status,_that.dueDate,_that.dueTime,_that.estimatedDuration,_that.actualDuration,_that.energyLevel,_that.context,_that.focusTime,_that.notes,_that.sourceTask,_that.integrations,_that.createdAt,_that.updatedAt,_that.completedAt,_that.labels,_that.project,_that.provider);case _:
+return $default(_that.id,_that.externalId,_that.integrationId,_that.title,_that.description,_that.projectId,_that.parentId,_that.priority,_that.status,_that.dueDate,_that.dueTime,_that.notes,_that.providerMetadata,_that.createdAt,_that.updatedAt,_that.completedAt,_that.labels,_that.project);case _:
   return null;
 
 }
@@ -242,10 +238,14 @@ return $default(_that.id,_that.title,_that.description,_that.projectId,_that.par
 @JsonSerializable()
 
 class _TaskEntity extends TaskEntity {
-  const _TaskEntity({required this.id, required this.title, this.description, this.projectId, this.parentId, this.priority = 2, this.status = TaskStatus.pending, this.dueDate, this.dueTime, this.estimatedDuration, this.actualDuration, this.energyLevel = 2, this.context = TaskContext.work, this.focusTime = false, this.notes, final  Map<String, dynamic>? sourceTask, final  Map<String, dynamic>? integrations, required this.createdAt, this.updatedAt, this.completedAt, final  List<LabelEntity> labels = const [], this.project, this.provider}): _sourceTask = sourceTask,_integrations = integrations,_labels = labels,super._();
+  const _TaskEntity({required this.id, this.externalId, required this.integrationId, required this.title, this.description, this.projectId, this.parentId, this.priority = 2, this.status = TaskStatus.pending, this.dueDate, this.dueTime, this.notes, final  Map<String, dynamic>? providerMetadata, required this.createdAt, this.updatedAt, this.completedAt, final  List<LabelEntity> labels = const [], this.project}): _providerMetadata = providerMetadata,_labels = labels,super._();
   factory _TaskEntity.fromJson(Map<String, dynamic> json) => _$TaskEntityFromJson(json);
 
 @override final  String id;
+@override final  String? externalId;
+// Provider's original ID
+@override final  String integrationId;
+// FK to integrations table
 @override final  String title;
 @override final  String? description;
 @override final  String? projectId;
@@ -254,33 +254,19 @@ class _TaskEntity extends TaskEntity {
 @override@JsonKey() final  TaskStatus status;
 @override final  DateTime? dueDate;
 @override final  String? dueTime;
-// Enhanced local features
-@override final  int? estimatedDuration;
-@override final  int? actualDuration;
-@override@JsonKey() final  int energyLevel;
-@override@JsonKey() final  TaskContext context;
-@override@JsonKey() final  bool focusTime;
 @override final  String? notes;
-// External integration data
- final  Map<String, dynamic>? _sourceTask;
-// External integration data
-@override Map<String, dynamic>? get sourceTask {
-  final value = _sourceTask;
+// Long description/reference material
+ final  Map<String, dynamic>? _providerMetadata;
+// Long description/reference material
+@override Map<String, dynamic>? get providerMetadata {
+  final value = _providerMetadata;
   if (value == null) return null;
-  if (_sourceTask is EqualUnmodifiableMapView) return _sourceTask;
+  if (_providerMetadata is EqualUnmodifiableMapView) return _providerMetadata;
   // ignore: implicit_dynamic_type
   return EqualUnmodifiableMapView(value);
 }
 
- final  Map<String, dynamic>? _integrations;
-@override Map<String, dynamic>? get integrations {
-  final value = _integrations;
-  if (value == null) return null;
-  if (_integrations is EqualUnmodifiableMapView) return _integrations;
-  // ignore: implicit_dynamic_type
-  return EqualUnmodifiableMapView(value);
-}
-
+// Provider-specific unmapped data
 // Timestamps
 @override final  DateTime createdAt;
 @override final  DateTime? updatedAt;
@@ -295,8 +281,6 @@ class _TaskEntity extends TaskEntity {
 }
 
 @override final  ProjectEntity? project;
-// Source provider
-@override final  TaskProvider? provider;
 
 /// Create a copy of TaskEntity
 /// with the given fields replaced by the non-null parameter values.
@@ -311,16 +295,16 @@ Map<String, dynamic> toJson() {
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _TaskEntity&&(identical(other.id, id) || other.id == id)&&(identical(other.title, title) || other.title == title)&&(identical(other.description, description) || other.description == description)&&(identical(other.projectId, projectId) || other.projectId == projectId)&&(identical(other.parentId, parentId) || other.parentId == parentId)&&(identical(other.priority, priority) || other.priority == priority)&&(identical(other.status, status) || other.status == status)&&(identical(other.dueDate, dueDate) || other.dueDate == dueDate)&&(identical(other.dueTime, dueTime) || other.dueTime == dueTime)&&(identical(other.estimatedDuration, estimatedDuration) || other.estimatedDuration == estimatedDuration)&&(identical(other.actualDuration, actualDuration) || other.actualDuration == actualDuration)&&(identical(other.energyLevel, energyLevel) || other.energyLevel == energyLevel)&&(identical(other.context, context) || other.context == context)&&(identical(other.focusTime, focusTime) || other.focusTime == focusTime)&&(identical(other.notes, notes) || other.notes == notes)&&const DeepCollectionEquality().equals(other._sourceTask, _sourceTask)&&const DeepCollectionEquality().equals(other._integrations, _integrations)&&(identical(other.createdAt, createdAt) || other.createdAt == createdAt)&&(identical(other.updatedAt, updatedAt) || other.updatedAt == updatedAt)&&(identical(other.completedAt, completedAt) || other.completedAt == completedAt)&&const DeepCollectionEquality().equals(other._labels, _labels)&&(identical(other.project, project) || other.project == project)&&(identical(other.provider, provider) || other.provider == provider));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is _TaskEntity&&(identical(other.id, id) || other.id == id)&&(identical(other.externalId, externalId) || other.externalId == externalId)&&(identical(other.integrationId, integrationId) || other.integrationId == integrationId)&&(identical(other.title, title) || other.title == title)&&(identical(other.description, description) || other.description == description)&&(identical(other.projectId, projectId) || other.projectId == projectId)&&(identical(other.parentId, parentId) || other.parentId == parentId)&&(identical(other.priority, priority) || other.priority == priority)&&(identical(other.status, status) || other.status == status)&&(identical(other.dueDate, dueDate) || other.dueDate == dueDate)&&(identical(other.dueTime, dueTime) || other.dueTime == dueTime)&&(identical(other.notes, notes) || other.notes == notes)&&const DeepCollectionEquality().equals(other._providerMetadata, _providerMetadata)&&(identical(other.createdAt, createdAt) || other.createdAt == createdAt)&&(identical(other.updatedAt, updatedAt) || other.updatedAt == updatedAt)&&(identical(other.completedAt, completedAt) || other.completedAt == completedAt)&&const DeepCollectionEquality().equals(other._labels, _labels)&&(identical(other.project, project) || other.project == project));
 }
 
 @JsonKey(includeFromJson: false, includeToJson: false)
 @override
-int get hashCode => Object.hashAll([runtimeType,id,title,description,projectId,parentId,priority,status,dueDate,dueTime,estimatedDuration,actualDuration,energyLevel,context,focusTime,notes,const DeepCollectionEquality().hash(_sourceTask),const DeepCollectionEquality().hash(_integrations),createdAt,updatedAt,completedAt,const DeepCollectionEquality().hash(_labels),project,provider]);
+int get hashCode => Object.hash(runtimeType,id,externalId,integrationId,title,description,projectId,parentId,priority,status,dueDate,dueTime,notes,const DeepCollectionEquality().hash(_providerMetadata),createdAt,updatedAt,completedAt,const DeepCollectionEquality().hash(_labels),project);
 
 @override
 String toString() {
-  return 'TaskEntity(id: $id, title: $title, description: $description, projectId: $projectId, parentId: $parentId, priority: $priority, status: $status, dueDate: $dueDate, dueTime: $dueTime, estimatedDuration: $estimatedDuration, actualDuration: $actualDuration, energyLevel: $energyLevel, context: $context, focusTime: $focusTime, notes: $notes, sourceTask: $sourceTask, integrations: $integrations, createdAt: $createdAt, updatedAt: $updatedAt, completedAt: $completedAt, labels: $labels, project: $project, provider: $provider)';
+  return 'TaskEntity(id: $id, externalId: $externalId, integrationId: $integrationId, title: $title, description: $description, projectId: $projectId, parentId: $parentId, priority: $priority, status: $status, dueDate: $dueDate, dueTime: $dueTime, notes: $notes, providerMetadata: $providerMetadata, createdAt: $createdAt, updatedAt: $updatedAt, completedAt: $completedAt, labels: $labels, project: $project)';
 }
 
 
@@ -331,7 +315,7 @@ abstract mixin class _$TaskEntityCopyWith<$Res> implements $TaskEntityCopyWith<$
   factory _$TaskEntityCopyWith(_TaskEntity value, $Res Function(_TaskEntity) _then) = __$TaskEntityCopyWithImpl;
 @override @useResult
 $Res call({
- String id, String title, String? description, String? projectId, String? parentId, int priority, TaskStatus status, DateTime? dueDate, String? dueTime, int? estimatedDuration, int? actualDuration, int energyLevel, TaskContext context, bool focusTime, String? notes, Map<String, dynamic>? sourceTask, Map<String, dynamic>? integrations, DateTime createdAt, DateTime? updatedAt, DateTime? completedAt, List<LabelEntity> labels, ProjectEntity? project, TaskProvider? provider
+ String id, String? externalId, String integrationId, String title, String? description, String? projectId, String? parentId, int priority, TaskStatus status, DateTime? dueDate, String? dueTime, String? notes, Map<String, dynamic>? providerMetadata, DateTime createdAt, DateTime? updatedAt, DateTime? completedAt, List<LabelEntity> labels, ProjectEntity? project
 });
 
 
@@ -348,9 +332,11 @@ class __$TaskEntityCopyWithImpl<$Res>
 
 /// Create a copy of TaskEntity
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? id = null,Object? title = null,Object? description = freezed,Object? projectId = freezed,Object? parentId = freezed,Object? priority = null,Object? status = null,Object? dueDate = freezed,Object? dueTime = freezed,Object? estimatedDuration = freezed,Object? actualDuration = freezed,Object? energyLevel = null,Object? context = null,Object? focusTime = null,Object? notes = freezed,Object? sourceTask = freezed,Object? integrations = freezed,Object? createdAt = null,Object? updatedAt = freezed,Object? completedAt = freezed,Object? labels = null,Object? project = freezed,Object? provider = freezed,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? id = null,Object? externalId = freezed,Object? integrationId = null,Object? title = null,Object? description = freezed,Object? projectId = freezed,Object? parentId = freezed,Object? priority = null,Object? status = null,Object? dueDate = freezed,Object? dueTime = freezed,Object? notes = freezed,Object? providerMetadata = freezed,Object? createdAt = null,Object? updatedAt = freezed,Object? completedAt = freezed,Object? labels = null,Object? project = freezed,}) {
   return _then(_TaskEntity(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
+as String,externalId: freezed == externalId ? _self.externalId : externalId // ignore: cast_nullable_to_non_nullable
+as String?,integrationId: null == integrationId ? _self.integrationId : integrationId // ignore: cast_nullable_to_non_nullable
 as String,title: null == title ? _self.title : title // ignore: cast_nullable_to_non_nullable
 as String,description: freezed == description ? _self.description : description // ignore: cast_nullable_to_non_nullable
 as String?,projectId: freezed == projectId ? _self.projectId : projectId // ignore: cast_nullable_to_non_nullable
@@ -359,21 +345,14 @@ as String?,priority: null == priority ? _self.priority : priority // ignore: cas
 as int,status: null == status ? _self.status : status // ignore: cast_nullable_to_non_nullable
 as TaskStatus,dueDate: freezed == dueDate ? _self.dueDate : dueDate // ignore: cast_nullable_to_non_nullable
 as DateTime?,dueTime: freezed == dueTime ? _self.dueTime : dueTime // ignore: cast_nullable_to_non_nullable
-as String?,estimatedDuration: freezed == estimatedDuration ? _self.estimatedDuration : estimatedDuration // ignore: cast_nullable_to_non_nullable
-as int?,actualDuration: freezed == actualDuration ? _self.actualDuration : actualDuration // ignore: cast_nullable_to_non_nullable
-as int?,energyLevel: null == energyLevel ? _self.energyLevel : energyLevel // ignore: cast_nullable_to_non_nullable
-as int,context: null == context ? _self.context : context // ignore: cast_nullable_to_non_nullable
-as TaskContext,focusTime: null == focusTime ? _self.focusTime : focusTime // ignore: cast_nullable_to_non_nullable
-as bool,notes: freezed == notes ? _self.notes : notes // ignore: cast_nullable_to_non_nullable
-as String?,sourceTask: freezed == sourceTask ? _self._sourceTask : sourceTask // ignore: cast_nullable_to_non_nullable
-as Map<String, dynamic>?,integrations: freezed == integrations ? _self._integrations : integrations // ignore: cast_nullable_to_non_nullable
+as String?,notes: freezed == notes ? _self.notes : notes // ignore: cast_nullable_to_non_nullable
+as String?,providerMetadata: freezed == providerMetadata ? _self._providerMetadata : providerMetadata // ignore: cast_nullable_to_non_nullable
 as Map<String, dynamic>?,createdAt: null == createdAt ? _self.createdAt : createdAt // ignore: cast_nullable_to_non_nullable
 as DateTime,updatedAt: freezed == updatedAt ? _self.updatedAt : updatedAt // ignore: cast_nullable_to_non_nullable
 as DateTime?,completedAt: freezed == completedAt ? _self.completedAt : completedAt // ignore: cast_nullable_to_non_nullable
 as DateTime?,labels: null == labels ? _self._labels : labels // ignore: cast_nullable_to_non_nullable
 as List<LabelEntity>,project: freezed == project ? _self.project : project // ignore: cast_nullable_to_non_nullable
-as ProjectEntity?,provider: freezed == provider ? _self.provider : provider // ignore: cast_nullable_to_non_nullable
-as TaskProvider?,
+as ProjectEntity?,
   ));
 }
 

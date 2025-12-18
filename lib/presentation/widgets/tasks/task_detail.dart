@@ -98,8 +98,7 @@ class _TaskDetailState extends ConsumerState<TaskDetail> {
                   _buildLabelsSection(context),
                   const SizedBox(height: 24),
                   _buildDatesSection(context),
-                  if (widget.task.provider != null &&
-                      widget.task.provider != TaskProvider.local) ...[
+                  if (!widget.task.isNative) ...[
                     const SizedBox(height: 24),
                     _buildProviderSection(context),
                   ],
@@ -265,7 +264,7 @@ class _TaskDetailState extends ConsumerState<TaskDetail> {
               ? _buildPrioritySelector()
               : PriorityBadge(
                   priority: widget.task.priority,
-                  provider: widget.task.provider,
+                  integrationId: widget.task.integrationId,
                   showLabel: true,
                 ),
         ),
@@ -288,60 +287,6 @@ class _TaskDetailState extends ConsumerState<TaskDetail> {
             label: 'Project',
             child: ProjectBadge(project: widget.project!),
           ),
-
-        // Energy level
-        if (widget.task.energyLevel > 0) ...[
-          const SizedBox(height: 12),
-          _buildMetadataRow(
-            context,
-            icon: LucideIcons.zap,
-            label: 'Energy Level',
-            child: Text(
-              '${widget.task.energyLevel}/5',
-              style: TextStyle(
-                fontSize: 13,
-                color: AppTheme.energyColors[widget.task.energyLevel] ??
-                    AppTheme.gray500,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ),
-        ],
-
-        // Focus time
-        if (widget.task.focusTime) ...[
-          const SizedBox(height: 12),
-          _buildMetadataRow(
-            context,
-            icon: LucideIcons.brain,
-            label: 'Focus Time',
-            child: Text(
-              'Required',
-              style: TextStyle(
-                fontSize: 13,
-                color: AppTheme.primaryBlue,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ),
-        ],
-
-        // Estimated duration
-        if (widget.task.estimatedDuration != null) ...[
-          const SizedBox(height: 12),
-          _buildMetadataRow(
-            context,
-            icon: LucideIcons.clock,
-            label: 'Estimated Duration',
-            child: Text(
-              '${widget.task.estimatedDuration} minutes',
-              style: TextStyle(
-                fontSize: 13,
-                color: AppTheme.gray700,
-              ),
-            ),
-          ),
-        ],
       ],
     );
   }
@@ -725,12 +670,12 @@ class _TaskDetailState extends ConsumerState<TaskDetail> {
     String providerName;
     Color providerColor;
 
-    switch (widget.task.provider) {
-      case TaskProvider.todoist:
+    switch (widget.task.integrationId) {
+      case 'todoist':
         providerName = 'Todoist';
         providerColor = const Color(0xFFE44332);
         break;
-      case TaskProvider.msToDo:
+      case 'msToDo':
         providerName = 'Microsoft To-Do';
         providerColor = const Color(0xFF00A4EF);
         break;
@@ -881,7 +826,7 @@ class _TaskDetailState extends ConsumerState<TaskDetail> {
         name: name,
         color: '#${AppTheme.primaryBlue.toARGB32().toRadixString(16).substring(2)}',
         createdAt: DateTime.now(),
-        provider: widget.task.provider ?? TaskProvider.local,
+        integrationId: widget.task.integrationId,
       );
     }).toList();
 

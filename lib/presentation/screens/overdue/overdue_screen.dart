@@ -64,20 +64,19 @@ class _OverdueScreenState extends ConsumerState<OverdueScreen> {
                             style: Theme.of(context).textTheme.headlineSmall,
                           ),
                           overdueTasksAsync.when(
-                            data: (tasks) => Text(
-                              '${tasks.length} overdue task${tasks.length != 1 ? 's' : ''}',
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .bodySmall
-                                  ?.copyWith(color: AppTheme.errorRed),
-                            ),
-                            loading: () => Text(
-                              'Loading...',
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .bodySmall
-                                  ?.copyWith(color: AppTheme.gray500),
-                            ),
+                            skipLoadingOnRefresh: true,
+                            data:
+                                (tasks) => Text(
+                                  '${tasks.length} overdue task${tasks.length != 1 ? 's' : ''}',
+                                  style: Theme.of(context).textTheme.bodySmall
+                                      ?.copyWith(color: AppTheme.errorRed),
+                                ),
+                            loading:
+                                () => Text(
+                                  'Loading...',
+                                  style: Theme.of(context).textTheme.bodySmall
+                                      ?.copyWith(color: AppTheme.gray500),
+                                ),
                             error: (_, __) => const SizedBox.shrink(),
                           ),
                         ],
@@ -89,22 +88,29 @@ class _OverdueScreenState extends ConsumerState<OverdueScreen> {
                 // Task List
                 Expanded(
                   child: overdueTasksAsync.when(
-                    data: (tasks) => unifiedDataAsync.when(
-                      data: (data) => TaskListWidget(
-                        tasks: tasks,
-                        projects: data.projects,
-                        filter: TaskFilter.overdue,
-                        emptyMessage: 'No overdue tasks - great job!',
-                        onTaskTap: (task) =>
-                            setState(() => _selectedTask = task),
-                        onTaskComplete: _completeTask,
-                      ),
-                      loading: () =>
-                          const Center(child: CircularProgressIndicator()),
-                      error: (e, _) => Center(child: Text('Error: $e')),
-                    ),
-                    loading: () =>
-                        const Center(child: CircularProgressIndicator()),
+                    skipLoadingOnRefresh: true,
+                    data:
+                        (tasks) => unifiedDataAsync.when(
+                          skipLoadingOnRefresh: true,
+                          data:
+                              (data) => TaskListWidget(
+                                tasks: tasks,
+                                projects: data.projects,
+                                filter: TaskFilter.overdue,
+                                emptyMessage: 'No overdue tasks - great job!',
+                                onTaskTap:
+                                    (task) =>
+                                        setState(() => _selectedTask = task),
+                                onTaskComplete: _completeTask,
+                              ),
+                          loading:
+                              () => const Center(
+                                child: CircularProgressIndicator(),
+                              ),
+                          error: (e, _) => Center(child: Text('Error: $e')),
+                        ),
+                    loading:
+                        () => const Center(child: CircularProgressIndicator()),
                     error: (e, _) => Center(child: Text('Error: $e')),
                   ),
                 ),
@@ -115,12 +121,14 @@ class _OverdueScreenState extends ConsumerState<OverdueScreen> {
           // Detail panel
           if (_selectedTask != null)
             unifiedDataAsync.when(
-              data: (data) => TaskDetail(
-                task: _selectedTask!,
-                project: _getProjectForTask(_selectedTask!, data.projects),
-                onClose: () => setState(() => _selectedTask = null),
-                onComplete: _completeTask,
-              ),
+              skipLoadingOnRefresh: true,
+              data:
+                  (data) => TaskDetail(
+                    task: _selectedTask!,
+                    project: _getProjectForTask(_selectedTask!, data.projects),
+                    onClose: () => setState(() => _selectedTask = null),
+                    onComplete: _completeTask,
+                  ),
               loading: () => const SizedBox.shrink(),
               error: (_, __) => const SizedBox.shrink(),
             ),

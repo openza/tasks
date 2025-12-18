@@ -59,6 +59,10 @@ dependencies:
   # Toast/Notifications
   toastification: ^2.3.0
 
+  # Rust FFI Bridge
+  flutter_rust_bridge: ^2.5.0
+  ffi: ^2.1.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

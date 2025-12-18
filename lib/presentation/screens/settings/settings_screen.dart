@@ -6,7 +6,6 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../app/app_theme.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../data/datasources/remote/todoist_api.dart';
-import '../../../domain/entities/task.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/task_provider.dart';
 import '../../widgets/common/openza_logo.dart';
@@ -181,10 +180,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             icon: LucideIcons.checkCircle,
             color: const Color(0xFFE44332),
             isConnected: authState.todoistAuthenticated,
-            isSelected: authState.activeProvider == TaskProvider.todoist,
+            isSelected: authState.activeIntegrationId == 'todoist',
             onSelect: () {
               if (authState.todoistAuthenticated) {
-                ref.read(authProvider.notifier).setActiveProvider(TaskProvider.todoist);
+                ref.read(authProvider.notifier).setActiveIntegration('todoist');
               }
             },
           ),
@@ -194,10 +193,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             icon: LucideIcons.layoutGrid,
             color: const Color(0xFF00A4EF),
             isConnected: authState.msToDoAuthenticated,
-            isSelected: authState.activeProvider == TaskProvider.msToDo,
+            isSelected: authState.activeIntegrationId == 'msToDo',
             onSelect: () {
               if (authState.msToDoAuthenticated) {
-                ref.read(authProvider.notifier).setActiveProvider(TaskProvider.msToDo);
+                ref.read(authProvider.notifier).setActiveIntegration('msToDo');
               }
             },
           ),
@@ -552,7 +551,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 side: const BorderSide(color: AppTheme.errorRed),
               ),
             ),
-          ] else ...[
+          ] else if (AppConstants.msToDoClientId.isNotEmpty) ...[
             ElevatedButton.icon(
               onPressed: _isConnecting
                   ? null
@@ -585,12 +584,27 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 foregroundColor: Colors.white,
               ),
             ),
-            const SizedBox(height: 16),
-            Text(
-              'Note: You\'ll need Microsoft Azure AD credentials configured.',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: AppTheme.gray400,
+          ] else ...[
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppTheme.gray100,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  Icon(LucideIcons.info, size: 16, color: AppTheme.gray500),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Microsoft To-Do integration requires Azure AD credentials to be configured in the app build.',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: AppTheme.gray500,
+                          ),
+                    ),
                   ),
+                ],
+              ),
             ),
           ],
         ],

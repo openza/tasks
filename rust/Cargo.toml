@@ -1,0 +1,20 @@
+[package]
+name = "openza_sync"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib", "staticlib"]
+
+[dependencies]
+flutter_rust_bridge = "2.5"
+rusqlite = { version = "0.32", features = ["bundled"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+thiserror = "1.0"
+uuid = { version = "1.0", features = ["v4"] }
+log = "0.4"
+
+[build-dependencies]
+flutter_rust_bridge_codegen = "2.5"

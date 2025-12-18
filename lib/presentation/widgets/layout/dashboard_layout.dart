@@ -7,6 +7,7 @@ import '../../../app/app_router.dart';
 import '../../../app/app_theme.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/task_provider.dart';
+import '../badges/sync_badge.dart';
 import '../common/api_error_listener.dart';
 import '../common/openza_logo.dart';
 
@@ -22,6 +23,13 @@ class DashboardLayout extends ConsumerStatefulWidget {
 class _DashboardLayoutState extends ConsumerState<DashboardLayout> {
   bool _isProjectsExpanded = true;
 
+  Color _hexToColor(String? hex) {
+    if (hex == null) return AppTheme.gray500;
+    final hexCode = hex.replaceAll('#', '');
+    if (hexCode.length != 6) return AppTheme.gray500;
+    return Color(int.parse('FF$hexCode', radix: 16));
+  }
+
   Widget _buildSourceSelector() {
     final authState = ref.watch(authProvider);
     final taskSource = ref.watch(taskSourceProvider);
@@ -35,8 +43,8 @@ class _DashboardLayoutState extends ConsumerState<DashboardLayout> {
         color: AppTheme.primaryBlue,
       ),
       _SourceOption(
-        source: TaskSource.local,
-        label: 'Local',
+        source: TaskSource.openzaTasks,
+        label: 'Openza Tasks',
         icon: LucideIcons.database,
         color: AppTheme.gray600,
       ),
@@ -136,6 +144,8 @@ class _DashboardLayoutState extends ConsumerState<DashboardLayout> {
                     children: [
                       const OpenzaLogo(size: 32, showText: true),
                       const Spacer(),
+                      const SyncBadge(),
+                      const SizedBox(width: 4),
                       IconButton(
                         icon: const Icon(LucideIcons.settings, size: 20),
                         onPressed: () => context.go(AppRoutes.settings),
@@ -203,6 +213,13 @@ class _DashboardLayoutState extends ConsumerState<DashboardLayout> {
                         path: AppRoutes.tasks,
                         isActive: currentPath == AppRoutes.tasks,
                       ),
+                      _NavItem(
+                        icon: LucideIcons.checkCircle2,
+                        label: 'Completed',
+                        path: AppRoutes.completed,
+                        isActive: currentPath == AppRoutes.completed,
+                        badgeColor: AppTheme.successGreen,
+                      ),
 
                       const SizedBox(height: 16),
                       const Divider(),
@@ -246,28 +263,27 @@ class _DashboardLayoutState extends ConsumerState<DashboardLayout> {
                         ),
                       ),
 
-                      if (_isProjectsExpanded) ...[
-                        // TODO: Load projects from provider
-                        _ProjectItem(
-                          name: 'Inbox',
-                          color: AppTheme.gray500,
-                          icon: LucideIcons.inbox,
-                          onTap: () =>
-                              context.go('${AppRoutes.tasks}?projectId=inbox'),
+                      if (_isProjectsExpanded)
+                        ref.watch(unifiedDataProvider).when(
+                          skipLoadingOnRefresh: true,
+                          data: (data) => Column(
+                            children: data.projects.map((project) => _ProjectItem(
+                              name: project.name,
+                              color: _hexToColor(project.color),
+                              icon: project.name.toLowerCase() == 'inbox' ? LucideIcons.inbox : null,
+                              onTap: () => context.go('${AppRoutes.tasks}?projectId=${project.id}'),
+                            )).toList(),
+                          ),
+                          loading: () => const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 8),
+                            child: Center(child: SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )),
+                          ),
+                          error: (_, __) => const SizedBox.shrink(),
                         ),
-                        _ProjectItem(
-                          name: 'Work',
-                          color: AppTheme.primaryBlue,
-                          onTap: () =>
-                              context.go('${AppRoutes.tasks}?projectId=work'),
-                        ),
-                        _ProjectItem(
-                          name: 'Personal',
-                          color: AppTheme.accentPink,
-                          onTap: () => context
-                              .go('${AppRoutes.tasks}?projectId=personal'),
-                        ),
-                      ],
                     ],
                   ),
                 ),
@@ -435,9 +451,12 @@ class _ProjectItem extends StatelessWidget {
                   ),
                 ),
               const SizedBox(width: 12),
-              Text(
-                name,
-                style: Theme.of(context).textTheme.bodyMedium,
+              Expanded(
+                child: Text(
+                  name,
+                  style: Theme.of(context).textTheme.bodyMedium,
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
             ],
           ),

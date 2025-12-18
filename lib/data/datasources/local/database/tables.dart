@@ -1,70 +1,79 @@
 import 'package:drift/drift.dart';
 
-/// Projects table - mirrors Electron schema
-class Projects extends Table {
-  TextColumn get id => text()();
-  TextColumn get name => text()();
-  TextColumn get description => text().nullable()();
+/// Integration providers configuration - source of truth for all provider metadata
+class Integrations extends Table {
+  TextColumn get id => text()();                    // 'openza_tasks', 'todoist', 'msToDo'
+  TextColumn get name => text()();                  // Same as id (legacy compat)
+  TextColumn get displayName => text()();           // 'Openza Tasks', 'Todoist', 'Microsoft To-Do'
   TextColumn get color => text().withDefault(const Constant('#808080'))();
-  TextColumn get icon => text().nullable()();
-  TextColumn get parentId => text().nullable().references(Projects, #id)();
-  IntColumn get sortOrder => integer().withDefault(const Constant(0))();
-  BoolColumn get isFavorite => boolean().withDefault(const Constant(false))();
-  BoolColumn get isArchived => boolean().withDefault(const Constant(false))();
-
-  // Integration extensions (JSON)
-  TextColumn get integrations => text().nullable()();
-
+  TextColumn get icon => text().nullable()();       // Lucide icon name
+  TextColumn get logoPath => text().nullable()();   // 'assets/logos/todoist.svg'
+  BoolColumn get isActive => boolean().withDefault(const Constant(false))();
+  BoolColumn get isConfigured => boolean().withDefault(const Constant(false))();
+  TextColumn get config => text().nullable()();     // JSON: Service configuration
+  DateTimeColumn get lastSyncAt => dateTime().nullable()();
+  TextColumn get syncToken => text().nullable()();
   DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
-  DateTimeColumn get updatedAt => dateTime().withDefault(currentDateAndTime)();
 
   @override
   Set<Column> get primaryKey => {id};
 }
 
-/// Tasks table - with wrapper pattern for external integrations
+/// Projects table - with proper FK to integrations
+class Projects extends Table {
+  TextColumn get id => text()();                    // UUID only (no prefix)
+  TextColumn get externalId => text().nullable()(); // Provider's original ID
+  TextColumn get integrationId => text().references(Integrations, #id)(); // FK to integrations
+  TextColumn get name => text()();
+  TextColumn get description => text().nullable()();
+  TextColumn get color => text().withDefault(const Constant('#808080'))();
+  TextColumn get icon => text().nullable()();
+  TextColumn get parentId => text().nullable()();   // Self-reference for subprojects
+  IntColumn get sortOrder => integer().withDefault(const Constant(0))();
+  BoolColumn get isFavorite => boolean().withDefault(const Constant(false))();
+  BoolColumn get isArchived => boolean().withDefault(const Constant(false))();
+  TextColumn get providerMetadata => text().nullable()(); // JSON: Provider-specific unmapped data
+  DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
+  DateTimeColumn get updatedAt => dateTime().nullable()();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
+/// Tasks table - with proper FK to integrations
 class Tasks extends Table {
-  TextColumn get id => text()();
+  TextColumn get id => text()();                    // UUID only (no prefix)
+  TextColumn get externalId => text().nullable()(); // Provider's original ID
+  TextColumn get integrationId => text().references(Integrations, #id)(); // FK to integrations
   TextColumn get title => text()();
   TextColumn get description => text().nullable()();
   TextColumn get projectId => text().nullable().references(Projects, #id)();
-  TextColumn get parentId => text().nullable().references(Tasks, #id)();
+  TextColumn get parentId => text().nullable()();   // Self-reference for subtasks
   IntColumn get priority => integer().withDefault(const Constant(2))();
   TextColumn get status => text().withDefault(const Constant('pending'))();
   DateTimeColumn get dueDate => dateTime().nullable()();
   TextColumn get dueTime => text().nullable()();
-
-  // Enhanced local features
-  IntColumn get estimatedDuration => integer().nullable()();
-  IntColumn get actualDuration => integer().nullable()();
-  IntColumn get energyLevel => integer().withDefault(const Constant(2))();
-  TextColumn get context => text().withDefault(const Constant('work'))();
-  BoolColumn get focusTime => boolean().withDefault(const Constant(false))();
-  TextColumn get notes => text().nullable()();
-
-  // External task integration (wrapper pattern)
-  TextColumn get sourceTask => text().nullable()(); // JSON: Complete original external task
-  TextColumn get integrations => text().nullable()(); // JSON: Sync configuration
-
+  TextColumn get notes => text().nullable()();      // Long description/reference material
+  TextColumn get providerMetadata => text().nullable()(); // JSON: Provider-specific unmapped data
   DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
-  DateTimeColumn get updatedAt => dateTime().withDefault(currentDateAndTime)();
+  DateTimeColumn get updatedAt => dateTime().nullable()();
   DateTimeColumn get completedAt => dateTime().nullable()();
 
   @override
   Set<Column> get primaryKey => {id};
 }
 
-/// Labels table with integration support
+/// Labels table with proper FK to integrations
 class Labels extends Table {
-  TextColumn get id => text()();
-  TextColumn get name => text().unique()();
+  TextColumn get id => text()();                    // UUID only (no prefix)
+  TextColumn get externalId => text().nullable()(); // Provider's original ID
+  TextColumn get integrationId => text().references(Integrations, #id)(); // FK to integrations
+  TextColumn get name => text()();
   TextColumn get color => text().withDefault(const Constant('#808080'))();
   TextColumn get description => text().nullable()();
   IntColumn get sortOrder => integer().withDefault(const Constant(0))();
-
-  // Integration extensions
-  TextColumn get integrations => text().nullable()();
-
+  BoolColumn get isFavorite => boolean().withDefault(const Constant(false))();
+  TextColumn get providerMetadata => text().nullable()(); // JSON: Provider-specific unmapped data
   DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
 
   @override
@@ -104,20 +113,6 @@ class TaskEnhancements extends Table {
   TextColumn get content => text()();
   IntColumn get sortOrder => integer().withDefault(const Constant(0))();
   BoolColumn get completed => boolean().withDefault(const Constant(false))();
-  DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
-
-  @override
-  Set<Column> get primaryKey => {id};
-}
-
-/// Integration configuration
-class Integrations extends Table {
-  TextColumn get id => text()();
-  TextColumn get name => text()(); // 'todoist', 'mstodo', etc.
-  BoolColumn get isActive => boolean().withDefault(const Constant(false))();
-  TextColumn get config => text().nullable()(); // JSON: Service configuration
-  DateTimeColumn get lastSyncAt => dateTime().nullable()();
-  TextColumn get syncToken => text().nullable()();
   DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
 
   @override

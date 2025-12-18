@@ -46,6 +46,8 @@ app.*.map.json
 
 # Local Configuration
 .env
+.env.local
+.env*.local
 .claude/
 
 # Build artifacts
@@ -57,13 +59,17 @@ flatpak/build-dir/
 flatpak/repo/
 flatpak/build/
 
-# Rust build artifacts
-rust/target/
-
-# Website/docs build artifacts
+# Website (Astro/Node.js)
+node_modules/
 website/node_modules/
 website/dist/
 website/.astro/
+
+# Rust build artifacts
+rust/target/
+
+# Compiled Rust library
+linux/libopenza_sync.so
 
 # Flutter DevTools
 devtools_options.yaml

@@ -64,6 +64,7 @@ class _TodayScreenState extends ConsumerState<TodayScreen> {
                             style: Theme.of(context).textTheme.headlineSmall,
                           ),
                           todayTasksAsync.when(
+                            skipLoadingOnRefresh: true,
                             data: (tasks) => Text(
                               '${tasks.length} task${tasks.length != 1 ? 's' : ''} due today',
                               style: Theme.of(context)
@@ -89,7 +90,9 @@ class _TodayScreenState extends ConsumerState<TodayScreen> {
                 // Task List
                 Expanded(
                   child: todayTasksAsync.when(
+                    skipLoadingOnRefresh: true,
                     data: (tasks) => unifiedDataAsync.when(
+                      skipLoadingOnRefresh: true,
                       data: (data) => TaskListWidget(
                         tasks: tasks,
                         projects: data.projects,
@@ -115,6 +118,7 @@ class _TodayScreenState extends ConsumerState<TodayScreen> {
           // Detail panel
           if (_selectedTask != null)
             unifiedDataAsync.when(
+              skipLoadingOnRefresh: true,
               data: (data) => TaskDetail(
                 task: _selectedTask!,
                 project: _getProjectForTask(_selectedTask!, data.projects),

@@ -7,7 +7,7 @@ project(runner LANGUAGES CXX)
 set(BINARY_NAME "openza_flutter")
 # The unique GTK application identifier for this application. See:
 # https://wiki.gnome.org/HowDoI/ChooseApplicationID
-set(APPLICATION_ID "com.openza.openza_flutter")
+set(APPLICATION_ID "com.openza.tasks")
 
 # Explicitly opt in to modern CMake behaviors to avoid warnings with recent
 # versions of CMake.
@@ -59,6 +59,34 @@ pkg_check_modules(GTK REQUIRED IMPORTED_TARGET gtk+-3.0)
 # Application build; see runner/CMakeLists.txt.
 add_subdirectory("runner")
 
+# === Rust Sync Library ===
+set(RUST_CRATE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../rust")
+
+# Determine Rust build profile based on CMake build type
+if(CMAKE_BUILD_TYPE MATCHES "Release|Profile")
+    set(RUST_BUILD_FLAG "--release")
+    set(RUST_BUILD_DIR "${RUST_CRATE_DIR}/target/release")
+else()
+    set(RUST_BUILD_FLAG "")
+    set(RUST_BUILD_DIR "${RUST_CRATE_DIR}/target/debug")
+endif()
+
+# Build Rust library
+add_custom_command(
+    OUTPUT "${RUST_BUILD_DIR}/libopenza_sync.so"
+    COMMAND cargo build ${RUST_BUILD_FLAG}
+    WORKING_DIRECTORY ${RUST_CRATE_DIR}
+    COMMENT "Building Rust sync library"
+)
+
+add_custom_target(
+    rust_sync ALL
+    DEPENDS "${RUST_BUILD_DIR}/libopenza_sync.so"
+)
+
+# Ensure Rust builds before Flutter
+add_dependencies(flutter_assemble rust_sync)
+
 # Run the Flutter tool portions of the build. This must not be removed.
 add_dependencies(${BINARY_NAME} flutter_assemble)
 
@@ -107,6 +135,11 @@ foreach(bundled_library ${PLUGIN_BUNDLED_LIBRARIES})
     DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
     COMPONENT Runtime)
 endforeach(bundled_library)
+
+# Install Rust sync library
+install(FILES "${RUST_BUILD_DIR}/libopenza_sync.so"
+  DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
+  COMPONENT Runtime)
 
 # Copy the native assets provided by the build.dart from all packages.
 set(NATIVE_ASSETS_DIR "${PROJECT_BUILD_DIR}native_assets/linux/")

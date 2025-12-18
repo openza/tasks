@@ -29,7 +29,7 @@ class MsToDoApi {
       onError: (error, handler) async {
         // Handle 401 Unauthorized - try to refresh token
         if (error.response?.statusCode == 401) {
-          AppLogger.warning('MS To-Do: Received 401, attempting token refresh');
+          AppLogger.debug('MS To-Do: Received 401, attempting token refresh');
 
           try {
             final newToken = await _tokenManager.forceRefreshMsToDoToken();
@@ -47,7 +47,7 @@ class MsToDoApi {
               final response = await _dio.fetch(options);
               return handler.resolve(response);
             } else {
-              AppLogger.warning('MS To-Do: Token refresh returned null (cooldown or max attempts), not retrying');
+              AppLogger.debug('MS To-Do: Token refresh returned null (cooldown or max attempts), not retrying');
             }
           } catch (e) {
             AppLogger.error('MS To-Do: Token refresh failed during retry', e);
@@ -73,8 +73,15 @@ class MsToDoApi {
       final List<dynamic> lists = response.data['value'] ?? [];
 
       return lists.map((l) => _mapMsToDoList(l)).toList();
-    } catch (e, stack) {
-      AppLogger.error('Failed to fetch MS To-Do lists', e, stack);
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 401) {
+        AppLogger.debug('Failed to fetch MS To-Do lists: authentication required');
+      } else {
+        AppLogger.error('Failed to fetch MS To-Do lists', e);
+      }
+      rethrow;
+    } catch (e) {
+      AppLogger.error('Failed to fetch MS To-Do lists', e);
       rethrow;
     }
   }
@@ -99,14 +106,23 @@ class MsToDoApi {
       final List<TaskEntity> allTasks = [];
 
       for (final list in lists) {
-        final tasks = await getTasksFromList(list.id.replaceFirst('mstodo_', ''));
+        final tasks = await getTasksFromList(list.externalId ?? list.id.replaceFirst('mstodo_', ''));
         allTasks.addAll(tasks);
       }
 
-      AppLogger.info('Fetched ${allTasks.length} tasks from MS To-Do');
+      final completedCount = allTasks.where((t) => t.isCompleted).length;
+      final activeCount = allTasks.where((t) => !t.isCompleted).length;
+      AppLogger.info('Fetched ${allTasks.length} tasks from MS To-Do (active: $activeCount, completed: $completedCount)');
       return allTasks;
-    } catch (e, stack) {
-      AppLogger.error('Failed to fetch all MS To-Do tasks', e, stack);
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 401) {
+        AppLogger.debug('Failed to fetch MS To-Do tasks: authentication required');
+      } else {
+        AppLogger.error('Failed to fetch all MS To-Do tasks', e);
+      }
+      rethrow;
+    } catch (e) {
+      AppLogger.error('Failed to fetch all MS To-Do tasks', e);
       rethrow;
     }
   }
@@ -313,8 +329,12 @@ class MsToDoApi {
         taskStatus = TaskStatus.pending;
     }
 
+    final msToDoId = data['id'].toString();
+
     return TaskEntity(
-      id: 'mstodo_${data['id']}',
+      id: 'mstodo_$msToDoId',
+      externalId: msToDoId,
+      integrationId: 'msToDo',
       title: data['title'] ?? '',
       description: data['body']?['content'],
       projectId: 'mstodo_$listId',
@@ -328,15 +348,13 @@ class MsToDoApi {
       completedAt: data['completedDateTime'] != null
           ? DateTime.parse(data['completedDateTime']['dateTime'])
           : null,
-      sourceTask: data,
-      integrations: {
+      providerMetadata: {
         'msToDo': {
           'id': data['id'],
           'listId': listId,
           'synced_at': DateTime.now().toIso8601String(),
         }
       },
-      provider: TaskProvider.msToDo,
     );
   }
 
@@ -351,19 +369,22 @@ class MsToDoApi {
       color = '#ef4444';
     }
 
+    final msToDoId = data['id'].toString();
+
     return ProjectEntity(
-      id: 'mstodo_${data['id']}',
+      id: 'mstodo_$msToDoId',
+      externalId: msToDoId,
+      integrationId: 'msToDo',
       name: data['displayName'] ?? '',
       color: color,
       isFavorite: data['isOwner'] ?? false,
       createdAt: DateTime.now(),
-      integrations: {
+      providerMetadata: {
         'msToDo': {
           'id': data['id'],
           'wellknownListName': wellknown,
         }
       },
-      provider: TaskProvider.msToDo,
     );
   }
 }
