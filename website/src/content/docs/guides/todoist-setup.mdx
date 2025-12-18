@@ -1,0 +1,80 @@
+---
+title: Todoist Setup
+description: Connect your Todoist account to Openza Tasks
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+
+# Connecting Todoist
+
+Openza Tasks connects to Todoist using your personal API token.
+
+## Get Your API Token
+
+<Steps>
+1. **Log in to Todoist** at [todoist.com](https://todoist.com)
+
+2. **Open Settings**
+
+   Click your profile icon in the top-right corner and select "Settings"
+
+3. **Navigate to Integrations**
+
+   Go to "Integrations" → "Developer"
+
+4. **Copy Your API Token**
+
+   Your API token is displayed at the top. Click to copy it.
+</Steps>
+
+<Aside type="caution">
+  Keep your API token private. Anyone with this token can access your Todoist account.
+</Aside>
+
+## Connect in Openza Tasks
+
+<Steps>
+1. **Open Settings** in Openza Tasks
+
+2. **Select Todoist** from the sidebar
+
+3. **Enter Your API Token**
+
+   Paste the token you copied from Todoist
+
+4. **Click Connect**
+
+   Your tasks will begin syncing automatically
+</Steps>
+
+<Aside type="tip">
+  Openza Tasks stores your API token securely using your system's keyring/secret storage.
+</Aside>
+
+## What Syncs
+
+When connected to Todoist, the following items are synced:
+
+| Item | Synced |
+|------|--------|
+| Tasks | Yes |
+| Projects | Yes |
+| Labels | Yes |
+| Due dates | Yes |
+| Priorities | Yes |
+| Comments | Coming soon |
+
+## Troubleshooting
+
+### "Invalid API Token" Error
+
+If you see this error:
+1. Verify you copied the complete token
+2. Regenerate the token in Todoist settings
+3. Try disconnecting and reconnecting
+
+### Tasks Not Syncing
+
+1. Check your internet connection
+2. Go to Settings → Data & Sync → Sync Now
+3. Verify your API token is still valid in Todoist settings

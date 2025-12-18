@@ -1,0 +1,20 @@
+/* Custom Starlight theme for Openza Tasks */
+:root {
+  --sl-color-accent-low: #002838;
+  --sl-color-accent: #00d9ff;
+  --sl-color-accent-high: #7de8ff;
+  --sl-color-white: #ffffff;
+  --sl-color-gray-1: #e6edf3;
+  --sl-color-gray-2: #c9d1d9;
+  --sl-color-gray-3: #8b949e;
+  --sl-color-gray-4: #6e7681;
+  --sl-color-gray-5: #484f58;
+  --sl-color-gray-6: #30363d;
+  --sl-color-black: #0d1117;
+}
+
+:root[data-theme='dark'] {
+  --sl-color-bg: #0a0e14;
+  --sl-color-bg-nav: #0d1117;
+  --sl-color-bg-sidebar: #0d1117;
+}

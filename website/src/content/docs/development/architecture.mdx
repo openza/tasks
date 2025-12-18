@@ -1,0 +1,79 @@
+---
+title: Architecture
+description: Understanding the Openza Tasks codebase architecture
+---
+
+# Architecture
+
+Openza Tasks follows Clean Architecture principles with a clear separation of concerns.
+
+## Project Structure
+
+```
+lib/
+├── app/                    # Application setup
+│   ├── app.dart           # Root widget
+│   ├── app_router.dart    # Navigation (GoRouter)
+│   └── app_theme.dart     # Material theme
+│
+├── core/                   # Shared utilities
+│   ├── constants/         # App-wide constants
+│   ├── errors/            # Error handling
+│   ├── services/          # Core services
+│   └── utils/             # Utilities
+│
+├── data/                   # Data layer
+│   ├── datasources/
+│   │   ├── local/         # SQLite (Drift)
+│   │   └── remote/        # API clients
+│   ├── repositories/      # Repository implementations
+│   └── sync/              # Rust FFI bridge
+│       ├── sync_engine.dart
+│       └── sync_ffi.dart
+│
+├── domain/                 # Business logic
+│   ├── entities/          # Domain entities (Freezed)
+│   ├── repositories/      # Repository interfaces
+│   └── usecases/          # Business logic
+│
+├── presentation/          # UI layer
+│   ├── providers/         # Riverpod providers
+│   ├── screens/           # UI screens
+│   └── widgets/           # Reusable components
+│
+└── main.dart              # Entry point
+
+rust/                       # Rust sync engine
+├── src/
+│   ├── api.rs             # Todoist API client
+│   ├── db/                # SQLite repository
+│   ├── domain/            # Models and errors
+│   ├── ffi.rs             # FFI exports
+│   ├── lib.rs             # Crate entry
+│   └── sync/              # Sync engine logic
+└── Cargo.toml
+```
+
+## Key Technologies
+
+| Layer | Technology |
+|-------|------------|
+| State Management | Riverpod 3 |
+| Navigation | GoRouter |
+| Database | Drift (SQLite) |
+| Sync Engine | Rust + FFI |
+| HTTP Client | Dio (Dart), reqwest (Rust) |
+| Code Generation | Freezed, Riverpod Generator |
+| Secure Storage | flutter_secure_storage |
+
+## Data Flow
+
+```
+UI (Screens) → Providers → Use Cases → Repositories → Data Sources
+```
+
+1. **UI** triggers actions through Riverpod providers
+2. **Providers** call use cases for business logic
+3. **Use Cases** orchestrate repository calls
+4. **Repositories** abstract data source access
+5. **Data Sources** handle API calls and local storage

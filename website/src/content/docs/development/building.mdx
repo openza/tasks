@@ -1,0 +1,97 @@
+---
+title: Building from Source
+description: How to build Openza Tasks from source
+---
+
+import { Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+
+# Building from Source
+
+Openza Tasks is built with Flutter and can be compiled for Linux, macOS, and Windows.
+
+## Prerequisites
+
+- Flutter SDK 3.7.0 or later
+- Dart SDK 3.7.0 or later
+- Rust toolchain (stable)
+- Git
+
+### Linux Dependencies
+
+<Tabs>
+  <TabItem label="Ubuntu/Debian">
+    ```bash
+    sudo apt install clang cmake ninja-build pkg-config \
+      libgtk-3-dev libsecret-1-dev libjsoncpp-dev
+    ```
+  </TabItem>
+  <TabItem label="Fedora">
+    ```bash
+    sudo dnf install clang cmake ninja-build \
+      gtk3-devel libsecret-devel jsoncpp-devel
+    ```
+  </TabItem>
+  <TabItem label="Arch">
+    ```bash
+    sudo pacman -S clang cmake ninja gtk3 libsecret jsoncpp
+    ```
+  </TabItem>
+</Tabs>
+
+### Rust Toolchain
+
+Install Rust using rustup:
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source ~/.cargo/env
+```
+
+## Build Steps
+
+<Steps>
+1. **Clone the repository**
+   ```bash
+   git clone https://github.com/openza/tasks.git
+   cd tasks
+   ```
+
+2. **Install dependencies**
+   ```bash
+   flutter pub get
+   ```
+
+3. **Generate code**
+   ```bash
+   dart run build_runner build --delete-conflicting-outputs
+   ```
+
+4. **Build the application**
+   ```bash
+   flutter build linux --release
+   ```
+</Steps>
+
+The built application will be in `build/linux/x64/release/bundle/`.
+
+## Creating an AppImage
+
+```bash
+./scripts/build-appimage.sh
+```
+
+This creates a portable AppImage in the project root.
+
+## Creating a Flatpak
+
+```bash
+./scripts/build-flatpak.sh
+```
+
+## Development Mode
+
+For development with hot reload:
+
+```bash
+flutter run -d linux
+```
