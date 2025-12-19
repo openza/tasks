@@ -4,6 +4,7 @@ import 'package:lucide_icons/lucide_icons.dart';
 
 import '../../../app/app_theme.dart';
 import '../../../domain/entities/label.dart';
+import '../../providers/repository_provider.dart';
 import '../../providers/task_provider.dart';
 import '../../widgets/badges/label_badge.dart';
 import '../../widgets/tasks/task_list.dart';
@@ -147,12 +148,12 @@ class _NextActionsScreenState extends ConsumerState<NextActionsScreen> {
                             () => const Center(
                               child: CircularProgressIndicator(),
                             ),
-                        error: (e, _) => Center(child: Text('Error: $e')),
+                        error: (e, _) => _buildErrorCard(context, 'Failed to load task data'),
                       );
                     },
                     loading:
                         () => const Center(child: CircularProgressIndicator()),
-                    error: (e, _) => Center(child: Text('Error: $e')),
+                    error: (e, _) => _buildErrorCard(context, 'Failed to load tasks'),
                   ),
                 ),
               ],
@@ -223,8 +224,48 @@ class _NextActionsScreenState extends ConsumerState<NextActionsScreen> {
     );
   }
 
-  void _completeTask(TaskEntity task) {
-    // TODO: Implement task completion logic
+  Future<void> _completeTask(TaskEntity task) async {
+    final repository = await ref.read(taskRepositoryProvider.future);
+    await repository.completeTask(task);
+    ref.invalidate(localTasksProvider);
+    ref.invalidate(unifiedDataProvider);
+    ref.invalidate(labeledTasksProvider);
+    if (_selectedTask?.id == task.id) {
+      setState(() => _selectedTask = null);
+    }
+  }
+
+  Widget _buildErrorCard(BuildContext context, String message) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              LucideIcons.alertCircle,
+              size: 48,
+              color: AppTheme.errorRed,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              message,
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    color: AppTheme.gray700,
+                  ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Please try again later',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: AppTheme.gray500,
+                  ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   dynamic _getProjectForTask(TaskEntity task, List projects) {

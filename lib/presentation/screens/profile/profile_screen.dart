@@ -1,7 +1,11 @@
+import 'dart:io' show Platform;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
+import '../../../app/app_router.dart';
 import '../../../app/app_theme.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/task_provider.dart';
@@ -167,7 +171,7 @@ class ProfileScreen extends ConsumerWidget {
                     icon: LucideIcons.settings,
                     title: 'Settings',
                     subtitle: 'Configure app preferences',
-                    onTap: () => Navigator.of(context).pushNamed('/settings'),
+                    onTap: () => context.go(AppRoutes.settings),
                   ),
                 ],
               ),
@@ -675,8 +679,10 @@ class ProfileScreen extends ConsumerWidget {
   }
 
   String _getPlatform() {
-    // Simple platform detection
-    return 'Desktop (Linux/Windows/macOS)';
+    if (Platform.isLinux) return 'Linux';
+    if (Platform.isWindows) return 'Windows';
+    if (Platform.isMacOS) return 'macOS';
+    return 'Desktop';
   }
 
   void _syncAllData(BuildContext context, WidgetRef ref) {

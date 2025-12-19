@@ -293,10 +293,14 @@ class MsToDoApi {
     if (data['dueDateTime'] != null) {
       final dueDt = data['dueDateTime'];
       if (dueDt['dateTime'] != null) {
-        final dt = DateTime.parse(dueDt['dateTime']);
-        dueDate = dt;
-        if (dt.hour != 0 || dt.minute != 0) {
-          dueTime = '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+        try {
+          final dt = DateTime.parse(dueDt['dateTime']);
+          dueDate = dt;
+          if (dt.hour != 0 || dt.minute != 0) {
+            dueTime = '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+          }
+        } catch (_) {
+          // Ignore malformed date
         }
       }
     }
@@ -331,6 +335,25 @@ class MsToDoApi {
 
     final msToDoId = data['id'].toString();
 
+    // Safe datetime parsing
+    DateTime createdAt = DateTime.now();
+    if (data['createdDateTime'] != null) {
+      try {
+        createdAt = DateTime.parse(data['createdDateTime']);
+      } catch (_) {
+        // Use current time as fallback
+      }
+    }
+
+    DateTime? completedAt;
+    if (data['completedDateTime'] != null && data['completedDateTime']['dateTime'] != null) {
+      try {
+        completedAt = DateTime.parse(data['completedDateTime']['dateTime']);
+      } catch (_) {
+        // Ignore malformed date
+      }
+    }
+
     return TaskEntity(
       id: 'mstodo_$msToDoId',
       externalId: msToDoId,
@@ -342,12 +365,8 @@ class MsToDoApi {
       status: taskStatus,
       dueDate: dueDate,
       dueTime: dueTime,
-      createdAt: data['createdDateTime'] != null
-          ? DateTime.parse(data['createdDateTime'])
-          : DateTime.now(),
-      completedAt: data['completedDateTime'] != null
-          ? DateTime.parse(data['completedDateTime']['dateTime'])
-          : null,
+      createdAt: createdAt,
+      completedAt: completedAt,
       providerMetadata: {
         'msToDo': {
           'id': data['id'],

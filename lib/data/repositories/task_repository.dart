@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:drift/drift.dart';
 
+import '../../core/utils/logger.dart';
 import '../../domain/entities/task.dart';
 import '../../domain/entities/label.dart';
 import '../datasources/local/database/database.dart';
@@ -122,7 +123,9 @@ class TaskRepository {
       try {
         final todoistTasks = await _todoistApi!.getAllTasks();
         tasks.addAll(todoistTasks);
-      } catch (_) {}
+      } catch (e) {
+        AppLogger.warning('Failed to fetch Todoist tasks', e);
+      }
     }
 
     // Get MS To-Do tasks
@@ -130,7 +133,9 @@ class TaskRepository {
       try {
         final msToDoTasks = await _msToDoApi!.getAllTasks();
         tasks.addAll(msToDoTasks);
-      } catch (_) {}
+      } catch (e) {
+        AppLogger.warning('Failed to fetch MS To-Do tasks', e);
+      }
     }
 
     return tasks;

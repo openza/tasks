@@ -325,7 +325,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     borderRadius: BorderRadius.circular(8),
                   ),
                 ),
-                onChanged: (_) => setState(() => _tokenError = null),
+                onChanged: (_) => setState(() {
+                  _tokenError = null;
+                }),
               ),
               const SizedBox(height: 16),
               SizedBox(
@@ -682,9 +684,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     TextButton(
                       onPressed: () {
                         Navigator.pop(context);
-                        // TODO: Implement cache clearing
                         ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Cache cleared')),
+                          const SnackBar(content: Text('Cache clearing coming soon')),
                         );
                       },
                       child: const Text('Clear'),

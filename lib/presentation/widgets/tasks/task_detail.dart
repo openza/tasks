@@ -135,7 +135,7 @@ class _TaskDetailState extends ConsumerState<TaskDetail> {
             ),
           IconButton(
             icon: Icon(LucideIcons.x, size: 18, color: AppTheme.gray500),
-            onPressed: widget.onClose,
+            onPressed: widget.onClose ?? () {},
             tooltip: 'Close',
           ),
         ],

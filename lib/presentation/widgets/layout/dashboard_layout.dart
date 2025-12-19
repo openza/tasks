@@ -6,10 +6,12 @@ import 'package:lucide_icons/lucide_icons.dart';
 import '../../../app/app_router.dart';
 import '../../../app/app_theme.dart';
 import '../../providers/auth_provider.dart';
+import '../../providers/repository_provider.dart';
 import '../../providers/task_provider.dart';
 import '../badges/sync_badge.dart';
 import '../common/api_error_listener.dart';
 import '../common/openza_logo.dart';
+import '../dialogs/create_task_dialog.dart';
 
 class DashboardLayout extends ConsumerStatefulWidget {
   final Widget child;
@@ -161,8 +163,22 @@ class _DashboardLayoutState extends ConsumerState<DashboardLayout> {
                   child: SizedBox(
                     width: double.infinity,
                     child: ElevatedButton.icon(
-                      onPressed: () {
-                        // TODO: Show create task dialog
+                      onPressed: () async {
+                        final data = ref.read(unifiedDataProvider).value;
+                        if (data == null) return;
+
+                        final task = await CreateTaskDialog.show(
+                          context,
+                          projects: data.projects,
+                          labels: data.labels,
+                        );
+
+                        if (task != null) {
+                          final repository = await ref.read(taskRepositoryProvider.future);
+                          await repository.createTask(task);
+                          ref.invalidate(localTasksProvider);
+                          ref.invalidate(unifiedDataProvider);
+                        }
                       },
                       icon: const Icon(LucideIcons.plus, size: 18),
                       label: const Text('Add Task'),
