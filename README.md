@@ -1,40 +1,59 @@
 # Openza Tasks
 
-A unified task manager for Linux that integrates with Todoist and Microsoft To-Do. Built with Flutter.
+A unified task manager for Linux that integrates with Todoist and Microsoft To-Do. Built with Flutter and a Rust-based sync engine for reliable offline-first synchronization.
 
 ## Features
 
-- Connect multiple task providers (Todoist, Microsoft To-Do)
-- Unified view of all your tasks
-- Filter by projects, labels, and due dates
-- Native Linux desktop experience
+- **Unified task view** across Todoist, Microsoft To-Do, and local tasks
+- **Offline-first sync** with Rust-powered sync engine
+- **Smart filtering** by projects, labels, due dates, and priority
+- **Completed tasks view** to review finished work
+- **Native Linux desktop** experience (AppImage & Flatpak)
 
-## Requirements
+## Download
 
-- Flutter SDK 3.10.3 or later
-- Linux development dependencies
+Get the latest release from [GitHub Releases](https://github.com/openza/tasks/releases):
+
+- **AppImage**: Download, make executable (`chmod +x`), and run
+- **Flatpak**: Download and install with `flatpak install Openza-*.flatpak`
+
+### System Requirements
+
+- **AppImage**: Ubuntu 22.04+, Fedora 35+, Debian 12+ (GLIBC 2.34+)
+- **Flatpak**: Any Linux with Flatpak installed
 
 ## Building from Source
 
-### 1. Install Flutter
+### Prerequisites
 
-Follow the [official Flutter installation guide](https://docs.flutter.dev/get-started/install/linux).
+- Flutter SDK 3.7+
+- Rust toolchain (for sync engine)
+- Linux development dependencies
 
-### 2. Install Linux Dependencies
+### 1. Install Dependencies
 
 ```bash
+# Flutter (follow https://docs.flutter.dev/get-started/install/linux)
+
+# Rust
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+
+# Linux build dependencies
 sudo apt-get update
-sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libstdc++-12-dev
+sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libstdc++-12-dev libsecret-1-dev
 ```
 
-### 3. Build and Run
+### 2. Build and Run
 
 ```bash
 git clone https://github.com/openza/tasks.git
 cd tasks
 
-# Install dependencies
+# Install Flutter dependencies
 flutter pub get
+
+# Build Rust sync engine (happens automatically via CMake, or manually)
+cd rust && cargo build --release && cd ..
 
 # Run in development
 flutter run -d linux
@@ -43,18 +62,25 @@ flutter run -d linux
 flutter build linux --release
 ```
 
-### 4. Connect to Todoist
-
-1. Launch the app
-2. Go to **Settings → Todoist**
-3. Get your API token from [Todoist Settings → Integrations → Developer](https://todoist.com/app/settings/integrations/developer)
-4. Paste your API token and click **Connect**
-
-### 5. Run the Built Application
+### 3. Run the Built Application
 
 ```bash
 ./build/linux/x64/release/bundle/openza_flutter
 ```
+
+## Connecting Task Providers
+
+### Todoist
+
+1. Go to **Settings → Todoist**
+2. Get your API token from [Todoist Settings → Integrations → Developer](https://todoist.com/app/settings/integrations/developer)
+3. Paste your API token and click **Connect**
+
+### Microsoft To-Do
+
+1. Go to **Settings → Microsoft To-Do**
+2. Click **Sign in with Microsoft**
+3. Authorize the app with your Microsoft account
 
 ## Development
 
@@ -62,25 +88,37 @@ flutter build linux --release
 # Get dependencies
 flutter pub get
 
-# Generate code (for Drift, Freezed, etc.)
+# Generate code (Drift, Freezed, Riverpod)
 flutter pub run build_runner build --delete-conflicting-outputs
 
 # Run tests
 flutter test
 
+# Analyze code
+flutter analyze
+
 # Run with hot reload
 flutter run -d linux
 ```
 
-## Project Structure
+## Architecture
 
 ```
 lib/
 ├── core/           # Constants, theme, utilities
-├── data/           # Data sources, repositories
-├── domain/         # Entities, business logic
-└── presentation/   # UI screens, widgets, providers
+├── data/           # Repositories, API clients, database, sync engine
+├── domain/         # Entities, repository interfaces
+└── presentation/   # Screens, widgets, Riverpod providers
+
+rust/
+└── src/            # Rust sync engine with FFI bindings
 ```
+
+### Tech Stack
+
+- **Frontend**: Flutter 3.7+, Riverpod, GoRouter, Drift (SQLite)
+- **Sync Engine**: Rust with FFI bridge
+- **Code Generation**: Freezed, JsonSerializable
 
 ## License
 
@@ -90,4 +128,3 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 **Deependra Solanky**
 - GitHub: [@solankydev](https://github.com/solankydev)
-- Email: deependra@solanky.dev
