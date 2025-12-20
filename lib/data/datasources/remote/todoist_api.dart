@@ -204,12 +204,20 @@ class TodoistApi {
     if (data['due'] != null) {
       final due = data['due'];
       if (due['date'] != null) {
-        dueDate = DateTime.parse(due['date']);
+        try {
+          dueDate = DateTime.parse(due['date']);
+        } catch (_) {
+          // Ignore malformed date
+        }
       }
       if (due['datetime'] != null) {
-        final dt = DateTime.parse(due['datetime']);
-        dueDate = dt;
-        dueTime = '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+        try {
+          final dt = DateTime.parse(due['datetime']);
+          dueDate = dt;
+          dueTime = '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+        } catch (_) {
+          // Ignore malformed datetime
+        }
       }
     }
 
@@ -221,6 +229,25 @@ class TodoistApi {
     final todoistId = data['id'].toString();
     final projectId = data['project_id'];
     final parentId = data['parent_id'];
+
+    // Safe datetime parsing
+    DateTime createdAt = DateTime.now();
+    if (data['created_at'] != null) {
+      try {
+        createdAt = DateTime.parse(data['created_at']);
+      } catch (_) {
+        // Use current time as fallback
+      }
+    }
+
+    DateTime? completedAt;
+    if (data['completed_at'] != null) {
+      try {
+        completedAt = DateTime.parse(data['completed_at']);
+      } catch (_) {
+        // Ignore malformed date
+      }
+    }
 
     return TaskEntity(
       id: 'todoist_$todoistId', // Temporary ID format during sync
@@ -234,8 +261,8 @@ class TodoistApi {
       status: data['is_completed'] == true ? TaskStatus.completed : TaskStatus.pending,
       dueDate: dueDate,
       dueTime: dueTime,
-      createdAt: DateTime.parse(data['created_at'] ?? DateTime.now().toIso8601String()),
-      completedAt: data['completed_at'] != null ? DateTime.parse(data['completed_at']) : null,
+      createdAt: createdAt,
+      completedAt: completedAt,
       labels: (data['labels'] as List<dynamic>?)
               ?.map((l) => LabelEntity(
                     id: 'todoist_label_$l',
