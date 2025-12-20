@@ -2,6 +2,23 @@
 
 All notable changes to Openza Tasks will be documented in this file.
 
+## [0.2.1] - 2025-12-20
+
+### Fixed
+- **Add Task button** in sidebar now works correctly
+- **Task completion** in Next Actions screen now properly updates state
+- **Navigation** in profile screen uses GoRouter instead of deprecated Navigator API
+- **Null callback crash** prevented in task detail close button
+- **API error logging** added (previously failed silently)
+- **Cache clear button** now shows "Coming soon" instead of fake success message
+- **TextField reactivity** in settings - clear icon updates as user types
+- **Platform detection** uses actual Platform API instead of hard-coded value
+- **Error display** in Next Actions shows user-friendly messages
+- **DateTime parsing** in API clients handles malformed dates gracefully
+
+### Changed
+- Release workflow now creates draft releases for manual testing before publish
+
 ## [0.2.0] - 2025-12-18
 
 ### Added
