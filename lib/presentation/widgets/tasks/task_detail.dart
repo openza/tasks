@@ -371,6 +371,11 @@ class _TaskDetailState extends ConsumerState<TaskDetail> {
         .where((p) => p.integrationId == widget.task.integrationId)
         .toList();
 
+    // Validate that current project exists in filtered list to prevent DropdownButton crash
+    final isValidProject = _editProjectId == null ||
+        filteredProjects.any((p) => p.id == _editProjectId);
+    final effectiveValue = isValidProject ? _editProjectId : null;
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
       decoration: BoxDecoration(
@@ -379,7 +384,7 @@ class _TaskDetailState extends ConsumerState<TaskDetail> {
         borderRadius: BorderRadius.circular(8),
       ),
       child: DropdownButton<String?>(
-        value: _editProjectId,
+        value: effectiveValue,
         hint: Text('Select project', style: TextStyle(color: AppTheme.gray400, fontSize: 13)),
         isExpanded: true,
         items: filteredProjects.map((project) {
