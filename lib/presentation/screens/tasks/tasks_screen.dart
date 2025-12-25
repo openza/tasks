@@ -80,6 +80,7 @@ class TasksScreen extends ConsumerWidget {
     final repository = await ref.read(taskRepositoryProvider.future);
     await repository.updateTask(task);
     ref.invalidate(localTasksProvider);
+    ref.invalidate(localLabelsProvider);
     ref.invalidate(unifiedDataProvider);
   }
 
