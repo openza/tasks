@@ -313,8 +313,10 @@ class _TaskDetailState extends ConsumerState<TaskDetail> {
 
   Widget _buildMetadataSection(BuildContext context) {
     // Get current project for display
-    final currentProject = _editProjectId != null
-        ? widget.projects.where((p) => p.id == _editProjectId).firstOrNull
+    // When editing and projects list is available, look up by editProjectId
+    // Otherwise fall back to the passed project prop
+    final currentProject = _isEditing && widget.projects.isNotEmpty && _editProjectId != null
+        ? widget.projects.where((p) => p.id == _editProjectId).firstOrNull ?? widget.project
         : widget.project;
 
     return Column(
