@@ -62,6 +62,24 @@ class _TaskDetailState extends ConsumerState<TaskDetail> {
     _descriptionController.addListener(_onEditChanged);
   }
 
+  @override
+  void didUpdateWidget(covariant TaskDetail oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // When a different task is selected, reset the state
+    if (oldWidget.task.id != widget.task.id) {
+      _titleController.text = widget.task.title;
+      _descriptionController.text = widget.task.description ?? '';
+      setState(() {
+        _editPriority = widget.task.priority;
+        _editDueDate = widget.task.dueDate;
+        _editLabelNames = widget.task.labels.map((l) => l.name).toList();
+        _editProjectId = widget.task.projectId;
+        _isEditing = false;
+        _hasUnsavedChanges = false;
+      });
+    }
+  }
+
   void _onEditChanged() {
     if (_isEditing) {
       setState(() => _hasUnsavedChanges = true);
