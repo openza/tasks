@@ -1057,7 +1057,7 @@ class _TaskDetailState extends ConsumerState<TaskDetail> {
           ] else ...[
             Expanded(
               child: OutlinedButton.icon(
-                onPressed: () => widget.onDelete?.call(widget.task),
+                onPressed: () => _confirmDelete(context),
                 icon: Icon(LucideIcons.trash2, size: 16),
                 label: const Text('Delete'),
                 style: OutlinedButton.styleFrom(
@@ -1130,6 +1130,63 @@ class _TaskDetailState extends ConsumerState<TaskDetail> {
       _isEditing = false;
       _hasUnsavedChanges = false;
     });
+  }
+
+  void _confirmDelete(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(LucideIcons.alertTriangle, size: 20, color: AppTheme.errorRed),
+            const SizedBox(width: 8),
+            const Text('Delete Task'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Are you sure you want to delete this task?'),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppTheme.gray100,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                widget.task.title,
+                style: const TextStyle(fontWeight: FontWeight.w500),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'This action cannot be undone.',
+              style: TextStyle(fontSize: 13, color: AppTheme.gray500),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.pop(dialogContext);
+              widget.onDelete?.call(widget.task);
+            },
+            style: FilledButton.styleFrom(
+              backgroundColor: AppTheme.errorRed,
+            ),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _saveChanges() {
