@@ -151,20 +151,32 @@ class _TaskDetailState extends ConsumerState<TaskDetail> {
 
   Widget _buildTitleSection(BuildContext context) {
     return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         _buildCheckbox(),
         const SizedBox(width: 12),
         Expanded(
           child: _isEditing
-              ? TextField(
-                  controller: _titleController,
-                  style: Theme.of(context).textTheme.titleLarge,
-                  decoration: const InputDecoration(
-                    border: InputBorder.none,
-                    hintText: 'Task title',
+              ? Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    border: Border.all(color: AppTheme.gray300),
+                    borderRadius: BorderRadius.circular(8),
                   ),
-                  maxLines: null,
+                  child: TextField(
+                    controller: _titleController,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                    decoration: const InputDecoration(
+                      border: InputBorder.none,
+                      hintText: 'Task title',
+                      isDense: true,
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                    maxLines: null,
+                  ),
                 )
               : Text(
                   widget.task.title,
@@ -232,18 +244,23 @@ class _TaskDetailState extends ConsumerState<TaskDetail> {
         ),
         const SizedBox(height: 8),
         _isEditing
-            ? TextField(
-                controller: _descriptionController,
-                style: Theme.of(context).textTheme.bodyMedium,
-                decoration: InputDecoration(
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: BorderSide(color: AppTheme.gray300),
-                  ),
-                  hintText: 'Add a description...',
-                  contentPadding: const EdgeInsets.all(12),
+            ? Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  border: Border.all(color: AppTheme.gray300),
+                  borderRadius: BorderRadius.circular(8),
                 ),
-                maxLines: 3,
+                child: TextField(
+                  controller: _descriptionController,
+                  style: Theme.of(context).textTheme.bodyMedium,
+                  decoration: InputDecoration(
+                    border: InputBorder.none,
+                    hintText: 'Add a description...',
+                    hintStyle: TextStyle(color: AppTheme.gray400),
+                    contentPadding: const EdgeInsets.all(12),
+                  ),
+                  maxLines: 3,
+                ),
               )
             : Container(
                 width: double.infinity,
@@ -329,19 +346,20 @@ class _TaskDetailState extends ConsumerState<TaskDetail> {
 
   Widget _buildProjectSelector() {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
       decoration: BoxDecoration(
+        color: Colors.white,
         border: Border.all(color: AppTheme.gray300),
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: BorderRadius.circular(8),
       ),
       child: DropdownButton<String?>(
         value: _editProjectId,
-        hint: Text('Select project', style: TextStyle(color: AppTheme.gray400)),
+        hint: Text('Select project', style: TextStyle(color: AppTheme.gray400, fontSize: 13)),
+        isExpanded: true,
         items: widget.projects.map((project) {
           return DropdownMenuItem<String?>(
             value: project.id,
             child: Row(
-              mainAxisSize: MainAxisSize.min,
               children: [
                 Container(
                   width: 10,
@@ -352,7 +370,13 @@ class _TaskDetailState extends ConsumerState<TaskDetail> {
                   ),
                 ),
                 const SizedBox(width: 8),
-                Text(project.name),
+                Expanded(
+                  child: Text(
+                    project.name,
+                    style: const TextStyle(fontSize: 13),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
               ],
             ),
           );
@@ -365,6 +389,7 @@ class _TaskDetailState extends ConsumerState<TaskDetail> {
         },
         underline: const SizedBox.shrink(),
         isDense: true,
+        icon: Icon(LucideIcons.chevronDown, size: 16, color: AppTheme.gray400),
       ),
     );
   }
@@ -382,18 +407,32 @@ class _TaskDetailState extends ConsumerState<TaskDetail> {
 
   Widget _buildPrioritySelector() {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
       decoration: BoxDecoration(
+        color: Colors.white,
         border: Border.all(color: AppTheme.gray300),
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: BorderRadius.circular(8),
       ),
       child: DropdownButton<int>(
         value: _editPriority,
-        items: const [
-          DropdownMenuItem(value: 1, child: Text('P1 - Urgent')),
-          DropdownMenuItem(value: 2, child: Text('P2 - High')),
-          DropdownMenuItem(value: 3, child: Text('P3 - Normal')),
-          DropdownMenuItem(value: 4, child: Text('P4 - Low')),
+        isExpanded: true,
+        items: [
+          DropdownMenuItem(
+            value: 1,
+            child: _buildPriorityOption('Urgent', AppTheme.priorityColors[1]!),
+          ),
+          DropdownMenuItem(
+            value: 2,
+            child: _buildPriorityOption('High', AppTheme.priorityColors[2]!),
+          ),
+          DropdownMenuItem(
+            value: 3,
+            child: _buildPriorityOption('Normal', AppTheme.priorityColors[3]!),
+          ),
+          DropdownMenuItem(
+            value: 4,
+            child: _buildPriorityOption('Low', AppTheme.priorityColors[4]!),
+          ),
         ],
         onChanged: (value) {
           if (value != null) {
@@ -405,7 +444,25 @@ class _TaskDetailState extends ConsumerState<TaskDetail> {
         },
         underline: const SizedBox.shrink(),
         isDense: true,
+        icon: Icon(LucideIcons.chevronDown, size: 16, color: AppTheme.gray400),
       ),
+    );
+  }
+
+  Widget _buildPriorityOption(String label, Color color) {
+    return Row(
+      children: [
+        Container(
+          width: 8,
+          height: 8,
+          decoration: BoxDecoration(
+            color: color,
+            shape: BoxShape.circle,
+          ),
+        ),
+        const SizedBox(width: 8),
+        Text(label, style: const TextStyle(fontSize: 13)),
+      ],
     );
   }
 
@@ -427,60 +484,55 @@ class _TaskDetailState extends ConsumerState<TaskDetail> {
   }
 
   Widget _buildDueDatePicker(BuildContext context) {
-    return Row(
-      children: [
-        InkWell(
-          onTap: () async {
-            final picked = await showDatePicker(
-              context: context,
-              initialDate: _editDueDate ?? DateTime.now(),
-              firstDate: DateTime.now().subtract(const Duration(days: 365)),
-              lastDate: DateTime.now().add(const Duration(days: 365 * 5)),
-            );
-            if (picked != null) {
-              setState(() {
-                _editDueDate = picked;
-                _hasUnsavedChanges = true;
-              });
-            }
-          },
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(
-              border: Border.all(color: AppTheme.gray300),
-              borderRadius: BorderRadius.circular(6),
-            ),
-            child: Row(
-              children: [
-                Text(
-                  _editDueDate != null
-                      ? AppDateUtils.formatForDisplay(_editDueDate!)
-                      : 'Select date',
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: _editDueDate != null ? AppTheme.gray700 : AppTheme.gray400,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Icon(LucideIcons.calendar, size: 14, color: AppTheme.gray400),
-              ],
-            ),
-          ),
+    return InkWell(
+      onTap: () async {
+        final picked = await showDatePicker(
+          context: context,
+          initialDate: _editDueDate ?? DateTime.now(),
+          firstDate: DateTime.now().subtract(const Duration(days: 365)),
+          lastDate: DateTime.now().add(const Duration(days: 365 * 5)),
+        );
+        if (picked != null) {
+          setState(() {
+            _editDueDate = picked;
+            _hasUnsavedChanges = true;
+          });
+        }
+      },
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          border: Border.all(color: AppTheme.gray300),
+          borderRadius: BorderRadius.circular(8),
         ),
-        if (_editDueDate != null) ...[
-          const SizedBox(width: 8),
-          IconButton(
-            icon: Icon(LucideIcons.x, size: 14, color: AppTheme.gray400),
-            onPressed: () => setState(() {
-              _editDueDate = null;
-              _hasUnsavedChanges = true;
-            }),
-            tooltip: 'Clear due date',
-            constraints: const BoxConstraints(),
-            padding: const EdgeInsets.all(4),
-          ),
-        ],
-      ],
+        child: Row(
+          children: [
+            Icon(LucideIcons.calendar, size: 14, color: AppTheme.gray400),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                _editDueDate != null
+                    ? AppDateUtils.formatForDisplay(_editDueDate!)
+                    : 'Select date',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: _editDueDate != null ? AppTheme.gray700 : AppTheme.gray400,
+                ),
+              ),
+            ),
+            if (_editDueDate != null)
+              GestureDetector(
+                onTap: () => setState(() {
+                  _editDueDate = null;
+                  _hasUnsavedChanges = true;
+                }),
+                child: Icon(LucideIcons.x, size: 14, color: AppTheme.gray400),
+              ),
+          ],
+        ),
+      ),
     );
   }
 
