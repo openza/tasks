@@ -47,9 +47,10 @@ class NavRail extends ConsumerWidget {
           // Add Task Button + Import Button
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12),
-            child: Row(
+            child: Column(
               children: [
-                Expanded(
+                SizedBox(
+                  width: double.infinity,
                   child: ElevatedButton.icon(
                     onPressed: () => _showCreateTaskDialog(context, ref),
                     icon: const Icon(LucideIcons.plus, size: 16),
@@ -59,21 +60,25 @@ class NavRail extends ConsumerWidget {
                     ),
                   ),
                 ),
-                const SizedBox(width: 4),
-                IconButton(
-                  onPressed: () => ImportMarkdownDialog.show(context),
-                  icon: const Icon(LucideIcons.fileDown, size: 16),
-                  tooltip: 'Import from Markdown',
-                  style: IconButton.styleFrom(
-                    backgroundColor: AppTheme.gray100,
-                    foregroundColor: AppTheme.gray600,
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: () => ImportMarkdownDialog.show(context),
+                    icon: Icon(LucideIcons.fileDown, size: 14),
+                    label: const Text('Import'),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      foregroundColor: AppTheme.gray600,
+                      side: BorderSide(color: AppTheme.gray300),
+                    ),
                   ),
                 ),
               ],
             ),
           ),
 
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
 
           // Navigation items
           Expanded(
