@@ -346,6 +346,11 @@ class _TaskDetailState extends ConsumerState<TaskDetail> {
   }
 
   Widget _buildProjectSelector() {
+    // Filter projects by task's integration
+    final filteredProjects = widget.projects
+        .where((p) => p.integrationId == widget.task.integrationId)
+        .toList();
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
       decoration: BoxDecoration(
@@ -357,7 +362,7 @@ class _TaskDetailState extends ConsumerState<TaskDetail> {
         value: _editProjectId,
         hint: Text('Select project', style: TextStyle(color: AppTheme.gray400, fontSize: 13)),
         isExpanded: true,
-        items: widget.projects.map((project) {
+        items: filteredProjects.map((project) {
           return DropdownMenuItem<String?>(
             value: project.id,
             child: Row(
