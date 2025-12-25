@@ -290,6 +290,16 @@ class TaskRepository {
           updatedAt: Value(DateTime.now()),
         ),
       );
+
+      // Sync labels for local tasks
+      final labelCompanions = task.labels.map((label) => LabelsCompanion(
+        id: Value(label.id),
+        integrationId: Value(label.integrationId),
+        name: Value(label.name),
+        color: Value(label.color),
+        createdAt: Value(label.createdAt),
+      )).toList();
+      await _database.syncTaskLabels(task.id, labelCompanions);
     }
     return task;
   }

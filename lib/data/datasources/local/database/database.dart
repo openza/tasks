@@ -632,6 +632,30 @@ class AppDatabase extends _$AppDatabase {
         .go();
   }
 
+  /// Remove all labels from a task
+  Future<void> removeAllLabelsFromTask(String taskId) async {
+    await (delete(taskLabels)..where((tl) => tl.taskId.equals(taskId))).go();
+  }
+
+  /// Insert or update a label
+  Future<void> upsertLabel(LabelsCompanion label) async {
+    await into(labels).insertOnConflictUpdate(label);
+  }
+
+  /// Sync labels for a task (replaces all existing labels)
+  Future<void> syncTaskLabels(String taskId, List<LabelsCompanion> taskLabelsToAdd) async {
+    await transaction(() async {
+      // Remove existing task-label associations
+      await removeAllLabelsFromTask(taskId);
+
+      // Upsert each label and add association
+      for (final label in taskLabelsToAdd) {
+        await upsertLabel(label);
+        await addLabelToTask(taskId, label.id.value);
+      }
+    });
+  }
+
   // ============ STATISTICS ============
 
   /// Get task statistics
