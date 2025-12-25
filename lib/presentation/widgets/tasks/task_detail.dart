@@ -7,6 +7,7 @@ import '../../../core/utils/date_utils.dart';
 import '../../../domain/entities/task.dart';
 import '../../../domain/entities/project.dart';
 import '../../../domain/entities/label.dart';
+import '../../providers/task_provider.dart';
 import '../badges/priority_badge.dart';
 import '../badges/label_badge.dart';
 import '../badges/project_badge.dart';
@@ -683,48 +684,214 @@ class _TaskDetailState extends ConsumerState<TaskDetail> {
   }
 
   void _showAddLabelDialog(BuildContext context) {
-    final controller = TextEditingController();
+    final labelsAsync = ref.read(localLabelsProvider);
+
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Add Label'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: const InputDecoration(
-            hintText: 'Label name',
-            border: OutlineInputBorder(),
-          ),
-          onSubmitted: (value) {
-            if (value.trim().isNotEmpty) {
-              setState(() {
-                _editLabelNames.add(value.trim());
-                _hasUnsavedChanges = true;
-              });
-              Navigator.pop(context);
-            }
+      builder: (dialogContext) {
+        final newLabelController = TextEditingController();
+        bool showNewLabelField = false;
+
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: Row(
+                children: [
+                  Icon(LucideIcons.tag, size: 20, color: AppTheme.primaryBlue),
+                  const SizedBox(width: 8),
+                  const Text('Add Label'),
+                ],
+              ),
+              content: SizedBox(
+                width: 300,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Existing labels
+                    labelsAsync.when(
+                      data: (labels) {
+                        // Filter out labels already added to this task
+                        final availableLabels = labels
+                            .where((l) => !_editLabelNames.contains(l.name))
+                            .toList();
+
+                        if (availableLabels.isEmpty && !showNewLabelField) {
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: Text(
+                              'No existing labels available',
+                              style: TextStyle(
+                                color: AppTheme.gray500,
+                                fontSize: 13,
+                              ),
+                            ),
+                          );
+                        }
+
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (availableLabels.isNotEmpty) ...[
+                              Text(
+                                'Select existing label',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w500,
+                                  color: AppTheme.gray500,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                children: availableLabels.map((label) {
+                                  return InkWell(
+                                    onTap: () {
+                                      setState(() {
+                                        _editLabelNames.add(label.name);
+                                        _hasUnsavedChanges = true;
+                                      });
+                                      Navigator.pop(dialogContext);
+                                    },
+                                    borderRadius: BorderRadius.circular(16),
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 12,
+                                        vertical: 6,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: _parseProjectColor(label.color)
+                                            .withValues(alpha: 0.1),
+                                        borderRadius: BorderRadius.circular(16),
+                                        border: Border.all(
+                                          color: _parseProjectColor(label.color)
+                                              .withValues(alpha: 0.3),
+                                        ),
+                                      ),
+                                      child: Text(
+                                        label.name,
+                                        style: TextStyle(
+                                          fontSize: 13,
+                                          color: _parseProjectColor(label.color),
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                    ),
+                                  );
+                                }).toList(),
+                              ),
+                              const SizedBox(height: 16),
+                            ],
+                          ],
+                        );
+                      },
+                      loading: () => const Padding(
+                        padding: EdgeInsets.all(16),
+                        child: Center(
+                          child: SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        ),
+                      ),
+                      error: (_, _) => const SizedBox.shrink(),
+                    ),
+
+                    // Create new label section
+                    if (showNewLabelField) ...[
+                      Text(
+                        'Create new label',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                          color: AppTheme.gray500,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: newLabelController,
+                        autofocus: true,
+                        decoration: InputDecoration(
+                          hintText: 'Label name',
+                          hintStyle: TextStyle(color: AppTheme.gray400),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 10,
+                          ),
+                        ),
+                        onSubmitted: (value) {
+                          if (value.trim().isNotEmpty) {
+                            setState(() {
+                              _editLabelNames.add(value.trim());
+                              _hasUnsavedChanges = true;
+                            });
+                            Navigator.pop(dialogContext);
+                          }
+                        },
+                      ),
+                    ] else ...[
+                      // Button to show new label field
+                      InkWell(
+                        onTap: () => setDialogState(() => showNewLabelField = true),
+                        borderRadius: BorderRadius.circular(8),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 10,
+                          ),
+                          decoration: BoxDecoration(
+                            border: Border.all(color: AppTheme.gray300),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(LucideIcons.plus, size: 16, color: AppTheme.gray500),
+                              const SizedBox(width: 6),
+                              Text(
+                                'Create new label',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: AppTheme.gray600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: const Text('Cancel'),
+                ),
+                if (showNewLabelField)
+                  FilledButton(
+                    onPressed: () {
+                      final value = newLabelController.text.trim();
+                      if (value.isNotEmpty) {
+                        setState(() {
+                          _editLabelNames.add(value);
+                          _hasUnsavedChanges = true;
+                        });
+                        Navigator.pop(dialogContext);
+                      }
+                    },
+                    child: const Text('Add'),
+                  ),
+              ],
+            );
           },
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () {
-              final value = controller.text.trim();
-              if (value.isNotEmpty) {
-                setState(() {
-                  _editLabelNames.add(value);
-                  _hasUnsavedChanges = true;
-                });
-                Navigator.pop(context);
-              }
-            },
-            child: const Text('Add'),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 
