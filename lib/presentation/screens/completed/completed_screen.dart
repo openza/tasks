@@ -4,6 +4,7 @@ import 'package:lucide_icons/lucide_icons.dart';
 
 import '../../../app/app_theme.dart';
 import '../../../domain/entities/task.dart';
+import '../../../domain/entities/project.dart';
 import '../../providers/task_provider.dart';
 import '../../providers/repository_provider.dart';
 import '../../widgets/tasks/task_list.dart';
@@ -117,6 +118,7 @@ class _CompletedScreenState extends ConsumerState<CompletedScreen> {
               data: (data) => TaskDetail(
                 task: _selectedTask!,
                 project: _getProjectForTask(_selectedTask!, data.projects),
+                projects: data.projects,
                 onClose: () => setState(() => _selectedTask = null),
                 onComplete: _reopenTask,
               ),
@@ -138,7 +140,7 @@ class _CompletedScreenState extends ConsumerState<CompletedScreen> {
     }
   }
 
-  dynamic _getProjectForTask(TaskEntity task, List projects) {
+  ProjectEntity? _getProjectForTask(TaskEntity task, List<ProjectEntity> projects) {
     if (task.projectId == null) return null;
     try {
       return projects.firstWhere(

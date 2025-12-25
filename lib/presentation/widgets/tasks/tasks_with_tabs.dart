@@ -24,6 +24,7 @@ enum TaskSortOption {
 class TasksWithTabs extends StatefulWidget {
   final List<TaskEntity> tasks;
   final List<ProjectEntity> projects;
+  final String? selectedProjectId;
   final void Function(TaskEntity)? onTaskComplete;
   final void Function(TaskEntity)? onTaskUpdate;
   final void Function(TaskEntity)? onTaskDelete;
@@ -32,6 +33,7 @@ class TasksWithTabs extends StatefulWidget {
     super.key,
     required this.tasks,
     this.projects = const [],
+    this.selectedProjectId,
     this.onTaskComplete,
     this.onTaskUpdate,
     this.onTaskDelete,
@@ -44,7 +46,6 @@ class TasksWithTabs extends StatefulWidget {
 class _TasksWithTabsState extends State<TasksWithTabs> {
   TaskEntity? _selectedTask;
   String _searchQuery = '';
-  String? _selectedProjectId;
   int? _selectedPriority;
   TaskSortOption _sortOption = TaskSortOption.priority;
 
@@ -62,11 +63,6 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
             false;
         return titleMatch || descMatch;
       }).toList();
-    }
-
-    // Apply project filter
-    if (_selectedProjectId != null) {
-      tasks = tasks.where((t) => t.projectId == _selectedProjectId).toList();
     }
 
     // Apply priority filter
@@ -173,6 +169,7 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
           TaskDetail(
             task: _selectedTask!,
             project: _getProjectForTask(_selectedTask!),
+            projects: widget.projects,
             onClose: () => setState(() => _selectedTask = null),
             onUpdate: (task) {
               widget.onTaskUpdate?.call(task);
@@ -192,12 +189,29 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
   }
 
   Widget _buildHeader(BuildContext context, int taskCount) {
+    // Get selected project name if a project is selected
+    final selectedProject = widget.selectedProjectId != null
+        ? widget.projects.where((p) => p.id == widget.selectedProjectId).firstOrNull
+        : null;
+    final headerTitle = selectedProject?.name ?? 'Tasks';
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
       child: Row(
         children: [
+          if (selectedProject != null) ...[
+            Container(
+              width: 12,
+              height: 12,
+              decoration: BoxDecoration(
+                color: _parseProjectColor(selectedProject.color),
+                borderRadius: BorderRadius.circular(3),
+              ),
+            ),
+            const SizedBox(width: 10),
+          ],
           Text(
-            'Tasks',
+            headerTitle,
             style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                   fontWeight: FontWeight.bold,
                 ),
@@ -224,110 +238,230 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
     );
   }
 
+  Color _parseProjectColor(String colorStr) {
+    if (colorStr.startsWith('#')) {
+      try {
+        return Color(int.parse(colorStr.substring(1), radix: 16) + 0xFF000000);
+      } catch (_) {
+        return AppTheme.gray500;
+      }
+    }
+    return AppTheme.gray500;
+  }
+
   Widget _buildFilters(BuildContext context) {
+    final hasActiveFilters = _searchQuery.isNotEmpty || _selectedPriority != null;
+
     return Padding(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
       child: Row(
         children: [
-          // Search
-          Expanded(
-            flex: 2,
-            child: TextField(
-              onChanged: (value) => setState(() => _searchQuery = value),
-              decoration: InputDecoration(
-                hintText: 'Search tasks...',
-                prefixIcon: Icon(LucideIcons.search, size: 18),
-                isDense: true,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide: BorderSide(color: AppTheme.gray300),
-                ),
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 10,
+          // Search - flexible with max width
+          Flexible(
+            child: Container(
+              height: 36,
+              constraints: const BoxConstraints(maxWidth: 280),
+              decoration: BoxDecoration(
+                color: AppTheme.gray50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: AppTheme.gray200),
+              ),
+              child: TextField(
+                onChanged: (value) => setState(() => _searchQuery = value),
+                style: const TextStyle(fontSize: 13),
+                decoration: InputDecoration(
+                  hintText: 'Search...',
+                  hintStyle: TextStyle(fontSize: 13, color: AppTheme.gray400),
+                  prefixIcon: Padding(
+                    padding: const EdgeInsets.only(left: 10, right: 8),
+                    child: Icon(LucideIcons.search, size: 16, color: AppTheme.gray400),
+                  ),
+                  prefixIconConstraints: const BoxConstraints(minWidth: 36),
+                  isDense: true,
+                  border: InputBorder.none,
+                  contentPadding: const EdgeInsets.symmetric(vertical: 10),
                 ),
               ),
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 8),
 
           // Sort dropdown
           _buildSortDropdown(),
-          const SizedBox(width: 12),
-
-          // Project filter
-          if (widget.projects.isNotEmpty)
-            Expanded(
-              child: _buildDropdown<String?>(
-                value: _selectedProjectId,
-                hint: 'Project',
-                items: [
-                  const DropdownMenuItem(value: null, child: Text('All Projects')),
-                  ...widget.projects.map((p) => DropdownMenuItem(
-                        value: p.id,
-                        child: Text(p.name, overflow: TextOverflow.ellipsis),
-                      )),
-                ],
-                onChanged: (value) =>
-                    setState(() => _selectedProjectId = value),
-              ),
-            ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 8),
 
           // Priority filter
-          Expanded(
-            child: _buildDropdown<int?>(
-              value: _selectedPriority,
-              hint: 'Priority',
-              items: const [
-                DropdownMenuItem(value: null, child: Text('All Priorities')),
-                DropdownMenuItem(value: 1, child: Text('High')),
-                DropdownMenuItem(value: 2, child: Text('Medium')),
-                DropdownMenuItem(value: 3, child: Text('Normal')),
-                DropdownMenuItem(value: 4, child: Text('Low')),
-              ],
-              onChanged: (value) => setState(() => _selectedPriority = value),
-            ),
-          ),
+          _buildPriorityFilter(),
 
           // Clear filters
-          if (_searchQuery.isNotEmpty ||
-              _selectedProjectId != null ||
-              _selectedPriority != null) ...[
-            const SizedBox(width: 12),
-            IconButton(
-              icon: Icon(LucideIcons.x, size: 18, color: AppTheme.gray500),
-              onPressed: () => setState(() {
-                _searchQuery = '';
-                _selectedProjectId = null;
-                _selectedPriority = null;
-              }),
-              tooltip: 'Clear filters',
-            ),
+          if (hasActiveFilters) ...[
+            const SizedBox(width: 6),
+            _buildClearFiltersButton(),
           ],
         ],
       ),
     );
   }
 
+  Widget _buildPriorityFilter() {
+    final isActive = _selectedPriority != null;
+    final priorityColor = _selectedPriority != null
+        ? AppTheme.priorityColors[_selectedPriority] ?? AppTheme.gray500
+        : AppTheme.gray500;
+
+    return Container(
+      height: 36,
+      padding: const EdgeInsets.symmetric(horizontal: 10),
+      decoration: BoxDecoration(
+        color: isActive ? priorityColor.withValues(alpha: 0.08) : AppTheme.gray50,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: isActive ? priorityColor.withValues(alpha: 0.3) : AppTheme.gray200,
+        ),
+      ),
+      child: DropdownButton<int?>(
+        value: _selectedPriority,
+        hint: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(LucideIcons.flag, size: 14, color: AppTheme.gray400),
+            const SizedBox(width: 6),
+            Text('Priority', style: TextStyle(fontSize: 13, color: AppTheme.gray500)),
+          ],
+        ),
+        selectedItemBuilder: (_) => [
+          // "All" option
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(LucideIcons.flag, size: 14, color: AppTheme.gray500),
+              const SizedBox(width: 6),
+              const Text('All', style: TextStyle(fontSize: 13)),
+            ],
+          ),
+          // Priority options
+          ...[1, 2, 3, 4].map((p) => Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 8,
+                height: 8,
+                decoration: BoxDecoration(
+                  color: AppTheme.priorityColors[p],
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                _getPriorityLabel(p),
+                style: TextStyle(
+                  fontSize: 13,
+                  color: isActive && _selectedPriority == p ? AppTheme.priorityColors[p] : AppTheme.gray700,
+                ),
+              ),
+            ],
+          )),
+        ],
+        items: [
+          DropdownMenuItem(
+            value: null,
+            child: Row(
+              children: [
+                Icon(LucideIcons.layers, size: 14, color: AppTheme.gray500),
+                const SizedBox(width: 8),
+                const Text('All Priorities', style: TextStyle(fontSize: 13)),
+              ],
+            ),
+          ),
+          ...[1, 2, 3, 4].map((p) => DropdownMenuItem(
+            value: p,
+            child: Row(
+              children: [
+                Container(
+                  width: 10,
+                  height: 10,
+                  decoration: BoxDecoration(
+                    color: AppTheme.priorityColors[p],
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(_getPriorityLabel(p), style: const TextStyle(fontSize: 13)),
+              ],
+            ),
+          )),
+        ],
+        onChanged: (value) => setState(() => _selectedPriority = value),
+        underline: const SizedBox.shrink(),
+        isDense: true,
+        icon: Icon(LucideIcons.chevronDown, size: 14, color: isActive ? priorityColor : AppTheme.gray400),
+      ),
+    );
+  }
+
+  String _getPriorityLabel(int priority) {
+    switch (priority) {
+      case 1: return 'Urgent';
+      case 2: return 'High';
+      case 3: return 'Normal';
+      case 4: return 'Low';
+      default: return '';
+    }
+  }
+
+  Widget _buildClearFiltersButton() {
+    return Tooltip(
+      message: 'Clear all filters',
+      child: InkWell(
+        onTap: () => setState(() {
+          _searchQuery = '';
+          _selectedPriority = null;
+        }),
+        borderRadius: BorderRadius.circular(6),
+        child: Container(
+          height: 36,
+          width: 36,
+          decoration: BoxDecoration(
+            color: AppTheme.errorRed.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(color: AppTheme.errorRed.withValues(alpha: 0.2)),
+          ),
+          child: Icon(LucideIcons.x, size: 16, color: AppTheme.errorRed),
+        ),
+      ),
+    );
+  }
+
   Widget _buildSortDropdown() {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12),
+      height: 36,
+      padding: const EdgeInsets.symmetric(horizontal: 10),
       decoration: BoxDecoration(
-        border: Border.all(color: AppTheme.gray300),
+        color: AppTheme.gray50,
         borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppTheme.gray200),
       ),
       child: DropdownButton<TaskSortOption>(
         value: _sortOption,
+        selectedItemBuilder: (_) => TaskSortOption.values.map((option) {
+          return Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(option.icon, size: 14, color: AppTheme.gray500),
+              const SizedBox(width: 6),
+              Text(option.displayName, style: const TextStyle(fontSize: 13)),
+            ],
+          );
+        }).toList(),
         items: TaskSortOption.values.map((option) {
           return DropdownMenuItem<TaskSortOption>(
             value: option,
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(option.icon, size: 16, color: AppTheme.gray600),
+                Icon(option.icon, size: 14, color: AppTheme.gray500),
                 const SizedBox(width: 8),
-                Text(option.displayName),
+                Text(option.displayName, style: const TextStyle(fontSize: 13)),
               ],
             ),
           );
@@ -338,31 +472,8 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
           }
         },
         underline: const SizedBox.shrink(),
-        icon: Icon(LucideIcons.chevronDown, size: 16, color: AppTheme.gray400),
-      ),
-    );
-  }
-
-  Widget _buildDropdown<T>({
-    required T value,
-    required String hint,
-    required List<DropdownMenuItem<T>> items,
-    required ValueChanged<T?> onChanged,
-  }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      decoration: BoxDecoration(
-        border: Border.all(color: AppTheme.gray300),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: DropdownButton<T>(
-        value: value,
-        hint: Text(hint, style: TextStyle(color: AppTheme.gray500)),
-        items: items,
-        onChanged: onChanged,
-        isExpanded: true,
-        underline: const SizedBox.shrink(),
-        icon: Icon(LucideIcons.chevronDown, size: 16, color: AppTheme.gray400),
+        isDense: true,
+        icon: Icon(LucideIcons.chevronDown, size: 14, color: AppTheme.gray400),
       ),
     );
   }

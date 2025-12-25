@@ -153,9 +153,13 @@ final msToDoProjectsProvider = FutureProvider<List<ProjectEntity>>((ref) async {
 final localTasksProvider = FutureProvider<List<TaskEntity>>((ref) async {
   ref.keepAlive();
   final db = ref.watch(databaseProvider);
-  final tasks = await db.getAllTasks();
+  final dbTasks = await db.getAllTasks();
+  final tasks = <TaskEntity>[];
 
-  return tasks.map((t) {
+  for (final t in dbTasks) {
+    // Fetch labels for this task
+    final dbLabels = await db.getLabelsForTask(t.id);
+
     // Parse providerMetadata JSON if present
     Map<String, dynamic>? providerMetadata;
     if (t.providerMetadata != null) {
@@ -166,7 +170,7 @@ final localTasksProvider = FutureProvider<List<TaskEntity>>((ref) async {
       }
     }
 
-    return TaskEntity(
+    tasks.add(TaskEntity(
       id: t.id,
       externalId: t.externalId,
       integrationId: t.integrationId,
@@ -183,8 +187,20 @@ final localTasksProvider = FutureProvider<List<TaskEntity>>((ref) async {
       createdAt: t.createdAt,
       updatedAt: t.updatedAt,
       completedAt: t.completedAt,
-    );
-  }).toList();
+      labels: dbLabels
+          .map((l) => LabelEntity(
+                id: l.id,
+                externalId: l.externalId,
+                integrationId: l.integrationId,
+                name: l.name,
+                color: l.color,
+                createdAt: l.createdAt,
+              ))
+          .toList(),
+    ));
+  }
+
+  return tasks;
 });
 
 /// Provider for local projects

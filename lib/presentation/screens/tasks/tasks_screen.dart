@@ -31,6 +31,7 @@ class TasksScreen extends ConsumerWidget {
           return TasksWithTabs(
             tasks: tasks,
             projects: data.projects,
+            selectedProjectId: projectId,
             onTaskComplete: (task) => _completeTask(ref, task),
             onTaskUpdate: (task) => _updateTask(ref, task),
             onTaskDelete: (task) => _deleteTask(ref, task),
@@ -79,6 +80,7 @@ class TasksScreen extends ConsumerWidget {
     final repository = await ref.read(taskRepositoryProvider.future);
     await repository.updateTask(task);
     ref.invalidate(localTasksProvider);
+    ref.invalidate(localLabelsProvider);
     ref.invalidate(unifiedDataProvider);
   }
 
