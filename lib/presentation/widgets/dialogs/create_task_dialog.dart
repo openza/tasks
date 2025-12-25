@@ -29,8 +29,9 @@ class CreateTaskDialog extends StatefulWidget {
     String? defaultProjectId,
   }) async {
     // Filter to local projects and labels only
+    // Exclude proj_inbox since we have a hardcoded "Inbox" option
     final localProjects = projects
-        .where((p) => p.integrationId == 'openza_tasks')
+        .where((p) => p.integrationId == 'openza_tasks' && p.id != 'proj_inbox')
         .toList();
     final localLabels = labels
         .where((l) => l.integrationId == 'openza_tasks')
