@@ -256,19 +256,23 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
   }
 
   Widget _buildFilters(BuildContext context) {
+    // Only count local filters as active (not the project from nav)
     final hasActiveFilters = _searchQuery.isNotEmpty ||
         _selectedProjectId != null ||
         _selectedPriority != null;
+
+    // Hide project filter when already viewing a specific project
+    final showProjectFilter = widget.selectedProjectId == null && widget.projects.isNotEmpty;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
       child: Row(
         children: [
-          // Search
-          Expanded(
-            flex: 2,
+          // Search - flexible with max width
+          Flexible(
             child: Container(
               height: 36,
+              constraints: const BoxConstraints(maxWidth: 280),
               decoration: BoxDecoration(
                 color: AppTheme.gray50,
                 borderRadius: BorderRadius.circular(8),
@@ -278,7 +282,7 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
                 onChanged: (value) => setState(() => _searchQuery = value),
                 style: const TextStyle(fontSize: 13),
                 decoration: InputDecoration(
-                  hintText: 'Search tasks...',
+                  hintText: 'Search...',
                   hintStyle: TextStyle(fontSize: 13, color: AppTheme.gray400),
                   prefixIcon: Padding(
                     padding: const EdgeInsets.only(left: 10, right: 8),
@@ -292,16 +296,16 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
               ),
             ),
           ),
-          const SizedBox(width: 10),
+          const SizedBox(width: 8),
 
           // Sort dropdown
           _buildSortDropdown(),
-          const SizedBox(width: 10),
+          const SizedBox(width: 8),
 
-          // Project filter
-          if (widget.projects.isNotEmpty) ...[
+          // Project filter - only show when viewing all tasks
+          if (showProjectFilter) ...[
             _buildProjectFilter(),
-            const SizedBox(width: 10),
+            const SizedBox(width: 8),
           ],
 
           // Priority filter
@@ -309,7 +313,7 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
 
           // Clear filters
           if (hasActiveFilters) ...[
-            const SizedBox(width: 8),
+            const SizedBox(width: 6),
             _buildClearFiltersButton(),
           ],
         ],
