@@ -711,9 +711,11 @@ class _TaskDetailState extends ConsumerState<TaskDetail> {
                     // Existing labels
                     labelsAsync.when(
                       data: (labels) {
-                        // Filter out labels already added to this task
+                        // Filter labels by task's integration and exclude already added
                         final availableLabels = labels
-                            .where((l) => !_editLabelNames.contains(l.name))
+                            .where((l) =>
+                                l.integrationId == widget.task.integrationId &&
+                                !_editLabelNames.contains(l.name))
                             .toList();
 
                         if (availableLabels.isEmpty && !showNewLabelField) {
