@@ -168,37 +168,27 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ),
           const SizedBox(height: 8),
           Text(
-            'Manage your connected task providers. Tasks from all providers are unified in the task list.',
+            'Tasks from all connected providers are unified in the task list.',
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   color: AppTheme.gray500,
                 ),
           ),
           const SizedBox(height: 24),
 
-          _ProviderOption(
+          _ProviderStatus(
             name: 'Todoist',
             icon: LucideIcons.checkCircle,
             color: const Color(0xFFE44332),
             isConnected: authState.todoistAuthenticated,
-            isSelected: authState.activeIntegrationId == 'todoist',
-            onSelect: () {
-              if (authState.todoistAuthenticated) {
-                ref.read(authProvider.notifier).setActiveIntegration('todoist');
-              }
-            },
+            onConfigure: () => setState(() => _selectedCategory = 'todoist'),
           ),
           const SizedBox(height: 12),
-          _ProviderOption(
+          _ProviderStatus(
             name: 'Microsoft To-Do',
             icon: LucideIcons.layoutGrid,
             color: const Color(0xFF00A4EF),
             isConnected: authState.msToDoAuthenticated,
-            isSelected: authState.activeIntegrationId == 'msToDo',
-            onSelect: () {
-              if (authState.msToDoAuthenticated) {
-                ref.read(authProvider.notifier).setActiveIntegration('msToDo');
-              }
-            },
+            onConfigure: () => setState(() => _selectedCategory = 'mstodo'),
           ),
         ],
       ),
@@ -655,67 +645,61 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ),
           const Divider(),
 
-          // Clear cache
-          ListTile(
-            leading: Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: AppTheme.warningOrange.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Icon(LucideIcons.trash2, size: 20, color: AppTheme.warningOrange),
-            ),
-            title: const Text('Clear Cache'),
-            subtitle: const Text('Clear locally cached data'),
-            trailing: const Icon(LucideIcons.chevronRight, size: 20),
-            onTap: () {
-              showDialog(
-                context: context,
-                builder: (context) => AlertDialog(
-                  title: const Text('Clear Cache?'),
-                  content: const Text(
-                    'This will clear all locally cached data. Your tasks will be re-synced from connected providers.',
-                  ),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(context),
-                      child: const Text('Cancel'),
-                    ),
-                    TextButton(
-                      onPressed: () {
-                        Navigator.pop(context);
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Cache clearing coming soon')),
-                        );
-                      },
-                      child: const Text('Clear'),
-                    ),
-                  ],
+          // Clear cache - Coming Soon
+          Opacity(
+            opacity: 0.5,
+            child: ListTile(
+              leading: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: AppTheme.warningOrange.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
                 ),
-              );
-            },
+                child: Icon(LucideIcons.trash2, size: 20, color: AppTheme.warningOrange),
+              ),
+              title: const Text('Clear Cache'),
+              subtitle: const Text('Coming soon'),
+              trailing: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: AppTheme.gray200,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  'Soon',
+                  style: TextStyle(fontSize: 11, color: AppTheme.gray500),
+                ),
+              ),
+            ),
           ),
           const Divider(),
 
-          // Export data
-          ListTile(
-            leading: Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: AppTheme.successGreen.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(8),
+          // Export data - Coming Soon
+          Opacity(
+            opacity: 0.5,
+            child: ListTile(
+              leading: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: AppTheme.successGreen.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(LucideIcons.download, size: 20, color: AppTheme.successGreen),
               ),
-              child: Icon(LucideIcons.download, size: 20, color: AppTheme.successGreen),
+              title: const Text('Export Data'),
+              subtitle: const Text('Coming soon'),
+              trailing: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: AppTheme.gray200,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  'Soon',
+                  style: TextStyle(fontSize: 11, color: AppTheme.gray500),
+                ),
+              ),
             ),
-            title: const Text('Export Data'),
-            subtitle: const Text('Export all your tasks to JSON'),
-            trailing: const Icon(LucideIcons.chevronRight, size: 20),
-            onTap: () {
-              // TODO: Implement export
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Export coming soon')),
-              );
-            },
           ),
         ],
       ),
@@ -786,7 +770,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ),
           const Spacer(),
           Text(
-            'Made with Flutter',
+            'Made with Flutter & Rust',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   color: AppTheme.gray400,
                 ),
@@ -797,85 +781,79 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 }
 
-class _ProviderOption extends StatelessWidget {
+class _ProviderStatus extends StatelessWidget {
   final String name;
   final IconData icon;
   final Color color;
   final bool isConnected;
-  final bool isSelected;
-  final VoidCallback onSelect;
+  final VoidCallback onConfigure;
 
-  const _ProviderOption({
+  const _ProviderStatus({
     required this.name,
     required this.icon,
     required this.color,
     required this.isConnected,
-    required this.isSelected,
-    required this.onSelect,
+    required this.onConfigure,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: isSelected
-          ? color.withValues(alpha: 0.1)
-          : AppTheme.gray100,
-      borderRadius: BorderRadius.circular(12),
-      child: InkWell(
-        onTap: isConnected ? onSelect : null,
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: isConnected ? color.withValues(alpha: 0.05) : AppTheme.gray100,
         borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            children: [
-              Container(
-                width: 20,
-                height: 20,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: isSelected ? color : AppTheme.gray400,
-                    width: 2,
-                  ),
+        border: Border.all(
+          color: isConnected ? color.withValues(alpha: 0.2) : AppTheme.gray200,
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(icon, size: 20, color: color),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  name,
+                  style: Theme.of(context).textTheme.titleSmall,
                 ),
-                child: isSelected
-                    ? Center(
-                        child: Container(
-                          width: 10,
-                          height: 10,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: color,
-                          ),
-                        ),
-                      )
-                    : null,
-              ),
-              const SizedBox(width: 12),
-              Icon(icon, size: 20, color: color),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                const SizedBox(height: 2),
+                Row(
                   children: [
-                    Text(
-                      name,
-                      style: Theme.of(context).textTheme.titleSmall,
+                    Container(
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: isConnected ? AppTheme.successGreen : AppTheme.gray400,
+                      ),
                     ),
+                    const SizedBox(width: 6),
                     Text(
                       isConnected ? 'Connected' : 'Not connected',
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: isConnected
-                                ? AppTheme.successGreen
-                                : AppTheme.gray400,
+                            color: isConnected ? AppTheme.successGreen : AppTheme.gray400,
                           ),
                     ),
                   ],
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
+          TextButton(
+            onPressed: onConfigure,
+            child: Text(isConnected ? 'Manage' : 'Connect'),
+          ),
+        ],
       ),
     );
   }

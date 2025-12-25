@@ -8,7 +8,7 @@ class AppConstants {
   static const String appDescription =
       'Unified Task Manager for Todoist and Microsoft To-Do';
   static const String githubUrl = 'https://github.com/openza/tasks';
-  static const String websiteUrl = 'https://openza.dev';
+  static const String websiteUrl = 'https://openza.github.io/tasks/';
 
   // OAuth configuration
   static const String oauthScheme = 'openza';
