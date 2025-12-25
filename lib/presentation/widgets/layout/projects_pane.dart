@@ -326,7 +326,8 @@ class _ProjectsPaneState extends ConsumerState<ProjectsPane> {
         isFavorite: Value(project.isFavorite),
       ));
 
-      // Refresh the data
+      // Refresh the data - invalidate both providers to ensure cache is cleared
+      ref.invalidate(localProjectsProvider);
       ref.invalidate(unifiedDataProvider);
 
       if (mounted) {
@@ -369,7 +370,8 @@ class _ProjectsPaneState extends ConsumerState<ProjectsPane> {
         ),
       );
 
-      // Refresh the data
+      // Refresh the data - invalidate both providers to ensure cache is cleared
+      ref.invalidate(localProjectsProvider);
       ref.invalidate(unifiedDataProvider);
 
       if (mounted) {
@@ -441,7 +443,9 @@ class _ProjectsPaneState extends ConsumerState<ProjectsPane> {
         ref.read(selectedProjectIdProvider.notifier).state = null;
       }
 
-      // Refresh the data
+      // Refresh the data - invalidate both providers to ensure cache is cleared
+      ref.invalidate(localProjectsProvider);
+      ref.invalidate(localTasksProvider);  // Tasks may have been moved/deleted
       ref.invalidate(unifiedDataProvider);
 
       if (mounted) {
