@@ -7,7 +7,6 @@ import '../../../domain/entities/task.dart';
 import '../../providers/task_provider.dart';
 import '../../providers/repository_provider.dart';
 import '../../widgets/tasks/tasks_with_tabs.dart';
-import '../../widgets/dialogs/create_task_dialog.dart';
 
 class TasksScreen extends ConsumerWidget {
   final String? projectId;
@@ -20,13 +19,6 @@ class TasksScreen extends ConsumerWidget {
 
     return Scaffold(
       backgroundColor: AppTheme.gray50,
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _showCreateTaskDialog(context, ref),
-        icon: const Icon(LucideIcons.plus),
-        label: const Text('Add Task'),
-        backgroundColor: AppTheme.primaryBlue,
-        foregroundColor: Colors.white,
-      ),
       body: unifiedDataAsync.when(
         skipLoadingOnRefresh: true,
         data: (data) {
@@ -73,26 +65,6 @@ class TasksScreen extends ConsumerWidget {
         ),
       ),
     );
-  }
-
-  Future<void> _showCreateTaskDialog(
-      BuildContext context, WidgetRef ref) async {
-    final data = ref.read(unifiedDataProvider).value;
-    if (data == null) return;
-
-    final task = await CreateTaskDialog.show(
-      context,
-      projects: data.projects,
-      labels: data.labels,
-      defaultProjectId: projectId,
-    );
-
-    if (task != null) {
-      final repository = await ref.read(taskRepositoryProvider.future);
-      await repository.createTask(task);
-      ref.invalidate(localTasksProvider);
-      ref.invalidate(unifiedDataProvider);
-    }
   }
 
   Future<void> _completeTask(WidgetRef ref, TaskEntity task) async {

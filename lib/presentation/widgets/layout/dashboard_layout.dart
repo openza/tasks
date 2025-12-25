@@ -12,6 +12,7 @@ import '../badges/sync_badge.dart';
 import '../common/api_error_listener.dart';
 import '../common/openza_logo.dart';
 import '../dialogs/create_task_dialog.dart';
+import '../dialogs/import_markdown_dialog.dart';
 
 class DashboardLayout extends ConsumerStatefulWidget {
   final Widget child;
@@ -157,32 +158,45 @@ class _DashboardLayoutState extends ConsumerState<DashboardLayout> {
                   ),
                 ),
 
-                // Add Task Button
+                // Add Task Button + Import Button
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton.icon(
-                      onPressed: () async {
-                        final data = ref.read(unifiedDataProvider).value;
-                        if (data == null) return;
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: () async {
+                            final data = ref.read(unifiedDataProvider).value;
+                            if (data == null) return;
 
-                        final task = await CreateTaskDialog.show(
-                          context,
-                          projects: data.projects,
-                          labels: data.labels,
-                        );
+                            final task = await CreateTaskDialog.show(
+                              context,
+                              projects: data.projects,
+                              labels: data.labels,
+                            );
 
-                        if (task != null) {
-                          final repository = await ref.read(taskRepositoryProvider.future);
-                          await repository.createTask(task);
-                          ref.invalidate(localTasksProvider);
-                          ref.invalidate(unifiedDataProvider);
-                        }
-                      },
-                      icon: const Icon(LucideIcons.plus, size: 18),
-                      label: const Text('Add Task'),
-                    ),
+                            if (task != null) {
+                              final repository = await ref.read(taskRepositoryProvider.future);
+                              await repository.createTask(task);
+                              ref.invalidate(localTasksProvider);
+                              ref.invalidate(unifiedDataProvider);
+                            }
+                          },
+                          icon: const Icon(LucideIcons.plus, size: 18),
+                          label: const Text('Add Task'),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      IconButton(
+                        onPressed: () => ImportMarkdownDialog.show(context),
+                        icon: const Icon(LucideIcons.fileDown, size: 18),
+                        tooltip: 'Import from Markdown',
+                        style: IconButton.styleFrom(
+                          backgroundColor: AppTheme.gray100,
+                          foregroundColor: AppTheme.gray600,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
 
@@ -298,7 +312,7 @@ class _DashboardLayoutState extends ConsumerState<DashboardLayout> {
                               child: CircularProgressIndicator(strokeWidth: 2),
                             )),
                           ),
-                          error: (_, __) => const SizedBox.shrink(),
+                          error: (_, _) => const SizedBox.shrink(),
                         ),
                     ],
                   ),
