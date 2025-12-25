@@ -2,6 +2,11 @@
 
 // Layout
 export 'layout/dashboard_layout.dart';
+export 'layout/nav_rail.dart';
+export 'layout/projects_pane.dart';
+
+// Common
+export 'common/provider_badge.dart';
 
 // Tasks
 export 'tasks/task_card.dart';

@@ -3,7 +3,7 @@ class AppConstants {
   AppConstants._();
 
   // App info
-  static const String appName = 'Openza';
+  static const String appName = 'Openza Tasks';
   static const String appVersion = '1.0.0';
   static const String appDescription =
       'Unified Task Manager for Todoist and Microsoft To-Do';

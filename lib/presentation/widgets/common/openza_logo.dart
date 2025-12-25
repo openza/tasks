@@ -23,7 +23,7 @@ class OpenzaLogo extends StatelessWidget {
           _buildIcon(),
           SizedBox(width: textSpacing ?? 12),
           Text(
-            'Openza',
+            'Openza Tasks',
             style: Theme.of(context).textTheme.titleLarge?.copyWith(
                   fontWeight: FontWeight.w700,
                   color: const Color(0xFF1e293b),

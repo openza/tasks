@@ -28,7 +28,7 @@ class OpenzaApp extends ConsumerWidget {
   Widget _buildApp(WidgetRef ref) {
     final router = ref.watch(appRouterProvider);
     return MaterialApp.router(
-      title: 'Openza',
+      title: 'Openza Tasks',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
