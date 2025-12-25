@@ -46,7 +46,6 @@ class TasksWithTabs extends StatefulWidget {
 class _TasksWithTabsState extends State<TasksWithTabs> {
   TaskEntity? _selectedTask;
   String _searchQuery = '';
-  String? _selectedProjectId;
   int? _selectedPriority;
   TaskSortOption _sortOption = TaskSortOption.priority;
 
@@ -64,11 +63,6 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
             false;
         return titleMatch || descMatch;
       }).toList();
-    }
-
-    // Apply project filter
-    if (_selectedProjectId != null) {
-      tasks = tasks.where((t) => t.projectId == _selectedProjectId).toList();
     }
 
     // Apply priority filter
@@ -256,13 +250,7 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
   }
 
   Widget _buildFilters(BuildContext context) {
-    // Only count local filters as active (not the project from nav)
-    final hasActiveFilters = _searchQuery.isNotEmpty ||
-        _selectedProjectId != null ||
-        _selectedPriority != null;
-
-    // Hide project filter when already viewing a specific project
-    final showProjectFilter = widget.selectedProjectId == null && widget.projects.isNotEmpty;
+    final hasActiveFilters = _searchQuery.isNotEmpty || _selectedPriority != null;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
@@ -302,12 +290,6 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
           _buildSortDropdown(),
           const SizedBox(width: 8),
 
-          // Project filter - only show when viewing all tasks
-          if (showProjectFilter) ...[
-            _buildProjectFilter(),
-            const SizedBox(width: 8),
-          ],
-
           // Priority filter
           _buildPriorityFilter(),
 
@@ -317,102 +299,6 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
             _buildClearFiltersButton(),
           ],
         ],
-      ),
-    );
-  }
-
-  Widget _buildProjectFilter() {
-    final isActive = _selectedProjectId != null;
-
-    return Container(
-      height: 36,
-      padding: const EdgeInsets.symmetric(horizontal: 10),
-      decoration: BoxDecoration(
-        color: isActive ? AppTheme.primaryBlue.withValues(alpha: 0.08) : AppTheme.gray50,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: isActive ? AppTheme.primaryBlue.withValues(alpha: 0.3) : AppTheme.gray200,
-        ),
-      ),
-      child: DropdownButton<String?>(
-        value: _selectedProjectId,
-        hint: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(LucideIcons.folder, size: 14, color: AppTheme.gray400),
-            const SizedBox(width: 6),
-            Text('Project', style: TextStyle(fontSize: 13, color: AppTheme.gray500)),
-          ],
-        ),
-        selectedItemBuilder: (_) => [
-          // "All" option
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(LucideIcons.folder, size: 14, color: AppTheme.gray500),
-              const SizedBox(width: 6),
-              const Text('All', style: TextStyle(fontSize: 13)),
-            ],
-          ),
-          // Project options
-          ...widget.projects.map((p) => Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 8,
-                height: 8,
-                decoration: BoxDecoration(
-                  color: _parseProjectColor(p.color),
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              const SizedBox(width: 6),
-              ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 80),
-                child: Text(
-                  p.name,
-                  style: TextStyle(fontSize: 13, color: isActive ? AppTheme.primaryBlue : AppTheme.gray700),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ],
-          )),
-        ],
-        items: [
-          DropdownMenuItem(
-            value: null,
-            child: Row(
-              children: [
-                Icon(LucideIcons.layoutGrid, size: 14, color: AppTheme.gray500),
-                const SizedBox(width: 8),
-                const Text('All Projects', style: TextStyle(fontSize: 13)),
-              ],
-            ),
-          ),
-          ...widget.projects.map((p) => DropdownMenuItem(
-            value: p.id,
-            child: Row(
-              children: [
-                Container(
-                  width: 10,
-                  height: 10,
-                  decoration: BoxDecoration(
-                    color: _parseProjectColor(p.color),
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Flexible(
-                  child: Text(p.name, style: const TextStyle(fontSize: 13), overflow: TextOverflow.ellipsis),
-                ),
-              ],
-            ),
-          )),
-        ],
-        onChanged: (value) => setState(() => _selectedProjectId = value),
-        underline: const SizedBox.shrink(),
-        isDense: true,
-        icon: Icon(LucideIcons.chevronDown, size: 14, color: isActive ? AppTheme.primaryBlue : AppTheme.gray400),
       ),
     );
   }
@@ -529,7 +415,6 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
       child: InkWell(
         onTap: () => setState(() {
           _searchQuery = '';
-          _selectedProjectId = null;
           _selectedPriority = null;
         }),
         borderRadius: BorderRadius.circular(6),
