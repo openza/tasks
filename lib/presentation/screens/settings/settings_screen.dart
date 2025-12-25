@@ -168,7 +168,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ),
           const SizedBox(height: 8),
           Text(
-            'Manage your connected task providers. Use the sidebar dropdown to filter tasks by source.',
+            'Manage your connected task providers. Tasks from all providers are unified in the task list.',
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   color: AppTheme.gray500,
                 ),
@@ -753,13 +753,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ),
           const SizedBox(height: 24),
 
-          _AboutRow(label: 'Version', value: '1.0.0 (Flutter)'),
+          _AboutRow(label: 'Version', value: '${AppConstants.appVersion} (Flutter + Rust)'),
           _AboutRow(label: 'License', value: 'MIT'),
-          _AboutRow(label: 'Platform', value: 'Desktop (Windows, macOS, Linux)'),
+          _AboutRow(label: 'Platform', value: 'Linux, Windows, macOS'),
 
           const SizedBox(height: 16),
           Text(
-            'Openza is a unified task manager that brings together tasks from Todoist, Microsoft To-Do, and local storage into one seamless experience.',
+            AppConstants.appDescription,
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   color: AppTheme.gray600,
                 ),
@@ -769,7 +769,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             children: [
               OutlinedButton.icon(
                 onPressed: () {
-                  launchUrl(Uri.parse('https://github.com/openza/openza-flutter'));
+                  launchUrl(Uri.parse(AppConstants.githubUrl));
                 },
                 icon: const Icon(LucideIcons.github, size: 16),
                 label: const Text('GitHub'),
@@ -777,7 +777,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               const SizedBox(width: 12),
               OutlinedButton.icon(
                 onPressed: () {
-                  launchUrl(Uri.parse('https://openza.dev'));
+                  launchUrl(Uri.parse(AppConstants.websiteUrl));
                 },
                 icon: const Icon(LucideIcons.externalLink, size: 16),
                 label: const Text('Website'),
