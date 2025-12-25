@@ -15,6 +15,7 @@ import '../badges/project_badge.dart';
 class TaskDetail extends ConsumerStatefulWidget {
   final TaskEntity task;
   final ProjectEntity? project;
+  final List<ProjectEntity> projects;
   final VoidCallback? onClose;
   final void Function(TaskEntity)? onUpdate;
   final void Function(TaskEntity)? onDelete;
@@ -24,6 +25,7 @@ class TaskDetail extends ConsumerStatefulWidget {
     super.key,
     required this.task,
     this.project,
+    this.projects = const [],
     this.onClose,
     this.onUpdate,
     this.onDelete,
@@ -41,6 +43,7 @@ class _TaskDetailState extends ConsumerState<TaskDetail> {
   late int _editPriority;
   late DateTime? _editDueDate;
   late List<String> _editLabelNames;
+  late String? _editProjectId;
   bool _hasUnsavedChanges = false;
 
   @override
@@ -52,6 +55,7 @@ class _TaskDetailState extends ConsumerState<TaskDetail> {
     _editPriority = widget.task.priority;
     _editDueDate = widget.task.dueDate;
     _editLabelNames = widget.task.labels.map((l) => l.name).toList();
+    _editProjectId = widget.task.projectId;
 
     _titleController.addListener(_onEditChanged);
     _descriptionController.addListener(_onEditChanged);
@@ -252,6 +256,11 @@ class _TaskDetailState extends ConsumerState<TaskDetail> {
   }
 
   Widget _buildMetadataSection(BuildContext context) {
+    // Get current project for display
+    final currentProject = _editProjectId != null
+        ? widget.projects.where((p) => p.id == _editProjectId).firstOrNull
+        : widget.project;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -280,15 +289,74 @@ class _TaskDetailState extends ConsumerState<TaskDetail> {
         const SizedBox(height: 12),
 
         // Project
-        if (widget.project != null)
-          _buildMetadataRow(
-            context,
-            icon: LucideIcons.folder,
-            label: 'Project',
-            child: ProjectBadge(project: widget.project!),
-          ),
+        _buildMetadataRow(
+          context,
+          icon: LucideIcons.folder,
+          label: 'Project',
+          child: _isEditing
+              ? _buildProjectSelector()
+              : currentProject != null
+                  ? ProjectBadge(project: currentProject)
+                  : Text(
+                      'No project',
+                      style: TextStyle(fontSize: 13, color: AppTheme.gray400),
+                    ),
+        ),
       ],
     );
+  }
+
+  Widget _buildProjectSelector() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      decoration: BoxDecoration(
+        border: Border.all(color: AppTheme.gray300),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: DropdownButton<String?>(
+        value: _editProjectId,
+        hint: Text('Select project', style: TextStyle(color: AppTheme.gray400)),
+        items: widget.projects.map((project) {
+          return DropdownMenuItem<String?>(
+            value: project.id,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 10,
+                  height: 10,
+                  decoration: BoxDecoration(
+                    color: _parseProjectColor(project.color),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(project.name),
+              ],
+            ),
+          );
+        }).toList(),
+        onChanged: (value) {
+          setState(() {
+            _editProjectId = value;
+            _hasUnsavedChanges = true;
+          });
+        },
+        underline: const SizedBox.shrink(),
+        isDense: true,
+      ),
+    );
+  }
+
+  Color _parseProjectColor(String colorStr) {
+    if (colorStr.startsWith('#')) {
+      try {
+        return Color(int.parse(colorStr.substring(1), radix: 16) + 0xFF000000);
+      } catch (_) {
+        return AppTheme.gray500;
+      }
+    }
+    return AppTheme.gray500;
   }
 
   Widget _buildPrioritySelector() {
@@ -808,6 +876,7 @@ class _TaskDetailState extends ConsumerState<TaskDetail> {
       _editPriority = widget.task.priority;
       _editDueDate = widget.task.dueDate;
       _editLabelNames = widget.task.labels.map((l) => l.name).toList();
+      _editProjectId = widget.task.projectId;
       _isEditing = false;
       _hasUnsavedChanges = false;
     });
@@ -835,6 +904,7 @@ class _TaskDetailState extends ConsumerState<TaskDetail> {
       description: _descriptionController.text.trim(),
       priority: _editPriority,
       dueDate: _editDueDate,
+      projectId: _editProjectId,
       labels: updatedLabels,
       updatedAt: DateTime.now(),
     );

@@ -24,6 +24,7 @@ enum TaskSortOption {
 class TasksWithTabs extends StatefulWidget {
   final List<TaskEntity> tasks;
   final List<ProjectEntity> projects;
+  final String? selectedProjectId;
   final void Function(TaskEntity)? onTaskComplete;
   final void Function(TaskEntity)? onTaskUpdate;
   final void Function(TaskEntity)? onTaskDelete;
@@ -32,6 +33,7 @@ class TasksWithTabs extends StatefulWidget {
     super.key,
     required this.tasks,
     this.projects = const [],
+    this.selectedProjectId,
     this.onTaskComplete,
     this.onTaskUpdate,
     this.onTaskDelete,
@@ -173,6 +175,7 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
           TaskDetail(
             task: _selectedTask!,
             project: _getProjectForTask(_selectedTask!),
+            projects: widget.projects,
             onClose: () => setState(() => _selectedTask = null),
             onUpdate: (task) {
               widget.onTaskUpdate?.call(task);
@@ -192,12 +195,29 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
   }
 
   Widget _buildHeader(BuildContext context, int taskCount) {
+    // Get selected project name if a project is selected
+    final selectedProject = widget.selectedProjectId != null
+        ? widget.projects.where((p) => p.id == widget.selectedProjectId).firstOrNull
+        : null;
+    final headerTitle = selectedProject?.name ?? 'Tasks';
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
       child: Row(
         children: [
+          if (selectedProject != null) ...[
+            Container(
+              width: 12,
+              height: 12,
+              decoration: BoxDecoration(
+                color: _parseProjectColor(selectedProject.color),
+                borderRadius: BorderRadius.circular(3),
+              ),
+            ),
+            const SizedBox(width: 10),
+          ],
           Text(
-            'Tasks',
+            headerTitle,
             style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                   fontWeight: FontWeight.bold,
                 ),
@@ -222,6 +242,17 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
         ],
       ),
     );
+  }
+
+  Color _parseProjectColor(String colorStr) {
+    if (colorStr.startsWith('#')) {
+      try {
+        return Color(int.parse(colorStr.substring(1), radix: 16) + 0xFF000000);
+      } catch (_) {
+        return AppTheme.gray500;
+      }
+    }
+    return AppTheme.gray500;
   }
 
   Widget _buildFilters(BuildContext context) {
