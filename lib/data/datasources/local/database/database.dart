@@ -534,6 +534,71 @@ class AppDatabase extends _$AppDatabase {
     await (delete(projects)..where((p) => p.id.equals(id))).go();
   }
 
+  /// Get count of tasks in a project
+  Future<int> getTaskCountForProject(String projectId) async {
+    final query = selectOnly(tasks)
+      ..addColumns([tasks.id.count()])
+      ..where(tasks.projectId.equals(projectId));
+    final result = await query.getSingle();
+    return result.read(tasks.id.count()) ?? 0;
+  }
+
+  /// Move all tasks from one project to another
+  Future<void> moveTasksToProject(String fromProjectId, String toProjectId) async {
+    await (update(tasks)..where((t) => t.projectId.equals(fromProjectId))).write(
+      TasksCompanion(
+        projectId: Value(toProjectId),
+        updatedAt: Value(DateTime.now()),
+      ),
+    );
+  }
+
+  /// Delete all tasks in a project
+  Future<void> deleteTasksByProject(String projectId) async {
+    // First, remove task-label associations
+    final taskIds = await (select(tasks)..where((t) => t.projectId.equals(projectId)))
+        .map((t) => t.id)
+        .get();
+
+    for (final taskId in taskIds) {
+      await (delete(taskLabels)..where((tl) => tl.taskId.equals(taskId))).go();
+    }
+
+    // Then delete the tasks
+    await (delete(tasks)..where((t) => t.projectId.equals(projectId))).go();
+  }
+
+  /// Delete a project with its tasks in a single transaction
+  /// [moveTasksToInbox] - if true, moves tasks to Inbox; if false, deletes tasks
+  Future<void> deleteProjectWithTasks(String projectId, {required bool moveTasksToInbox}) async {
+    await transaction(() async {
+      if (moveTasksToInbox) {
+        // Move tasks to Inbox
+        await (update(tasks)..where((t) => t.projectId.equals(projectId))).write(
+          TasksCompanion(
+            projectId: const Value('proj_inbox'),
+            updatedAt: Value(DateTime.now()),
+          ),
+        );
+      } else {
+        // Delete task-label associations first
+        final taskIds = await (select(tasks)..where((t) => t.projectId.equals(projectId)))
+            .map((t) => t.id)
+            .get();
+
+        for (final taskId in taskIds) {
+          await (delete(taskLabels)..where((tl) => tl.taskId.equals(taskId))).go();
+        }
+
+        // Delete tasks
+        await (delete(tasks)..where((t) => t.projectId.equals(projectId))).go();
+      }
+
+      // Delete the project
+      await (delete(projects)..where((p) => p.id.equals(projectId))).go();
+    });
+  }
+
   // ============ LABEL OPERATIONS ============
 
   /// Get all labels

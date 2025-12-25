@@ -2,13 +2,19 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons/lucide_icons.dart';
+import 'package:drift/drift.dart' show Value;
+import 'package:toastification/toastification.dart';
 
 import '../../../app/app_router.dart';
 import '../../../app/app_theme.dart';
+import '../../../data/datasources/local/database/database.dart';
 import '../../../domain/entities/project.dart';
+import '../../providers/database_provider.dart';
 import '../../providers/selected_project_provider.dart';
 import '../../providers/task_provider.dart';
 import '../common/provider_badge.dart';
+import '../dialogs/delete_project_dialog.dart';
+import '../dialogs/project_dialog.dart';
 
 /// Projects pane (200px) showing all projects grouped by provider
 /// Part of the 4-pane layout: NavRail | ProjectsPane | TasksList | TaskDetails
@@ -59,56 +65,84 @@ class _ProjectsPaneState extends ConsumerState<ProjectsPane> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Search bar
+          // Header with search and add button
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
-            child: TextField(
-              controller: _searchController,
-              onChanged: (value) {
-                setState(() {
-                  _searchQuery = value.toLowerCase();
-                });
-              },
-              decoration: InputDecoration(
-                hintText: 'Search projects...',
-                hintStyle: const TextStyle(
-                  fontSize: 13,
-                  color: AppTheme.gray400,
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _searchController,
+                    onChanged: (value) {
+                      setState(() {
+                        _searchQuery = value.toLowerCase();
+                      });
+                    },
+                    decoration: InputDecoration(
+                      hintText: 'Search projects...',
+                      hintStyle: const TextStyle(
+                        fontSize: 13,
+                        color: AppTheme.gray400,
+                      ),
+                      prefixIcon: const Icon(
+                        LucideIcons.search,
+                        size: 16,
+                        color: AppTheme.gray400,
+                      ),
+                      suffixIcon: _searchQuery.isNotEmpty
+                          ? IconButton(
+                              icon: const Icon(LucideIcons.x, size: 14, color: AppTheme.gray400),
+                              onPressed: () {
+                                _searchController.clear();
+                                setState(() {
+                                  _searchQuery = '';
+                                });
+                              },
+                            )
+                          : null,
+                      isDense: true,
+                      contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(6),
+                        borderSide: const BorderSide(color: AppTheme.gray200),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(6),
+                        borderSide: const BorderSide(color: AppTheme.gray200),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(6),
+                        borderSide: const BorderSide(color: AppTheme.primaryBlue, width: 1.5),
+                      ),
+                      filled: true,
+                      fillColor: AppTheme.gray50,
+                    ),
+                    style: const TextStyle(fontSize: 13),
+                  ),
                 ),
-                prefixIcon: const Icon(
-                  LucideIcons.search,
-                  size: 16,
-                  color: AppTheme.gray400,
+                const SizedBox(width: 8),
+                // Add project button
+                Tooltip(
+                  message: 'Create new project',
+                  child: InkWell(
+                    onTap: () => _createProject(context),
+                    borderRadius: BorderRadius.circular(6),
+                    child: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: AppTheme.primaryBlue.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(color: AppTheme.primaryBlue.withValues(alpha: 0.3)),
+                      ),
+                      child: const Icon(
+                        LucideIcons.plus,
+                        size: 18,
+                        color: AppTheme.primaryBlue,
+                      ),
+                    ),
+                  ),
                 ),
-                suffixIcon: _searchQuery.isNotEmpty
-                    ? IconButton(
-                        icon: const Icon(LucideIcons.x, size: 14, color: AppTheme.gray400),
-                        onPressed: () {
-                          _searchController.clear();
-                          setState(() {
-                            _searchQuery = '';
-                          });
-                        },
-                      )
-                    : null,
-                isDense: true,
-                contentPadding: const EdgeInsets.symmetric(vertical: 10),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(6),
-                  borderSide: const BorderSide(color: AppTheme.gray200),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(6),
-                  borderSide: const BorderSide(color: AppTheme.gray200),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(6),
-                  borderSide: const BorderSide(color: AppTheme.primaryBlue, width: 1.5),
-                ),
-                filled: true,
-                fillColor: AppTheme.gray50,
-              ),
-              style: const TextStyle(fontSize: 13),
+              ],
             ),
           ),
 
@@ -227,6 +261,8 @@ class _ProjectsPaneState extends ConsumerState<ProjectsPane> {
             });
           },
           onProjectSelected: (projectId) => _selectProject(projectId),
+          onEditProject: (project) => _editProject(context, project),
+          onDeleteProject: (project) => _deleteProject(context, project),
           hexToColor: _hexToColor,
         ),
       );
@@ -256,6 +292,8 @@ class _ProjectsPaneState extends ConsumerState<ProjectsPane> {
             });
           },
           onProjectSelected: (projectId) => _selectProject(projectId),
+          onEditProject: (project) => _editProject(context, project),
+          onDeleteProject: (project) => _deleteProject(context, project),
           hexToColor: _hexToColor,
         ),
       );
@@ -269,6 +307,166 @@ class _ProjectsPaneState extends ConsumerState<ProjectsPane> {
     // Navigate to tasks with projectId
     context.go('${AppRoutes.tasks}?projectId=$projectId');
   }
+
+  /// Create a new local project
+  Future<void> _createProject(BuildContext context) async {
+    final project = await ProjectDialog.showCreate(context);
+    if (project == null || !mounted) return;
+
+    try {
+      final db = ref.read(databaseProvider);
+      await db.createProject(ProjectsCompanion.insert(
+        id: project.id,
+        integrationId: project.integrationId,
+        name: project.name,
+        description: Value(project.description),
+        color: Value(project.color),
+        icon: Value(project.icon),
+        sortOrder: Value(project.sortOrder),
+        isFavorite: Value(project.isFavorite),
+      ));
+
+      // Refresh the data
+      ref.invalidate(unifiedDataProvider);
+
+      if (mounted) {
+        toastification.show(
+          // ignore: use_build_context_synchronously
+          context: context,
+          type: ToastificationType.success,
+          title: const Text('Project Created'),
+          description: Text('${project.name} has been created'),
+          autoCloseDuration: const Duration(seconds: 3),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        toastification.show(
+          // ignore: use_build_context_synchronously
+          context: context,
+          type: ToastificationType.error,
+          title: const Text('Error'),
+          description: const Text('Failed to create project'),
+          autoCloseDuration: const Duration(seconds: 3),
+        );
+      }
+    }
+  }
+
+  /// Edit an existing local project
+  Future<void> _editProject(BuildContext context, ProjectEntity project) async {
+    final updatedProject = await ProjectDialog.showEdit(context, project);
+    if (updatedProject == null || !mounted) return;
+
+    try {
+      final db = ref.read(databaseProvider);
+      await db.updateProject(
+        project.id,
+        ProjectsCompanion(
+          name: Value(updatedProject.name),
+          color: Value(updatedProject.color),
+          updatedAt: Value(DateTime.now()),
+        ),
+      );
+
+      // Refresh the data
+      ref.invalidate(unifiedDataProvider);
+
+      if (mounted) {
+        toastification.show(
+          // ignore: use_build_context_synchronously
+          context: context,
+          type: ToastificationType.success,
+          title: const Text('Project Updated'),
+          description: Text('${updatedProject.name} has been updated'),
+          autoCloseDuration: const Duration(seconds: 3),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        toastification.show(
+          // ignore: use_build_context_synchronously
+          context: context,
+          type: ToastificationType.error,
+          title: const Text('Error'),
+          description: const Text('Failed to update project'),
+          autoCloseDuration: const Duration(seconds: 3),
+        );
+      }
+    }
+  }
+
+  /// Delete a local project
+  Future<void> _deleteProject(BuildContext ctx, ProjectEntity project) async {
+    final db = ref.read(databaseProvider);
+
+    // Get task count for the project
+    int taskCount;
+    try {
+      taskCount = await db.getTaskCountForProject(project.id);
+    } catch (e) {
+      if (mounted) {
+        toastification.show(
+          // ignore: use_build_context_synchronously
+          context: ctx,
+          type: ToastificationType.error,
+          title: const Text('Error'),
+          description: const Text('Failed to check project tasks'),
+          autoCloseDuration: const Duration(seconds: 3),
+        );
+      }
+      return;
+    }
+
+    if (!mounted) return;
+
+    final action = await DeleteProjectDialog.show(
+      // ignore: use_build_context_synchronously
+      ctx,
+      project: project,
+      taskCount: taskCount,
+    );
+
+    if (action == null || action == DeleteProjectAction.cancel || !mounted) return;
+
+    try {
+      // Use transactional delete to ensure atomicity
+      await db.deleteProjectWithTasks(
+        project.id,
+        moveTasksToInbox: action == DeleteProjectAction.moveTasksToInbox,
+      );
+
+      // Clear selection if this project was selected
+      if (ref.read(selectedProjectIdProvider) == project.id) {
+        ref.read(selectedProjectIdProvider.notifier).state = null;
+      }
+
+      // Refresh the data
+      ref.invalidate(unifiedDataProvider);
+
+      if (mounted) {
+        toastification.show(
+          // ignore: use_build_context_synchronously
+          context: ctx,
+          type: ToastificationType.success,
+          title: const Text('Project Deleted'),
+          description: Text('${project.name} has been deleted'),
+          autoCloseDuration: const Duration(seconds: 3),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        toastification.show(
+          // ignore: use_build_context_synchronously
+          context: ctx,
+          type: ToastificationType.error,
+          title: const Text('Error'),
+          description: const Text('Failed to delete project'),
+          autoCloseDuration: const Duration(seconds: 3),
+        );
+      }
+    }
+  }
 }
 
 /// A collapsible group of projects for a single provider
@@ -279,6 +477,8 @@ class _ProviderGroup extends StatelessWidget {
   final bool isExpanded;
   final VoidCallback onToggleExpanded;
   final void Function(String) onProjectSelected;
+  final void Function(ProjectEntity) onEditProject;
+  final void Function(ProjectEntity) onDeleteProject;
   final Color Function(String?) hexToColor;
 
   const _ProviderGroup({
@@ -288,6 +488,8 @@ class _ProviderGroup extends StatelessWidget {
     required this.isExpanded,
     required this.onToggleExpanded,
     required this.onProjectSelected,
+    required this.onEditProject,
+    required this.onDeleteProject,
     required this.hexToColor,
   });
 
@@ -353,6 +555,12 @@ class _ProviderGroup extends StatelessWidget {
               project: project,
               isSelected: project.id == selectedProjectId,
               onTap: () => onProjectSelected(project.id),
+              onEdit: project.isNative && !project.isInbox
+                  ? () => onEditProject(project)
+                  : null,
+              onDelete: project.isNative && !project.isInbox
+                  ? () => onDeleteProject(project)
+                  : null,
               hexToColor: hexToColor,
             ),
           ),
@@ -368,12 +576,16 @@ class _ProjectItem extends StatelessWidget {
   final ProjectEntity project;
   final bool isSelected;
   final VoidCallback onTap;
+  final VoidCallback? onEdit;
+  final VoidCallback? onDelete;
   final Color Function(String?) hexToColor;
 
   const _ProjectItem({
     required this.project,
     required this.isSelected,
     required this.onTap,
+    this.onEdit,
+    this.onDelete,
     required this.hexToColor,
   });
 
@@ -381,6 +593,47 @@ class _ProjectItem extends StatelessWidget {
   Widget build(BuildContext context) {
     final isInbox = project.isInbox;
     final color = hexToColor(project.color);
+    final canShowMenu = onEdit != null || onDelete != null;
+
+    Widget itemContent = Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
+      child: Row(
+        children: [
+          // Project color indicator or inbox icon
+          if (isInbox)
+            Icon(LucideIcons.inbox, size: 16, color: color)
+          else
+            Container(
+              width: 12,
+              height: 12,
+              decoration: BoxDecoration(
+                color: color,
+                borderRadius: BorderRadius.circular(3),
+              ),
+            ),
+          const SizedBox(width: 10),
+          // Project name
+          Expanded(
+            child: Text(
+              project.name,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: isSelected ? FontWeight.w500 : FontWeight.w400,
+                color: isSelected ? AppTheme.primaryBlue : AppTheme.gray700,
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          // Favorite indicator
+          if (project.isFavorite)
+            const Icon(
+              LucideIcons.star,
+              size: 14,
+              color: AppTheme.amber500,
+            ),
+        ],
+      ),
+    );
 
     return Padding(
       padding: const EdgeInsets.only(left: 20, top: 1, bottom: 1, right: 4),
@@ -389,50 +642,86 @@ class _ProjectItem extends StatelessWidget {
             ? AppTheme.primaryBlue.withValues(alpha: 0.1)
             : Colors.transparent,
         borderRadius: BorderRadius.circular(6),
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(6),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
-            child: Row(
-              children: [
-                // Project color indicator or inbox icon
-                if (isInbox)
-                  Icon(LucideIcons.inbox, size: 16, color: color)
-                else
-                  Container(
-                    width: 12,
-                    height: 12,
-                    decoration: BoxDecoration(
-                      color: color,
-                      borderRadius: BorderRadius.circular(3),
-                    ),
-                  ),
-                const SizedBox(width: 10),
-                // Project name
-                Expanded(
-                  child: Text(
-                    project.name,
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: isSelected ? FontWeight.w500 : FontWeight.w400,
-                      color: isSelected ? AppTheme.primaryBlue : AppTheme.gray700,
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                // Favorite indicator
-                if (project.isFavorite)
-                  const Icon(
-                    LucideIcons.star,
-                    size: 14,
-                    color: AppTheme.amber500,
-                  ),
-              ],
-            ),
-          ),
-        ),
+        child: canShowMenu
+            ? _buildWithContextMenu(context, itemContent)
+            : InkWell(
+                onTap: onTap,
+                borderRadius: BorderRadius.circular(6),
+                child: itemContent,
+              ),
       ),
     );
+  }
+
+  Widget _buildWithContextMenu(BuildContext context, Widget child) {
+    return GestureDetector(
+      onSecondaryTapUp: (details) {
+        _showContextMenu(context, details.globalPosition);
+      },
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(6),
+        child: child,
+      ),
+    );
+  }
+
+  void _showContextMenu(BuildContext context, Offset position) {
+    final items = <PopupMenuEntry<String>>[];
+
+    if (onEdit != null) {
+      items.add(
+        PopupMenuItem<String>(
+          value: 'edit',
+          height: 36,
+          child: Row(
+            children: [
+              Icon(LucideIcons.pencil, size: 16, color: AppTheme.gray600),
+              const SizedBox(width: 8),
+              const Text('Edit', style: TextStyle(fontSize: 13)),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (onDelete != null) {
+      if (items.isNotEmpty) {
+        items.add(const PopupMenuDivider(height: 8));
+      }
+      items.add(
+        PopupMenuItem<String>(
+          value: 'delete',
+          height: 36,
+          child: Row(
+            children: [
+              const Icon(LucideIcons.trash2, size: 16, color: Colors.red),
+              const SizedBox(width: 8),
+              const Text('Delete', style: TextStyle(fontSize: 13, color: Colors.red)),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (items.isEmpty) return;
+
+    showMenu<String>(
+      context: context,
+      position: RelativeRect.fromLTRB(
+        position.dx,
+        position.dy,
+        position.dx + 1,
+        position.dy + 1,
+      ),
+      items: items,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+    ).then((value) {
+      if (value == 'edit') {
+        onEdit?.call();
+      } else if (value == 'delete') {
+        onDelete?.call();
+      }
+    });
   }
 }
