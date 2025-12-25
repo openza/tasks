@@ -17,7 +17,7 @@ Future<void> main() async {
     backgroundColor: Colors.transparent,
     skipTaskbar: false,
     titleBarStyle: TitleBarStyle.normal,
-    title: 'Openza',
+    title: 'Openza Tasks',
   );
 
   await windowManager.waitUntilReadyToShow(windowOptions, () async {

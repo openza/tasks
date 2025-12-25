@@ -18,9 +18,13 @@ import 'database_provider.dart';
 import 'integration_provider.dart';
 
 /// Task source selection
+/// @deprecated Use selectedProjectIdProvider instead for project-based filtering.
+/// The 4-pane layout shows all sources unified, with projects grouped by provider.
 enum TaskSource { all, openzaTasks, todoist, msToDo }
 
 /// Task source state provider
+/// @deprecated Use selectedProjectIdProvider from selected_project_provider.dart instead.
+/// This provider will be removed in a future version.
 final taskSourceProvider = StateProvider<TaskSource>((ref) => TaskSource.all);
 
 /// Unified data containing tasks, projects, and labels

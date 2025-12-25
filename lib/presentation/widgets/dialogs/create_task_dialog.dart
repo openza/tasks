@@ -481,6 +481,9 @@ class _CreateTaskDialogState extends State<CreateTaskDialog> {
     if (!_formKey.currentState!.validate()) return;
 
     final now = DateTime.now();
+    // Default to Inbox if no project selected
+    final projectId = _selectedProjectId ?? 'proj_inbox';
+
     final task = TaskEntity(
       id: const Uuid().v4(),
       integrationId: 'openza_tasks',
@@ -490,7 +493,7 @@ class _CreateTaskDialogState extends State<CreateTaskDialog> {
           : null,
       priority: _priority,
       status: TaskStatus.pending,
-      projectId: _selectedProjectId,
+      projectId: projectId,
       dueDate: _dueDate,
       labels: _selectedLabels,
       createdAt: now,
