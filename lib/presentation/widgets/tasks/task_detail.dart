@@ -96,14 +96,16 @@ class _TaskDetailState extends ConsumerState<TaskDetail> {
                   _buildTitleSection(context),
                   const SizedBox(height: 16),
                   _buildDescriptionSection(context),
-                  const SizedBox(height: 24),
-                  _buildMetadataSection(context),
-                  const SizedBox(height: 24),
-                  _buildLabelsSection(context),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 16),
+                  _buildMetadataCard(context),
+                  if (widget.task.labels.isNotEmpty || _isEditing) ...[
+                    const SizedBox(height: 16),
+                    _buildLabelsSection(context),
+                  ],
+                  const SizedBox(height: 16),
                   _buildDatesSection(context),
                   if (!widget.task.isNative) ...[
-                    const SizedBox(height: 24),
+                    const SizedBox(height: 16),
                     _buildProviderSection(context),
                   ],
                 ],
@@ -204,6 +206,13 @@ class _TaskDetailState extends ConsumerState<TaskDetail> {
   }
 
   Widget _buildDescriptionSection(BuildContext context) {
+    final hasDescription = widget.task.description?.isNotEmpty == true;
+
+    // Hide empty description section when not editing
+    if (!_isEditing && !hasDescription) {
+      return const SizedBox.shrink();
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -213,9 +222,11 @@ class _TaskDetailState extends ConsumerState<TaskDetail> {
             const SizedBox(width: 8),
             Text(
               'Description',
-              style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                    color: AppTheme.gray500,
-                  ),
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+                color: AppTheme.gray500,
+              ),
             ),
           ],
         ),
@@ -230,8 +241,9 @@ class _TaskDetailState extends ConsumerState<TaskDetail> {
                     borderSide: BorderSide(color: AppTheme.gray300),
                   ),
                   hintText: 'Add a description...',
+                  contentPadding: const EdgeInsets.all(12),
                 ),
-                maxLines: 4,
+                maxLines: 3,
               )
             : Container(
                 width: double.infinity,
@@ -241,17 +253,25 @@ class _TaskDetailState extends ConsumerState<TaskDetail> {
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(
-                  widget.task.description?.isNotEmpty == true
-                      ? widget.task.description!
-                      : 'No description',
+                  widget.task.description!,
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: widget.task.description?.isNotEmpty == true
-                            ? AppTheme.gray700
-                            : AppTheme.gray400,
+                        color: AppTheme.gray700,
                       ),
                 ),
               ),
       ],
+    );
+  }
+
+  Widget _buildMetadataCard(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppTheme.gray50,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppTheme.gray200),
+      ),
+      child: _buildMetadataSection(context),
     );
   }
 
@@ -275,9 +295,10 @@ class _TaskDetailState extends ConsumerState<TaskDetail> {
                   priority: widget.task.priority,
                   integrationId: widget.task.integrationId,
                   showLabel: true,
+                  showAlways: true,
                 ),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 10),
 
         // Due Date
         _buildMetadataRow(
@@ -286,7 +307,7 @@ class _TaskDetailState extends ConsumerState<TaskDetail> {
           label: 'Due Date',
           child: _isEditing ? _buildDueDatePicker(context) : _buildDueDateDisplay(),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 10),
 
         // Project
         _buildMetadataRow(
@@ -472,42 +493,52 @@ class _TaskDetailState extends ConsumerState<TaskDetail> {
     return Row(
       children: [
         Icon(icon, size: 16, color: AppTheme.gray400),
-        const SizedBox(width: 8),
+        const SizedBox(width: 10),
         SizedBox(
-          width: 120,
+          width: 80,
           child: Text(
             label,
-            style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                  color: AppTheme.gray500,
-                ),
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+              color: AppTheme.gray600,
+            ),
           ),
         ),
-        child,
+        Expanded(child: child),
       ],
     );
   }
 
   Widget _buildLabelsSection(BuildContext context) {
-    if (!_isEditing && widget.task.labels.isEmpty) return const SizedBox.shrink();
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Icon(LucideIcons.tag, size: 16, color: AppTheme.gray400),
-            const SizedBox(width: 8),
-            Text(
-              'Labels',
-              style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                    color: AppTheme.gray500,
-                  ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        _isEditing ? _buildLabelsEditor(context) : _buildLabelsDisplay(),
-      ],
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppTheme.gray50,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppTheme.gray200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(LucideIcons.tag, size: 14, color: AppTheme.gray400),
+              const SizedBox(width: 6),
+              Text(
+                'Labels',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                  color: AppTheme.gray500,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          _isEditing ? _buildLabelsEditor(context) : _buildLabelsDisplay(),
+        ],
+      ),
     );
   }
 
@@ -646,63 +677,38 @@ class _TaskDetailState extends ConsumerState<TaskDetail> {
   }
 
   Widget _buildDatesSection(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Icon(LucideIcons.calendar, size: 16, color: AppTheme.gray400),
-            const SizedBox(width: 8),
-            Text(
-              'Dates',
-              style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                    color: AppTheme.gray500,
-                  ),
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppTheme.gray50,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppTheme.gray200),
+      ),
+      child: Column(
+        children: [
+          _buildDateRow(
+            context,
+            label: 'Created',
+            date: widget.task.createdAt,
+          ),
+          if (widget.task.updatedAt != null) ...[
+            const SizedBox(height: 6),
+            _buildDateRow(
+              context,
+              label: 'Updated',
+              date: widget.task.updatedAt!,
             ),
           ],
-        ),
-        const SizedBox(height: 8),
-        Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: AppTheme.gray50,
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Column(
-            children: [
-              if (widget.task.dueDate != null)
-                _buildDateRow(
-                  context,
-                  label: 'Due',
-                  date: widget.task.dueDate!,
-                  isOverdue: widget.task.isOverdue,
-                ),
-              if (widget.task.completedAt != null) ...[
-                if (widget.task.dueDate != null) const SizedBox(height: 8),
-                _buildDateRow(
-                  context,
-                  label: 'Completed',
-                  date: widget.task.completedAt!,
-                ),
-              ],
-              const SizedBox(height: 8),
-              _buildDateRow(
-                context,
-                label: 'Created',
-                date: widget.task.createdAt,
-              ),
-              if (widget.task.updatedAt != null) ...[
-                const SizedBox(height: 8),
-                _buildDateRow(
-                  context,
-                  label: 'Updated',
-                  date: widget.task.updatedAt!,
-                ),
-              ],
-            ],
-          ),
-        ),
-      ],
+          if (widget.task.completedAt != null) ...[
+            const SizedBox(height: 6),
+            _buildDateRow(
+              context,
+              label: 'Completed',
+              date: widget.task.completedAt!,
+            ),
+          ],
+        ],
+      ),
     );
   }
 
