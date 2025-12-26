@@ -7,9 +7,8 @@ import '../../../app/app_router.dart';
 import '../../../app/app_theme.dart';
 import '../../providers/repository_provider.dart';
 import '../../providers/selected_project_provider.dart';
+import '../../providers/sync_provider.dart';
 import '../../providers/task_provider.dart';
-import '../badges/sync_badge.dart';
-import '../common/openza_logo.dart';
 import '../dialogs/create_task_dialog.dart';
 import '../dialogs/import_markdown_dialog.dart';
 
@@ -32,17 +31,7 @@ class NavRail extends ConsumerWidget {
       ),
       child: Column(
         children: [
-          // Logo and sync status
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-            child: Row(
-              children: [
-                const OpenzaLogo(size: 28, showText: false),
-                const Spacer(),
-                const SyncBadge(),
-              ],
-            ),
-          ),
+          const SizedBox(height: 12),
 
           // Add Task Button + Import Button
           Padding(
@@ -133,7 +122,7 @@ class NavRail extends ConsumerWidget {
             ),
           ),
 
-          // Settings at bottom
+          // Sync + Settings at bottom
           Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
@@ -141,12 +130,19 @@ class NavRail extends ConsumerWidget {
                 top: BorderSide(color: Theme.of(context).dividerColor),
               ),
             ),
-            child: _NavRailItem(
-              icon: LucideIcons.settings,
-              label: 'Settings',
-              path: AppRoutes.settings,
-              isActive: currentPath == AppRoutes.settings,
-              onTap: () => context.go(AppRoutes.settings),
+            child: Column(
+              children: [
+                // Sync
+                const _SyncNavItem(),
+                // Settings
+                _NavRailItem(
+                  icon: LucideIcons.settings,
+                  label: 'Settings',
+                  path: AppRoutes.settings,
+                  isActive: currentPath == AppRoutes.settings,
+                  onTap: () => context.go(AppRoutes.settings),
+                ),
+              ],
             ),
           ),
         ],
@@ -247,6 +243,108 @@ class _NavRailItem extends StatelessWidget {
                     ),
                   ),
               ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Sync nav item widget with status indicator
+class _SyncNavItem extends ConsumerWidget {
+  const _SyncNavItem();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final syncState = ref.watch(syncProvider);
+
+    final icon = switch (syncState.status) {
+      SyncStatus.idle => LucideIcons.refreshCw,
+      SyncStatus.syncing => LucideIcons.loader2,
+      SyncStatus.success => LucideIcons.checkCircle,
+      SyncStatus.error => LucideIcons.alertCircle,
+    };
+
+    final label = switch (syncState.status) {
+      SyncStatus.idle => 'Sync',
+      SyncStatus.syncing => 'Syncing...',
+      SyncStatus.success => 'Synced',
+      SyncStatus.error => 'Retry',
+    };
+
+    final color = switch (syncState.status) {
+      SyncStatus.idle => AppTheme.gray600,
+      SyncStatus.syncing => AppTheme.primaryBlue,
+      SyncStatus.success => AppTheme.successGreen,
+      SyncStatus.error => AppTheme.errorRed,
+    };
+
+    // Build tooltip message
+    String tooltip = 'Click to sync';
+    if (syncState.lastSyncTime != null) {
+      final ago = DateTime.now().difference(syncState.lastSyncTime!);
+      if (ago.inMinutes < 1) {
+        tooltip = 'Last synced just now';
+      } else if (ago.inMinutes < 60) {
+        tooltip = 'Last synced ${ago.inMinutes}m ago';
+      } else {
+        tooltip = 'Last synced ${ago.inHours}h ago';
+      }
+    }
+    if (syncState.pendingCompletions > 0) {
+      tooltip += '\n${syncState.pendingCompletions} pending';
+    }
+
+    return Tooltip(
+      message: tooltip,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 2),
+        child: Material(
+          color: Colors.transparent,
+          borderRadius: BorderRadius.circular(8),
+          child: InkWell(
+            onTap: syncState.isSyncing
+                ? null
+                : () => ref.read(syncProvider.notifier).syncNow(),
+            borderRadius: BorderRadius.circular(8),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              child: Row(
+                children: [
+                  syncState.isSyncing
+                      ? SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: color,
+                          ),
+                        )
+                      : Icon(icon, size: 18, color: color),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      label,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                        color: color,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  if (syncState.pendingCompletions > 0)
+                    Container(
+                      width: 6,
+                      height: 6,
+                      decoration: BoxDecoration(
+                        color: AppTheme.warningOrange,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                ],
+              ),
             ),
           ),
         ),
