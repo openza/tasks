@@ -57,9 +57,10 @@ class ProfileScreen extends ConsumerWidget {
     final weeklyCompleted = ref.watch(weeklyCompletedProvider);
     final todayCompleted = ref.watch(todayCompletedProvider);
     final priorityDist = ref.watch(priorityDistributionProvider);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Container(
-      color: AppTheme.gray50,
+      color: isDark ? AppTheme.gray900 : AppTheme.gray50,
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(24),
         child: Column(

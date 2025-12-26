@@ -79,14 +79,24 @@ class NavRail extends ConsumerWidget {
                   label: 'Next Actions',
                   path: AppRoutes.nextActions,
                   isActive: currentPath == AppRoutes.nextActions,
-                  onTap: () => _navigateAndClearProject(context, ref, AppRoutes.nextActions),
+                  onTap:
+                      () => _navigateAndClearProject(
+                        context,
+                        ref,
+                        AppRoutes.nextActions,
+                      ),
                 ),
                 _NavRailItem(
                   icon: LucideIcons.calendarDays,
                   label: 'Today',
                   path: AppRoutes.today,
                   isActive: currentPath == AppRoutes.today,
-                  onTap: () => _navigateAndClearProject(context, ref, AppRoutes.today),
+                  onTap:
+                      () => _navigateAndClearProject(
+                        context,
+                        ref,
+                        AppRoutes.today,
+                      ),
                 ),
                 _NavRailItem(
                   icon: LucideIcons.alertCircle,
@@ -94,14 +104,24 @@ class NavRail extends ConsumerWidget {
                   path: AppRoutes.overdue,
                   isActive: currentPath == AppRoutes.overdue,
                   badgeColor: AppTheme.errorRed,
-                  onTap: () => _navigateAndClearProject(context, ref, AppRoutes.overdue),
+                  onTap:
+                      () => _navigateAndClearProject(
+                        context,
+                        ref,
+                        AppRoutes.overdue,
+                      ),
                 ),
                 _NavRailItem(
                   icon: LucideIcons.listTodo,
                   label: 'Tasks',
                   path: AppRoutes.tasks,
                   isActive: currentPath == AppRoutes.tasks,
-                  onTap: () => _navigateAndClearProject(context, ref, AppRoutes.tasks),
+                  onTap:
+                      () => _navigateAndClearProject(
+                        context,
+                        ref,
+                        AppRoutes.tasks,
+                      ),
                 ),
                 _NavRailItem(
                   icon: LucideIcons.checkCircle2,
@@ -109,7 +129,12 @@ class NavRail extends ConsumerWidget {
                   path: AppRoutes.completed,
                   isActive: currentPath == AppRoutes.completed,
                   badgeColor: AppTheme.successGreen,
-                  onTap: () => _navigateAndClearProject(context, ref, AppRoutes.completed),
+                  onTap:
+                      () => _navigateAndClearProject(
+                        context,
+                        ref,
+                        AppRoutes.completed,
+                      ),
                 ),
               ],
             ),
@@ -144,14 +169,21 @@ class NavRail extends ConsumerWidget {
   }
 
   /// Navigate to a path and clear the project selection
-  void _navigateAndClearProject(BuildContext context, WidgetRef ref, String path) {
+  void _navigateAndClearProject(
+    BuildContext context,
+    WidgetRef ref,
+    String path,
+  ) {
     // Clear project selection when navigating via nav rail
     ref.read(selectedProjectIdProvider.notifier).state = null;
     context.go(path);
   }
 
   /// Show the create task dialog
-  Future<void> _showCreateTaskDialog(BuildContext context, WidgetRef ref) async {
+  Future<void> _showCreateTaskDialog(
+    BuildContext context,
+    WidgetRef ref,
+  ) async {
     final data = ref.read(unifiedDataProvider).value;
     if (data == null) return;
 
@@ -176,7 +208,7 @@ class NavRail extends ConsumerWidget {
 }
 
 /// Individual navigation item in the rail
-class _NavRailItem extends StatelessWidget {
+class _NavRailItem extends StatefulWidget {
   final IconData icon;
   final String label;
   final String path;
@@ -194,48 +226,97 @@ class _NavRailItem extends StatelessWidget {
   });
 
   @override
+  State<_NavRailItem> createState() => _NavRailItemState();
+}
+
+class _NavRailItemState extends State<_NavRailItem> {
+  bool _isHovered = false;
+
+  @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    // Color scheme - use primaryBlue for active state
+    final activeIconColor = AppTheme.primaryBlue;
+    final inactiveColor = isDark ? AppTheme.gray400 : AppTheme.gray600;
+    final textActiveColor = isDark ? AppTheme.gray100 : AppTheme.gray800;
+    final textInactiveColor = isDark ? AppTheme.gray400 : AppTheme.gray700;
+
+    // Background colors - blue tint for active
+    final activeBg =
+        isDark
+            ? AppTheme.primaryBlue.withValues(alpha: 0.15)
+            : AppTheme.primaryBlue.withValues(alpha: 0.08);
+    final hoverBg =
+        isDark ? AppTheme.gray700.withValues(alpha: 0.3) : AppTheme.gray100;
+
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2),
-      child: Material(
-        color: isActive
-            ? AppTheme.primaryBlue.withValues(alpha: 0.1)
-            : Colors.transparent,
-        borderRadius: BorderRadius.circular(8),
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(8),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-            child: Row(
-              children: [
-                Icon(
-                  icon,
-                  size: 18,
-                  color: isActive ? AppTheme.primaryBlue : AppTheme.gray600,
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    label,
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: isActive ? FontWeight.w600 : FontWeight.w500,
-                      color: isActive ? AppTheme.primaryBlue : AppTheme.gray700,
-                    ),
-                    overflow: TextOverflow.ellipsis,
+      child: MouseRegion(
+        onEnter: (_) => setState(() => _isHovered = true),
+        onExit: (_) => setState(() => _isHovered = false),
+        child: AnimatedContainer(
+          duration: AppTheme.animationFast,
+          decoration: BoxDecoration(
+            color:
+                widget.isActive
+                    ? activeBg
+                    : _isHovered
+                    ? hoverBg
+                    : Colors.transparent,
+            borderRadius: BorderRadius.circular(8),
+            border: Border(
+              left: BorderSide(
+                color:
+                    widget.isActive ? AppTheme.primaryBlue : Colors.transparent,
+                width: 4,
+              ),
+            ),
+          ),
+          child: GestureDetector(
+            onTap: widget.onTap,
+            behavior: HitTestBehavior.opaque,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 10,
+                vertical: 8,
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    widget.icon,
+                    size: 18,
+                    color: widget.isActive ? activeIconColor : inactiveColor,
                   ),
-                ),
-                if (badgeColor != null)
-                  Container(
-                    width: 6,
-                    height: 6,
-                    decoration: BoxDecoration(
-                      color: badgeColor,
-                      shape: BoxShape.circle,
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      widget.label,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight:
+                            widget.isActive
+                                ? FontWeight.w600
+                                : FontWeight.w500,
+                        color:
+                            widget.isActive
+                                ? textActiveColor
+                                : textInactiveColor,
+                      ),
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
-              ],
+                  if (widget.badgeColor != null)
+                    Container(
+                      width: 6,
+                      height: 6,
+                      decoration: BoxDecoration(
+                        color: widget.badgeColor,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                ],
+              ),
             ),
           ),
         ),
@@ -293,27 +374,25 @@ class _SyncNavItem extends ConsumerWidget {
       message: tooltip,
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 2),
-        child: Material(
-          color: Colors.transparent,
-          borderRadius: BorderRadius.circular(8),
-          child: InkWell(
-            onTap: syncState.isSyncing
-                ? null
-                : () => ref.read(syncProvider.notifier).syncNow(),
-            borderRadius: BorderRadius.circular(8),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        child: GestureDetector(
+          onTap:
+              syncState.isSyncing
+                  ? null
+                  : () => ref.read(syncProvider.notifier).syncNow(),
+          behavior: HitTestBehavior.opaque,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
               child: Row(
                 children: [
                   syncState.isSyncing
                       ? SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: color,
-                          ),
-                        )
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: color,
+                        ),
+                      )
                       : Icon(icon, size: 18, color: color),
                   const SizedBox(width: 10),
                   Expanded(
@@ -327,17 +406,16 @@ class _SyncNavItem extends ConsumerWidget {
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
-                  if (syncState.pendingCompletions > 0)
-                    Container(
-                      width: 6,
-                      height: 6,
-                      decoration: BoxDecoration(
-                        color: AppTheme.warningOrange,
-                        shape: BoxShape.circle,
-                      ),
+                if (syncState.pendingCompletions > 0)
+                  Container(
+                    width: 6,
+                    height: 6,
+                    decoration: BoxDecoration(
+                      color: AppTheme.warningOrange,
+                      shape: BoxShape.circle,
                     ),
-                ],
-              ),
+                  ),
+              ],
             ),
           ),
         ),

@@ -8,6 +8,7 @@ import '../../../core/constants/app_constants.dart';
 import '../../../data/datasources/remote/todoist_api.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/task_provider.dart';
+import '../../providers/theme_provider.dart';
 import '../../widgets/common/openza_logo.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
@@ -18,7 +19,7 @@ class SettingsScreen extends ConsumerStatefulWidget {
 }
 
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
-  String _selectedCategory = 'provider';
+  String _selectedCategory = 'appearance';
   bool _isConnecting = false;
   bool _isValidatingToken = false;
   String? _tokenError;
@@ -34,6 +35,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   final List<Map<String, dynamic>> _categories = [
+    {'id': 'appearance', 'label': 'Appearance', 'icon': LucideIcons.palette},
     {'id': 'provider', 'label': 'Providers', 'icon': LucideIcons.layers},
     {'id': 'todoist', 'label': 'Todoist', 'icon': LucideIcons.checkCircle},
     {'id': 'mstodo', 'label': 'Microsoft To-Do', 'icon': LucideIcons.layoutGrid},
@@ -43,8 +45,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Container(
-      color: AppTheme.gray50,
+      color: isDark ? AppTheme.gray900 : AppTheme.gray50,
       child: Center(
         child: Card(
           margin: const EdgeInsets.all(24),
@@ -139,6 +143,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   Widget _buildContent(BuildContext context) {
     switch (_selectedCategory) {
+      case 'appearance':
+        return _buildAppearanceContent(context);
       case 'provider':
         return _buildProviderContent(context);
       case 'todoist':
@@ -152,6 +158,65 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       default:
         return const SizedBox.shrink();
     }
+  }
+
+  Widget _buildAppearanceContent(BuildContext context) {
+    final currentTheme = ref.watch(themeModeProvider);
+
+    return Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Appearance',
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Customize how Openza Tasks looks on your device.',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: AppTheme.gray500,
+                ),
+          ),
+          const SizedBox(height: 24),
+
+          // Theme selection
+          Text(
+            'Theme',
+            style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+          ),
+          const SizedBox(height: 12),
+
+          // Theme options
+          _ThemeOption(
+            icon: LucideIcons.monitor,
+            label: 'System',
+            description: 'Follow system settings',
+            isSelected: currentTheme == ThemeMode.system,
+            onTap: () => ref.read(themeModeProvider.notifier).setThemeMode(ThemeMode.system),
+          ),
+          const SizedBox(height: 8),
+          _ThemeOption(
+            icon: LucideIcons.sun,
+            label: 'Light',
+            description: 'Always use light theme',
+            isSelected: currentTheme == ThemeMode.light,
+            onTap: () => ref.read(themeModeProvider.notifier).setThemeMode(ThemeMode.light),
+          ),
+          const SizedBox(height: 8),
+          _ThemeOption(
+            icon: LucideIcons.moon,
+            label: 'Dark',
+            description: 'Always use dark theme',
+            isSelected: currentTheme == ThemeMode.dark,
+            onTap: () => ref.read(themeModeProvider.notifier).setThemeMode(ThemeMode.dark),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildProviderContent(BuildContext context) {
@@ -1022,6 +1087,92 @@ class _SyncBehaviorRow extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _ThemeOption extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String description;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  const _ThemeOption({
+    required this.icon,
+    required this.label,
+    required this.description,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: isSelected
+          ? AppTheme.gray100
+          : Colors.transparent,
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: isSelected ? AppTheme.gray400 : AppTheme.gray200,
+              width: isSelected ? 2 : 1,
+            ),
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: isSelected
+                      ? AppTheme.gray200
+                      : AppTheme.gray100,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  icon,
+                  size: 20,
+                  color: isSelected ? AppTheme.gray700 : AppTheme.gray500,
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      label,
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                            fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+                            color: isSelected ? AppTheme.gray900 : AppTheme.gray700,
+                          ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      description,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: AppTheme.gray500,
+                          ),
+                    ),
+                  ],
+                ),
+              ),
+              if (isSelected)
+                Icon(
+                  LucideIcons.check,
+                  size: 20,
+                  color: AppTheme.gray700,
+                ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

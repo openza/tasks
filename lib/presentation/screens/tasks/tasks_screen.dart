@@ -16,9 +16,10 @@ class TasksScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final unifiedDataAsync = ref.watch(unifiedDataProvider);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
-      backgroundColor: AppTheme.gray50,
+      backgroundColor: isDark ? AppTheme.gray900 : AppTheme.gray50,
       // FAB removed - Add Task button is always visible in NavRail
       body: unifiedDataAsync.when(
         skipLoadingOnRefresh: true,

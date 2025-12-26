@@ -76,6 +76,17 @@ class AppTheme {
     5: Color(0xFF8B5CF6), // Peak - purple
   };
 
+  // Spacing constants
+  static const double spaceXs = 4.0;
+  static const double spaceSm = 8.0;
+  static const double spaceMd = 16.0;
+  static const double spaceLg = 24.0;
+  static const double spaceXl = 32.0;
+
+  // Animation durations
+  static const Duration animationFast = Duration(milliseconds: 150);
+  static const Duration animationNormal = Duration(milliseconds: 200);
+
   static ThemeData lightTheme = ThemeData(
     useMaterial3: true,
     brightness: Brightness.light,
@@ -141,10 +152,6 @@ class AppTheme {
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(8),
-        ),
-        textStyle: const TextStyle(
-          fontSize: 14,
-          fontWeight: FontWeight.w500,
         ),
       ),
     ),

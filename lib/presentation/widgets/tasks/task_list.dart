@@ -20,6 +20,7 @@ class TaskListWidget extends StatelessWidget {
   final bool showGradientBackground;
   final void Function(TaskEntity)? onTaskTap;
   final void Function(TaskEntity)? onTaskComplete;
+  final String? selectedTaskId;
 
   const TaskListWidget({
     super.key,
@@ -34,6 +35,7 @@ class TaskListWidget extends StatelessWidget {
     this.showGradientBackground = false,
     this.onTaskTap,
     this.onTaskComplete,
+    this.selectedTaskId,
   });
 
   @override
@@ -94,6 +96,7 @@ class TaskListWidget extends StatelessWidget {
                           ? () => onTaskComplete!(task)
                           : null,
                       showProject: filter != TaskFilter.project,
+                      isSelected: selectedTaskId == task.id,
                     );
                   },
                 ),

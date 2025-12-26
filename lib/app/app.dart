@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:toastification/toastification.dart';
 
 import '../presentation/providers/task_provider.dart';
+import '../presentation/providers/theme_provider.dart';
 import 'app_router.dart';
 import 'app_theme.dart';
 
@@ -27,12 +28,14 @@ class OpenzaApp extends ConsumerWidget {
 
   Widget _buildApp(WidgetRef ref) {
     final router = ref.watch(appRouterProvider);
+    final themeMode = ref.watch(themeModeProvider);
     return MaterialApp.router(
       title: 'Openza Tasks',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
-      themeMode: ThemeMode.system,
+      themeMode: themeMode,
+      themeAnimationDuration: Duration.zero, // Disable theme transition to avoid TextStyle lerp errors
       routerConfig: router,
     );
   }

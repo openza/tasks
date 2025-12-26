@@ -11,12 +11,13 @@ import '../badges/priority_badge.dart';
 import '../badges/label_badge.dart';
 
 /// Card widget for displaying a single task
-class TaskCard extends ConsumerWidget {
+class TaskCard extends ConsumerStatefulWidget {
   final TaskEntity task;
   final ProjectEntity? project;
   final VoidCallback? onTap;
   final VoidCallback? onComplete;
   final bool showProject;
+  final bool isSelected;
 
   const TaskCard({
     super.key,
@@ -25,68 +26,116 @@ class TaskCard extends ConsumerWidget {
     this.onTap,
     this.onComplete,
     this.showProject = true,
+    this.isSelected = false,
   });
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Checkbox
-              _buildCheckbox(),
-              const SizedBox(width: 12),
+  ConsumerState<TaskCard> createState() => _TaskCardState();
+}
 
-              // Content
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Title
-                    Text(
-                      task.title,
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
-                        color: task.isCompleted
-                            ? AppTheme.gray400
-                            : AppTheme.gray900,
-                        decoration: task.isCompleted
-                            ? TextDecoration.lineThrough
-                            : null,
-                      ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
+class _TaskCardState extends ConsumerState<TaskCard> {
+  bool _isHovered = false;
 
-                    // Description
-                    if (task.description != null &&
-                        task.description!.isNotEmpty) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        task.description!,
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: AppTheme.gray500,
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final baseColor = isDark ? AppTheme.gray800 : Colors.white;
+    final hoverColor = isDark ? AppTheme.gray700 : AppTheme.gray50;
+    final selectedColor =
+        isDark
+            ? AppTheme.primaryBlue.withValues(alpha: 0.15)
+            : AppTheme.primaryBlue.withValues(alpha: 0.08);
+
+    return MouseRegion(
+      onEnter: (_) => setState(() => _isHovered = true),
+      onExit: (_) => setState(() => _isHovered = false),
+      child: AnimatedContainer(
+        duration: AppTheme.animationFast,
+        margin: const EdgeInsets.only(bottom: 8),
+        decoration: BoxDecoration(
+          color:
+              widget.isSelected
+                  ? selectedColor
+                  : _isHovered
+                  ? hoverColor
+                  : baseColor,
+          borderRadius: BorderRadius.circular(12),
+          border: Border(
+            left: BorderSide(
+              color:
+                  widget.isSelected ? AppTheme.primaryBlue : Colors.transparent,
+              width: 4,
+            ),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.04),
+              blurRadius: 4,
+              offset: const Offset(0, 1),
+            ),
+          ],
+        ),
+        child: GestureDetector(
+          onTap: widget.onTap,
+          behavior: HitTestBehavior.opaque,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Checkbox
+                _buildCheckbox(),
+                const SizedBox(width: 12),
+
+                // Content
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Title
+                        Text(
+                          widget.task.title,
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                            color:
+                                widget.task.isCompleted
+                                    ? AppTheme.gray400
+                                    : isDark
+                                    ? AppTheme.gray100
+                                    : AppTheme.gray900,
+                            decoration:
+                                widget.task.isCompleted
+                                    ? TextDecoration.lineThrough
+                                    : null,
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
                         ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ],
 
-                    // Metadata row
-                    const SizedBox(height: 8),
-                    _buildMetadataRow(context, ref),
-                  ],
+                        // Description
+                        if (widget.task.description != null &&
+                            widget.task.description!.isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            widget.task.description!,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: AppTheme.gray500,
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+
+                      // Metadata row
+                      const SizedBox(height: 10),
+                      _buildMetadataRow(context),
+                    ],
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -95,125 +144,136 @@ class TaskCard extends ConsumerWidget {
 
   Widget _buildCheckbox() {
     return GestureDetector(
-      onTap: onComplete,
+      onTap: widget.onComplete,
       child: Container(
         width: 20,
         height: 20,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
           border: Border.all(
-            color: task.isCompleted ? AppTheme.accentPink : AppTheme.gray400,
+            color:
+                widget.task.isCompleted
+                    ? AppTheme.accentPink
+                    : AppTheme.gray400,
             width: 2,
           ),
-          color: task.isCompleted ? AppTheme.accentPink : Colors.transparent,
+          color:
+              widget.task.isCompleted
+                  ? AppTheme.accentPink
+                  : Colors.transparent,
         ),
-        child: task.isCompleted
-            ? const Icon(Icons.check, size: 14, color: Colors.white)
-            : null,
+        child:
+            widget.task.isCompleted
+                ? const Icon(Icons.check, size: 14, color: Colors.white)
+                : null,
       ),
     );
   }
 
-  Widget _buildMetadataRow(BuildContext context, WidgetRef ref) {
+  Widget _buildMetadataRow(BuildContext context) {
     return Wrap(
       spacing: 8,
       runSpacing: 4,
       crossAxisAlignment: WrapCrossAlignment.center,
       children: [
         // Labels (max 2)
-        ...task.labels.take(2).map((label) => LabelChip(
-              name: label.name,
-              color: label.color,
-            )),
-        if (task.labels.length > 2)
+        ...widget.task.labels
+            .take(2)
+            .map((label) => LabelChip(name: label.name, color: label.color)),
+        if (widget.task.labels.length > 2)
           Text(
-            '+${task.labels.length - 2}',
-            style: TextStyle(
-              fontSize: 10,
-              color: AppTheme.gray500,
-            ),
+            '+${widget.task.labels.length - 2}',
+            style: TextStyle(fontSize: 10, color: AppTheme.gray500),
           ),
 
         // Priority
-        PriorityBadge(priority: task.priority),
+        PriorityBadge(priority: widget.task.priority),
 
         // Project
-        if (showProject && project != null)
+        if (widget.showProject && widget.project != null)
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
             decoration: BoxDecoration(
-              color: _parseColor(project!.color).withValues(alpha: 0.1),
+              color: _parseColor(widget.project!.color).withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(4),
             ),
             child: Text(
-              project!.name,
+              widget.project!.name,
               style: TextStyle(
                 fontSize: 10,
-                color: _parseColor(project!.color),
+                color: _parseColor(widget.project!.color),
                 fontWeight: FontWeight.w500,
               ),
             ),
           ),
 
         // Due date
-        if (task.dueDate != null) _buildDueDate(),
+        if (widget.task.dueDate != null) _buildDueDate(),
 
         // Integration indicator
-        _buildIntegrationIndicator(ref),
+        _buildIntegrationIndicator(),
       ],
     );
   }
 
   Widget _buildDueDate() {
-    Color color;
     String text;
 
-    if (task.isOverdue) {
-      color = AppTheme.errorRed;
-      final days = AppDateUtils.getDaysOverdue(task.dueDate);
+    // Only use muted red for overdue tasks, gray for everything else (minimal colors)
+    final bool isOverdue = widget.task.isOverdue && !widget.task.isCompleted;
+    // Softer, less alarming muted red instead of bright errorRed
+    const overdueColor = Color(0xFFB85C5C);
+    final Color color = isOverdue ? overdueColor : AppTheme.gray500;
+
+    if (isOverdue) {
+      final days = AppDateUtils.getDaysOverdue(widget.task.dueDate);
       text = days == 1 ? '1 day ago' : '$days days ago';
-    } else if (task.isDueToday) {
-      color = AppTheme.warningOrange;
+    } else if (widget.task.isDueToday) {
       text = 'Today';
-    } else if (AppDateUtils.isTomorrow(task.dueDate)) {
-      color = AppTheme.primaryBlue;
+    } else if (AppDateUtils.isTomorrow(widget.task.dueDate)) {
       text = 'Tomorrow';
     } else {
-      color = AppTheme.gray500;
-      text = AppDateUtils.formatForDisplay(task.dueDate);
+      text = AppDateUtils.formatForDisplay(widget.task.dueDate);
     }
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(4),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(LucideIcons.calendar, size: 10, color: color),
-          const SizedBox(width: 3),
-          Text(
-            text,
-            style: TextStyle(
-              fontSize: 10,
-              color: color,
-              fontWeight: FontWeight.w500,
+    // Simpler display - just text with optional dot indicator for overdue
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (isOverdue) ...[
+          Container(
+            width: 6,
+            height: 6,
+            decoration: BoxDecoration(
+              color: overdueColor,
+              shape: BoxShape.circle,
             ),
           ),
+          const SizedBox(width: 4),
         ],
-      ),
+        Icon(LucideIcons.calendar, size: 10, color: color),
+        const SizedBox(width: 3),
+        Text(
+          text,
+          style: TextStyle(
+            fontSize: 10,
+            color: color,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ],
     );
   }
 
-  Widget _buildIntegrationIndicator(WidgetRef ref) {
+  Widget _buildIntegrationIndicator() {
     // Don't show indicator for native tasks
-    if (task.isNative) {
+    if (widget.task.isNative) {
       return const SizedBox.shrink();
     }
 
-    final integration = ref.watch(integrationByIdProvider(task.integrationId));
+    final integration = ref.watch(
+      integrationByIdProvider(widget.task.integrationId),
+    );
     if (integration == null) {
       return const SizedBox.shrink();
     }
@@ -227,19 +287,10 @@ class TaskCard extends ConsumerWidget {
         Container(
           width: 6,
           height: 6,
-          decoration: BoxDecoration(
-            color: color,
-            shape: BoxShape.circle,
-          ),
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
         ),
         const SizedBox(width: 3),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 9,
-            color: AppTheme.gray400,
-          ),
-        ),
+        Text(label, style: TextStyle(fontSize: 9, color: AppTheme.gray400)),
       ],
     );
   }

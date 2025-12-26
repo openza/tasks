@@ -20,107 +20,89 @@ class LabelBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = _parseColor(label.color);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    return Material(
-      color: isSelected ? color : color.withValues(alpha: 0.1),
-      borderRadius: BorderRadius.circular(12),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
+    // Grayscale colors for minimal aesthetic
+    final inactiveBg = isDark ? AppTheme.gray800 : Colors.white;
+    final inactiveBorder = isDark ? AppTheme.gray600 : AppTheme.gray300;
+    final inactiveText = isDark ? AppTheme.gray300 : AppTheme.gray600;
+
+    // Selected state uses gray instead of label color for minimal aesthetic
+    final selectedBg = isDark ? AppTheme.gray100 : AppTheme.gray800;
+    final selectedText = isDark ? AppTheme.gray900 : Colors.white;
+
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: isSelected ? selectedBg : inactiveBg,
+          borderRadius: BorderRadius.circular(16),
+          border: isSelected ? null : Border.all(color: inactiveBorder),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label.name,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+                color: isSelected ? selectedText : inactiveText,
+              ),
+            ),
+            if (count != null) ...[
+              const SizedBox(width: 6),
               Text(
-                label.name,
+                count.toString(),
                 style: TextStyle(
                   fontSize: 11,
-                  fontWeight: FontWeight.w500,
-                  color: isSelected ? Colors.white : color,
+                  fontWeight: FontWeight.w600,
+                  color:
+                      isSelected
+                          ? selectedText.withValues(alpha: 0.8)
+                          : inactiveText,
                 ),
               ),
-              if (count != null) ...[
-                const SizedBox(width: 4),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                  decoration: BoxDecoration(
-                    color: isSelected
-                        ? Colors.white.withValues(alpha: 0.2)
-                        : color.withValues(alpha: 0.2),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Text(
-                    count.toString(),
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w600,
-                      color: isSelected ? Colors.white : color,
-                    ),
-                  ),
-                ),
-              ],
             ],
-          ),
+          ],
         ),
       ),
     );
   }
-
-  Color _parseColor(String colorStr) {
-    if (colorStr.startsWith('#')) {
-      try {
-        return Color(int.parse(colorStr.substring(1), radix: 16) + 0xFF000000);
-      } catch (_) {
-        return AppTheme.gray500;
-      }
-    }
-    return AppTheme.gray500;
-  }
 }
 
 /// Simplified label badge for display in task cards
+/// Uses grayscale colors for minimal, professional look
 class LabelChip extends StatelessWidget {
   final String name;
   final String color;
 
-  const LabelChip({
-    super.key,
-    required this.name,
-    required this.color,
-  });
+  const LabelChip({super.key, required this.name, required this.color});
 
   @override
   Widget build(BuildContext context) {
-    final parsedColor = _parseColor(color);
+    // Use grayscale instead of label color for minimal aesthetic
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bgColor = isDark ? AppTheme.gray700 : AppTheme.gray100;
+    final textColor = isDark ? AppTheme.gray300 : AppTheme.gray600;
+    final borderColor = isDark ? AppTheme.gray600 : AppTheme.gray300;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
-        color: parsedColor.withValues(alpha: 0.1),
+        color: bgColor,
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: parsedColor.withValues(alpha: 0.3)),
+        border: Border.all(color: borderColor),
       ),
       child: Text(
         name,
         style: TextStyle(
           fontSize: 10,
           fontWeight: FontWeight.w500,
-          color: parsedColor,
+          color: textColor,
         ),
       ),
     );
-  }
-
-  Color _parseColor(String colorStr) {
-    if (colorStr.startsWith('#')) {
-      try {
-        return Color(int.parse(colorStr.substring(1), radix: 16) + 0xFF000000);
-      } catch (_) {
-        return AppTheme.gray500;
-      }
-    }
-    return AppTheme.gray500;
   }
 }

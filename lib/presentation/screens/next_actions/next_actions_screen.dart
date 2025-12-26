@@ -51,9 +51,10 @@ class _NextActionsScreenState extends ConsumerState<NextActionsScreen> {
   Widget build(BuildContext context) {
     final labeledTasksAsync = ref.watch(labeledTasksProvider);
     final unifiedDataAsync = ref.watch(unifiedDataProvider);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Container(
-      color: AppTheme.gray50,
+      color: isDark ? AppTheme.gray900 : AppTheme.gray50,
       child: Row(
         children: [
           Expanded(
@@ -143,6 +144,7 @@ class _NextActionsScreenState extends ConsumerState<NextActionsScreen> {
                                   (task) =>
                                       setState(() => _selectedTask = task),
                               onTaskComplete: _completeTask,
+                              selectedTaskId: _selectedTask?.id,
                             ),
                         loading:
                             () => const Center(
@@ -304,8 +306,15 @@ class _FilterButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final selectedBg = isDark ? AppTheme.gray100 : AppTheme.gray800;
+    final selectedText = isDark ? AppTheme.gray900 : Colors.white;
+    final unselectedBg = isDark ? AppTheme.gray800 : Colors.white;
+    final unselectedText = isDark ? AppTheme.gray300 : AppTheme.gray600;
+    final borderColor = isDark ? AppTheme.gray600 : AppTheme.gray200;
+
     return Material(
-      color: isSelected ? AppTheme.gray900 : Colors.white,
+      color: isSelected ? selectedBg : unselectedBg,
       borderRadius: BorderRadius.circular(20),
       child: InkWell(
         onTap: onTap,
@@ -314,14 +323,14 @@ class _FilterButton extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(20),
-            border: isSelected ? null : Border.all(color: AppTheme.gray200),
+            border: isSelected ? null : Border.all(color: borderColor),
           ),
           child: Text(
             '$label ($count)',
             style: TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w500,
-              color: isSelected ? Colors.white : AppTheme.gray700,
+              color: isSelected ? selectedText : unselectedText,
             ),
           ),
         ),
