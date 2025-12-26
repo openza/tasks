@@ -175,8 +175,13 @@ class NavRail extends ConsumerWidget {
     if (task != null) {
       final repository = await ref.read(taskRepositoryProvider.future);
       await repository.createTask(task);
-      ref.invalidate(localTasksProvider);
-      ref.invalidate(unifiedDataProvider);
+
+      // Defer provider invalidation to next frame to avoid GPU context issues
+      // during dialog close animation
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        ref.invalidate(localTasksProvider);
+        ref.invalidate(unifiedDataProvider);
+      });
     }
   }
 }

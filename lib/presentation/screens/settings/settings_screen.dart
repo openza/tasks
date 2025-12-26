@@ -269,6 +269,55 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             ),
             const SizedBox(height: 24),
 
+            // Sync behavior info - always visible
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: AppTheme.primaryBlue.withValues(alpha: 0.05),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: AppTheme.primaryBlue.withValues(alpha: 0.2),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(LucideIcons.refreshCw, size: 16, color: AppTheme.primaryBlue),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Sync Behavior',
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                              fontWeight: FontWeight.w600,
+                              color: AppTheme.primaryBlue,
+                            ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  _SyncBehaviorRow(
+                    icon: LucideIcons.arrowDown,
+                    label: 'From Todoist',
+                    description: 'Tasks, projects, labels sync to Openza',
+                  ),
+                  const SizedBox(height: 8),
+                  _SyncBehaviorRow(
+                    icon: LucideIcons.arrowUp,
+                    label: 'To Todoist',
+                    description: 'Only task completion status syncs back',
+                  ),
+                  const SizedBox(height: 8),
+                  _SyncBehaviorRow(
+                    icon: LucideIcons.edit3,
+                    label: 'Edits',
+                    description: 'Edit tasks in Todoist app, changes sync on refresh',
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 24),
+
             if (isConnected) ...[
               OutlinedButton.icon(
                 onPressed: _isValidatingToken
@@ -522,6 +571,55 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     fontWeight: FontWeight.w500,
                     color: isConnected ? AppTheme.successGreen : AppTheme.gray500,
                   ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
+
+          // Sync behavior info - always visible
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: AppTheme.primaryBlue.withValues(alpha: 0.05),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: AppTheme.primaryBlue.withValues(alpha: 0.2),
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(LucideIcons.refreshCw, size: 16, color: AppTheme.primaryBlue),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Sync Behavior',
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w600,
+                            color: AppTheme.primaryBlue,
+                          ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                _SyncBehaviorRow(
+                  icon: LucideIcons.arrowDown,
+                  label: 'From MS To-Do',
+                  description: 'Tasks and lists sync to Openza',
+                ),
+                const SizedBox(height: 8),
+                _SyncBehaviorRow(
+                  icon: LucideIcons.arrowUp,
+                  label: 'To MS To-Do',
+                  description: 'Only task completion status syncs back',
+                ),
+                const SizedBox(height: 8),
+                _SyncBehaviorRow(
+                  icon: LucideIcons.edit3,
+                  label: 'Edits',
+                  description: 'Edit tasks in MS To-Do app, changes sync on refresh',
                 ),
               ],
             ),
@@ -884,6 +982,46 @@ class _AboutRow extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _SyncBehaviorRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String description;
+
+  const _SyncBehaviorRow({
+    required this.icon,
+    required this.label,
+    required this.description,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 14, color: AppTheme.gray500),
+        const SizedBox(width: 8),
+        Expanded(
+          child: RichText(
+            text: TextSpan(
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: AppTheme.gray600,
+                    height: 1.4,
+                  ),
+              children: [
+                TextSpan(
+                  text: '$label: ',
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+                TextSpan(text: description),
+              ],
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
