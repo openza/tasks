@@ -75,13 +75,6 @@ class NavRail extends ConsumerWidget {
               padding: const EdgeInsets.symmetric(horizontal: 8),
               children: [
                 _NavRailItem(
-                  icon: LucideIcons.layoutDashboard,
-                  label: 'Dashboard',
-                  path: AppRoutes.dashboard,
-                  isActive: currentPath == AppRoutes.dashboard,
-                  onTap: () => _navigateAndClearProject(context, ref, AppRoutes.dashboard),
-                ),
-                _NavRailItem(
                   icon: LucideIcons.star,
                   label: 'Next Actions',
                   path: AppRoutes.nextActions,
