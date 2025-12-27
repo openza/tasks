@@ -768,6 +768,9 @@ LazyDatabase _openConnection() {
     final dbFolder = await getApplicationSupportDirectory();
     final newDbFile = File(p.join(dbFolder.path, 'openza_tasks.db'));
 
+    // Ensure parent directory exists (critical for fresh Flatpak installations)
+    await newDbFile.parent.create(recursive: true);
+
     // Check if we need to migrate from old database location
     if (!await newDbFile.exists()) {
       await _migrateOldDatabaseIfExists(newDbFile);
