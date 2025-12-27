@@ -16,6 +16,7 @@ import '../../providers/task_provider.dart';
 import '../dialogs/create_task_dialog.dart';
 import '../dialogs/import_markdown_dialog.dart';
 import '../dialogs/project_dialog.dart';
+import '../../screens/settings/settings_screen.dart';
 
 /// Navigation rail widget (160px) with icon + text labels
 /// Part of the 4-pane layout: NavRail | ProjectsPane | TasksList | TaskDetails
@@ -171,9 +172,9 @@ class NavRail extends ConsumerWidget {
                 _NavRailItem(
                   icon: LucideIcons.settings,
                   label: 'Settings',
-                  path: AppRoutes.settings,
-                  isActive: currentPath == AppRoutes.settings,
-                  onTap: () => context.go(AppRoutes.settings),
+                  path: '',
+                  isActive: false,
+                  onTap: () => SettingsScreen.show(context),
                 ),
               ],
             ),

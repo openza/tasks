@@ -23,4 +23,9 @@ class StorageKeys {
   static const String themeMode = 'theme_mode';
   static const String sidebarCollapsed = 'sidebar_collapsed';
   static const String defaultProject = 'default_project';
+
+  // Backup preferences
+  static const String backupAutoEnabled = 'backup_auto_enabled';
+  static const String backupFrequency = 'backup_frequency';
+  static const String lastBackupTime = 'last_backup_time';
 }
