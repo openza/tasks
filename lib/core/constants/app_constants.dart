@@ -6,7 +6,7 @@ class AppConstants {
   static const String appName = 'Openza Tasks';
   static const String appVersion = '0.2.1';
   static const String appDescription =
-      'Unified Task Manager for Todoist and Microsoft To-Do';
+      'Store tasks locally. Sync with your favorite services.';
   static const String githubUrl = 'https://github.com/openza/tasks';
   static const String websiteUrl = 'https://openza.github.io/tasks/';
 

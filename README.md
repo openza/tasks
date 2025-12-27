@@ -1,14 +1,18 @@
 # Openza Tasks
 
-A unified task manager for Linux that integrates with Todoist and Microsoft To-Do. Built with Flutter and a Rust-based sync engine for reliable offline-first synchronization.
+**Local First. Open Source.**
+
+A local-first task organizer for Linux. Store tasks locally and optionally sync with Todoist and Microsoft To-Do.
 
 ## Features
 
-- **Unified task view** across Todoist, Microsoft To-Do, and local tasks
-- **Offline-first sync** with Rust-powered sync engine
-- **Smart filtering** by projects, labels, due dates, and priority
-- **Completed tasks view** to review finished work
-- **Native Linux desktop** experience (AppImage & Flatpak)
+- **Local-first storage** - Your tasks live on your device, always accessible
+- **Provider sync** - Optional integration with Todoist and Microsoft To-Do
+- **4-pane GTD layout** - Projects, tasks, and details at a glance
+- **Automatic backups** - Daily backups with restore and export options
+- **Dark theme** - Easy on the eyes, day or night
+- **Markdown import/export** - Bring tasks in, take them out
+- **Native Linux desktop** - AppImage & Flatpak packages
 
 ## Download
 
