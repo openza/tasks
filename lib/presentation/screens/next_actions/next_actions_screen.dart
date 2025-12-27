@@ -20,7 +20,7 @@ class NextActionsScreen extends ConsumerStatefulWidget {
 
 class _NextActionsScreenState extends ConsumerState<NextActionsScreen> {
   TaskEntity? _selectedTask;
-  String? _selectedLabelFilter;
+  final Set<String> _selectedLabels = {};
 
   /// Get unique labels from tasks with counts
   Map<String, _LabelWithCount> _getAvailableLabels(List<TaskEntity> tasks) {
@@ -39,12 +39,28 @@ class _NextActionsScreenState extends ConsumerState<NextActionsScreen> {
     return labelCounts;
   }
 
-  /// Filter tasks by selected label
+  /// Filter tasks by selected labels (multi-select: show tasks with ANY selected label)
   List<TaskEntity> _filterByLabel(List<TaskEntity> tasks) {
-    if (_selectedLabelFilter == null) return tasks;
+    if (_selectedLabels.isEmpty) return tasks;
     return tasks.where((task) {
-      return task.labels.any((label) => label.name == _selectedLabelFilter);
+      return task.labels.any((label) => _selectedLabels.contains(label.name));
     }).toList();
+  }
+
+  /// Toggle label selection
+  void _toggleLabel(String labelName) {
+    setState(() {
+      if (_selectedLabels.contains(labelName)) {
+        _selectedLabels.remove(labelName);
+      } else {
+        _selectedLabels.add(labelName);
+      }
+    });
+  }
+
+  /// Clear all selected labels
+  void _clearFilters() {
+    setState(() => _selectedLabels.clear());
   }
 
   @override
@@ -137,8 +153,8 @@ class _NextActionsScreenState extends ConsumerState<NextActionsScreen> {
                               filter: TaskFilter.labeled,
                               sortByLabels: true,
                               emptyMessage:
-                                  _selectedLabelFilter != null
-                                      ? 'No tasks with "$_selectedLabelFilter" label'
+                                  _selectedLabels.isNotEmpty
+                                      ? 'No tasks with selected label${_selectedLabels.length > 1 ? 's' : ''}'
                                       : 'No labeled tasks found',
                               onTaskTap:
                                   (task) =>
@@ -185,6 +201,9 @@ class _NextActionsScreenState extends ConsumerState<NextActionsScreen> {
     final availableLabels = _getAvailableLabels(tasks);
     if (availableLabels.isEmpty) return const SizedBox.shrink();
 
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final hasActiveFilters = _selectedLabels.isNotEmpty;
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
       decoration: BoxDecoration(
@@ -197,26 +216,54 @@ class _NextActionsScreenState extends ConsumerState<NextActionsScreen> {
         scrollDirection: Axis.horizontal,
         child: Row(
           children: [
-            // "All Labels" button
-            _FilterButton(
-              label: 'All Labels',
-              count: tasks.length,
-              isSelected: _selectedLabelFilter == null,
-              onTap: () => setState(() => _selectedLabelFilter = null),
-            ),
-            const SizedBox(width: 8),
-            // Individual label filters
+            // Clear filters button (only shown when filters active)
+            if (hasActiveFilters) ...[
+              Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: _clearFilters,
+                  borderRadius: BorderRadius.circular(16),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: isDark ? AppTheme.gray600 : AppTheme.gray300,
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          LucideIcons.x,
+                          size: 12,
+                          color: isDark ? AppTheme.gray400 : AppTheme.gray500,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          'Clear',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                            color: isDark ? AppTheme.gray400 : AppTheme.gray600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+            ],
+            // Label filters (multi-select toggle)
             ...availableLabels.values.map(
               (item) => Padding(
                 padding: const EdgeInsets.only(right: 8),
                 child: LabelBadge(
                   label: item.label,
                   count: item.count,
-                  isSelected: _selectedLabelFilter == item.label.name,
-                  onTap:
-                      () => setState(
-                        () => _selectedLabelFilter = item.label.name,
-                      ),
+                  isSelected: _selectedLabels.contains(item.label.name),
+                  onTap: () => _toggleLabel(item.label.name),
                 ),
               ),
             ),
@@ -290,51 +337,3 @@ class _LabelWithCount {
   _LabelWithCount({required this.label, required this.count});
 }
 
-/// "All Labels" filter button
-class _FilterButton extends StatelessWidget {
-  final String label;
-  final int count;
-  final bool isSelected;
-  final VoidCallback onTap;
-
-  const _FilterButton({
-    required this.label,
-    required this.count,
-    required this.isSelected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final selectedBg = isDark ? AppTheme.gray100 : AppTheme.gray800;
-    final selectedText = isDark ? AppTheme.gray900 : Colors.white;
-    final unselectedBg = isDark ? AppTheme.gray800 : Colors.white;
-    final unselectedText = isDark ? AppTheme.gray200 : AppTheme.gray800;  // Bolder text
-    final borderColor = isDark ? AppTheme.gray600 : AppTheme.gray200;
-
-    return Material(
-      color: isSelected ? selectedBg : unselectedBg,
-      borderRadius: BorderRadius.circular(20),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(20),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(20),
-            border: isSelected ? null : Border.all(color: borderColor),
-          ),
-          child: Text(
-            '$label ($count)',
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w500,
-              color: isSelected ? selectedText : unselectedText,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}

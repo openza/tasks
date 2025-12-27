@@ -224,7 +224,7 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
               borderRadius: BorderRadius.circular(12),
             ),
             child: Text(
-              '$taskCount active',
+              '$taskCount ${taskCount == 1 ? 'task' : 'tasks'}',
               style: TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w500,
@@ -253,14 +253,15 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
     final hasActiveFilters = _searchQuery.isNotEmpty || _selectedPriority != null;
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    // Theme-aware colors for filter controls - use gray100 for more contrast
-    final filterBg = isDark ? AppTheme.gray800 : AppTheme.gray100;
+    // Theme-aware colors for filter controls - white with border for active look
+    final filterBg = isDark ? AppTheme.gray800 : Colors.white;
     final filterBorder = isDark ? AppTheme.gray600 : AppTheme.gray300;
     final textColor = isDark ? AppTheme.gray200 : AppTheme.gray900;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           // Search - flexible with max width
           Flexible(
@@ -285,6 +286,8 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
                   prefixIconConstraints: const BoxConstraints(minWidth: 36),
                   isDense: true,
                   border: InputBorder.none,
+                  enabledBorder: InputBorder.none,
+                  focusedBorder: InputBorder.none,
                   contentPadding: const EdgeInsets.symmetric(vertical: 10),
                 ),
               ),
@@ -316,8 +319,8 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
         ? AppTheme.priorityColors[_selectedPriority] ?? AppTheme.gray500
         : AppTheme.gray500;
 
-    // Theme-aware colors - gray100 for better contrast
-    final filterBg = isDark ? AppTheme.gray800 : AppTheme.gray100;
+    // Theme-aware colors - white with border for active look
+    final filterBg = isDark ? AppTheme.gray800 : Colors.white;
     final filterBorder = isDark ? AppTheme.gray600 : AppTheme.gray300;
 
     return Container(
@@ -447,7 +450,7 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
 
   Widget _buildSortDropdown(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final filterBg = isDark ? AppTheme.gray800 : AppTheme.gray100;
+    final filterBg = isDark ? AppTheme.gray800 : Colors.white;
     final filterBorder = isDark ? AppTheme.gray600 : AppTheme.gray300;
 
     return Container(

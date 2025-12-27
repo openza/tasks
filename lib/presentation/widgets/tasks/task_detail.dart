@@ -323,28 +323,9 @@ class _TaskDetailState extends ConsumerState<TaskDetail> {
 
     final inputBg = isDark ? AppTheme.gray800 : Colors.white;
     final inputBorder = isDark ? AppTheme.gray600 : AppTheme.gray300;
-    final descBg = isDark ? AppTheme.gray800 : AppTheme.gray100;
     final descTextColor = isDark ? AppTheme.gray300 : AppTheme.gray700;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Icon(LucideIcons.alignLeft, size: 16, color: AppTheme.gray400),
-            const SizedBox(width: 8),
-            Text(
-              'Description',
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
-                color: AppTheme.gray500,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        _isEditing
+    return _isEditing
             ? Container(
               decoration: BoxDecoration(
                 color: inputBg,
@@ -365,22 +346,12 @@ class _TaskDetailState extends ConsumerState<TaskDetail> {
                 maxLines: 3,
               ),
             )
-            : Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: descBg,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Text(
+            : Text(
                 widget.task.description!,
                 style: Theme.of(
                   context,
                 ).textTheme.bodyMedium?.copyWith(color: descTextColor),
-              ),
-            ),
-      ],
-    );
+              );
   }
 
   Widget _buildMetadataCard(BuildContext context) {
@@ -413,15 +384,23 @@ class _TaskDetailState extends ConsumerState<TaskDetail> {
     // Muted red for overdue, consistent with task_card.dart
     const overdueColor = Color(0xFFB85C5C);
 
+    // Priority color from theme
+    final priorityColor = AppTheme.priorityColors[widget.task.priority] ?? chipColor;
+
+    // Project color from project entity
+    final projectColor = widget.project != null
+        ? _parseColor(widget.project!.color)
+        : chipColor;
+
     return Wrap(
       spacing: 8,
       runSpacing: 8,
       children: [
-        // Priority chip
+        // Priority chip - with priority-specific color
         _buildMetadataChip(
           icon: LucideIcons.flag,
           label: _getPriorityLabel(widget.task.priority),
-          color: chipColor,
+          color: priorityColor,
         ),
 
         // Due date chip
@@ -435,15 +414,26 @@ class _TaskDetailState extends ConsumerState<TaskDetail> {
                     : chipColor,
           ),
 
-        // Project chip
+        // Project chip - with project-specific color
         if (widget.project != null)
           _buildMetadataChip(
             icon: LucideIcons.folder,
             label: widget.project!.name,
-            color: chipColor,
+            color: projectColor,
           ),
       ],
     );
+  }
+
+  Color _parseColor(String colorStr) {
+    if (colorStr.startsWith('#')) {
+      try {
+        return Color(int.parse(colorStr.substring(1), radix: 16) + 0xFF000000);
+      } catch (_) {
+        return AppTheme.gray500;
+      }
+    }
+    return AppTheme.gray500;
   }
 
   Widget _buildMetadataChip({
@@ -754,39 +744,25 @@ class _TaskDetailState extends ConsumerState<TaskDetail> {
   }
 
   Widget _buildLabelsSection(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final cardBg = isDark ? AppTheme.gray800 : AppTheme.gray100;
-    final borderColor = isDark ? AppTheme.gray700 : AppTheme.gray200;
+    // No container in view mode - just show labels inline
+    // Keep container only in edit mode for the editor UI
+    if (_isEditing) {
+      final isDark = Theme.of(context).brightness == Brightness.dark;
+      final cardBg = isDark ? AppTheme.gray800 : Colors.white;
+      final borderColor = isDark ? AppTheme.gray600 : AppTheme.gray300;
 
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: cardBg,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: borderColor),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(LucideIcons.tag, size: 14, color: AppTheme.gray400),
-              const SizedBox(width: 6),
-              Text(
-                'Labels',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                  color: AppTheme.gray500,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          _isEditing ? _buildLabelsEditor(context) : _buildLabelsDisplay(),
-        ],
-      ),
-    );
+      return Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: cardBg,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: borderColor),
+        ),
+        child: _buildLabelsEditor(context),
+      );
+    }
+
+    return _buildLabelsDisplay();
   }
 
   Widget _buildLabelsDisplay() {
