@@ -47,10 +47,10 @@ class _TaskCardState extends ConsumerState<TaskCard> {
             : AppTheme.primaryBlue.withValues(alpha: 0.08);
 
     return MouseRegion(
+      cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _isHovered = true),
       onExit: (_) => setState(() => _isHovered = false),
-      child: AnimatedContainer(
-        duration: AppTheme.animationFast,
+      child: Container(
         margin: const EdgeInsets.only(bottom: 8),
         decoration: BoxDecoration(
           color:

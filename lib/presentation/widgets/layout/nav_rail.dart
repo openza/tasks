@@ -253,10 +253,10 @@ class _NavRailItemState extends State<_NavRailItem> {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2),
       child: MouseRegion(
+        cursor: SystemMouseCursors.click,
         onEnter: (_) => setState(() => _isHovered = true),
         onExit: (_) => setState(() => _isHovered = false),
-        child: AnimatedContainer(
-          duration: AppTheme.animationFast,
+        child: Container(
           decoration: BoxDecoration(
             color:
                 widget.isActive
@@ -374,14 +374,16 @@ class _SyncNavItem extends ConsumerWidget {
       message: tooltip,
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 2),
-        child: GestureDetector(
-          onTap:
-              syncState.isSyncing
-                  ? null
-                  : () => ref.read(syncProvider.notifier).syncNow(),
-          behavior: HitTestBehavior.opaque,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        child: MouseRegion(
+          cursor: syncState.isSyncing ? SystemMouseCursors.basic : SystemMouseCursors.click,
+          child: GestureDetector(
+            onTap:
+                syncState.isSyncing
+                    ? null
+                    : () => ref.read(syncProvider.notifier).syncNow(),
+            behavior: HitTestBehavior.opaque,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
               child: Row(
                 children: [
                   syncState.isSyncing
@@ -418,6 +420,7 @@ class _SyncNavItem extends ConsumerWidget {
               ],
             ),
           ),
+        ),
         ),
       ),
     );

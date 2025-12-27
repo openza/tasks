@@ -31,16 +31,18 @@ class LabelBadge extends StatelessWidget {
     final selectedBg = isDark ? AppTheme.gray100 : AppTheme.gray800;
     final selectedText = isDark ? AppTheme.gray900 : Colors.white;
 
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-        decoration: BoxDecoration(
-          color: isSelected ? selectedBg : inactiveBg,
-          borderRadius: BorderRadius.circular(16),
-          border: isSelected ? null : Border.all(color: inactiveBorder),
-        ),
-        child: Row(
+    return MouseRegion(
+      cursor: onTap != null ? SystemMouseCursors.click : SystemMouseCursors.basic,
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          decoration: BoxDecoration(
+            color: isSelected ? selectedBg : inactiveBg,
+            borderRadius: BorderRadius.circular(16),
+            border: isSelected ? null : Border.all(color: inactiveBorder),
+          ),
+          child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
@@ -67,6 +69,7 @@ class LabelBadge extends StatelessWidget {
             ],
           ],
         ),
+      ),
       ),
     );
   }

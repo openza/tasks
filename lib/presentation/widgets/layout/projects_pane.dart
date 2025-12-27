@@ -695,10 +695,10 @@ class _ProjectItemState extends State<_ProjectItem> {
     return Padding(
       padding: const EdgeInsets.only(left: 20, top: 1, bottom: 1, right: 4),
       child: MouseRegion(
+        cursor: SystemMouseCursors.click,
         onEnter: (_) => setState(() => _isHovered = true),
         onExit: (_) => setState(() => _isHovered = false),
-        child: AnimatedContainer(
-          duration: AppTheme.animationFast,
+        child: Container(
           decoration: BoxDecoration(
             color:
                 widget.isSelected
