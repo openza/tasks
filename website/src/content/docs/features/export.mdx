@@ -1,0 +1,84 @@
+---
+title: Export to Markdown
+description: Export your tasks to markdown format
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+
+# Export to Markdown
+
+Export all your tasks to a human-readable markdown file for archiving, sharing, or migrating to other tools.
+
+## Export Format
+
+Tasks are exported in organized markdown format:
+
+- **Grouped by project** for easy navigation
+- **Checkbox syntax** (`- [ ]` for open, `- [x]` for completed)
+- **Task details** including priority, due dates, and labels
+- **Separate sections** for projects and labels
+
+### Example Output
+
+```markdown
+# Tasks Export
+
+## Project: Work
+
+- [ ] Review quarterly report
+  - Priority: High
+  - Due: 2025-01-15
+  - Labels: work, urgent
+
+- [x] Submit expense report
+  - Priority: Medium
+  - Completed
+
+## Project: Personal
+
+- [ ] Buy groceries
+  - Labels: errands
+```
+
+## How to Export
+
+<Steps>
+1. Open **Settings** (gear icon in the navigation rail)
+2. Go to the **Export** page
+3. Review the preview showing your tasks
+4. Click **Export to File**
+5. Choose a save location and filename
+</Steps>
+
+## Export Preview
+
+Before exporting, you'll see:
+
+- **Statistics** - Total tasks, active/completed counts, projects, and labels
+- **Preview** - First 50 lines of the export
+- Full export is saved to your chosen file
+
+<Aside type="tip">
+The export preview helps you verify the content before saving. The full export may contain more data than shown in the preview.
+</Aside>
+
+## Use Cases
+
+### Archiving
+Create periodic exports to keep a readable history of your tasks outside the app.
+
+### Sharing
+Share task lists with team members who don't use Openza Tasks.
+
+### Migration
+Move your tasks to another tool that supports markdown import.
+
+### Documentation
+Include task lists in project documentation or reports.
+
+## Notes
+
+- Export includes all tasks (both local and synced)
+- Completed tasks are included with `[x]` checkboxes
+- File is saved with `.md` extension
+- Export runs in the background without blocking the UI

@@ -2,6 +2,28 @@
 
 All notable changes to Openza Tasks will be documented in this file.
 
+## [0.3.0] - 2025-12-27
+
+### Added
+- **Automatic Backup System**: Configurable backup frequency (hourly/daily/weekly) with daily auto-backup enabled by default for new users
+- **Manual Backup Controls**: Create, restore, download, and import backups from the settings modal
+- **Markdown Export**: Export all tasks grouped by project with preview dialog before saving
+- **Markdown Import**: Import tasks from markdown files or pasted text with GFM checkbox syntax support
+- **4-Pane GTD Layout**: New dashboard layout with NavRail | ProjectsPane | TasksList | TaskDetails
+- **Dark Theme**: Complete dark theme support with improved visual consistency across all screens
+- **Settings Modal**: Reorganized settings as a modal dialog with separate Backup, Import, and Export pages
+- **Project Search**: Search functionality in the projects pane
+
+### Fixed
+- Theme switch crash caused by TextStyle interpolation during animation (#15)
+- Use `deleteSync()` instead of async `delete()` in isolate functions for proper cleanup
+
+### Changed
+- Projects promoted to first-class citizens with dedicated navigation pane
+- Simplified Add Task modal optimized for desktop usage
+- Improved task detail screen with better project display
+- New tasks default to Inbox when no project is selected
+
 ## [0.2.1] - 2025-12-20
 
 ### Fixed
