@@ -1,0 +1,98 @@
+---
+title: Backup & Restore
+description: Protect your tasks with automatic backups
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+
+# Backup & Restore
+
+Openza Tasks automatically backs up your local database to protect your tasks from data loss.
+
+## Automatic Backups
+
+By default, Openza Tasks creates daily backups of your task database. You can configure the backup frequency in Settings.
+
+### Backup Frequency Options
+
+| Frequency | Description |
+|-----------|-------------|
+| Hourly | Best for heavy users who make frequent changes |
+| Daily | Recommended for most users (default) |
+| Weekly | For light usage or when storage is limited |
+
+### Enabling/Disabling Auto-Backup
+
+<Steps>
+1. Open **Settings** (gear icon in the navigation rail)
+2. Go to the **Backup** page
+3. Toggle **Automatic Backup** on or off
+4. Select your preferred frequency
+</Steps>
+
+## Manual Backup
+
+Create a backup anytime from the Settings modal:
+
+<Steps>
+1. Open **Settings** > **Backup**
+2. Click **Backup Now**
+3. The backup appears in your backup list
+</Steps>
+
+## Backup Management
+
+### Viewing Backups
+
+Your backups are displayed with:
+- **Date** shown in calendar format (day and month)
+- **Time** of creation
+- **File size**
+
+### Download Backup
+
+Export a backup to save externally or transfer to another computer:
+
+<Steps>
+1. Find the backup you want to download
+2. Click the **Download** button
+3. Choose a save location
+4. The backup is saved as a `.db` file
+</Steps>
+
+### Restore from Backup
+
+<Aside type="caution">
+Restoring a backup will replace your current data. Make sure you want to proceed before confirming.
+</Aside>
+
+<Steps>
+1. Select the backup to restore
+2. Click the **Restore** button
+3. Confirm the restore action
+4. Restart the app when prompted
+</Steps>
+
+### Import External Backup
+
+Import a backup from another computer or external storage:
+
+<Steps>
+1. Open **Settings** > **Backup**
+2. Click **Import Backup**
+3. Select a `.db` file from your computer
+4. The backup appears in your list and can be restored
+</Steps>
+
+## Backup Storage
+
+- Backups are stored in your app data folder
+- Up to **7 backups** are retained automatically
+- Oldest backups are deleted when the limit is reached
+
+## Best Practices
+
+- Keep auto-backup enabled for peace of mind
+- Download important backups to external storage
+- After major changes, create a manual backup
+- Before restoring, download your current data first

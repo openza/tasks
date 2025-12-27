@@ -1,0 +1,116 @@
+---
+title: Import from Markdown
+description: Import tasks from markdown files or text
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+
+# Import from Markdown
+
+Import tasks directly from markdown files or pasted text using GitHub Flavored Markdown (GFM) checkbox syntax.
+
+## Supported Format
+
+Openza Tasks recognizes GFM task list syntax:
+
+```markdown
+- [ ] Open task (will be imported as active)
+- [x] Completed task (will be imported as done)
+```
+
+### What Gets Imported
+
+- **Task title** - The text after the checkbox
+- **Completion status** - Based on `[ ]` (open) or `[x]` (completed)
+
+<Aside type="note">
+Priority, due dates, and labels are not imported from markdown. You can add these after import.
+</Aside>
+
+## Import Methods
+
+### Method 1: Paste Text
+
+<Steps>
+1. Click **Import** in the navigation rail
+2. Select the **Paste** tab
+3. Paste your markdown text
+4. Review detected tasks
+5. Click **Import**
+</Steps>
+
+### Method 2: Import File
+
+<Steps>
+1. Click **Import** in the navigation rail
+2. Select the **File** tab
+3. Click **Choose File**
+4. Select a `.md` or `.txt` file
+5. Review detected tasks
+6. Click **Import**
+</Steps>
+
+## Duplicate Detection
+
+When importing, Openza Tasks checks for duplicate tasks:
+
+| Option | Behavior |
+|--------|----------|
+| Skip duplicates | Existing tasks are not modified |
+| Create anyway | Import all tasks even if duplicates exist |
+
+## Task Preview
+
+Before importing, you'll see:
+- List of all detected tasks
+- Checkbox status (open/completed)
+- Total count of tasks to import
+
+<Aside type="tip">
+Review the preview carefully before importing. You can go back and edit your markdown if needed.
+</Aside>
+
+## Safety Limits
+
+To prevent issues with large files:
+
+- **Maximum file size**: 5 MB
+- **Maximum line length**: 10,000 characters
+- **Encoding**: UTF-8 only
+
+## Examples
+
+### Simple Task List
+
+```markdown
+- [ ] Buy milk
+- [ ] Call dentist
+- [x] Pay bills
+```
+
+### Mixed Content (Only Checkboxes Imported)
+
+```markdown
+# Shopping List
+
+## Groceries
+- [ ] Eggs
+- [ ] Bread
+- [x] Butter
+
+## Notes
+This is just a note and won't be imported.
+```
+
+Only the items with `- [ ]` or `- [x]` prefix are imported as tasks.
+
+## Use Cases
+
+### From Meeting Notes
+Copy action items from meeting notes directly into Openza Tasks.
+
+### From Other Apps
+Export tasks from another tool as markdown, then import here.
+
+### Quick Entry
+Write tasks in your favorite text editor, then import in bulk.
