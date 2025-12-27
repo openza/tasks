@@ -23,6 +23,7 @@ All notable changes to Openza Tasks will be documented in this file.
 - Simplified Add Task modal optimized for desktop usage
 - Improved task detail screen with better project display
 - New tasks default to Inbox when no project is selected
+- About screen now displays version dynamically from pubspec.yaml
 
 ## [0.2.1] - 2025-12-20
 

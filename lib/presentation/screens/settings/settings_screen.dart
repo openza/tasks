@@ -9,6 +9,7 @@ import '../../../app/app_theme.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../data/datasources/remote/todoist_api.dart';
 import '../../../domain/entities/backup.dart';
+import '../../providers/app_info_provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/backup_provider.dart';
 import '../../providers/task_provider.dart';
@@ -1439,7 +1440,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ),
           const SizedBox(height: 24),
 
-          _AboutRow(label: 'Version', value: '${AppConstants.appVersion} (Flutter + Rust)'),
+          _AboutRow(label: 'Version', value: '${ref.watch(appVersionProvider)} (Flutter + Rust)'),
           _AboutRow(label: 'License', value: 'MIT'),
           _AboutRow(label: 'Platform', value: 'Linux, Windows, macOS'),
 
