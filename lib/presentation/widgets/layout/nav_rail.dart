@@ -59,12 +59,10 @@ class NavRail extends ConsumerWidget {
                   width: double.infinity,
                   child: OutlinedButton.icon(
                     onPressed: () => ImportMarkdownDialog.show(context),
-                    icon: Icon(LucideIcons.fileDown, size: 14),
+                    icon: const Icon(LucideIcons.fileDown, size: 14),
                     label: const Text('Import'),
                     style: OutlinedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 8),
-                      foregroundColor: AppTheme.gray600,
-                      side: BorderSide(color: AppTheme.gray300),
                     ),
                   ),
                 ),
@@ -73,12 +71,10 @@ class NavRail extends ConsumerWidget {
                   width: double.infinity,
                   child: OutlinedButton.icon(
                     onPressed: () => _showCreateProjectDialog(context, ref),
-                    icon: Icon(LucideIcons.folderPlus, size: 14),
+                    icon: const Icon(LucideIcons.folderPlus, size: 14),
                     label: const Text('Add Project'),
                     style: OutlinedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 8),
-                      foregroundColor: AppTheme.gray600,
-                      side: BorderSide(color: AppTheme.gray300),
                     ),
                   ),
                 ),
