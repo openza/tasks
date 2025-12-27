@@ -328,7 +328,7 @@ class BackupService {
         // Success - delete the safety backup
         final safetyBackup = File(safetyBackupPath);
         if (safetyBackup.existsSync()) {
-          safetyBackup.delete();
+          safetyBackup.deleteSync();
         }
 
         return true;
@@ -337,7 +337,7 @@ class BackupService {
         final safetyBackup = File(safetyBackupPath);
         if (safetyBackup.existsSync()) {
           safetyBackup.copySync(params.dbPath);
-          safetyBackup.delete();
+          safetyBackup.deleteSync();
         }
         rethrow;
       }
