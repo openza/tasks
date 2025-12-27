@@ -1,16 +1,21 @@
+import 'package:drift/drift.dart' show Value;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons/lucide_icons.dart';
+import 'package:toastification/toastification.dart';
 
 import '../../../app/app_router.dart';
 import '../../../app/app_theme.dart';
+import '../../../data/datasources/local/database/database.dart';
+import '../../providers/database_provider.dart';
 import '../../providers/repository_provider.dart';
 import '../../providers/selected_project_provider.dart';
 import '../../providers/sync_provider.dart';
 import '../../providers/task_provider.dart';
 import '../dialogs/create_task_dialog.dart';
 import '../dialogs/import_markdown_dialog.dart';
+import '../dialogs/project_dialog.dart';
 
 /// Navigation rail widget (160px) with icon + text labels
 /// Part of the 4-pane layout: NavRail | ProjectsPane | TasksList | TaskDetails
@@ -56,6 +61,20 @@ class NavRail extends ConsumerWidget {
                     onPressed: () => ImportMarkdownDialog.show(context),
                     icon: Icon(LucideIcons.fileDown, size: 14),
                     label: const Text('Import'),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      foregroundColor: AppTheme.gray600,
+                      side: BorderSide(color: AppTheme.gray300),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: () => _showCreateProjectDialog(context, ref),
+                    icon: Icon(LucideIcons.folderPlus, size: 14),
+                    label: const Text('Add Project'),
                     style: OutlinedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 8),
                       foregroundColor: AppTheme.gray600,
@@ -203,6 +222,53 @@ class NavRail extends ConsumerWidget {
         ref.invalidate(localTasksProvider);
         ref.invalidate(unifiedDataProvider);
       });
+    }
+  }
+
+  /// Show the create project dialog
+  Future<void> _showCreateProjectDialog(
+    BuildContext context,
+    WidgetRef ref,
+  ) async {
+    final project = await ProjectDialog.showCreate(context);
+    if (project == null) return;
+
+    try {
+      final db = ref.read(databaseProvider);
+      await db.createProject(
+        ProjectsCompanion.insert(
+          id: project.id,
+          integrationId: project.integrationId,
+          name: project.name,
+          description: Value(project.description),
+          color: Value(project.color),
+          icon: Value(project.icon),
+          sortOrder: Value(project.sortOrder),
+          isFavorite: Value(project.isFavorite),
+        ),
+      );
+
+      // Defer provider invalidation to next frame
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        ref.invalidate(localProjectsProvider);
+        ref.invalidate(unifiedDataProvider);
+      });
+
+      toastification.show(
+        context: context,
+        type: ToastificationType.success,
+        title: const Text('Project Created'),
+        description: Text('${project.name} has been created'),
+        autoCloseDuration: const Duration(seconds: 3),
+      );
+    } catch (e) {
+      toastification.show(
+        context: context,
+        type: ToastificationType.error,
+        title: const Text('Error'),
+        description: const Text('Failed to create project'),
+        autoCloseDuration: const Duration(seconds: 3),
+      );
     }
   }
 }

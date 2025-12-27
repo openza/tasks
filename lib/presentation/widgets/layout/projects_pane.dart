@@ -134,30 +134,6 @@ class _ProjectsPaneState extends ConsumerState<ProjectsPane> {
                     style: const TextStyle(fontSize: 13),
                   ),
                 ),
-                const SizedBox(width: 8),
-                // Add project button
-                Tooltip(
-                  message: 'Create new project',
-                  child: InkWell(
-                    onTap: () => _createProject(context),
-                    borderRadius: BorderRadius.circular(6),
-                    child: Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: AppTheme.primaryBlue.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(
-                          color: AppTheme.primaryBlue.withValues(alpha: 0.3),
-                        ),
-                      ),
-                      child: const Icon(
-                        LucideIcons.plus,
-                        size: 18,
-                        color: AppTheme.primaryBlue,
-                      ),
-                    ),
-                  ),
-                ),
               ],
             ),
           ),
@@ -323,54 +299,6 @@ class _ProjectsPaneState extends ConsumerState<ProjectsPane> {
     ref.read(selectedProjectIdProvider.notifier).state = projectId;
     // Navigate to tasks with projectId
     context.go('${AppRoutes.tasks}?projectId=$projectId');
-  }
-
-  /// Create a new local project
-  Future<void> _createProject(BuildContext context) async {
-    final project = await ProjectDialog.showCreate(context);
-    if (project == null || !mounted) return;
-
-    try {
-      final db = ref.read(databaseProvider);
-      await db.createProject(
-        ProjectsCompanion.insert(
-          id: project.id,
-          integrationId: project.integrationId,
-          name: project.name,
-          description: Value(project.description),
-          color: Value(project.color),
-          icon: Value(project.icon),
-          sortOrder: Value(project.sortOrder),
-          isFavorite: Value(project.isFavorite),
-        ),
-      );
-
-      // Refresh the data - invalidate both providers to ensure cache is cleared
-      ref.invalidate(localProjectsProvider);
-      ref.invalidate(unifiedDataProvider);
-
-      if (mounted) {
-        toastification.show(
-          // ignore: use_build_context_synchronously
-          context: context,
-          type: ToastificationType.success,
-          title: const Text('Project Created'),
-          description: Text('${project.name} has been created'),
-          autoCloseDuration: const Duration(seconds: 3),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        toastification.show(
-          // ignore: use_build_context_synchronously
-          context: context,
-          type: ToastificationType.error,
-          title: const Text('Error'),
-          description: const Text('Failed to create project'),
-          autoCloseDuration: const Duration(seconds: 3),
-        );
-      }
-    }
   }
 
   /// Edit an existing local project
