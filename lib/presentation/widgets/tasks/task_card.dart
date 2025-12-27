@@ -40,7 +40,7 @@ class _TaskCardState extends ConsumerState<TaskCard> {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final baseColor = isDark ? AppTheme.gray800 : Colors.white;
-    final hoverColor = isDark ? AppTheme.gray700 : AppTheme.gray50;
+    final hoverColor = isDark ? AppTheme.gray700 : AppTheme.gray100;
     final selectedColor =
         isDark
             ? AppTheme.primaryBlue.withValues(alpha: 0.15)
@@ -92,7 +92,7 @@ class _TaskCardState extends ConsumerState<TaskCard> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Title
+                      // Title - use pure black in light mode for maximum readability
                         Text(
                           widget.task.title,
                           style: TextStyle(
@@ -102,8 +102,8 @@ class _TaskCardState extends ConsumerState<TaskCard> {
                                 widget.task.isCompleted
                                     ? AppTheme.gray400
                                     : isDark
-                                    ? AppTheme.gray100
-                                    : AppTheme.gray900,
+                                    ? Colors.white
+                                    : Colors.black,
                             decoration:
                                 widget.task.isCompleted
                                     ? TextDecoration.lineThrough
@@ -113,7 +113,7 @@ class _TaskCardState extends ConsumerState<TaskCard> {
                           overflow: TextOverflow.ellipsis,
                         ),
 
-                        // Description
+                        // Description - darker text for better readability
                         if (widget.task.description != null &&
                             widget.task.description!.isNotEmpty) ...[
                           const SizedBox(height: 4),
@@ -121,7 +121,7 @@ class _TaskCardState extends ConsumerState<TaskCard> {
                             widget.task.description!,
                             style: TextStyle(
                               fontSize: 12,
-                              color: AppTheme.gray500,
+                              color: isDark ? AppTheme.gray200 : AppTheme.gray700,
                             ),
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
@@ -181,10 +181,13 @@ class _TaskCardState extends ConsumerState<TaskCard> {
             .take(2)
             .map((label) => LabelChip(name: label.name, color: label.color)),
         if (widget.task.labels.length > 2)
-          Text(
-            '+${widget.task.labels.length - 2}',
-            style: TextStyle(fontSize: 10, color: AppTheme.gray500),
-          ),
+          Builder(builder: (context) {
+            final isDark = Theme.of(context).brightness == Brightness.dark;
+            return Text(
+              '+${widget.task.labels.length - 2}',
+              style: TextStyle(fontSize: 10, color: isDark ? AppTheme.gray300 : AppTheme.gray600),
+            );
+          }),
 
         // Priority
         PriorityBadge(priority: widget.task.priority),
@@ -217,13 +220,15 @@ class _TaskCardState extends ConsumerState<TaskCard> {
   }
 
   Widget _buildDueDate() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     String text;
 
     // Only use muted red for overdue tasks, gray for everything else (minimal colors)
     final bool isOverdue = widget.task.isOverdue && !widget.task.isCompleted;
     // Softer, less alarming muted red instead of bright errorRed
     const overdueColor = Color(0xFFB85C5C);
-    final Color color = isOverdue ? overdueColor : AppTheme.gray500;
+    final normalColor = isDark ? AppTheme.gray200 : AppTheme.gray700;
+    final Color color = isOverdue ? overdueColor : normalColor;
 
     if (isOverdue) {
       final days = AppDateUtils.getDaysOverdue(widget.task.dueDate);
@@ -278,8 +283,10 @@ class _TaskCardState extends ConsumerState<TaskCard> {
       return const SizedBox.shrink();
     }
 
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final color = integration.colorValue;
     final label = integration.displayName;
+    final textColor = isDark ? AppTheme.gray200 : AppTheme.gray700;
 
     return Row(
       mainAxisSize: MainAxisSize.min,
@@ -290,7 +297,7 @@ class _TaskCardState extends ConsumerState<TaskCard> {
           decoration: BoxDecoration(color: color, shape: BoxShape.circle),
         ),
         const SizedBox(width: 3),
-        Text(label, style: TextStyle(fontSize: 9, color: AppTheme.gray400)),
+        Text(label, style: TextStyle(fontSize: 9, color: textColor)),
       ],
     );
   }

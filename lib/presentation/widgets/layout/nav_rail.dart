@@ -236,11 +236,11 @@ class _NavRailItemState extends State<_NavRailItem> {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    // Color scheme - use primaryBlue for active state
+    // Color scheme - use primaryBlue for active state, bold text like Todoist
     final activeIconColor = AppTheme.primaryBlue;
-    final inactiveColor = isDark ? AppTheme.gray400 : AppTheme.gray600;
-    final textActiveColor = isDark ? AppTheme.gray100 : AppTheme.gray800;
-    final textInactiveColor = isDark ? AppTheme.gray400 : AppTheme.gray700;
+    final inactiveColor = isDark ? AppTheme.gray300 : AppTheme.gray600;
+    final textActiveColor = isDark ? Colors.white : Colors.black;
+    final textInactiveColor = isDark ? AppTheme.gray200 : AppTheme.gray900;
 
     // Background colors - blue tint for active
     final activeBg =

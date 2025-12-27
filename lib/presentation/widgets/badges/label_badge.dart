@@ -22,10 +22,10 @@ class LabelBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    // Grayscale colors for minimal aesthetic
+    // Grayscale colors for minimal aesthetic - bold text like Todoist
     final inactiveBg = isDark ? AppTheme.gray800 : Colors.white;
     final inactiveBorder = isDark ? AppTheme.gray600 : AppTheme.gray300;
-    final inactiveText = isDark ? AppTheme.gray300 : AppTheme.gray600;
+    final inactiveText = isDark ? AppTheme.gray200 : AppTheme.gray800;
 
     // Selected state uses gray instead of label color for minimal aesthetic
     final selectedBg = isDark ? AppTheme.gray100 : AppTheme.gray800;
@@ -82,10 +82,10 @@ class LabelChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Use grayscale instead of label color for minimal aesthetic
+    // Use grayscale instead of label color for minimal aesthetic - bold text like Todoist
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bgColor = isDark ? AppTheme.gray700 : AppTheme.gray100;
-    final textColor = isDark ? AppTheme.gray300 : AppTheme.gray600;
+    final textColor = isDark ? Colors.white : AppTheme.gray800; // Much darker text
     final borderColor = isDark ? AppTheme.gray600 : AppTheme.gray300;
 
     return Container(

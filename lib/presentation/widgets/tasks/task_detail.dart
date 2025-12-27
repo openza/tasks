@@ -323,7 +323,7 @@ class _TaskDetailState extends ConsumerState<TaskDetail> {
 
     final inputBg = isDark ? AppTheme.gray800 : Colors.white;
     final inputBorder = isDark ? AppTheme.gray600 : AppTheme.gray300;
-    final descBg = isDark ? AppTheme.gray800 : AppTheme.gray50;
+    final descBg = isDark ? AppTheme.gray800 : AppTheme.gray100;
     final descTextColor = isDark ? AppTheme.gray300 : AppTheme.gray700;
 
     return Column(
@@ -385,7 +385,7 @@ class _TaskDetailState extends ConsumerState<TaskDetail> {
 
   Widget _buildMetadataCard(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final cardBg = isDark ? AppTheme.gray800 : AppTheme.gray50;
+    final cardBg = isDark ? AppTheme.gray800 : AppTheme.gray100;
     final borderColor = isDark ? AppTheme.gray700 : AppTheme.gray200;
 
     // When editing, use the form-like layout for better UX
@@ -755,7 +755,7 @@ class _TaskDetailState extends ConsumerState<TaskDetail> {
 
   Widget _buildLabelsSection(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final cardBg = isDark ? AppTheme.gray800 : AppTheme.gray50;
+    final cardBg = isDark ? AppTheme.gray800 : AppTheme.gray100;
     final borderColor = isDark ? AppTheme.gray700 : AppTheme.gray200;
 
     return Container(

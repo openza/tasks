@@ -60,7 +60,7 @@ class ProfileScreen extends ConsumerWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Container(
-      color: isDark ? AppTheme.gray900 : AppTheme.gray50,
+      color: isDark ? AppTheme.gray900 : Colors.white,
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(24),
         child: Column(

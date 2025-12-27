@@ -54,7 +54,7 @@ class _NextActionsScreenState extends ConsumerState<NextActionsScreen> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Container(
-      color: isDark ? AppTheme.gray900 : AppTheme.gray50,
+      color: isDark ? AppTheme.gray900 : Colors.white,
       child: Row(
         children: [
           Expanded(
@@ -98,13 +98,13 @@ class _NextActionsScreenState extends ConsumerState<NextActionsScreen> {
                                 (tasks) => Text(
                                   '${tasks.length} labeled task${tasks.length != 1 ? 's' : ''}',
                                   style: Theme.of(context).textTheme.bodySmall
-                                      ?.copyWith(color: AppTheme.gray500),
+                                      ?.copyWith(color: isDark ? AppTheme.gray400 : AppTheme.gray600),
                                 ),
                             loading:
                                 () => Text(
                                   'Loading...',
                                   style: Theme.of(context).textTheme.bodySmall
-                                      ?.copyWith(color: AppTheme.gray500),
+                                      ?.copyWith(color: isDark ? AppTheme.gray400 : AppTheme.gray600),
                                 ),
                             error: (_, __) => const SizedBox.shrink(),
                           ),
@@ -310,7 +310,7 @@ class _FilterButton extends StatelessWidget {
     final selectedBg = isDark ? AppTheme.gray100 : AppTheme.gray800;
     final selectedText = isDark ? AppTheme.gray900 : Colors.white;
     final unselectedBg = isDark ? AppTheme.gray800 : Colors.white;
-    final unselectedText = isDark ? AppTheme.gray300 : AppTheme.gray600;
+    final unselectedText = isDark ? AppTheme.gray200 : AppTheme.gray800;  // Bolder text
     final borderColor = isDark ? AppTheme.gray600 : AppTheme.gray200;
 
     return Material(

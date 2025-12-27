@@ -48,7 +48,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Container(
-      color: isDark ? AppTheme.gray900 : AppTheme.gray50,
+      color: isDark ? AppTheme.gray900 : Colors.white,
       child: Center(
         child: Card(
           margin: const EdgeInsets.all(24),

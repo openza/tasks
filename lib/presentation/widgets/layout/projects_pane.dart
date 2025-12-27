@@ -80,14 +80,18 @@ class _ProjectsPaneState extends ConsumerState<ProjectsPane> {
                     },
                     decoration: InputDecoration(
                       hintText: 'Search projects...',
-                      hintStyle: const TextStyle(
+                      hintStyle: TextStyle(
                         fontSize: 13,
-                        color: AppTheme.gray400,
+                        color: Theme.of(context).brightness == Brightness.dark
+                            ? AppTheme.gray400
+                            : AppTheme.gray500,
                       ),
-                      prefixIcon: const Icon(
+                      prefixIcon: Icon(
                         LucideIcons.search,
                         size: 16,
-                        color: AppTheme.gray400,
+                        color: Theme.of(context).brightness == Brightness.dark
+                            ? AppTheme.gray400
+                            : AppTheme.gray500,
                       ),
                       suffixIcon:
                           _searchQuery.isNotEmpty
@@ -123,7 +127,9 @@ class _ProjectsPaneState extends ConsumerState<ProjectsPane> {
                         ),
                       ),
                       filled: true,
-                      fillColor: AppTheme.gray50,
+                      fillColor: Theme.of(context).brightness == Brightness.dark
+                          ? AppTheme.gray800
+                          : AppTheme.gray100,
                     ),
                     style: const TextStyle(fontSize: 13),
                   ),
@@ -539,33 +545,43 @@ class _ProviderGroup extends StatelessWidget {
                 ),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: Text(
-                    getProviderDisplayName(providerId).toUpperCase(),
-                    style: const TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: AppTheme.gray500,
-                      letterSpacing: 0.5,
-                    ),
+                  child: Builder(
+                    builder: (context) {
+                      final isDark = Theme.of(context).brightness == Brightness.dark;
+                      return Text(
+                        getProviderDisplayName(providerId).toUpperCase(),
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: isDark ? AppTheme.gray300 : AppTheme.gray600,
+                          letterSpacing: 0.5,
+                        ),
+                      );
+                    },
                   ),
                 ),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 6,
-                    vertical: 2,
-                  ),
-                  decoration: BoxDecoration(
-                    color: AppTheme.gray100,
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(
-                    '${projects.length}',
-                    style: const TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w500,
-                      color: AppTheme.gray500,
-                    ),
-                  ),
+                Builder(
+                  builder: (context) {
+                    final isDark = Theme.of(context).brightness == Brightness.dark;
+                    return Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: isDark ? AppTheme.gray700 : AppTheme.gray100,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        '${projects.length}',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w500,
+                          color: isDark ? AppTheme.gray300 : AppTheme.gray600,
+                        ),
+                      ),
+                    );
+                  },
                 ),
               ],
             ),
@@ -636,8 +652,8 @@ class _ProjectItemState extends State<_ProjectItem> {
             : AppTheme.gray200.withValues(alpha: 0.6);
     final hoverBg =
         isDark ? AppTheme.gray700.withValues(alpha: 0.3) : AppTheme.gray100;
-    final selectedTextColor = isDark ? AppTheme.gray100 : AppTheme.gray800;
-    final normalTextColor = isDark ? AppTheme.gray300 : AppTheme.gray700;
+    final selectedTextColor = isDark ? Colors.white : Colors.black;
+    final normalTextColor = isDark ? AppTheme.gray200 : AppTheme.gray900;
 
     Widget itemContent = Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),

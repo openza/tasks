@@ -253,9 +253,9 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
     final hasActiveFilters = _searchQuery.isNotEmpty || _selectedPriority != null;
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    // Theme-aware colors for filter controls
-    final filterBg = isDark ? AppTheme.gray800 : AppTheme.gray50;
-    final filterBorder = isDark ? AppTheme.gray600 : AppTheme.gray200;
+    // Theme-aware colors for filter controls - use gray100 for more contrast
+    final filterBg = isDark ? AppTheme.gray800 : AppTheme.gray100;
+    final filterBorder = isDark ? AppTheme.gray600 : AppTheme.gray300;
     final textColor = isDark ? AppTheme.gray200 : AppTheme.gray900;
 
     return Padding(
@@ -277,10 +277,10 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
                 style: TextStyle(fontSize: 13, color: textColor),
                 decoration: InputDecoration(
                   hintText: 'Search...',
-                  hintStyle: TextStyle(fontSize: 13, color: AppTheme.gray400),
+                  hintStyle: TextStyle(fontSize: 13, color: isDark ? AppTheme.gray400 : AppTheme.gray500),
                   prefixIcon: Padding(
                     padding: const EdgeInsets.only(left: 10, right: 8),
-                    child: Icon(LucideIcons.search, size: 16, color: AppTheme.gray400),
+                    child: Icon(LucideIcons.search, size: 16, color: isDark ? AppTheme.gray400 : AppTheme.gray500),
                   ),
                   prefixIconConstraints: const BoxConstraints(minWidth: 36),
                   isDense: true,
@@ -316,9 +316,9 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
         ? AppTheme.priorityColors[_selectedPriority] ?? AppTheme.gray500
         : AppTheme.gray500;
 
-    // Theme-aware colors
-    final filterBg = isDark ? AppTheme.gray800 : AppTheme.gray50;
-    final filterBorder = isDark ? AppTheme.gray600 : AppTheme.gray200;
+    // Theme-aware colors - gray100 for better contrast
+    final filterBg = isDark ? AppTheme.gray800 : AppTheme.gray100;
+    final filterBorder = isDark ? AppTheme.gray600 : AppTheme.gray300;
 
     return Container(
       height: 36,
@@ -335,9 +335,9 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
         hint: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(LucideIcons.flag, size: 14, color: AppTheme.gray400),
+            Icon(LucideIcons.flag, size: 14, color: isDark ? AppTheme.gray400 : AppTheme.gray500),
             const SizedBox(width: 6),
-            Text('Priority', style: TextStyle(fontSize: 13, color: AppTheme.gray500)),
+            Text('Priority', style: TextStyle(fontSize: 13, color: isDark ? AppTheme.gray400 : AppTheme.gray600)),
           ],
         ),
         selectedItemBuilder: (_) => [
@@ -447,8 +447,8 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
 
   Widget _buildSortDropdown(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final filterBg = isDark ? AppTheme.gray800 : AppTheme.gray50;
-    final filterBorder = isDark ? AppTheme.gray600 : AppTheme.gray200;
+    final filterBg = isDark ? AppTheme.gray800 : AppTheme.gray100;
+    final filterBorder = isDark ? AppTheme.gray600 : AppTheme.gray300;
 
     return Container(
       height: 36,

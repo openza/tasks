@@ -99,7 +99,7 @@ class AppTheme {
       surface: Colors.white,
       surfaceContainerHighest: gray100,
     ),
-    scaffoldBackgroundColor: gray50,
+    scaffoldBackgroundColor: Colors.white,  // Pure white for crisp look
 
     // AppBar theme
     appBarTheme: const AppBarTheme(
@@ -215,7 +215,7 @@ class AppTheme {
       thickness: 1,
     ),
 
-    // Text theme
+    // Text theme - using darker colors for better readability (like Todoist)
     textTheme: const TextTheme(
       headlineLarge: TextStyle(
         fontSize: 28,
@@ -250,32 +250,32 @@ class AppTheme {
       bodyLarge: TextStyle(
         fontSize: 16,
         fontWeight: FontWeight.w400,
-        color: gray700,
+        color: gray800, // Darker than before (was gray700)
       ),
       bodyMedium: TextStyle(
         fontSize: 14,
         fontWeight: FontWeight.w400,
-        color: gray700,
+        color: gray800, // Darker than before (was gray700)
       ),
       bodySmall: TextStyle(
         fontSize: 12,
         fontWeight: FontWeight.w400,
-        color: gray500,
+        color: gray600, // Darker than before (was gray500)
       ),
       labelLarge: TextStyle(
         fontSize: 14,
         fontWeight: FontWeight.w500,
-        color: gray700,
+        color: gray800, // Darker than before (was gray700)
       ),
       labelMedium: TextStyle(
         fontSize: 12,
         fontWeight: FontWeight.w500,
-        color: gray600,
+        color: gray700, // Darker than before (was gray600)
       ),
       labelSmall: TextStyle(
         fontSize: 11,
         fontWeight: FontWeight.w500,
-        color: gray500,
+        color: gray600, // Darker than before (was gray500)
       ),
     ),
   );
@@ -370,7 +370,7 @@ class AppTheme {
       thickness: 1,
     ),
 
-    // Text theme
+    // Text theme - using lighter colors for better readability in dark mode
     textTheme: const TextTheme(
       headlineLarge: TextStyle(
         fontSize: 28,
@@ -405,32 +405,32 @@ class AppTheme {
       bodyLarge: TextStyle(
         fontSize: 16,
         fontWeight: FontWeight.w400,
-        color: gray300,
+        color: gray200, // Lighter than before (was gray300)
       ),
       bodyMedium: TextStyle(
         fontSize: 14,
         fontWeight: FontWeight.w400,
-        color: gray300,
+        color: gray200, // Lighter than before (was gray300)
       ),
       bodySmall: TextStyle(
         fontSize: 12,
         fontWeight: FontWeight.w400,
-        color: gray400,
+        color: gray300, // Lighter than before (was gray400)
       ),
       labelLarge: TextStyle(
         fontSize: 14,
         fontWeight: FontWeight.w500,
-        color: gray300,
+        color: gray200, // Lighter than before (was gray300)
       ),
       labelMedium: TextStyle(
         fontSize: 12,
         fontWeight: FontWeight.w500,
-        color: gray400,
+        color: gray300, // Lighter than before (was gray400)
       ),
       labelSmall: TextStyle(
         fontSize: 11,
         fontWeight: FontWeight.w500,
-        color: gray500,
+        color: gray400, // Lighter than before (was gray500)
       ),
     ),
   );

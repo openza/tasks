@@ -26,7 +26,7 @@ class _TodayScreenState extends ConsumerState<TodayScreen> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Container(
-      color: isDark ? AppTheme.gray900 : AppTheme.gray50,
+      color: isDark ? AppTheme.gray900 : Colors.white,
       child: Row(
         children: [
           Expanded(
