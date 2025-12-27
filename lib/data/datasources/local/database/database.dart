@@ -768,6 +768,9 @@ LazyDatabase _openConnection() {
     final dbFolder = await getApplicationSupportDirectory();
     final newDbFile = File(p.join(dbFolder.path, 'openza_tasks.db'));
 
+    // Ensure parent directory exists (critical for fresh Flatpak installations)
+    await newDbFile.parent.create(recursive: true);
+
     // Check if we need to migrate from old database location
     if (!await newDbFile.exists()) {
       await _migrateOldDatabaseIfExists(newDbFile);
@@ -776,12 +779,14 @@ LazyDatabase _openConnection() {
     return NativeDatabase.createInBackground(
       newDbFile,
       setup: (db) {
-        // Configure SQLite for safe concurrent access with Rust sync engine
-        // WAL mode allows concurrent readers during writes
-        // busy_timeout waits instead of failing immediately on lock contention
-        db.execute('PRAGMA journal_mode = WAL');
+        // Use DELETE journal mode for reliable multi-connection access.
+        // WAL mode causes data loss when Flutter/Drift and Rust FFI both
+        // access the database - WAL requires coordinated checkpointing that
+        // doesn't happen reliably across language boundaries.
+        db.execute('PRAGMA journal_mode = DELETE');
         db.execute('PRAGMA busy_timeout = 5000');
-        db.execute('PRAGMA synchronous = NORMAL');
+        // FULL sync ensures durability even on sudden app termination
+        db.execute('PRAGMA synchronous = FULL');
         db.execute('PRAGMA foreign_keys = ON');
       },
     );
