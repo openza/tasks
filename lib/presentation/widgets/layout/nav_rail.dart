@@ -1,17 +1,21 @@
+import 'package:drift/drift.dart' show Value;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons/lucide_icons.dart';
+import 'package:toastification/toastification.dart';
 
 import '../../../app/app_router.dart';
 import '../../../app/app_theme.dart';
+import '../../../data/datasources/local/database/database.dart';
+import '../../providers/database_provider.dart';
 import '../../providers/repository_provider.dart';
 import '../../providers/selected_project_provider.dart';
+import '../../providers/sync_provider.dart';
 import '../../providers/task_provider.dart';
-import '../badges/sync_badge.dart';
-import '../common/openza_logo.dart';
 import '../dialogs/create_task_dialog.dart';
 import '../dialogs/import_markdown_dialog.dart';
+import '../dialogs/project_dialog.dart';
 
 /// Navigation rail widget (160px) with icon + text labels
 /// Part of the 4-pane layout: NavRail | ProjectsPane | TasksList | TaskDetails
@@ -32,17 +36,7 @@ class NavRail extends ConsumerWidget {
       ),
       child: Column(
         children: [
-          // Logo and sync status
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-            child: Row(
-              children: [
-                const OpenzaLogo(size: 28, showText: false),
-                const Spacer(),
-                const SyncBadge(),
-              ],
-            ),
-          ),
+          const SizedBox(height: 12),
 
           // Add Task Button + Import Button
           Padding(
@@ -74,6 +68,20 @@ class NavRail extends ConsumerWidget {
                     ),
                   ),
                 ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: () => _showCreateProjectDialog(context, ref),
+                    icon: Icon(LucideIcons.folderPlus, size: 14),
+                    label: const Text('Add Project'),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      foregroundColor: AppTheme.gray600,
+                      side: BorderSide(color: AppTheme.gray300),
+                    ),
+                  ),
+                ),
               ],
             ),
           ),
@@ -86,25 +94,28 @@ class NavRail extends ConsumerWidget {
               padding: const EdgeInsets.symmetric(horizontal: 8),
               children: [
                 _NavRailItem(
-                  icon: LucideIcons.layoutDashboard,
-                  label: 'Dashboard',
-                  path: AppRoutes.dashboard,
-                  isActive: currentPath == AppRoutes.dashboard,
-                  onTap: () => _navigateAndClearProject(context, ref, AppRoutes.dashboard),
-                ),
-                _NavRailItem(
                   icon: LucideIcons.star,
                   label: 'Next Actions',
                   path: AppRoutes.nextActions,
                   isActive: currentPath == AppRoutes.nextActions,
-                  onTap: () => _navigateAndClearProject(context, ref, AppRoutes.nextActions),
+                  onTap:
+                      () => _navigateAndClearProject(
+                        context,
+                        ref,
+                        AppRoutes.nextActions,
+                      ),
                 ),
                 _NavRailItem(
                   icon: LucideIcons.calendarDays,
                   label: 'Today',
                   path: AppRoutes.today,
                   isActive: currentPath == AppRoutes.today,
-                  onTap: () => _navigateAndClearProject(context, ref, AppRoutes.today),
+                  onTap:
+                      () => _navigateAndClearProject(
+                        context,
+                        ref,
+                        AppRoutes.today,
+                      ),
                 ),
                 _NavRailItem(
                   icon: LucideIcons.alertCircle,
@@ -112,14 +123,24 @@ class NavRail extends ConsumerWidget {
                   path: AppRoutes.overdue,
                   isActive: currentPath == AppRoutes.overdue,
                   badgeColor: AppTheme.errorRed,
-                  onTap: () => _navigateAndClearProject(context, ref, AppRoutes.overdue),
+                  onTap:
+                      () => _navigateAndClearProject(
+                        context,
+                        ref,
+                        AppRoutes.overdue,
+                      ),
                 ),
                 _NavRailItem(
                   icon: LucideIcons.listTodo,
                   label: 'Tasks',
                   path: AppRoutes.tasks,
                   isActive: currentPath == AppRoutes.tasks,
-                  onTap: () => _navigateAndClearProject(context, ref, AppRoutes.tasks),
+                  onTap:
+                      () => _navigateAndClearProject(
+                        context,
+                        ref,
+                        AppRoutes.tasks,
+                      ),
                 ),
                 _NavRailItem(
                   icon: LucideIcons.checkCircle2,
@@ -127,13 +148,18 @@ class NavRail extends ConsumerWidget {
                   path: AppRoutes.completed,
                   isActive: currentPath == AppRoutes.completed,
                   badgeColor: AppTheme.successGreen,
-                  onTap: () => _navigateAndClearProject(context, ref, AppRoutes.completed),
+                  onTap:
+                      () => _navigateAndClearProject(
+                        context,
+                        ref,
+                        AppRoutes.completed,
+                      ),
                 ),
               ],
             ),
           ),
 
-          // Settings at bottom
+          // Sync + Settings at bottom
           Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
@@ -141,12 +167,19 @@ class NavRail extends ConsumerWidget {
                 top: BorderSide(color: Theme.of(context).dividerColor),
               ),
             ),
-            child: _NavRailItem(
-              icon: LucideIcons.settings,
-              label: 'Settings',
-              path: AppRoutes.settings,
-              isActive: currentPath == AppRoutes.settings,
-              onTap: () => context.go(AppRoutes.settings),
+            child: Column(
+              children: [
+                // Sync
+                const _SyncNavItem(),
+                // Settings
+                _NavRailItem(
+                  icon: LucideIcons.settings,
+                  label: 'Settings',
+                  path: AppRoutes.settings,
+                  isActive: currentPath == AppRoutes.settings,
+                  onTap: () => context.go(AppRoutes.settings),
+                ),
+              ],
             ),
           ),
         ],
@@ -155,14 +188,21 @@ class NavRail extends ConsumerWidget {
   }
 
   /// Navigate to a path and clear the project selection
-  void _navigateAndClearProject(BuildContext context, WidgetRef ref, String path) {
+  void _navigateAndClearProject(
+    BuildContext context,
+    WidgetRef ref,
+    String path,
+  ) {
     // Clear project selection when navigating via nav rail
     ref.read(selectedProjectIdProvider.notifier).state = null;
     context.go(path);
   }
 
   /// Show the create task dialog
-  Future<void> _showCreateTaskDialog(BuildContext context, WidgetRef ref) async {
+  Future<void> _showCreateTaskDialog(
+    BuildContext context,
+    WidgetRef ref,
+  ) async {
     final data = ref.read(unifiedDataProvider).value;
     if (data == null) return;
 
@@ -175,14 +215,66 @@ class NavRail extends ConsumerWidget {
     if (task != null) {
       final repository = await ref.read(taskRepositoryProvider.future);
       await repository.createTask(task);
-      ref.invalidate(localTasksProvider);
-      ref.invalidate(unifiedDataProvider);
+
+      // Defer provider invalidation to next frame to avoid GPU context issues
+      // during dialog close animation
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        ref.invalidate(localTasksProvider);
+        ref.invalidate(unifiedDataProvider);
+      });
+    }
+  }
+
+  /// Show the create project dialog
+  Future<void> _showCreateProjectDialog(
+    BuildContext context,
+    WidgetRef ref,
+  ) async {
+    final project = await ProjectDialog.showCreate(context);
+    if (project == null) return;
+
+    try {
+      final db = ref.read(databaseProvider);
+      await db.createProject(
+        ProjectsCompanion.insert(
+          id: project.id,
+          integrationId: project.integrationId,
+          name: project.name,
+          description: Value(project.description),
+          color: Value(project.color),
+          icon: Value(project.icon),
+          sortOrder: Value(project.sortOrder),
+          isFavorite: Value(project.isFavorite),
+        ),
+      );
+
+      // Defer provider invalidation to next frame
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        ref.invalidate(localProjectsProvider);
+        ref.invalidate(unifiedDataProvider);
+      });
+
+      toastification.show(
+        context: context,
+        type: ToastificationType.success,
+        title: const Text('Project Created'),
+        description: Text('${project.name} has been created'),
+        autoCloseDuration: const Duration(seconds: 3),
+      );
+    } catch (e) {
+      toastification.show(
+        context: context,
+        type: ToastificationType.error,
+        title: const Text('Error'),
+        description: const Text('Failed to create project'),
+        autoCloseDuration: const Duration(seconds: 3),
+      );
     }
   }
 }
 
 /// Individual navigation item in the rail
-class _NavRailItem extends StatelessWidget {
+class _NavRailItem extends StatefulWidget {
   final IconData icon;
   final String label;
   final String path;
@@ -200,50 +292,201 @@ class _NavRailItem extends StatelessWidget {
   });
 
   @override
+  State<_NavRailItem> createState() => _NavRailItemState();
+}
+
+class _NavRailItemState extends State<_NavRailItem> {
+  bool _isHovered = false;
+
+  @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    // Color scheme - use primaryBlue for active state, bold text like Todoist
+    final activeIconColor = AppTheme.primaryBlue;
+    final inactiveColor = isDark ? AppTheme.gray300 : AppTheme.gray600;
+    final textActiveColor = isDark ? Colors.white : Colors.black;
+    final textInactiveColor = isDark ? AppTheme.gray200 : AppTheme.gray900;
+
+    // Background colors - blue tint for active
+    final activeBg =
+        isDark
+            ? AppTheme.primaryBlue.withValues(alpha: 0.15)
+            : AppTheme.primaryBlue.withValues(alpha: 0.08);
+    final hoverBg =
+        isDark ? AppTheme.gray700.withValues(alpha: 0.3) : AppTheme.gray100;
+
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2),
-      child: Material(
-        color: isActive
-            ? AppTheme.primaryBlue.withValues(alpha: 0.1)
-            : Colors.transparent,
-        borderRadius: BorderRadius.circular(8),
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(8),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-            child: Row(
-              children: [
-                Icon(
-                  icon,
-                  size: 18,
-                  color: isActive ? AppTheme.primaryBlue : AppTheme.gray600,
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    label,
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: isActive ? FontWeight.w600 : FontWeight.w500,
-                      color: isActive ? AppTheme.primaryBlue : AppTheme.gray700,
-                    ),
-                    overflow: TextOverflow.ellipsis,
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _isHovered = true),
+        onExit: (_) => setState(() => _isHovered = false),
+        child: Container(
+          decoration: BoxDecoration(
+            color:
+                widget.isActive
+                    ? activeBg
+                    : _isHovered
+                    ? hoverBg
+                    : Colors.transparent,
+            borderRadius: BorderRadius.circular(8),
+            border: Border(
+              left: BorderSide(
+                color:
+                    widget.isActive ? AppTheme.primaryBlue : Colors.transparent,
+                width: 4,
+              ),
+            ),
+          ),
+          child: GestureDetector(
+            onTap: widget.onTap,
+            behavior: HitTestBehavior.opaque,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 10,
+                vertical: 8,
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    widget.icon,
+                    size: 18,
+                    color: widget.isActive ? activeIconColor : inactiveColor,
                   ),
-                ),
-                if (badgeColor != null)
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      widget.label,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight:
+                            widget.isActive
+                                ? FontWeight.w600
+                                : FontWeight.w500,
+                        color:
+                            widget.isActive
+                                ? textActiveColor
+                                : textInactiveColor,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  if (widget.badgeColor != null)
+                    Container(
+                      width: 6,
+                      height: 6,
+                      decoration: BoxDecoration(
+                        color: widget.badgeColor,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Sync nav item widget with status indicator
+class _SyncNavItem extends ConsumerWidget {
+  const _SyncNavItem();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final syncState = ref.watch(syncProvider);
+
+    final icon = switch (syncState.status) {
+      SyncStatus.idle => LucideIcons.refreshCw,
+      SyncStatus.syncing => LucideIcons.loader2,
+      SyncStatus.success => LucideIcons.checkCircle,
+      SyncStatus.error => LucideIcons.alertCircle,
+    };
+
+    final label = switch (syncState.status) {
+      SyncStatus.idle => 'Sync',
+      SyncStatus.syncing => 'Syncing...',
+      SyncStatus.success => 'Synced',
+      SyncStatus.error => 'Retry',
+    };
+
+    final color = switch (syncState.status) {
+      SyncStatus.idle => AppTheme.gray600,
+      SyncStatus.syncing => AppTheme.primaryBlue,
+      SyncStatus.success => AppTheme.successGreen,
+      SyncStatus.error => AppTheme.errorRed,
+    };
+
+    // Build tooltip message
+    String tooltip = 'Click to sync';
+    if (syncState.lastSyncTime != null) {
+      final ago = DateTime.now().difference(syncState.lastSyncTime!);
+      if (ago.inMinutes < 1) {
+        tooltip = 'Last synced just now';
+      } else if (ago.inMinutes < 60) {
+        tooltip = 'Last synced ${ago.inMinutes}m ago';
+      } else {
+        tooltip = 'Last synced ${ago.inHours}h ago';
+      }
+    }
+    if (syncState.pendingCompletions > 0) {
+      tooltip += '\n${syncState.pendingCompletions} pending';
+    }
+
+    return Tooltip(
+      message: tooltip,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 2),
+        child: MouseRegion(
+          cursor: syncState.isSyncing ? SystemMouseCursors.basic : SystemMouseCursors.click,
+          child: GestureDetector(
+            onTap:
+                syncState.isSyncing
+                    ? null
+                    : () => ref.read(syncProvider.notifier).syncNow(),
+            behavior: HitTestBehavior.opaque,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              child: Row(
+                children: [
+                  syncState.isSyncing
+                      ? SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: color,
+                        ),
+                      )
+                      : Icon(icon, size: 18, color: color),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      label,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                        color: color,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                if (syncState.pendingCompletions > 0)
                   Container(
                     width: 6,
                     height: 6,
                     decoration: BoxDecoration(
-                      color: badgeColor,
+                      color: AppTheme.warningOrange,
                       shape: BoxShape.circle,
                     ),
                   ),
               ],
             ),
           ),
+        ),
         ),
       ),
     );

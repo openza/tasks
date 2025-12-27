@@ -224,7 +224,7 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
               borderRadius: BorderRadius.circular(12),
             ),
             child: Text(
-              '$taskCount active',
+              '$taskCount ${taskCount == 1 ? 'task' : 'tasks'}',
               style: TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w500,
@@ -251,10 +251,17 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
 
   Widget _buildFilters(BuildContext context) {
     final hasActiveFilters = _searchQuery.isNotEmpty || _selectedPriority != null;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    // Theme-aware colors for filter controls - white with border for active look
+    final filterBg = isDark ? AppTheme.gray800 : Colors.white;
+    final filterBorder = isDark ? AppTheme.gray600 : AppTheme.gray300;
+    final textColor = isDark ? AppTheme.gray200 : AppTheme.gray900;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           // Search - flexible with max width
           Flexible(
@@ -262,23 +269,25 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
               height: 36,
               constraints: const BoxConstraints(maxWidth: 280),
               decoration: BoxDecoration(
-                color: AppTheme.gray50,
+                color: filterBg,
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: AppTheme.gray200),
+                border: Border.all(color: filterBorder),
               ),
               child: TextField(
                 onChanged: (value) => setState(() => _searchQuery = value),
-                style: const TextStyle(fontSize: 13),
+                style: TextStyle(fontSize: 13, color: textColor),
                 decoration: InputDecoration(
                   hintText: 'Search...',
-                  hintStyle: TextStyle(fontSize: 13, color: AppTheme.gray400),
+                  hintStyle: TextStyle(fontSize: 13, color: isDark ? AppTheme.gray400 : AppTheme.gray500),
                   prefixIcon: Padding(
                     padding: const EdgeInsets.only(left: 10, right: 8),
-                    child: Icon(LucideIcons.search, size: 16, color: AppTheme.gray400),
+                    child: Icon(LucideIcons.search, size: 16, color: isDark ? AppTheme.gray400 : AppTheme.gray500),
                   ),
                   prefixIconConstraints: const BoxConstraints(minWidth: 36),
                   isDense: true,
                   border: InputBorder.none,
+                  enabledBorder: InputBorder.none,
+                  focusedBorder: InputBorder.none,
                   contentPadding: const EdgeInsets.symmetric(vertical: 10),
                 ),
               ),
@@ -287,11 +296,11 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
           const SizedBox(width: 8),
 
           // Sort dropdown
-          _buildSortDropdown(),
+          _buildSortDropdown(context),
           const SizedBox(width: 8),
 
           // Priority filter
-          _buildPriorityFilter(),
+          _buildPriorityFilter(context),
 
           // Clear filters
           if (hasActiveFilters) ...[
@@ -303,20 +312,25 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
     );
   }
 
-  Widget _buildPriorityFilter() {
+  Widget _buildPriorityFilter(BuildContext context) {
     final isActive = _selectedPriority != null;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final priorityColor = _selectedPriority != null
         ? AppTheme.priorityColors[_selectedPriority] ?? AppTheme.gray500
         : AppTheme.gray500;
+
+    // Theme-aware colors - white with border for active look
+    final filterBg = isDark ? AppTheme.gray800 : Colors.white;
+    final filterBorder = isDark ? AppTheme.gray600 : AppTheme.gray300;
 
     return Container(
       height: 36,
       padding: const EdgeInsets.symmetric(horizontal: 10),
       decoration: BoxDecoration(
-        color: isActive ? priorityColor.withValues(alpha: 0.08) : AppTheme.gray50,
+        color: isActive ? priorityColor.withValues(alpha: 0.08) : filterBg,
         borderRadius: BorderRadius.circular(8),
         border: Border.all(
-          color: isActive ? priorityColor.withValues(alpha: 0.3) : AppTheme.gray200,
+          color: isActive ? priorityColor.withValues(alpha: 0.3) : filterBorder,
         ),
       ),
       child: DropdownButton<int?>(
@@ -324,9 +338,9 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
         hint: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(LucideIcons.flag, size: 14, color: AppTheme.gray400),
+            Icon(LucideIcons.flag, size: 14, color: isDark ? AppTheme.gray400 : AppTheme.gray500),
             const SizedBox(width: 6),
-            Text('Priority', style: TextStyle(fontSize: 13, color: AppTheme.gray500)),
+            Text('Priority', style: TextStyle(fontSize: 13, color: isDark ? AppTheme.gray400 : AppTheme.gray600)),
           ],
         ),
         selectedItemBuilder: (_) => [
@@ -356,7 +370,9 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
                 _getPriorityLabel(p),
                 style: TextStyle(
                   fontSize: 13,
-                  color: isActive && _selectedPriority == p ? AppTheme.priorityColors[p] : AppTheme.gray700,
+                  color: isActive && _selectedPriority == p
+                      ? AppTheme.priorityColors[p]
+                      : isDark ? AppTheme.gray300 : AppTheme.gray700,
                 ),
               ),
             ],
@@ -432,14 +448,18 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
     );
   }
 
-  Widget _buildSortDropdown() {
+  Widget _buildSortDropdown(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final filterBg = isDark ? AppTheme.gray800 : Colors.white;
+    final filterBorder = isDark ? AppTheme.gray600 : AppTheme.gray300;
+
     return Container(
       height: 36,
       padding: const EdgeInsets.symmetric(horizontal: 10),
       decoration: BoxDecoration(
-        color: AppTheme.gray50,
+        color: filterBg,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppTheme.gray200),
+        border: Border.all(color: filterBorder),
       ),
       child: DropdownButton<TaskSortOption>(
         value: _sortOption,

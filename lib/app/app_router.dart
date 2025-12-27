@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../presentation/screens/dashboard/dashboard_screen.dart';
 import '../presentation/screens/today/today_screen.dart';
 import '../presentation/screens/overdue/overdue_screen.dart';
 import '../presentation/screens/next_actions/next_actions_screen.dart';
@@ -16,7 +15,6 @@ import '../presentation/widgets/layout/dashboard_layout.dart';
 // Route names
 class AppRoutes {
   static const String login = '/login';
-  static const String dashboard = '/dashboard';
   static const String today = '/today';
   static const String overdue = '/overdue';
   static const String nextActions = '/next-actions';
@@ -29,7 +27,7 @@ class AppRoutes {
 // Router provider
 final appRouterProvider = Provider<GoRouter>((ref) {
   return GoRouter(
-    initialLocation: AppRoutes.dashboard,
+    initialLocation: AppRoutes.nextActions,
     debugLogDiagnostics: true,
     redirect: (context, state) {
       // TODO: Add authentication check
@@ -40,7 +38,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       //   return AppRoutes.login;
       // }
       // if (isLoggedIn && isLoginRoute) {
-      //   return AppRoutes.dashboard;
+      //   return AppRoutes.nextActions;
       // }
       return null;
     },
@@ -58,15 +56,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         routes: [
           GoRoute(
             path: '/',
-            redirect: (context, state) => AppRoutes.dashboard,
-          ),
-          GoRoute(
-            path: AppRoutes.dashboard,
-            name: 'dashboard',
-            pageBuilder: (context, state) => NoTransitionPage(
-              key: state.pageKey,
-              child: const DashboardScreen(),
-            ),
+            redirect: (context, state) => AppRoutes.nextActions,
           ),
           GoRoute(
             path: AppRoutes.today,
@@ -148,8 +138,8 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             ),
             const SizedBox(height: 24),
             ElevatedButton(
-              onPressed: () => context.go(AppRoutes.dashboard),
-              child: const Text('Go to Dashboard'),
+              onPressed: () => context.go(AppRoutes.nextActions),
+              child: const Text('Go to Next Actions'),
             ),
           ],
         ),

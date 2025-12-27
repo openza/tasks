@@ -235,19 +235,10 @@ class TaskRepository {
   // ============ UPDATE ============
 
   /// Update a task
+  /// Note: For integrated tasks (Todoist, MS To-Do), only local-enhancement fields
+  /// (notes, providerMetadata) are updated. Core fields are owned by the provider
+  /// and synced via Rust sync engine. Only completion status syncs back to providers.
   Future<TaskEntity> updateTask(TaskEntity task) async {
-    switch (task.integrationId) {
-      case 'todoist':
-        if (_todoistApi != null) {
-          return _updateTodoistTask(task);
-        }
-        break;
-      case 'msToDo':
-        if (_msToDoApi != null) {
-          return _updateMsToDoTask(task);
-        }
-        break;
-    }
     return _updateLocalTask(task);
   }
 
@@ -301,39 +292,6 @@ class TaskRepository {
       )).toList();
       await _database.syncTaskLabels(task.id, labelCompanions);
     }
-    return task;
-  }
-
-  Future<TaskEntity> _updateTodoistTask(TaskEntity task) async {
-    // Get the external ID for API call
-    final apiTaskId = task.externalId ?? task.id;
-
-    await _todoistApi!.updateTask(
-      taskId: apiTaskId,
-      content: task.title,
-      description: task.description,
-      priority: _mapPriorityToTodoist(task.priority),
-      dueDate: task.dueDate,
-      labels: task.labels.map((l) => l.name).toList(),
-    );
-    await _updateLocalTask(task);
-    return task;
-  }
-
-  Future<TaskEntity> _updateMsToDoTask(TaskEntity task) async {
-    // Get the external ID and list ID for API call
-    final apiTaskId = task.externalId ?? task.id;
-    final listId = task.projectId ?? 'tasks';
-
-    await _msToDoApi!.updateTask(
-      listId: listId,
-      taskId: apiTaskId,
-      title: task.title,
-      body: task.description,
-      dueDate: task.dueDate,
-      importance: _mapPriorityToMsToDo(task.priority),
-    );
-    await _updateLocalTask(task);
     return task;
   }
 

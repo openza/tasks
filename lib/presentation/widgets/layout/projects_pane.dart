@@ -80,26 +80,35 @@ class _ProjectsPaneState extends ConsumerState<ProjectsPane> {
                     },
                     decoration: InputDecoration(
                       hintText: 'Search projects...',
-                      hintStyle: const TextStyle(
+                      hintStyle: TextStyle(
                         fontSize: 13,
-                        color: AppTheme.gray400,
+                        color: Theme.of(context).brightness == Brightness.dark
+                            ? AppTheme.gray400
+                            : AppTheme.gray500,
                       ),
-                      prefixIcon: const Icon(
+                      prefixIcon: Icon(
                         LucideIcons.search,
                         size: 16,
-                        color: AppTheme.gray400,
+                        color: Theme.of(context).brightness == Brightness.dark
+                            ? AppTheme.gray400
+                            : AppTheme.gray500,
                       ),
-                      suffixIcon: _searchQuery.isNotEmpty
-                          ? IconButton(
-                              icon: const Icon(LucideIcons.x, size: 14, color: AppTheme.gray400),
-                              onPressed: () {
-                                _searchController.clear();
-                                setState(() {
-                                  _searchQuery = '';
-                                });
-                              },
-                            )
-                          : null,
+                      suffixIcon:
+                          _searchQuery.isNotEmpty
+                              ? IconButton(
+                                icon: const Icon(
+                                  LucideIcons.x,
+                                  size: 14,
+                                  color: AppTheme.gray400,
+                                ),
+                                onPressed: () {
+                                  _searchController.clear();
+                                  setState(() {
+                                    _searchQuery = '';
+                                  });
+                                },
+                              )
+                              : null,
                       isDense: true,
                       contentPadding: const EdgeInsets.symmetric(vertical: 10),
                       border: OutlineInputBorder(
@@ -112,34 +121,17 @@ class _ProjectsPaneState extends ConsumerState<ProjectsPane> {
                       ),
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(6),
-                        borderSide: const BorderSide(color: AppTheme.primaryBlue, width: 1.5),
+                        borderSide: const BorderSide(
+                          color: AppTheme.primaryBlue,
+                          width: 1.5,
+                        ),
                       ),
                       filled: true,
-                      fillColor: AppTheme.gray50,
+                      fillColor: Theme.of(context).brightness == Brightness.dark
+                          ? AppTheme.gray800
+                          : AppTheme.gray100,
                     ),
                     style: const TextStyle(fontSize: 13),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                // Add project button
-                Tooltip(
-                  message: 'Create new project',
-                  child: InkWell(
-                    onTap: () => _createProject(context),
-                    borderRadius: BorderRadius.circular(6),
-                    child: Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: AppTheme.primaryBlue.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(color: AppTheme.primaryBlue.withValues(alpha: 0.3)),
-                      ),
-                      child: const Icon(
-                        LucideIcons.plus,
-                        size: 18,
-                        color: AppTheme.primaryBlue,
-                      ),
-                    ),
                   ),
                 ),
               ],
@@ -150,7 +142,9 @@ class _ProjectsPaneState extends ConsumerState<ProjectsPane> {
 
           // Projects list grouped by provider
           Expanded(
-            child: ref.watch(unifiedDataProvider).when(
+            child: ref
+                .watch(unifiedDataProvider)
+                .when(
                   skipLoadingOnRefresh: true,
                   data: (data) {
                     if (projectsByProvider.isEmpty) {
@@ -165,16 +159,17 @@ class _ProjectsPaneState extends ConsumerState<ProjectsPane> {
                       ),
                     );
                   },
-                  loading: () => const Center(
-                    child: Padding(
-                      padding: EdgeInsets.all(24),
-                      child: SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
+                  loading:
+                      () => const Center(
+                        child: Padding(
+                          padding: EdgeInsets.all(24),
+                          child: SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        ),
                       ),
-                    ),
-                  ),
                   error: (error, stack) => _buildEmptyState(),
                 ),
           ),
@@ -195,10 +190,7 @@ class _ProjectsPaneState extends ConsumerState<ProjectsPane> {
               const SizedBox(height: 8),
               Text(
                 'No projects found',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: AppTheme.gray500,
-                ),
+                style: TextStyle(fontSize: 12, color: AppTheme.gray500),
               ),
             ],
           ),
@@ -216,10 +208,7 @@ class _ProjectsPaneState extends ConsumerState<ProjectsPane> {
             const SizedBox(height: 8),
             Text(
               'No projects yet',
-              style: TextStyle(
-                fontSize: 12,
-                color: AppTheme.gray500,
-              ),
+              style: TextStyle(fontSize: 12, color: AppTheme.gray500),
             ),
           ],
         ),
@@ -241,11 +230,12 @@ class _ProjectsPaneState extends ConsumerState<ProjectsPane> {
       if (projects == null || projects.isEmpty) continue;
 
       // Filter projects by search query
-      final filteredProjects = _searchQuery.isEmpty
-          ? projects
-          : projects
-              .where((p) => p.name.toLowerCase().contains(_searchQuery))
-              .toList();
+      final filteredProjects =
+          _searchQuery.isEmpty
+              ? projects
+              : projects
+                  .where((p) => p.name.toLowerCase().contains(_searchQuery))
+                  .toList();
 
       if (filteredProjects.isEmpty && _searchQuery.isNotEmpty) continue;
 
@@ -257,7 +247,8 @@ class _ProjectsPaneState extends ConsumerState<ProjectsPane> {
           isExpanded: _expandedGroups[providerId] ?? true,
           onToggleExpanded: () {
             setState(() {
-              _expandedGroups[providerId] = !(_expandedGroups[providerId] ?? true);
+              _expandedGroups[providerId] =
+                  !(_expandedGroups[providerId] ?? true);
             });
           },
           onProjectSelected: (projectId) => _selectProject(projectId),
@@ -272,11 +263,12 @@ class _ProjectsPaneState extends ConsumerState<ProjectsPane> {
     for (final entry in projectsByProvider.entries) {
       if (providerOrder.contains(entry.key)) continue;
 
-      final filteredProjects = _searchQuery.isEmpty
-          ? entry.value
-          : entry.value
-              .where((p) => p.name.toLowerCase().contains(_searchQuery))
-              .toList();
+      final filteredProjects =
+          _searchQuery.isEmpty
+              ? entry.value
+              : entry.value
+                  .where((p) => p.name.toLowerCase().contains(_searchQuery))
+                  .toList();
 
       if (filteredProjects.isEmpty) continue;
 
@@ -288,7 +280,8 @@ class _ProjectsPaneState extends ConsumerState<ProjectsPane> {
           isExpanded: _expandedGroups[entry.key] ?? true,
           onToggleExpanded: () {
             setState(() {
-              _expandedGroups[entry.key] = !(_expandedGroups[entry.key] ?? true);
+              _expandedGroups[entry.key] =
+                  !(_expandedGroups[entry.key] ?? true);
             });
           },
           onProjectSelected: (projectId) => _selectProject(projectId),
@@ -306,52 +299,6 @@ class _ProjectsPaneState extends ConsumerState<ProjectsPane> {
     ref.read(selectedProjectIdProvider.notifier).state = projectId;
     // Navigate to tasks with projectId
     context.go('${AppRoutes.tasks}?projectId=$projectId');
-  }
-
-  /// Create a new local project
-  Future<void> _createProject(BuildContext context) async {
-    final project = await ProjectDialog.showCreate(context);
-    if (project == null || !mounted) return;
-
-    try {
-      final db = ref.read(databaseProvider);
-      await db.createProject(ProjectsCompanion.insert(
-        id: project.id,
-        integrationId: project.integrationId,
-        name: project.name,
-        description: Value(project.description),
-        color: Value(project.color),
-        icon: Value(project.icon),
-        sortOrder: Value(project.sortOrder),
-        isFavorite: Value(project.isFavorite),
-      ));
-
-      // Refresh the data - invalidate both providers to ensure cache is cleared
-      ref.invalidate(localProjectsProvider);
-      ref.invalidate(unifiedDataProvider);
-
-      if (mounted) {
-        toastification.show(
-          // ignore: use_build_context_synchronously
-          context: context,
-          type: ToastificationType.success,
-          title: const Text('Project Created'),
-          description: Text('${project.name} has been created'),
-          autoCloseDuration: const Duration(seconds: 3),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        toastification.show(
-          // ignore: use_build_context_synchronously
-          context: context,
-          type: ToastificationType.error,
-          title: const Text('Error'),
-          description: const Text('Failed to create project'),
-          autoCloseDuration: const Duration(seconds: 3),
-        );
-      }
-    }
   }
 
   /// Edit an existing local project
@@ -429,7 +376,8 @@ class _ProjectsPaneState extends ConsumerState<ProjectsPane> {
       taskCount: taskCount,
     );
 
-    if (action == null || action == DeleteProjectAction.cancel || !mounted) return;
+    if (action == null || action == DeleteProjectAction.cancel || !mounted)
+      return;
 
     try {
       // Use transactional delete to ensure atomicity
@@ -445,7 +393,7 @@ class _ProjectsPaneState extends ConsumerState<ProjectsPane> {
 
       // Refresh the data - invalidate both providers to ensure cache is cleared
       ref.invalidate(localProjectsProvider);
-      ref.invalidate(localTasksProvider);  // Tasks may have been moved/deleted
+      ref.invalidate(localTasksProvider); // Tasks may have been moved/deleted
       ref.invalidate(unifiedDataProvider);
 
       if (mounted) {
@@ -507,13 +455,15 @@ class _ProviderGroup extends StatelessWidget {
           onTap: onToggleExpanded,
           borderRadius: BorderRadius.circular(6),
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
             child: Row(
               children: [
                 Icon(
-                  isExpanded ? LucideIcons.chevronDown : LucideIcons.chevronRight,
-                  size: 14,
-                  color: AppTheme.gray500,
+                  isExpanded
+                      ? LucideIcons.chevronDown
+                      : LucideIcons.chevronRight,
+                  size: 12,
+                  color: AppTheme.gray400,
                 ),
                 const SizedBox(width: 6),
                 ProviderBadge(
@@ -523,29 +473,43 @@ class _ProviderGroup extends StatelessWidget {
                 ),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: Text(
-                    getProviderDisplayName(providerId),
-                    style: const TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w500,
-                      color: AppTheme.gray600,
-                    ),
+                  child: Builder(
+                    builder: (context) {
+                      final isDark = Theme.of(context).brightness == Brightness.dark;
+                      return Text(
+                        getProviderDisplayName(providerId).toUpperCase(),
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: isDark ? AppTheme.gray300 : AppTheme.gray600,
+                          letterSpacing: 0.5,
+                        ),
+                      );
+                    },
                   ),
                 ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: AppTheme.gray100,
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(
-                    '${projects.length}',
-                    style: const TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w500,
-                      color: AppTheme.gray500,
-                    ),
-                  ),
+                Builder(
+                  builder: (context) {
+                    final isDark = Theme.of(context).brightness == Brightness.dark;
+                    return Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: isDark ? AppTheme.gray700 : AppTheme.gray100,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        '${projects.length}',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w500,
+                          color: isDark ? AppTheme.gray300 : AppTheme.gray600,
+                        ),
+                      ),
+                    );
+                  },
                 ),
               ],
             ),
@@ -559,12 +523,14 @@ class _ProviderGroup extends StatelessWidget {
               project: project,
               isSelected: project.id == selectedProjectId,
               onTap: () => onProjectSelected(project.id),
-              onEdit: project.isNative && !project.isInbox
-                  ? () => onEditProject(project)
-                  : null,
-              onDelete: project.isNative && !project.isInbox
-                  ? () => onDeleteProject(project)
-                  : null,
+              onEdit:
+                  project.isNative && !project.isInbox
+                      ? () => onEditProject(project)
+                      : null,
+              onDelete:
+                  project.isNative && !project.isInbox
+                      ? () => onDeleteProject(project)
+                      : null,
               hexToColor: hexToColor,
             ),
           ),
@@ -576,7 +542,7 @@ class _ProviderGroup extends StatelessWidget {
 }
 
 /// Individual project item in the list
-class _ProjectItem extends StatelessWidget {
+class _ProjectItem extends StatefulWidget {
   final ProjectEntity project;
   final bool isSelected;
   final VoidCallback onTap;
@@ -594,10 +560,28 @@ class _ProjectItem extends StatelessWidget {
   });
 
   @override
+  State<_ProjectItem> createState() => _ProjectItemState();
+}
+
+class _ProjectItemState extends State<_ProjectItem> {
+  bool _isHovered = false;
+
+  @override
   Widget build(BuildContext context) {
-    final isInbox = project.isInbox;
-    final color = hexToColor(project.color);
-    final canShowMenu = onEdit != null || onDelete != null;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final isInbox = widget.project.isInbox;
+    final color = widget.hexToColor(widget.project.color);
+    final canShowMenu = widget.onEdit != null || widget.onDelete != null;
+
+    // Theme-aware colors
+    final selectedBg =
+        isDark
+            ? AppTheme.gray700.withValues(alpha: 0.5)
+            : AppTheme.gray200.withValues(alpha: 0.6);
+    final hoverBg =
+        isDark ? AppTheme.gray700.withValues(alpha: 0.3) : AppTheme.gray100;
+    final selectedTextColor = isDark ? Colors.white : Colors.black;
+    final normalTextColor = isDark ? AppTheme.gray200 : AppTheme.gray900;
 
     Widget itemContent = Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
@@ -619,40 +603,51 @@ class _ProjectItem extends StatelessWidget {
           // Project name
           Expanded(
             child: Text(
-              project.name,
+              widget.project.name,
               style: TextStyle(
                 fontSize: 13,
-                fontWeight: isSelected ? FontWeight.w500 : FontWeight.w400,
-                color: isSelected ? AppTheme.primaryBlue : AppTheme.gray700,
+                fontWeight:
+                    widget.isSelected ? FontWeight.w500 : FontWeight.w400,
+                color: widget.isSelected ? selectedTextColor : normalTextColor,
               ),
               overflow: TextOverflow.ellipsis,
             ),
           ),
           // Favorite indicator
-          if (project.isFavorite)
-            const Icon(
-              LucideIcons.star,
-              size: 14,
-              color: AppTheme.amber500,
-            ),
+          if (widget.project.isFavorite)
+            const Icon(LucideIcons.star, size: 14, color: AppTheme.amber500),
         ],
       ),
     );
 
     return Padding(
       padding: const EdgeInsets.only(left: 20, top: 1, bottom: 1, right: 4),
-      child: Material(
-        color: isSelected
-            ? AppTheme.primaryBlue.withValues(alpha: 0.1)
-            : Colors.transparent,
-        borderRadius: BorderRadius.circular(6),
-        child: canShowMenu
-            ? _buildWithContextMenu(context, itemContent)
-            : InkWell(
-                onTap: onTap,
-                borderRadius: BorderRadius.circular(6),
-                child: itemContent,
-              ),
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _isHovered = true),
+        onExit: (_) => setState(() => _isHovered = false),
+        child: Container(
+          decoration: BoxDecoration(
+            color:
+                widget.isSelected
+                    ? selectedBg
+                    : _isHovered
+                    ? hoverBg
+                    : Colors.transparent,
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Material(
+            color: Colors.transparent,
+            child:
+                canShowMenu
+                    ? _buildWithContextMenu(context, itemContent)
+                    : InkWell(
+                      onTap: widget.onTap,
+                      borderRadius: BorderRadius.circular(6),
+                      child: itemContent,
+                    ),
+          ),
+        ),
       ),
     );
   }
@@ -663,7 +658,7 @@ class _ProjectItem extends StatelessWidget {
         _showContextMenu(context, details.globalPosition);
       },
       child: InkWell(
-        onTap: onTap,
+        onTap: widget.onTap,
         borderRadius: BorderRadius.circular(6),
         child: child,
       ),
@@ -673,7 +668,7 @@ class _ProjectItem extends StatelessWidget {
   void _showContextMenu(BuildContext context, Offset position) {
     final items = <PopupMenuEntry<String>>[];
 
-    if (onEdit != null) {
+    if (widget.onEdit != null) {
       items.add(
         PopupMenuItem<String>(
           value: 'edit',
@@ -689,7 +684,7 @@ class _ProjectItem extends StatelessWidget {
       );
     }
 
-    if (onDelete != null) {
+    if (widget.onDelete != null) {
       if (items.isNotEmpty) {
         items.add(const PopupMenuDivider(height: 8));
       }
@@ -701,7 +696,10 @@ class _ProjectItem extends StatelessWidget {
             children: [
               const Icon(LucideIcons.trash2, size: 16, color: Colors.red),
               const SizedBox(width: 8),
-              const Text('Delete', style: TextStyle(fontSize: 13, color: Colors.red)),
+              const Text(
+                'Delete',
+                style: TextStyle(fontSize: 13, color: Colors.red),
+              ),
             ],
           ),
         ),
@@ -722,9 +720,9 @@ class _ProjectItem extends StatelessWidget {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
     ).then((value) {
       if (value == 'edit') {
-        onEdit?.call();
+        widget.onEdit?.call();
       } else if (value == 'delete') {
-        onDelete?.call();
+        widget.onDelete?.call();
       }
     });
   }

@@ -23,9 +23,10 @@ class _TodayScreenState extends ConsumerState<TodayScreen> {
   Widget build(BuildContext context) {
     final todayTasksAsync = ref.watch(todayTasksProvider);
     final unifiedDataAsync = ref.watch(unifiedDataProvider);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Container(
-      color: AppTheme.gray50,
+      color: isDark ? AppTheme.gray900 : Colors.white,
       child: Row(
         children: [
           Expanded(

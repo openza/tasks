@@ -23,9 +23,10 @@ class _OverdueScreenState extends ConsumerState<OverdueScreen> {
   Widget build(BuildContext context) {
     final overdueTasksAsync = ref.watch(overdueTasksProvider);
     final unifiedDataAsync = ref.watch(unifiedDataProvider);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Container(
-      color: AppTheme.gray50,
+      color: isDark ? AppTheme.gray900 : Colors.white,
       child: Row(
         children: [
           Expanded(

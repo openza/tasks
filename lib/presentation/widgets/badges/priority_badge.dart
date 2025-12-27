@@ -71,11 +71,7 @@ class PriorityBadge extends StatelessWidget {
   }
 
   IconData _getPriorityIcon() {
-    // Use different icons based on integration
-    if (integrationId == 'msToDo') {
-      return priority == 1 ? LucideIcons.star : LucideIcons.chevronUp;
-    }
-    // Todoist / default
-    return priority == 1 ? LucideIcons.flame : LucideIcons.chevronUp;
+    // Use consistent flag icon for all priorities
+    return LucideIcons.flag;
   }
 }

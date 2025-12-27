@@ -170,14 +170,21 @@ class SyncNotifier extends StateNotifier<SyncState> {
       }
 
       if (summary.success) {
-        // Refresh local providers and wait for data to load
-        // This prevents flash of empty state during provider reload
+        // Refresh local providers - invalidate and wait for each to complete
+        // This ensures the dependency chain properly rebuilds
         _ref.invalidate(localTasksProvider);
         _ref.invalidate(localProjectsProvider);
         _ref.invalidate(localLabelsProvider);
-        _ref.invalidate(unifiedDataProvider);
 
-        // Wait for unified data to be ready before marking sync complete
+        // Force base providers to rebuild by reading them
+        await Future.wait([
+          _ref.read(localTasksProvider.future),
+          _ref.read(localProjectsProvider.future),
+          _ref.read(localLabelsProvider.future),
+        ]);
+
+        // Now invalidate and rebuild unified provider with fresh base data
+        _ref.invalidate(unifiedDataProvider);
         await _ref.read(unifiedDataProvider.future);
 
         state = state.copyWith(
@@ -254,18 +261,27 @@ class SyncNotifier extends StateNotifier<SyncState> {
       );
 
       if (summary.success) {
+        // Refresh local providers - invalidate and wait for each to complete
+        _ref.invalidate(localTasksProvider);
+        _ref.invalidate(localProjectsProvider);
+        _ref.invalidate(localLabelsProvider);
+
+        // Force base providers to rebuild by reading them
+        await Future.wait([
+          _ref.read(localTasksProvider.future),
+          _ref.read(localProjectsProvider.future),
+          _ref.read(localLabelsProvider.future),
+        ]);
+
+        // Now invalidate and rebuild unified provider with fresh base data
+        _ref.invalidate(unifiedDataProvider);
+        await _ref.read(unifiedDataProvider.future);
+
         state = state.copyWith(
           status: SyncStatus.success,
           lastSyncTime: DateTime.now(),
           pendingCompletions: 0,
         );
-
-        // Refresh local providers and wait for data to load
-        _ref.invalidate(localTasksProvider);
-        _ref.invalidate(localProjectsProvider);
-        _ref.invalidate(localLabelsProvider);
-        _ref.invalidate(unifiedDataProvider);
-        await _ref.read(unifiedDataProvider.future);
       } else {
         state = state.copyWith(
           status: SyncStatus.error,

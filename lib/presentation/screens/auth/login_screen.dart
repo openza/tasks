@@ -46,7 +46,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         await ref.read(authProvider.notifier).setTodoistAuthenticated(token);
         _showSuccess('Connected to Todoist successfully!');
         if (mounted) {
-          context.go(AppRoutes.dashboard);
+          context.go(AppRoutes.nextActions);
         }
       } else {
         _showError('Failed to authenticate with Todoist. Please try again.');
@@ -89,7 +89,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         await ref.read(authProvider.notifier).setMsToDoAuthenticated(token);
         _showSuccess('Connected to Microsoft To-Do successfully!');
         if (mounted) {
-          context.go(AppRoutes.dashboard);
+          context.go(AppRoutes.nextActions);
         }
       } else {
         _showError('Failed to authenticate with Microsoft To-Do. Please try again.');
@@ -216,7 +216,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         ? null
                         : () {
                             // Use local database only
-                            context.go(AppRoutes.dashboard);
+                            context.go(AppRoutes.nextActions);
                           },
                     child: const Text('Skip for now (use local tasks only)'),
                   ),
