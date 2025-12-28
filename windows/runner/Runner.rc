@@ -90,12 +90,12 @@ BEGIN
         BLOCK "040904e4"
         BEGIN
             VALUE "CompanyName", "com.openza" "\0"
-            VALUE "FileDescription", "openza_flutter" "\0"
+            VALUE "FileDescription", "Openza Tasks" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "openza_flutter" "\0"
+            VALUE "InternalName", "openza_tasks" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2025 com.openza. All rights reserved." "\0"
-            VALUE "OriginalFilename", "openza_flutter.exe" "\0"
-            VALUE "ProductName", "openza_flutter" "\0"
+            VALUE "OriginalFilename", "openza_tasks.exe" "\0"
+            VALUE "ProductName", "Openza Tasks" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

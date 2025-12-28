@@ -21,12 +21,12 @@ cat > flatpak/build/com.openza.tasks.desktop << EOF
 [Desktop Entry]
 Name=Openza Tasks
 Comment=Unified Task Manager for Todoist and Microsoft To-Do
-Exec=openza_flutter
+Exec=openza_tasks
 Icon=com.openza.tasks
 Type=Application
 Categories=Office;ProjectManagement;
 Terminal=false
-StartupWMClass=openza_flutter
+StartupWMClass=openza_tasks
 EOF
 
 # Build the flatpak
