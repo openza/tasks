@@ -2,24 +2,10 @@
 
 All notable changes to Openza Tasks will be documented in this file.
 
-## [0.3.1] - 2025-12-28
-
-### Added
-- **Windows Platform Support**: Native Windows desktop app with Inno Setup installer
-- **Dynamic Platform Detection**: About section now shows the actual running platform
-- **Windows Installer**: Professional installer built with `inno_bundle` package
-- **Windows CI/CD**: GitHub Actions workflow for automated Windows builds
-
-### Changed
-- Updated README with Windows download and build instructions
-- About section platform info is now dynamic instead of hardcoded
-
-### Removed
-- Stale `appVersion` constant from `app_constants.dart` (runtime version from `package_info_plus` is used)
-
 ## [0.3.0] - 2025-12-28
 
 ### Added
+- **Windows Platform Support**: Native Windows desktop app with Inno Setup installer
 - **Automatic Backup System**: Configurable backup frequency (hourly/daily/weekly) with daily auto-backup enabled by default for new users
 - **Manual Backup Controls**: Create, restore, download, and import backups from the settings modal
 - **Markdown Export**: Export all tasks grouped by project with preview dialog before saving

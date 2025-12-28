@@ -48,7 +48,8 @@ if [ ! -f appimagetool-x86_64.AppImage ]; then
     chmod +x appimagetool-x86_64.AppImage
 fi
 
-# Build AppImage
-ARCH=x86_64 ./appimagetool-x86_64.AppImage --appimage-extract-and-run "$APPDIR" "$APP_NAME-$VERSION-x86_64.AppImage"
+# Build AppImage (filename without spaces for CI compatibility)
+OUTPUT_NAME="Openza-$VERSION-x86_64.AppImage"
+ARCH=x86_64 ./appimagetool-x86_64.AppImage --appimage-extract-and-run "$APPDIR" "$OUTPUT_NAME"
 
-echo "AppImage created: $APP_NAME-$VERSION-x86_64.AppImage"
+echo "AppImage created: $OUTPUT_NAME"
