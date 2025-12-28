@@ -21,13 +21,13 @@ Get the latest release from [GitHub Releases](https://github.com/openza/tasks/re
 ### Linux
 
 - **AppImage**: Download, make executable (`chmod +x`), and run
-- **Flatpak**: Download and install with `flatpak install Openza-*.flatpak`
+- **Flatpak**: Download and install with `flatpak install Openza-Tasks-*.flatpak`
 
 **System Requirements:** Ubuntu 22.04+, Fedora 35+, Debian 12+ (GLIBC 2.34+), or any Linux with Flatpak
 
 ### Windows
 
-- **Installer**: Download `Openza-*-Setup.exe` and run to install
+- **Installer**: Download `Openza-Tasks-*-Setup.exe` and run to install
 
 **System Requirements:** Windows 10 or later, x64 architecture
 
