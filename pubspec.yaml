@@ -78,6 +78,41 @@ dev_dependencies:
   riverpod_generator: ^3.0.3
   injectable_generator: ^2.6.2
 
+  # Icon Generation
+  flutter_launcher_icons: ^0.14.3
+
+  # Windows MSIX Packaging
+  msix: ^3.16.0
+
+  # Windows Inno Setup Installer
+  inno_bundle: ^0.11.2
+
+flutter_launcher_icons:
+  image_path: "assets/icons/icon-256.png"
+  windows:
+    generate: true
+    image_path: "assets/icons/icon-256.png"
+    icon_size: 48
+
+msix_config:
+  display_name: Openza Tasks
+  publisher_display_name: Openza
+  identity_name: com.openza.tasks
+  msix_version: 0.3.1.0
+  logo_path: assets/icons/icon-256.png
+  capabilities: internetClient
+  languages: en-us
+
+inno_bundle:
+  id: 8a3f5c2e-7d91-4b6a-a8e2-c4f9d0b1e5a7
+  publisher: Openza
+  name: Openza Tasks
+  icon_path: assets/icons/icon-256.png
+  license_path: LICENSE
+  admin: false
+  languages:
+    - english
+
 flutter:
   uses-material-design: true
 

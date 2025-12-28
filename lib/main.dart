@@ -14,13 +14,13 @@ Future<void> main() async {
     size: Size(1280, 800),
     minimumSize: Size(800, 600),
     center: true,
-    backgroundColor: Colors.transparent,
     skipTaskbar: false,
     titleBarStyle: TitleBarStyle.normal,
     title: 'Openza Tasks',
   );
 
   await windowManager.waitUntilReadyToShow(windowOptions, () async {
+    await windowManager.setTitleBarStyle(TitleBarStyle.normal);
     await windowManager.show();
     await windowManager.focus();
   });

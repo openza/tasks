@@ -4,7 +4,6 @@ class AppConstants {
 
   // App info
   static const String appName = 'Openza Tasks';
-  static const String appVersion = '0.2.1';
   static const String appDescription =
       'Store tasks locally. Sync with your favorite services.';
   static const String githubUrl = 'https://github.com/openza/tasks';

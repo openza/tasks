@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -1409,6 +1411,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     return '${months[time.month - 1]} ${time.day}, ${time.year} at ${hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')} $amPm';
   }
 
+  String _getPlatformName() {
+    if (Platform.isWindows) return 'Windows';
+    if (Platform.isLinux) return 'Linux';
+    if (Platform.isMacOS) return 'macOS';
+    return 'Desktop';
+  }
+
   Widget _buildAboutContent(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.all(24),
@@ -1442,7 +1451,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
           _AboutRow(label: 'Version', value: ref.watch(appVersionProvider)),
           _AboutRow(label: 'License', value: 'MIT'),
-          _AboutRow(label: 'Platform', value: 'Linux (Windows coming soon)'),
+          _AboutRow(label: 'Platform', value: _getPlatformName()),
 
           const SizedBox(height: 16),
           Text(
