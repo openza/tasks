@@ -2,7 +2,7 @@
 
 All notable changes to Openza Tasks will be documented in this file.
 
-## [0.3.0] - 2025-12-27
+## [0.3.0] - 2025-12-28
 
 ### Added
 - **Automatic Backup System**: Configurable backup frequency (hourly/daily/weekly) with daily auto-backup enabled by default for new users
@@ -16,6 +16,7 @@ All notable changes to Openza Tasks will be documented in this file.
 
 ### Fixed
 - Theme switch crash caused by TextStyle interpolation during animation (#15)
+- Local task persistence in release/Flatpak builds (#18) - SQLite WAL mode conflict between Dart and Rust
 - Use `deleteSync()` instead of async `delete()` in isolate functions for proper cleanup
 
 ### Changed
@@ -24,6 +25,8 @@ All notable changes to Openza Tasks will be documented in this file.
 - Improved task detail screen with better project display
 - New tasks default to Inbox when no project is selected
 - About screen now displays version dynamically from pubspec.yaml
+- Standardized branding to "Openza Tasks" throughout the application
+- Renamed internal package from `openza_flutter` to `openza_tasks`
 
 ## [0.2.1] - 2025-12-20
 
