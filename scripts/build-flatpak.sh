@@ -34,6 +34,6 @@ cd flatpak
 flatpak-builder --force-clean --repo=repo build-dir com.openza.tasks.yml
 
 # Create bundle
-flatpak build-bundle repo "../Openza-$VERSION.flatpak" "$APP_ID"
+flatpak build-bundle repo "../Openza-Tasks-$VERSION.flatpak" "$APP_ID"
 
-echo "Flatpak bundle created: Openza-$VERSION.flatpak"
+echo "Flatpak bundle created: Openza-Tasks-$VERSION.flatpak"

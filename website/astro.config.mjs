@@ -1,10 +1,12 @@
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
+import sitemap from '@astrojs/sitemap';
 
 export default defineConfig({
   site: 'https://openza.github.io',
   base: '/tasks',
   integrations: [
+    sitemap(),
     starlight({
       title: 'Openza Tasks',
       description: 'Documentation for Openza Tasks - A beautiful task management app for Linux',

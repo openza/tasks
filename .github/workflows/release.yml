@@ -68,8 +68,8 @@ jobs:
         with:
           name: linux-artifacts
           path: |
-            Openza-*.AppImage
-            Openza-*.flatpak
+            Openza-Tasks-*.AppImage
+            Openza-Tasks-*.flatpak
 
   build-windows:
     runs-on: windows-latest
@@ -131,13 +131,13 @@ jobs:
       - name: Rename installer with version
         shell: bash
         run: |
-          mv build/windows/x64/installer/Release/OpenzaTasks-x86_64-*-Installer.exe Openza-${{ steps.get_version.outputs.VERSION }}-Setup.exe
+          mv build/windows/x64/installer/Release/OpenzaTasks-x86_64-*-Installer.exe Openza-Tasks-${{ steps.get_version.outputs.VERSION }}-Setup.exe
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
           name: windows-artifacts
-          path: Openza-*-Setup.exe
+          path: Openza-Tasks-*-Setup.exe
 
   release:
     needs: [build-linux, build-windows]
@@ -179,16 +179,16 @@ jobs:
           draft: true
           prerelease: false
           files: |
-            Openza-*.AppImage
-            Openza-*.flatpak
-            Openza-*-Setup.exe
+            Openza-Tasks-*.AppImage
+            Openza-Tasks-*.flatpak
+            Openza-Tasks-*-Setup.exe
           body: |
             ${{ steps.changelog.outputs.CONTENT }}
 
             ---
             **Installation:**
             - **Linux (AppImage):** Download, make executable with `chmod +x`, and run
-            - **Linux (Flatpak):** Download and install with `flatpak install Openza-*.flatpak`
+            - **Linux (Flatpak):** Download and install with `flatpak install Openza-Tasks-*.flatpak`
             - **Windows:** Download and run the installer
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
