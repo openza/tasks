@@ -232,7 +232,7 @@ class OAuthService {
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Openza - Authentication</title>
+  <title>Openza Tasks - Authentication</title>
   <style>
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -259,7 +259,7 @@ class OAuthService {
   <div class="container">
     <div class="icon">${success ? '✅' : '❌'}</div>
     <h1>${success ? 'Authentication Successful!' : 'Authentication Failed'}</h1>
-    <p>${success ? 'You can close this window and return to Openza.' : 'Please try again.'}</p>
+    <p>${success ? 'You can close this window and return to Openza Tasks.' : 'Please try again.'}</p>
   </div>
 </body>
 </html>

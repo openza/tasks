@@ -172,7 +172,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
                   // Title
                   Text(
-                    'Welcome to Openza',
+                    'Welcome to Openza Tasks',
                     style: Theme.of(context).textTheme.headlineSmall,
                   ),
                   const SizedBox(height: 8),

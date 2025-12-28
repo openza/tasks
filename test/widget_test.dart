@@ -13,6 +13,6 @@ void main() {
     );
 
     // Verify that Openza title appears
-    expect(find.text('Openza'), findsWidgets);
+    expect(find.text('Openza Tasks'), findsWidgets);
   });
 }

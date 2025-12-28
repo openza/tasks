@@ -20,7 +20,7 @@ mkdir -p flatpak/build
 cat > flatpak/build/com.openza.tasks.desktop << EOF
 [Desktop Entry]
 Name=Openza Tasks
-Comment=Unified Task Manager for Todoist and Microsoft To-Do
+Comment=Local-first task organizer for Linux
 Exec=openza_tasks
 Icon=com.openza.tasks
 Type=Application
