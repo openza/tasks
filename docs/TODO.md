@@ -1,4 +1,4 @@
-# Openza Flutter - Future Development Roadmap
+# Openza Tasks - Future Development Roadmap
 
 This document outlines features that need to be implemented to achieve full parity with the Electron desktop version, plus additional enhancements.
 

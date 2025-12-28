@@ -182,7 +182,7 @@ class ProfileScreen extends ConsumerWidget {
             // App Info
             _buildSectionCard(
               context,
-              title: 'About Openza',
+              title: 'About Openza Tasks',
               icon: LucideIcons.info,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -194,7 +194,7 @@ class ProfileScreen extends ConsumerWidget {
                   _buildInfoRow(context, 'Framework', 'Flutter Desktop'),
                   const SizedBox(height: 16),
                   Text(
-                    'Openza is a unified task management app that brings together your tasks from Todoist, Microsoft To-Do, and local storage into one beautiful interface.',
+                    'Openza Tasks is a local-first task organizer that stores tasks locally and optionally syncs with Todoist and Microsoft To-Do.',
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                           color: AppTheme.gray500,
                         ),

@@ -407,7 +407,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   _SyncBehaviorRow(
                     icon: LucideIcons.arrowDown,
                     label: 'From Todoist',
-                    description: 'Tasks, projects, labels sync to Openza',
+                    description: 'Tasks, projects, labels sync to Openza Tasks',
                   ),
                   const SizedBox(height: 8),
                   _SyncBehaviorRow(
@@ -715,7 +715,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 _SyncBehaviorRow(
                   icon: LucideIcons.arrowDown,
                   label: 'From MS To-Do',
-                  description: 'Tasks and lists sync to Openza',
+                  description: 'Tasks and lists sync to Openza Tasks',
                 ),
                 const SizedBox(height: 8),
                 _SyncBehaviorRow(

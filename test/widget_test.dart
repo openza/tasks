@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'package:openza_flutter/app/app.dart';
+import 'package:openza_tasks/app/app.dart';
 
 void main() {
   testWidgets('App renders without errors', (WidgetTester tester) async {
@@ -13,6 +13,6 @@ void main() {
     );
 
     // Verify that Openza title appears
-    expect(find.text('Openza'), findsWidgets);
+    expect(find.text('Openza Tasks'), findsWidgets);
   });
 }

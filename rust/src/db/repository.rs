@@ -24,13 +24,13 @@ pub struct Repository {
 impl Repository {
     pub fn new(db_path: &str) -> SyncResult<Self> {
         let conn = Connection::open(db_path)?;
-        // Configure SQLite for safe concurrent access with Dart/Drift
-        // WAL mode allows concurrent readers during writes
-        // busy_timeout waits instead of failing immediately on lock contention
+        // Configure SQLite for reliable multi-connection access with Dart/Drift.
+        // DELETE mode ensures writes go directly to main db file, avoiding
+        // WAL checkpointing issues across Rust/Dart language boundaries.
         conn.execute_batch(
-            "PRAGMA journal_mode = WAL;
+            "PRAGMA journal_mode = DELETE;
              PRAGMA busy_timeout = 5000;
-             PRAGMA synchronous = NORMAL;
+             PRAGMA synchronous = FULL;
              PRAGMA foreign_keys = ON;",
         )?;
         Ok(Self { conn })

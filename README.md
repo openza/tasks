@@ -69,7 +69,7 @@ flutter build linux --release
 ### 3. Run the Built Application
 
 ```bash
-./build/linux/x64/release/bundle/openza_flutter
+./build/linux/x64/release/bundle/openza_tasks
 ```
 
 ## Connecting Task Providers

@@ -4,9 +4,9 @@ set -e
 # Openza Tasks AppImage Build Script
 # This script packages the Flutter Linux build into an AppImage
 
-APP_NAME="Openza"
+APP_NAME="Openza Tasks"
 APP_ID="com.openza.tasks"
-BINARY_NAME="openza_flutter"
+BINARY_NAME="openza_tasks"
 VERSION=$(grep 'version:' pubspec.yaml | head -1 | sed 's/version: //' | sed 's/+.*//')
 
 echo "Building AppImage for $APP_NAME v$VERSION..."
@@ -37,7 +37,7 @@ HERE=${SELF%/*}
 export PATH="${HERE}/usr/bin:${PATH}"
 export LD_LIBRARY_PATH="${HERE}/usr/bin/lib:${LD_LIBRARY_PATH}"
 cd "${HERE}/usr/bin"
-exec "${HERE}/usr/bin/openza_flutter" "$@"
+exec "${HERE}/usr/bin/openza_tasks" "$@"
 EOF
 chmod +x "$APPDIR/AppRun"
 

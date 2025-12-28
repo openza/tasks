@@ -210,15 +210,37 @@ class NavRail extends ConsumerWidget {
     );
 
     if (task != null) {
-      final repository = await ref.read(taskRepositoryProvider.future);
-      await repository.createTask(task);
+      try {
+        final repository = await ref.read(taskRepositoryProvider.future);
+        await repository.createTask(task);
 
-      // Defer provider invalidation to next frame to avoid GPU context issues
-      // during dialog close animation
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        ref.invalidate(localTasksProvider);
-        ref.invalidate(unifiedDataProvider);
-      });
+        // Defer provider invalidation to next frame to avoid GPU context issues
+        // during dialog close animation
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          ref.invalidate(localTasksProvider);
+          ref.invalidate(unifiedDataProvider);
+        });
+
+        if (context.mounted) {
+          toastification.show(
+            context: context,
+            type: ToastificationType.success,
+            title: const Text('Task Created'),
+            description: Text(task.title),
+            autoCloseDuration: const Duration(seconds: 3),
+          );
+        }
+      } catch (e) {
+        if (context.mounted) {
+          toastification.show(
+            context: context,
+            type: ToastificationType.error,
+            title: const Text('Error'),
+            description: const Text('Failed to create task'),
+            autoCloseDuration: const Duration(seconds: 3),
+          );
+        }
+      }
     }
   }
 
@@ -251,21 +273,25 @@ class NavRail extends ConsumerWidget {
         ref.invalidate(unifiedDataProvider);
       });
 
-      toastification.show(
-        context: context,
-        type: ToastificationType.success,
-        title: const Text('Project Created'),
-        description: Text('${project.name} has been created'),
-        autoCloseDuration: const Duration(seconds: 3),
-      );
+      if (context.mounted) {
+        toastification.show(
+          context: context,
+          type: ToastificationType.success,
+          title: const Text('Project Created'),
+          description: Text('${project.name} has been created'),
+          autoCloseDuration: const Duration(seconds: 3),
+        );
+      }
     } catch (e) {
-      toastification.show(
-        context: context,
-        type: ToastificationType.error,
-        title: const Text('Error'),
-        description: const Text('Failed to create project'),
-        autoCloseDuration: const Duration(seconds: 3),
-      );
+      if (context.mounted) {
+        toastification.show(
+          context: context,
+          type: ToastificationType.error,
+          title: const Text('Error'),
+          description: const Text('Failed to create project'),
+          autoCloseDuration: const Duration(seconds: 3),
+        );
+      }
     }
   }
 }

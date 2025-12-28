@@ -2,7 +2,7 @@ app-id: com.openza.tasks
 runtime: org.gnome.Platform
 runtime-version: '46'
 sdk: org.gnome.Sdk
-command: openza_flutter
+command: openza_tasks
 finish-args:
   # Display
   - --share=ipc
@@ -24,9 +24,9 @@ modules:
     buildsystem: simple
     build-commands:
       - cp -r bundle /app/openza
-      - chmod +x /app/openza/openza_flutter
+      - chmod +x /app/openza/openza_tasks
       - mkdir -p /app/bin
-      - ln -s /app/openza/openza_flutter /app/bin/openza_flutter
+      - ln -s /app/openza/openza_tasks /app/bin/openza_tasks
       - install -Dm644 openza.desktop /app/share/applications/com.openza.tasks.desktop
       - install -Dm644 icon.png /app/share/icons/hicolor/256x256/apps/com.openza.tasks.png
       - install -Dm644 metainfo.xml /app/share/metainfo/com.openza.tasks.metainfo.xml
