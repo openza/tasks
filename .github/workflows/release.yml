@@ -63,6 +63,91 @@ jobs:
           chmod +x scripts/build-flatpak.sh
           ./scripts/build-flatpak.sh
 
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-artifacts
+          path: |
+            Openza-*.AppImage
+            Openza-*.flatpak
+
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Generate code
+        run: dart run build_runner build --delete-conflicting-outputs
+
+      - name: Build Rust sync engine
+        run: |
+          cd rust
+          cargo build --release
+          cd ..
+          copy rust\target\release\openza_sync.dll .
+
+      - name: Build Windows release
+        run: |
+          flutter build windows --release `
+            --dart-define=MSTODO_CLIENT_ID=${{ secrets.MSTODO_CLIENT_ID }} `
+            --dart-define=MSTODO_TENANT_ID=${{ secrets.MSTODO_TENANT_ID }}
+
+      - name: Copy DLL to release folder
+        run: copy openza_sync.dll build\windows\x64\runner\Release\
+
+      - name: Install Inno Setup
+        run: winget install JRSoftware.InnoSetup --accept-package-agreements --accept-source-agreements
+
+      - name: Get version from tag
+        id: get_version
+        shell: bash
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Create Windows installer
+        run: dart run inno_bundle --release --no-app --app-version ${{ steps.get_version.outputs.VERSION }}
+
+      - name: Rename installer with version
+        shell: bash
+        run: |
+          mv build/windows/x64/installer/Release/OpenzaTasks-x86_64-*-Installer.exe Openza-${{ steps.get_version.outputs.VERSION }}-Setup.exe
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-artifacts
+          path: Openza-*-Setup.exe
+
+  release:
+    needs: [build-linux, build-windows]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download Linux artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-artifacts
+
+      - name: Download Windows artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-artifacts
+
       - name: Get version from tag
         id: get_version
         run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
@@ -87,10 +172,14 @@ jobs:
           files: |
             Openza-*.AppImage
             Openza-*.flatpak
+            Openza-*-Setup.exe
           body: |
             ${{ steps.changelog.outputs.CONTENT }}
 
             ---
-            **Installation:** Download the AppImage (make executable with `chmod +x`) or Flatpak and run.
+            **Installation:**
+            - **Linux (AppImage):** Download, make executable with `chmod +x`, and run
+            - **Linux (Flatpak):** Download and install with `flatpak install Openza-*.flatpak`
+            - **Windows:** Download and run the installer
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

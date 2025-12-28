@@ -5,8 +5,6 @@ description: How to build Openza Tasks from source
 
 import { Steps, Tabs, TabItem } from '@astrojs/starlight/components';
 
-# Building from Source
-
 Openza Tasks is built with Flutter and can be compiled for Linux, macOS, and Windows.
 
 ## Prerequisites
@@ -16,9 +14,17 @@ Openza Tasks is built with Flutter and can be compiled for Linux, macOS, and Win
 - Rust toolchain (stable)
 - Git
 
-### Linux Dependencies
+### Platform Dependencies
 
 <Tabs>
+  <TabItem label="Windows">
+    - Visual Studio 2022 with "Desktop development with C++" workload
+    - Install Rust: [rustup.rs](https://rustup.rs)
+    - Install Inno Setup (for installer):
+      ```powershell
+      winget install JRSoftware.InnoSetup
+      ```
+  </TabItem>
   <TabItem label="Ubuntu/Debian">
     ```bash
     sudo apt install clang cmake ninja-build pkg-config \
@@ -42,56 +48,117 @@ Openza Tasks is built with Flutter and can be compiled for Linux, macOS, and Win
 
 Install Rust using rustup:
 
-```bash
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-source ~/.cargo/env
-```
+<Tabs>
+  <TabItem label="Windows">
+    Download and run [rustup-init.exe](https://rustup.rs)
+  </TabItem>
+  <TabItem label="Linux/macOS">
+    ```bash
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+    source ~/.cargo/env
+    ```
+  </TabItem>
+</Tabs>
 
 ## Build Steps
 
-<Steps>
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/openza/tasks.git
-   cd tasks
-   ```
+<Tabs>
+  <TabItem label="Windows">
+    <Steps>
+    1. **Clone the repository**
+       ```powershell
+       git clone https://github.com/openza/tasks.git
+       cd tasks
+       ```
 
-2. **Install dependencies**
-   ```bash
-   flutter pub get
-   ```
+    2. **Install dependencies**
+       ```powershell
+       flutter pub get
+       ```
 
-3. **Generate code**
-   ```bash
-   dart run build_runner build --delete-conflicting-outputs
-   ```
+    3. **Generate code**
+       ```powershell
+       dart run build_runner build --delete-conflicting-outputs
+       ```
 
-4. **Build the application**
-   ```bash
-   flutter build linux --release
-   ```
-</Steps>
+    4. **Build Rust sync engine**
+       ```powershell
+       cd rust; cargo build --release; cd ..
+       copy rust\target\release\openza_sync.dll .
+       ```
 
-The built application will be in `build/linux/x64/release/bundle/`.
+    5. **Build the application**
+       ```powershell
+       flutter build windows --release
+       ```
 
-## Creating an AppImage
+    6. **Create installer**
+       ```powershell
+       dart run inno_bundle --release --no-app
+       ```
+    </Steps>
 
-```bash
-./scripts/build-appimage.sh
-```
+    The installer will be in `build/windows/x64/installer/Release/`.
+  </TabItem>
 
-This creates a portable AppImage in the project root.
+  <TabItem label="Linux">
+    <Steps>
+    1. **Clone the repository**
+       ```bash
+       git clone https://github.com/openza/tasks.git
+       cd tasks
+       ```
 
-## Creating a Flatpak
+    2. **Install dependencies**
+       ```bash
+       flutter pub get
+       ```
 
-```bash
-./scripts/build-flatpak.sh
-```
+    3. **Generate code**
+       ```bash
+       dart run build_runner build --delete-conflicting-outputs
+       ```
+
+    4. **Build Rust sync engine**
+       ```bash
+       cd rust && cargo build --release && cd ..
+       ```
+
+    5. **Build the application**
+       ```bash
+       flutter build linux --release
+       ```
+    </Steps>
+
+    The built application will be in `build/linux/x64/release/bundle/`.
+
+    ### Creating an AppImage
+
+    ```bash
+    ./scripts/build-appimage.sh
+    ```
+
+    ### Creating a Flatpak
+
+    ```bash
+    ./scripts/build-flatpak.sh
+    ```
+  </TabItem>
+</Tabs>
 
 ## Development Mode
 
 For development with hot reload:
 
-```bash
-flutter run -d linux
-```
+<Tabs>
+  <TabItem label="Windows">
+    ```powershell
+    flutter run -d windows
+    ```
+  </TabItem>
+  <TabItem label="Linux">
+    ```bash
+    flutter run -d linux
+    ```
+  </TabItem>
+</Tabs>
