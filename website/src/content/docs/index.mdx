@@ -1,11 +1,12 @@
 ---
 title: Openza Tasks Documentation
-description: Documentation for Openza Tasks - A beautiful task management app for Linux
+description: Documentation for Openza Tasks - A local-first task organizer for Linux and Windows
 template: splash
 hero:
-  tagline: A beautiful, distraction-free task management app for Linux
+  tagline: A local-first task organizer that stores tasks locally and optionally syncs with Todoist and Microsoft To-Do.
   image:
-    file: ../../assets/logo.svg
+    file: ../../assets/screenshot.png
+    alt: Openza Tasks application screenshot showing the main task view
   actions:
     - text: Get Started
       link: /tasks/getting-started/introduction
@@ -21,16 +22,22 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
 ## Features
 
 <CardGrid stagger>
-  <Card title="Multi-Provider Support" icon="puzzle">
-    Connect Todoist or Microsoft To-Do and manage all your tasks in one unified interface.
+  <Card title="Local-First Storage" icon="seti:db">
+    Your tasks live on your device, always accessible. No account required to get started.
   </Card>
-  <Card title="Fast & Native" icon="rocket">
-    Built with Flutter for buttery smooth performance on your Linux desktop.
+  <Card title="Provider Sync" icon="puzzle">
+    Optionally connect Todoist or Microsoft To-Do to sync tasks from the cloud.
   </Card>
-  <Card title="Secure" icon="shield">
-    OAuth 2.0 authentication with encrypted local storage. Your data stays yours.
+  <Card title="4-Pane GTD Layout" icon="laptop">
+    Productivity-focused interface with Navigation, Projects, Tasks, and Details panes.
   </Card>
-  <Card title="Open Source" icon="github">
-    MIT licensed, transparent development. Fork it, improve it, share it.
+  <Card title="Automatic Backups" icon="document">
+    Daily automatic backups keep your data safe. Restore or export anytime.
+  </Card>
+  <Card title="Dark Theme" icon="moon">
+    Beautiful dark theme support for comfortable use in any lighting condition.
+  </Card>
+  <Card title="Import & Export" icon="random">
+    Import tasks from markdown files and export your data for backup or sharing.
   </Card>
 </CardGrid>
