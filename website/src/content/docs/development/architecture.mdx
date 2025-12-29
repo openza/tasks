@@ -24,7 +24,9 @@ lib/
 │   ├── datasources/
 │   │   ├── local/         # SQLite (Drift)
 │   │   └── remote/        # API clients
+│   ├── models/            # Data transfer objects
 │   ├── repositories/      # Repository implementations
+│   ├── services/          # Data services
 │   └── sync/              # Rust FFI bridge
 │       ├── sync_engine.dart
 │       └── sync_ffi.dart
@@ -38,6 +40,10 @@ lib/
 │   ├── providers/         # Riverpod providers
 │   ├── screens/           # UI screens
 │   └── widgets/           # Reusable components
+│
+├── services/              # Application services
+│   ├── auth/              # Authentication services
+│   └── token/             # Token management
 │
 └── main.dart              # Entry point
 
