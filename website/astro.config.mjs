@@ -13,7 +13,7 @@ export default defineConfig({
       logo: {
         src: './src/assets/logo.svg',
       },
-      favicon: '/favicon.svg',
+      favicon: 'favicon.svg',
       social: {
         github: 'https://github.com/openza/tasks',
       },
