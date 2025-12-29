@@ -9,10 +9,11 @@ export default defineConfig({
     sitemap(),
     starlight({
       title: 'Openza Tasks',
-      description: 'Documentation for Openza Tasks - A beautiful task management app for Linux',
+      description: 'Documentation for Openza Tasks - A local-first task organizer for Linux and Windows',
       logo: {
         src: './src/assets/logo.svg',
       },
+      favicon: '/favicon.svg',
       social: {
         github: 'https://github.com/openza/tasks',
       },
