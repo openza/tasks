@@ -2,6 +2,12 @@
 
 All notable changes to Openza Tasks will be documented in this file.
 
+## [0.3.1] - 2025-01-04
+
+### Fixed
+- Dialogs no longer disappear during background sync - Navigator is now preserved when data refreshes
+- Flatpak file dialogs now work correctly for backup download/import and markdown export/import (replaced `file_picker` with `file_selector` for proper XDG portal support)
+
 ## [0.3.0] - 2025-12-28
 
 ### Added
