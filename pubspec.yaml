@@ -49,6 +49,7 @@ dependencies:
   collection: ^1.19.1
   url_launcher: ^6.3.1
   file_picker: ^8.1.6
+  file_selector: ^1.0.3
   package_info_plus: ^8.0.0
 
   # JSON Serialization

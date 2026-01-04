@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:file_picker/file_picker.dart';
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons/lucide_icons.dart';
@@ -388,15 +388,18 @@ class _ExportMarkdownDialogState extends ConsumerState<ExportMarkdownDialog> {
       final defaultFileName =
           'openza_export_${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}.md';
 
-      // Show save dialog
-      final savePath = await FilePicker.platform.saveFile(
-        dialogTitle: 'Save Markdown Export',
-        fileName: defaultFileName,
-        type: FileType.custom,
-        allowedExtensions: ['md'],
+      // Show save dialog using file_selector (works with XDG Desktop Portals)
+      final FileSaveLocation? saveLocation = await getSaveLocation(
+        suggestedName: defaultFileName,
+        acceptedTypeGroups: [
+          const XTypeGroup(
+            label: 'Markdown files',
+            extensions: ['md'],
+          ),
+        ],
       );
 
-      if (savePath == null) {
+      if (saveLocation == null) {
         // User cancelled
         if (mounted) {
           setState(() => _isExporting = false);
@@ -405,7 +408,9 @@ class _ExportMarkdownDialogState extends ConsumerState<ExportMarkdownDialog> {
       }
 
       // Ensure .md extension
-      final filePath = savePath.endsWith('.md') ? savePath : '$savePath.md';
+      final filePath = saveLocation.path.endsWith('.md')
+          ? saveLocation.path
+          : '${saveLocation.path}.md';
 
       // Write file
       final file = File(filePath);

@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:file_picker/file_picker.dart';
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons/lucide_icons.dart';
@@ -1226,16 +1226,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _importBackupFromFileDirectly(BuildContext ctx) async {
-    final result = await FilePicker.platform.pickFiles(
-      dialogTitle: 'Select Backup File',
-      type: FileType.custom,
-      allowedExtensions: ['db'],
+    // Use file_selector which properly uses XDG Desktop Portals on Linux
+    // This works inside Flatpak sandbox unlike file_picker which needs zenity
+    final XFile? file = await openFile(
+      acceptedTypeGroups: [
+        const XTypeGroup(
+          label: 'Database files',
+          extensions: ['db'],
+        ),
+      ],
     );
 
-    if (result == null || result.files.isEmpty) return;
+    if (file == null) return;
 
-    final filePath = result.files.single.path;
-    if (filePath == null) return;
+    final filePath = file.path;
 
     final success = await ref.read(backupProvider.notifier).importBackup(filePath);
 
@@ -1283,18 +1287,23 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     // Generate default filename
     final defaultFileName = 'openza_${backup.fileName}';
 
-    final savePath = await FilePicker.platform.saveFile(
-      dialogTitle: 'Save Backup',
-      fileName: defaultFileName,
-      type: FileType.custom,
-      allowedExtensions: ['db'],
+    // Use file_selector which properly uses XDG Desktop Portals on Linux
+    // This works inside Flatpak sandbox unlike file_picker which needs zenity
+    final FileSaveLocation? saveLocation = await getSaveLocation(
+      suggestedName: defaultFileName,
+      acceptedTypeGroups: [
+        const XTypeGroup(
+          label: 'Database files',
+          extensions: ['db'],
+        ),
+      ],
     );
 
-    if (savePath == null) return; // User cancelled
+    if (saveLocation == null) return; // User cancelled
 
     final result = await ref.read(backupProvider.notifier).exportBackup(
       backup.filePath,
-      savePath,
+      saveLocation.path,
     );
 
     if (mounted) {

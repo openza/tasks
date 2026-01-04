@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-import 'package:file_picker/file_picker.dart';
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons/lucide_icons.dart';
@@ -594,14 +594,18 @@ class _ImportMarkdownDialogState extends ConsumerState<ImportMarkdownDialog> {
 
   Future<void> _pickFile() async {
     try {
-      final result = await FilePicker.platform.pickFiles(
-        type: FileType.custom,
-        allowedExtensions: ['md', 'markdown', 'txt'],
-        withData: true,
+      // Use file_selector which properly uses XDG Desktop Portals on Linux
+      final XFile? file = await openFile(
+        acceptedTypeGroups: [
+          const XTypeGroup(
+            label: 'Markdown files',
+            extensions: ['md', 'markdown', 'txt'],
+          ),
+        ],
       );
 
-      if (result != null && result.files.single.bytes != null) {
-        final bytes = result.files.single.bytes!;
+      if (file != null) {
+        final bytes = await file.readAsBytes();
 
         // Check file size limit
         if (bytes.length > _maxFileSizeBytes) {
@@ -638,7 +642,7 @@ class _ImportMarkdownDialogState extends ConsumerState<ImportMarkdownDialog> {
 
         _textController.text = content;
         setState(() {
-          _selectedFileName = result.files.single.name;
+          _selectedFileName = file.name;
           _parsedTasks = null;
           _duplicateTitles = {};
         });
