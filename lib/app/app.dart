@@ -17,12 +17,14 @@ class OpenzaApp extends ConsumerWidget {
     final localDataReady = ref.watch(unifiedDataProvider);
 
     return ToastificationWrapper(
-      child: localDataReady.when(
-        skipLoadingOnRefresh: true,
-        data: (_) => _buildApp(ref),
-        loading: () => _buildSplash(),
-        error: (_, __) => _buildApp(ref), // Show app even on error
-      ),
+      // Use hasValue to determine if app should be shown:
+      // - hasValue=true: Show app (either has data, or is refreshing with previous data)
+      // - hasValue=false + isLoading: First load, show splash
+      // - hasValue=false + hasError: Error on first load, show app anyway
+      // This ensures Navigator is preserved during sync refreshes.
+      child: localDataReady.hasValue || localDataReady.hasError
+          ? _buildApp(ref)
+          : _buildSplash(),
     );
   }
 
