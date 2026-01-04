@@ -14,6 +14,8 @@ finish-args:
   - --talk-name=org.freedesktop.Notifications
   # Open URLs in browser (OAuth flow)
   - --talk-name=org.freedesktop.portal.OpenURI
+  # File picker dialog (for backup export/import)
+  - --talk-name=org.freedesktop.portal.FileChooser
   # Secret storage (for OAuth tokens)
   - --talk-name=org.freedesktop.secrets
   # GPU acceleration
