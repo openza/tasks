@@ -393,6 +393,72 @@ class BackupService {
     }
   }
 
+  /// Validate that a file is a valid SQLite database
+  /// Returns true if valid, false otherwise
+  Future<bool> validateBackupFile(String filePath) async {
+    return await Isolate.run(() => _validateSqliteFile(filePath));
+  }
+
+  /// Validate SQLite file in isolate (static for isolate execution)
+  static bool _validateSqliteFile(String filePath) {
+    try {
+      final file = File(filePath);
+      if (!file.existsSync()) {
+        return false;
+      }
+
+      // Basic SQLite validation - check file header
+      final bytes = file.readAsBytesSync();
+      if (bytes.length < 16) {
+        return false; // Too small to be a valid SQLite file
+      }
+
+      // SQLite files start with "SQLite format 3\0"
+      final header = String.fromCharCodes(bytes.sublist(0, 16));
+      return header.startsWith('SQLite format 3');
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /// Restore directly from an external file (validates first)
+  /// This is used for the Import workflow - restores without copying to backup folder
+  Future<RestoreResult> restoreFromExternalFile(String externalPath) async {
+    try {
+      // Validate the file first
+      final isValid = await validateBackupFile(externalPath);
+      if (!isValid) {
+        return const RestoreResult.error('Invalid or corrupted backup file. Please select a valid SQLite database.');
+      }
+
+      // Checkpoint current database
+      await _checkpointWal();
+
+      final dbPath = await _getDatabasePath();
+
+      // Close database connection (will need app restart after restore)
+      await _database.close();
+
+      // Run restore in isolate
+      final success = await Isolate.run(() => _restoreInIsolate(
+            _RestoreParams(
+              backupPath: externalPath,
+              dbPath: dbPath,
+            ),
+          ));
+
+      if (success) {
+        AppLogger.info('Database restored from external file: $externalPath');
+        return const RestoreResult.success();
+      } else {
+        return const RestoreResult.error('Failed to restore from external file');
+      }
+    } catch (e, stack) {
+      AppLogger.error('Restore from external file failed', e, stack);
+      return RestoreResult.error('Restore failed: ${e.toString()}');
+    }
+  }
+
   /// Import a backup from an external file
   /// Validates the file is a valid SQLite database before importing
   Future<BackupResult> importBackupFromPath(String externalPath) async {

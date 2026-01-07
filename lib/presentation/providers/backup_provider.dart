@@ -222,7 +222,46 @@ class BackupNotifier extends StateNotifier<BackupState> {
     }
   }
 
-  /// Import a backup from an external file
+  /// Restore directly from an external file (validates and restores)
+  /// Used for the Import workflow - no intermediate copy to backup folder
+  Future<bool> restoreFromExternalFile(String externalPath) async {
+    if (state.status == BackupStatus.restoring) {
+      return false;
+    }
+
+    state = state.copyWith(status: BackupStatus.restoring, error: null);
+
+    try {
+      final result = await _backupService.restoreFromExternalFile(externalPath);
+
+      return result.when(
+        success: () {
+          state = state.copyWith(status: BackupStatus.success);
+          _scheduleStatusReset();
+          AppLogger.info('Restore from external file completed');
+          return true;
+        },
+        error: (message) {
+          state = state.copyWith(
+            status: BackupStatus.error,
+            error: message,
+          );
+          AppLogger.error('Restore from external file failed: $message');
+          return false;
+        },
+      );
+    } catch (e, stack) {
+      AppLogger.error('Restore from external file failed', e, stack);
+      state = state.copyWith(
+        status: BackupStatus.error,
+        error: 'Restore failed: ${e.toString()}',
+      );
+      return false;
+    }
+  }
+
+  /// Import a backup from an external file (copies to backup folder)
+  /// @deprecated Use restoreFromExternalFile instead for direct restore
   Future<bool> importBackup(String externalPath) async {
     state = state.copyWith(status: BackupStatus.loadingBackups, error: null);
 

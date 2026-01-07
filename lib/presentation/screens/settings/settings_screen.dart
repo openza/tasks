@@ -18,6 +18,7 @@ import '../../providers/task_provider.dart';
 import '../../providers/theme_provider.dart';
 import '../../widgets/common/openza_logo.dart';
 import '../../widgets/dialogs/export_markdown_dialog.dart';
+import '../../widgets/dialogs/restore_confirmation_dialog.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -1078,19 +1079,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: AppTheme.gray100,
+              color: AppTheme.warningOrange.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: AppTheme.warningOrange.withValues(alpha: 0.2)),
             ),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(LucideIcons.info, size: 16, color: AppTheme.gray500),
+                Icon(LucideIcons.alertTriangle, size: 16, color: AppTheme.warningOrange),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
-                    'After importing, the backup will appear in the Backup section where you can restore from it.',
+                    'Importing will replace your current data. You will need to type RESTORE to confirm this action.',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: AppTheme.gray600,
+                          color: AppTheme.gray700,
                         ),
                   ),
                 ),
@@ -1237,28 +1239,47 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       ],
     );
 
-    if (file == null) return;
+    if (file == null || !mounted) return;
 
     final filePath = file.path;
+    final fileName = file.name;
 
-    final success = await ref.read(backupProvider.notifier).importBackup(filePath);
+    // Show confirmation dialog with typing confirmation
+    final confirmed = await RestoreConfirmationDialog.show(
+      context,
+      fileName: fileName,
+      isExternalFile: true,
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    // Restore directly from the external file
+    final success = await ref.read(backupProvider.notifier).restoreFromExternalFile(filePath);
 
     if (mounted) {
       if (success) {
-        toastification.show(
+        showDialog(
           context: context,
-          type: ToastificationType.success,
-          style: ToastificationStyle.fillColored,
-          title: const Text('Backup Imported'),
-          description: const Text('Backup file imported successfully. Go to Backup to restore from it.'),
-          autoCloseDuration: const Duration(seconds: 4),
+          barrierDismissible: false,
+          builder: (context) => AlertDialog(
+            title: const Text('Restore Complete'),
+            content: const Text(
+              'Database restored successfully. Please restart the app to apply changes.',
+            ),
+            actions: [
+              FilledButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
         );
       } else {
         toastification.show(
           context: context,
           type: ToastificationType.error,
           style: ToastificationStyle.fillColored,
-          title: const Text('Import Failed'),
+          title: const Text('Restore Failed'),
           description: Text(ref.read(backupProvider).error ?? 'Invalid or corrupted backup file'),
           autoCloseDuration: const Duration(seconds: 5),
         );
@@ -1321,59 +1342,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _confirmAndRestoreFromSettings(BuildContext ctx, BackupInfo backup) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Restore Backup'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: AppTheme.warningOrange.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(
-                  color: AppTheme.warningOrange.withValues(alpha: 0.3),
-                ),
-              ),
-              child: Row(
-                children: [
-                  Icon(LucideIcons.alertTriangle, size: 20, color: AppTheme.warningOrange),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      'This will replace your current data. The app will need to restart after restore.',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: AppTheme.gray700,
-                          ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'Restore from backup created on ${_formatBackupDate(backup.createdAt)}?',
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            style: FilledButton.styleFrom(
-              backgroundColor: AppTheme.warningOrange,
-            ),
-            child: const Text('Restore'),
-          ),
-        ],
-      ),
+    final confirmed = await RestoreConfirmationDialog.show(
+      context,
+      backupDate: _formatBackupDate(backup.createdAt),
+      fileName: backup.fileName,
+      isExternalFile: false,
     );
 
     if (confirmed == true && mounted) {
