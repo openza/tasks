@@ -33,7 +33,7 @@ class OpenzaApp extends ConsumerWidget {
     final themeMode = ref.watch(themeModeProvider);
     return MaterialApp.router(
       title: 'Openza Tasks',
-      debugShowCheckedModeBanner: false,
+      debugShowCheckedModeBanner: true,
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
       themeMode: themeMode,
@@ -44,7 +44,7 @@ class OpenzaApp extends ConsumerWidget {
 
   Widget _buildSplash() {
     return MaterialApp(
-      debugShowCheckedModeBanner: false,
+      debugShowCheckedModeBanner: true,
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
       themeMode: ThemeMode.system,
