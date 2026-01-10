@@ -213,6 +213,9 @@ class _TaskCardState extends ConsumerState<TaskCard> {
         // Due date
         if (widget.task.dueDate != null) _buildDueDate(),
 
+        // Created date (subtle)
+        _buildCreatedDate(),
+
         // Integration indicator
         _buildIntegrationIndicator(),
       ],
@@ -268,6 +271,44 @@ class _TaskCardState extends ConsumerState<TaskCard> {
         ),
       ],
     );
+  }
+
+  Widget _buildCreatedDate() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final color = isDark ? AppTheme.gray400 : AppTheme.gray500;
+    final text = _getRelativeCreatedDate(widget.task.createdAt);
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(LucideIcons.clock, size: 10, color: color),
+        const SizedBox(width: 3),
+        Text(
+          text,
+          style: TextStyle(
+            fontSize: 10,
+            color: color,
+            fontWeight: FontWeight.w400,
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _getRelativeCreatedDate(DateTime createdAt) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final created = DateTime(createdAt.year, createdAt.month, createdAt.day);
+    final difference = today.difference(created).inDays;
+
+    if (difference == 0) return 'Today';
+    if (difference == 1) return 'Yesterday';
+    if (difference < 7) return '$difference days ago';
+    if (difference < 14) return '1 week ago';
+    if (difference < 30) return '${(difference / 7).floor()} weeks ago';
+    if (difference < 60) return '1 month ago';
+    if (difference < 365) return '${(difference / 30).floor()} months ago';
+    return AppDateUtils.formatForDisplay(createdAt);
   }
 
   Widget _buildIntegrationIndicator() {

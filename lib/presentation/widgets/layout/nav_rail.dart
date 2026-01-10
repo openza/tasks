@@ -203,10 +203,12 @@ class NavRail extends ConsumerWidget {
     final data = ref.read(unifiedDataProvider).value;
     if (data == null) return;
 
+    final selectedProjectId = ref.read(selectedProjectIdProvider);
     final task = await CreateTaskDialog.show(
       context,
       projects: data.projects,
       labels: data.labels,
+      defaultProjectId: selectedProjectId,
     );
 
     if (task != null) {

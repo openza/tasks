@@ -346,7 +346,7 @@ class _TaskDetailState extends ConsumerState<TaskDetail> {
                 maxLines: 3,
               ),
             )
-            : Text(
+            : SelectableText(
                 widget.task.description!,
                 style: Theme.of(
                   context,

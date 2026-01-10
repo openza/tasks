@@ -17,6 +17,7 @@ class TaskListWidget extends StatelessWidget {
   final String? emptyMessage;
   final bool sortByLabels;
   final bool sortByProject;
+  final bool preserveOrder;
   final bool showGradientBackground;
   final void Function(TaskEntity)? onTaskTap;
   final void Function(TaskEntity)? onTaskComplete;
@@ -32,6 +33,7 @@ class TaskListWidget extends StatelessWidget {
     this.emptyMessage,
     this.sortByLabels = false,
     this.sortByProject = false,
+    this.preserveOrder = false,
     this.showGradientBackground = false,
     this.onTaskTap,
     this.onTaskComplete,
@@ -145,6 +147,11 @@ class TaskListWidget extends StatelessWidget {
   }
 
   List<TaskEntity> _sortTasks(List<TaskEntity> tasksToSort) {
+    // If preserveOrder is true, return tasks as-is (parent already sorted)
+    if (preserveOrder) {
+      return tasksToSort;
+    }
+
     final sorted = List<TaskEntity>.from(tasksToSort);
 
     if (sortByLabels) {
