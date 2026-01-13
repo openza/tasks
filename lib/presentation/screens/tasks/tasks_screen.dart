@@ -39,9 +39,10 @@ class TasksScreen extends ConsumerWidget {
             // Check if viewing Inbox - also include tasks with null projectId
             final selectedProject = data.projects.where((p) => p.id == projectId).firstOrNull;
             if (selectedProject?.isInbox == true) {
-              // Inbox shows tasks assigned to Inbox OR unassigned tasks (null projectId)
+              // Inbox shows NATIVE tasks assigned to Inbox OR unassigned native tasks
+              // External tasks (Todoist, MS To-Do) are shown in their own virtual project sections
               tasks = data.tasks.where((t) =>
-                t.projectId == projectId || t.projectId == null
+                t.isNative && (t.projectId == projectId || t.projectId == null)
               ).toList();
             } else {
               // Other projects - only show tasks with matching projectId
