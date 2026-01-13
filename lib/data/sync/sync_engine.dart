@@ -114,9 +114,20 @@ class SyncEngine {
     try {
       AppLogger.info('Fetching data from Todoist...');
 
-      final tasks = await _todoistApi.getAllTasks();
-      final projects = await _todoistApi.getAllProjects();
-      final labels = await _todoistApi.getAllLabels();
+      // Fetch projects first to get name mapping
+      final projects = await _todoistApi!.getAllProjects();
+      final labels = await _todoistApi!.getAllLabels();
+
+      // Create project name mapping for task enrichment
+      final projectNames = <String, String>{};
+      for (final project in projects) {
+        if (project.externalId != null) {
+          projectNames[project.externalId!] = project.name;
+        }
+      }
+
+      // Fetch tasks with project names enriched in metadata
+      final tasks = await _todoistApi!.getAllTasks(projectNames: projectNames);
 
       AppLogger.info('Fetched ${tasks.length} tasks, ${projects.length} projects, ${labels.length} labels');
 
@@ -152,10 +163,13 @@ class SyncEngine {
   }
 
   /// Perform initial sync via Rust FFI (clear and re-sync)
+  /// Note: Provider projects are NOT synced to the projects table.
+  /// Provider project info is stored in task's providerMetadata.sourceTask instead.
+  /// This follows the wrapper pattern where tasks are organized locally.
   Future<SyncSummary> initialSync({
     required String provider,
     required List<TaskEntity> tasks,
-    required List<ProjectEntity> projects,
+    required List<ProjectEntity> projects, // Ignored - not synced to DB
     required List<LabelEntity> labels,
   }) async {
     if (!_ffiAvailable) {
@@ -168,11 +182,13 @@ class SyncEngine {
     try {
       final dbPath = await _getDatabasePath();
       final tasksJson = _sanitizeForFfi(jsonEncode(tasks.map((t) => _taskToJson(t)).toList()));
-      final projectsJson = _sanitizeForFfi(jsonEncode(projects.map((p) => _projectToJson(p)).toList()));
+      // Don't sync provider projects - pass empty array
+      // Provider project info is in task's providerMetadata.sourceTask
+      const projectsJson = '[]';
       final labelsJson = _sanitizeForFfi(jsonEncode(labels.map((l) => _labelToJson(l)).toList()));
 
       AppLogger.info('Starting initial sync via Rust FFI...');
-      AppLogger.info('JSON lengths - tasks: ${tasksJson.length}, projects: ${projectsJson.length}, labels: ${labelsJson.length}');
+      AppLogger.info('JSON lengths - tasks: ${tasksJson.length}, projects: (skipped), labels: ${labelsJson.length}');
 
       final resultJson = _ffi.initialSync(
         dbPath: dbPath,
@@ -186,7 +202,7 @@ class SyncEngine {
       final summary = SyncSummary.fromJson(result);
 
       if (summary.success) {
-        AppLogger.info('Initial sync completed: ${summary.tasksAdded} added, ${summary.projectsSynced} projects, ${summary.labelsSynced} labels');
+        AppLogger.info('Initial sync completed: ${summary.tasksAdded} added, ${summary.labelsSynced} labels');
       } else {
         AppLogger.error('Initial sync failed: ${summary.error}');
       }
@@ -202,10 +218,11 @@ class SyncEngine {
   }
 
   /// Perform incremental sync via Rust FFI
+  /// Note: Provider projects are NOT synced. See initialSync for details.
   Future<SyncSummary> incrementalSync({
     required String provider,
     required List<TaskEntity> tasks,
-    required List<ProjectEntity> projects,
+    required List<ProjectEntity> projects, // Ignored - not synced to DB
     required List<LabelEntity> labels,
     String? syncToken,
   }) async {
@@ -219,7 +236,8 @@ class SyncEngine {
     try {
       final dbPath = await _getDatabasePath();
       final tasksJson = _sanitizeForFfi(jsonEncode(tasks.map((t) => _taskToJson(t)).toList()));
-      final projectsJson = _sanitizeForFfi(jsonEncode(projects.map((p) => _projectToJson(p)).toList()));
+      // Don't sync provider projects - pass empty array
+      const projectsJson = '[]';
       final labelsJson = _sanitizeForFfi(jsonEncode(labels.map((l) => _labelToJson(l)).toList()));
 
       AppLogger.info('Starting incremental sync via Rust FFI...');
@@ -387,22 +405,8 @@ class SyncEngine {
     'provider_metadata': task.providerMetadata,
   };
 
-  Map<String, dynamic> _projectToJson(ProjectEntity project) => {
-    'id': project.id,
-    'external_id': project.externalId,
-    'integration_id': project.integrationId,
-    'name': project.name,
-    'description': project.description,
-    'color': project.color,
-    'icon': project.icon,
-    'parent_id': project.parentId,
-    'sort_order': project.sortOrder,
-    'is_favorite': project.isFavorite,
-    'is_archived': project.isArchived,
-    'created_at': _formatDateTime(project.createdAt),
-    'updated_at': _formatDateTime(project.updatedAt),
-    'provider_metadata': project.providerMetadata,
-  };
+  // Note: _projectToJson removed - provider projects are no longer synced to DB
+  // Provider project info is stored in task's providerMetadata.sourceTask instead
 
   Map<String, dynamic> _labelToJson(LabelEntity label) => {
     'id': label.id,

@@ -70,6 +70,7 @@ class TasksWithTabs extends StatefulWidget {
   final void Function(TaskEntity)? onTaskComplete;
   final void Function(TaskEntity)? onTaskUpdate;
   final void Function(TaskEntity)? onTaskDelete;
+  final void Function(TaskEntity, ProjectEntity?)? onTaskMoveToProject;
 
   const TasksWithTabs({
     super.key,
@@ -79,6 +80,7 @@ class TasksWithTabs extends StatefulWidget {
     this.onTaskComplete,
     this.onTaskUpdate,
     this.onTaskDelete,
+    this.onTaskMoveToProject,
   });
 
   @override
@@ -361,6 +363,9 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
                   preserveOrder: true,
                   onTaskTap: _selectTask,
                   onTaskComplete: widget.onTaskComplete,
+                  onTaskEdit: (task) => setState(() => _selectedTask = task),
+                  onTaskDelete: widget.onTaskDelete,
+                  onTaskMoveToProject: widget.onTaskMoveToProject,
                 ),
               ),
             ],

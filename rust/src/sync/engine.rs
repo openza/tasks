@@ -387,25 +387,26 @@ impl SyncEngine {
 
             if local_task_map.contains_key(&task.id) {
                 // Task exists locally - update
+                // IMPORTANT: Do NOT update project_id - preserve user's local organization
+                // Provider's project is stored in provider_metadata.sourceTask.projectId
+                // This follows the wrapper pattern where users organize tasks locally
                 tx.execute(
                     "UPDATE tasks SET
                         title = ?2,
                         description = ?3,
-                        project_id = ?4,
-                        parent_id = ?5,
-                        priority = ?6,
-                        status = ?7,
-                        due_date = ?8,
-                        due_time = ?9,
-                        provider_metadata = ?10,
-                        updated_at = ?11,
-                        completed_at = ?12
+                        parent_id = ?4,
+                        priority = ?5,
+                        status = ?6,
+                        due_date = ?7,
+                        due_time = ?8,
+                        provider_metadata = ?9,
+                        updated_at = ?10,
+                        completed_at = ?11
                      WHERE id = ?1",
                     rusqlite::params![
                         task.id,
                         task.title,
                         task.description,
-                        task.project_id,
                         task.parent_id,
                         task.priority,
                         task.status,
@@ -419,6 +420,8 @@ impl SyncEngine {
                 tasks_updated += 1;
             } else {
                 // New task from remote
+                // project_id comes from remote (null for wrapper pattern)
+                // User will organize into local projects later
                 tx.execute(
                     "INSERT INTO tasks (id, external_id, integration_id, title, description, project_id,
                                        parent_id, priority, status, due_date, due_time, notes,
