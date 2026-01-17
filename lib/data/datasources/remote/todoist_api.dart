@@ -24,7 +24,8 @@ class TodoistApi {
   // ============ TASKS ============
 
   /// Get all tasks with pagination
-  Future<List<TaskEntity>> getAllTasks() async {
+  /// Optionally pass projectNames map to enrich tasks with project names
+  Future<List<TaskEntity>> getAllTasks({Map<String, String>? projectNames}) async {
     final List<TaskEntity> allTasks = [];
 
     try {
@@ -42,7 +43,7 @@ class TodoistApi {
       }
 
       for (final task in results) {
-        allTasks.add(_mapTodoistTask(task));
+        allTasks.add(_mapTodoistTask(task, projectNames: projectNames));
       }
 
       AppLogger.info('Fetched ${allTasks.length} tasks from Todoist');
@@ -51,6 +52,21 @@ class TodoistApi {
       AppLogger.error('Failed to fetch Todoist tasks', e, stack);
       rethrow;
     }
+  }
+
+  /// Get all tasks with project names enriched
+  Future<List<TaskEntity>> getAllTasksWithProjectNames() async {
+    // First fetch all projects to get name mapping
+    final projects = await getAllProjects();
+    final projectNames = <String, String>{};
+    for (final project in projects) {
+      if (project.externalId != null) {
+        projectNames[project.externalId!] = project.name;
+      }
+    }
+
+    // Then fetch tasks with project names
+    return getAllTasks(projectNames: projectNames);
   }
 
   /// Get a single task by ID
@@ -197,7 +213,7 @@ class TodoistApi {
 
   // ============ MAPPERS ============
 
-  TaskEntity _mapTodoistTask(Map<String, dynamic> data) {
+  TaskEntity _mapTodoistTask(Map<String, dynamic> data, {Map<String, String>? projectNames}) {
     DateTime? dueDate;
     String? dueTime;
 
@@ -230,6 +246,13 @@ class TodoistApi {
     final projectId = data['project_id'];
     final parentId = data['parent_id'];
 
+    // Get project name from the map if available
+    final projectIdStr = projectId?.toString();
+    String? projectName;
+    if (projectIdStr != null && projectNames != null) {
+      projectName = projectNames[projectIdStr];
+    }
+
     // Safe datetime parsing
     DateTime createdAt = DateTime.now();
     if (data['created_at'] != null) {
@@ -255,7 +278,9 @@ class TodoistApi {
       integrationId: 'todoist',
       title: data['content'] ?? '',
       description: data['description'],
-      projectId: projectId != null ? 'todoist_$projectId' : null,
+      // project_id is null - user organizes locally
+      // Provider's project is stored in providerMetadata.sourceTask
+      projectId: null,
       parentId: parentId != null ? 'todoist_$parentId' : null,
       priority: priority,
       status: data['is_completed'] == true ? TaskStatus.completed : TaskStatus.pending,
@@ -277,7 +302,13 @@ class TodoistApi {
         'todoist': {
           'id': data['id'],
           'synced_at': DateTime.now().toIso8601String(),
-        }
+        },
+        // Wrapper pattern: Store provider's project info for reference and API calls
+        'sourceTask': {
+          'projectId': projectIdStr,
+          'projectName': projectName,  // Include project name for display
+          'parentId': parentId?.toString(),
+        },
       },
     );
   }

@@ -130,6 +130,78 @@ final filteredByProjectProvider = Provider<FilteredProjectData>((ref) {
   );
 });
 
+/// Virtual project extracted from task metadata (for provider tasks)
+class VirtualProject {
+  final String id;           // e.g., "todoist_source_12345"
+  final String sourceId;     // Provider's project ID from metadata
+  final String integrationId;
+  final String name;
+  final int taskCount;
+
+  const VirtualProject({
+    required this.id,
+    required this.sourceId,
+    required this.integrationId,
+    required this.name,
+    required this.taskCount,
+  });
+}
+
+/// Provider that extracts "virtual projects" from provider tasks' metadata
+/// These are projects shown in the sidebar for Todoist/MS To-Do but not stored in DB
+final providerVirtualProjectsProvider = Provider<Map<String, List<VirtualProject>>>((ref) {
+  final data = ref.watch(unifiedDataProvider).value;
+  if (data == null) return {};
+
+  final virtualProjects = <String, Map<String, VirtualProject>>{};
+
+  for (final task in data.tasks) {
+    // Skip native tasks
+    if (task.isNative) continue;
+
+    final sourceProjectId = task.sourceProjectId;
+    if (sourceProjectId == null) continue;
+
+    final integrationId = task.integrationId;
+    final virtualId = '${integrationId}_source_$sourceProjectId';
+
+    virtualProjects.putIfAbsent(integrationId, () => {});
+
+    // Get project name from metadata (or fall back to ID)
+    final projectName = task.sourceProjectName ?? sourceProjectId;
+
+    if (virtualProjects[integrationId]!.containsKey(virtualId)) {
+      // Increment task count
+      final existing = virtualProjects[integrationId]![virtualId]!;
+      virtualProjects[integrationId]![virtualId] = VirtualProject(
+        id: existing.id,
+        sourceId: existing.sourceId,
+        integrationId: existing.integrationId,
+        name: existing.name,
+        taskCount: existing.taskCount + 1,
+      );
+    } else {
+      // Create new virtual project
+      virtualProjects[integrationId]![virtualId] = VirtualProject(
+        id: virtualId,
+        sourceId: sourceProjectId,
+        integrationId: integrationId,
+        name: projectName,
+        taskCount: 1,
+      );
+    }
+  }
+
+  // Convert to list format
+  final result = <String, List<VirtualProject>>{};
+  for (final entry in virtualProjects.entries) {
+    result[entry.key] = entry.value.values.toList()
+      ..sort((a, b) => b.taskCount.compareTo(a.taskCount)); // Sort by task count
+  }
+
+  return result;
+});
+
 /// Provider display names for integrations
 const providerDisplayNames = {
   'openza_tasks': 'Local',

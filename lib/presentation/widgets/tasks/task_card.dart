@@ -9,6 +9,7 @@ import '../../../domain/entities/project.dart';
 import '../../providers/integration_provider.dart';
 import '../badges/priority_badge.dart';
 import '../badges/label_badge.dart';
+import 'task_context_menu.dart';
 
 /// Card widget for displaying a single task
 class TaskCard extends ConsumerStatefulWidget {
@@ -16,6 +17,9 @@ class TaskCard extends ConsumerStatefulWidget {
   final ProjectEntity? project;
   final VoidCallback? onTap;
   final VoidCallback? onComplete;
+  final VoidCallback? onEdit;
+  final VoidCallback? onDelete;
+  final void Function(ProjectEntity?)? onMoveToProject;
   final bool showProject;
   final bool isSelected;
 
@@ -25,6 +29,9 @@ class TaskCard extends ConsumerStatefulWidget {
     this.project,
     this.onTap,
     this.onComplete,
+    this.onEdit,
+    this.onDelete,
+    this.onMoveToProject,
     this.showProject = true,
     this.isSelected = false,
   });
@@ -77,6 +84,7 @@ class _TaskCardState extends ConsumerState<TaskCard> {
         ),
         child: GestureDetector(
           onTap: widget.onTap,
+          onSecondaryTapUp: (details) => _showContextMenu(details.globalPosition),
           behavior: HitTestBehavior.opaque,
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
@@ -140,6 +148,32 @@ class _TaskCardState extends ConsumerState<TaskCard> {
         ),
       ),
     );
+  }
+
+  Future<void> _showContextMenu(Offset position) async {
+    final result = await TaskContextMenu.show(
+      context,
+      ref,
+      position,
+      task: widget.task,
+      onEdit: widget.onEdit,
+      onDelete: widget.onDelete,
+    );
+
+    if (result == null || !mounted) return;
+
+    switch (result.action) {
+      case TaskContextAction.moveToInbox:
+      case TaskContextAction.moveToProject:
+        widget.onMoveToProject?.call(result.targetProject);
+        break;
+      case TaskContextAction.edit:
+        widget.onEdit?.call();
+        break;
+      case TaskContextAction.delete:
+        widget.onDelete?.call();
+        break;
+    }
   }
 
   Widget _buildCheckbox() {

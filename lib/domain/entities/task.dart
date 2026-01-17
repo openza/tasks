@@ -61,6 +61,28 @@ sealed class TaskEntity with _$TaskEntity {
   /// Check if this is an external provider task
   bool get isExternal => !isNative;
 
+  /// Get the provider's original project ID from metadata (wrapper pattern)
+  /// This is the project ID from Todoist/MS To-Do, NOT the local organization
+  String? get sourceProjectId {
+    final sourceTask = providerMetadata?['sourceTask'] as Map<String, dynamic>?;
+    return sourceTask?['projectId'] as String?;
+  }
+
+  /// Get the provider's original project NAME from metadata
+  String? get sourceProjectName {
+    final sourceTask = providerMetadata?['sourceTask'] as Map<String, dynamic>?;
+    return sourceTask?['projectName'] as String?;
+  }
+
+  /// Get the provider's original parent task ID from metadata (for subtasks)
+  String? get sourceParentId {
+    final sourceTask = providerMetadata?['sourceTask'] as Map<String, dynamic>?;
+    return sourceTask?['parentId'] as String?;
+  }
+
+  /// Check if this task has a provider source (imported from external provider)
+  bool get hasProviderSource => providerMetadata?['sourceTask'] != null;
+
   factory TaskEntity.fromJson(Map<String, dynamic> json) =>
       _$TaskEntityFromJson(json);
 }
