@@ -1,69 +1,21 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
 import '../../../app/app_theme.dart';
 import '../../../domain/entities/task.dart';
 import '../../../domain/entities/project.dart';
+import '../../models/task_ui_state.dart';
+import '../../providers/selected_project_provider.dart';
 import 'task_list.dart';
 import 'task_detail.dart';
 
-/// Sort options for task list
-enum TaskSortOption {
-  priority('Priority', LucideIcons.arrowUpDown),
-  dueDate('Due Date', LucideIcons.calendar),
-  createdDate('Created', LucideIcons.clock),
-  byLabel('Label', LucideIcons.tag),
-  byProject('Project', LucideIcons.folder);
-
-  final String displayName;
-  final IconData icon;
-  const TaskSortOption(this.displayName, this.icon);
-}
-
-/// Priority filter options
-enum PriorityFilter {
-  all('All', null),
-  p1Urgent('Urgent', 1),
-  p2High('High', 2),
-  p3Normal('Normal', 3),
-  p4Low('Low', 4);
-
-  final String label;
-  final int? value;
-  const PriorityFilter(this.label, this.value);
-}
-
-/// Due date filter options
-enum DueDateFilter {
-  all('All'),
-  today('Today'),
-  yesterday('Yesterday'),
-  last7Days('Last 7 Days'),
-  thisWeek('This Week'),
-  thisMonth('This Month'),
-  older('Older'),
-  noDate('No Date');
-
-  final String label;
-  const DueDateFilter(this.label);
-}
-
-/// Created date filter options
-enum CreatedDateFilter {
-  all('All'),
-  today('Today'),
-  yesterday('Yesterday'),
-  last7Days('Last 7 Days'),
-  thisWeek('This Week'),
-  thisMonth('This Month'),
-  older('Older');
-
-  final String label;
-  const CreatedDateFilter(this.label);
-}
+// Re-export enums for backward compatibility
+export '../../models/task_ui_state.dart';
 
 /// Widget displaying tasks with filters and detail panel
-class TasksWithTabs extends StatefulWidget {
+/// Uses Riverpod providers for all UI state to persist across data refreshes
+class TasksWithTabs extends ConsumerWidget {
   final List<TaskEntity> tasks;
   final List<ProjectEntity> projects;
   final String? selectedProjectId;
@@ -82,72 +34,158 @@ class TasksWithTabs extends StatefulWidget {
   });
 
   @override
-  State<TasksWithTabs> createState() => _TasksWithTabsState();
-}
+  Widget build(BuildContext context, WidgetRef ref) {
+    // Watch all UI state from providers (persists across data refreshes)
+    final searchQuery = ref.watch(tasksSearchQueryProvider);
+    final sortOption = ref.watch(tasksSortOptionProvider);
+    final priorityFilter = ref.watch(tasksPriorityFilterProvider);
+    final dueDateFilter = ref.watch(tasksDueDateFilterProvider);
+    final createdDateFilter = ref.watch(tasksCreatedDateFilterProvider);
+    final selectedLabelId = ref.watch(tasksSelectedLabelIdProvider);
+    final selectedProjectIdForFilter = ref.watch(tasksSelectedProjectIdForFilterProvider);
+    final selectedTask = ref.watch(selectedTaskProvider);
 
-class _TasksWithTabsState extends State<TasksWithTabs> {
-  TaskEntity? _selectedTask;
-  String _searchQuery = '';
-  TaskSortOption _sortOption = TaskSortOption.priority;
+    // Filter and sort tasks
+    final filteredTasks = _getFilteredTasks(
+      tasks: tasks,
+      searchQuery: searchQuery,
+      sortOption: sortOption,
+      priorityFilter: priorityFilter,
+      dueDateFilter: dueDateFilter,
+      createdDateFilter: createdDateFilter,
+      selectedLabelId: selectedLabelId,
+      selectedProjectIdForFilter: selectedProjectIdForFilter,
+      projects: projects,
+    );
+    final activeTasks = filteredTasks.where((t) => !t.isCompleted).toList();
 
-  // Dynamic filter state - one per sort type
-  PriorityFilter _priorityFilter = PriorityFilter.all;
-  DueDateFilter _dueDateFilter = DueDateFilter.all;
-  CreatedDateFilter _createdDateFilter = CreatedDateFilter.all;
-  String? _selectedLabelId; // Label ID for filtering
-  String? _selectedProjectId; // Project ID for filtering
+    return Row(
+      children: [
+        Expanded(
+          child: Column(
+            children: [
+              _buildHeader(context, ref, activeTasks.length),
+              _buildFilters(context, ref),
+              Expanded(
+                child: TaskListWidget(
+                  tasks: activeTasks,
+                  projects: projects,
+                  emptyMessage: 'No tasks found',
+                  preserveOrder: true,
+                  onTaskTap: (task) => _selectTask(ref, task),
+                  onTaskComplete: onTaskComplete,
+                  selectedTaskId: selectedTask?.id,
+                ),
+              ),
+            ],
+          ),
+        ),
 
-  List<TaskEntity> get _filteredTasks {
-    var tasks = widget.tasks;
+        // Detail panel - uses provider-based selection
+        if (selectedTask != null)
+          TaskDetail(
+            task: selectedTask,
+            project: _getProjectForTask(selectedTask, projects),
+            projects: projects,
+            onClose: () => _clearSelection(ref),
+            onUpdate: (task) {
+              onTaskUpdate?.call(task);
+            },
+            onDelete: (task) {
+              onTaskDelete?.call(task);
+              _clearSelection(ref);
+            },
+            onComplete: (task) {
+              onTaskComplete?.call(task);
+              _clearSelection(ref);
+            },
+          ),
+      ],
+    );
+  }
+
+  /// Select a task by updating the provider
+  void _selectTask(WidgetRef ref, TaskEntity task) {
+    ref.read(selectedTaskIdProvider.notifier).state = task.id;
+  }
+
+  /// Clear task selection
+  void _clearSelection(WidgetRef ref) {
+    ref.read(selectedTaskIdProvider.notifier).state = null;
+  }
+
+  /// Get filtered and sorted tasks
+  List<TaskEntity> _getFilteredTasks({
+    required List<TaskEntity> tasks,
+    required String searchQuery,
+    required TaskSortOption sortOption,
+    required PriorityFilter priorityFilter,
+    required DueDateFilter dueDateFilter,
+    required CreatedDateFilter createdDateFilter,
+    required String? selectedLabelId,
+    required String? selectedProjectIdForFilter,
+    required List<ProjectEntity> projects,
+  }) {
+    var result = tasks;
 
     // Apply search filter
-    if (_searchQuery.isNotEmpty) {
-      tasks = tasks.where((t) {
-        final titleMatch =
-            t.title.toLowerCase().contains(_searchQuery.toLowerCase());
-        final descMatch = t.description
-                ?.toLowerCase()
-                .contains(_searchQuery.toLowerCase()) ??
-            false;
+    if (searchQuery.isNotEmpty) {
+      result = result.where((t) {
+        final titleMatch = t.title.toLowerCase().contains(searchQuery.toLowerCase());
+        final descMatch = t.description?.toLowerCase().contains(searchQuery.toLowerCase()) ?? false;
         return titleMatch || descMatch;
       }).toList();
     }
 
-    // Apply dynamic filter based on current sort option
-    tasks = _applyDynamicFilter(tasks);
+    // Apply dynamic filter based on sort option
+    result = _applyDynamicFilter(
+      result,
+      sortOption: sortOption,
+      priorityFilter: priorityFilter,
+      dueDateFilter: dueDateFilter,
+      createdDateFilter: createdDateFilter,
+      selectedLabelId: selectedLabelId,
+      selectedProjectIdForFilter: selectedProjectIdForFilter,
+    );
 
     // Apply sorting
-    return _sortTasks(tasks);
+    return _sortTasks(result, sortOption, projects);
   }
 
   /// Apply filter based on current sort option
-  List<TaskEntity> _applyDynamicFilter(List<TaskEntity> tasks) {
-    switch (_sortOption) {
+  List<TaskEntity> _applyDynamicFilter(
+    List<TaskEntity> tasks, {
+    required TaskSortOption sortOption,
+    required PriorityFilter priorityFilter,
+    required DueDateFilter dueDateFilter,
+    required CreatedDateFilter createdDateFilter,
+    required String? selectedLabelId,
+    required String? selectedProjectIdForFilter,
+  }) {
+    switch (sortOption) {
       case TaskSortOption.priority:
-        if (_priorityFilter != PriorityFilter.all) {
-          tasks = tasks.where((t) => t.priority == _priorityFilter.value).toList();
+        if (priorityFilter != PriorityFilter.all) {
+          tasks = tasks.where((t) => t.priority == priorityFilter.value).toList();
         }
         break;
 
       case TaskSortOption.dueDate:
-        tasks = _applyDueDateFilter(tasks);
+        tasks = _applyDueDateFilter(tasks, dueDateFilter);
         break;
 
       case TaskSortOption.createdDate:
-        tasks = _applyCreatedDateFilter(tasks);
+        tasks = _applyCreatedDateFilter(tasks, createdDateFilter);
         break;
 
       case TaskSortOption.byLabel:
-        if (_selectedLabelId != null) {
-          tasks = tasks.where((t) =>
-            t.labels.any((l) => l.id == _selectedLabelId)
-          ).toList();
+        if (selectedLabelId != null) {
+          tasks = tasks.where((t) => t.labels.any((l) => l.id == selectedLabelId)).toList();
         }
         break;
 
       case TaskSortOption.byProject:
-        if (_selectedProjectId != null) {
-          tasks = tasks.where((t) => t.projectId == _selectedProjectId).toList();
+        if (selectedProjectIdForFilter != null) {
+          tasks = tasks.where((t) => t.projectId == selectedProjectIdForFilter).toList();
         }
         break;
     }
@@ -155,14 +193,14 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
   }
 
   /// Apply due date filter
-  List<TaskEntity> _applyDueDateFilter(List<TaskEntity> tasks) {
-    if (_dueDateFilter == DueDateFilter.all) return tasks;
+  List<TaskEntity> _applyDueDateFilter(List<TaskEntity> tasks, DueDateFilter filter) {
+    if (filter == DueDateFilter.all) return tasks;
 
     final ranges = _getDateRanges();
 
     return tasks.where((t) {
       final date = t.dueDate;
-      switch (_dueDateFilter) {
+      switch (filter) {
         case DueDateFilter.all:
           return true;
         case DueDateFilter.today:
@@ -184,14 +222,14 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
   }
 
   /// Apply created date filter
-  List<TaskEntity> _applyCreatedDateFilter(List<TaskEntity> tasks) {
-    if (_createdDateFilter == CreatedDateFilter.all) return tasks;
+  List<TaskEntity> _applyCreatedDateFilter(List<TaskEntity> tasks, CreatedDateFilter filter) {
+    if (filter == CreatedDateFilter.all) return tasks;
 
     final ranges = _getDateRanges();
 
     return tasks.where((t) {
       final date = t.createdAt;
-      switch (_createdDateFilter) {
+      switch (filter) {
         case CreatedDateFilter.all:
           return true;
         case CreatedDateFilter.today:
@@ -232,7 +270,7 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
     return (
       today: today,
       yesterday: today.subtract(const Duration(days: 1)),
-      last7Days: today.subtract(const Duration(days: 6)), // 7 days including today
+      last7Days: today.subtract(const Duration(days: 6)),
       thisWeekStart: thisWeekStart,
       thisWeekEnd: thisWeekEnd,
       thisMonthStart: thisMonthStart,
@@ -251,41 +289,14 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
   bool _isSameDay(DateTime a, DateTime b) =>
       a.year == b.year && a.month == b.month && a.day == b.day;
 
-  /// Check if any filter is active (non-"All")
-  bool get _hasActiveFilter {
-    switch (_sortOption) {
-      case TaskSortOption.priority:
-        return _priorityFilter != PriorityFilter.all;
-      case TaskSortOption.dueDate:
-        return _dueDateFilter != DueDateFilter.all;
-      case TaskSortOption.createdDate:
-        return _createdDateFilter != CreatedDateFilter.all;
-      case TaskSortOption.byLabel:
-        return _selectedLabelId != null;
-      case TaskSortOption.byProject:
-        return _selectedProjectId != null;
-    }
-  }
-
-  /// Reset all filters to default
-  void _resetFilters() {
-    _priorityFilter = PriorityFilter.all;
-    _dueDateFilter = DueDateFilter.all;
-    _createdDateFilter = CreatedDateFilter.all;
-    _selectedLabelId = null;
-    _selectedProjectId = null;
-  }
-
-  List<TaskEntity> _sortTasks(List<TaskEntity> tasks) {
+  List<TaskEntity> _sortTasks(List<TaskEntity> tasks, TaskSortOption sortOption, List<ProjectEntity> projects) {
     final sorted = List<TaskEntity>.from(tasks);
 
-    switch (_sortOption) {
+    switch (sortOption) {
       case TaskSortOption.priority:
         sorted.sort((a, b) {
-          // Priority first (lower number = higher priority)
           final priorityCompare = a.priority.compareTo(b.priority);
           if (priorityCompare != 0) return priorityCompare;
-          // Then due date (nulls last)
           if (a.dueDate != null && b.dueDate != null) {
             return a.dueDate!.compareTo(b.dueDate!);
           }
@@ -297,13 +308,11 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
 
       case TaskSortOption.dueDate:
         sorted.sort((a, b) {
-          // Due date (nulls last)
           if (a.dueDate != null && b.dueDate != null) {
             return a.dueDate!.compareTo(b.dueDate!);
           }
           if (a.dueDate != null) return -1;
           if (b.dueDate != null) return 1;
-          // Then priority
           return a.priority.compareTo(b.priority);
         });
         break;
@@ -314,10 +323,8 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
 
       case TaskSortOption.byLabel:
         sorted.sort((a, b) {
-          // Tasks with labels first
           if (a.hasLabels && !b.hasLabels) return -1;
           if (!a.hasLabels && b.hasLabels) return 1;
-          // Then by first label name alphabetically
           if (a.hasLabels && b.hasLabels) {
             return a.labels.first.name.compareTo(b.labels.first.name);
           }
@@ -327,13 +334,11 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
 
       case TaskSortOption.byProject:
         sorted.sort((a, b) {
-          final projectA = _getProjectForTask(a);
-          final projectB = _getProjectForTask(b);
-          // Tasks with projects first
+          final projectA = _getProjectForTask(a, projects);
+          final projectB = _getProjectForTask(b, projects);
           if (projectA != null && projectB == null) return -1;
           if (projectA == null && projectB != null) return 1;
           if (projectA == null && projectB == null) return 0;
-          // Then by project name alphabetically
           return projectA!.name.compareTo(projectB!.name);
         });
         break;
@@ -342,59 +347,9 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
     return sorted;
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final activeTasks = _filteredTasks.where((t) => !t.isCompleted).toList();
-
-    return Row(
-      children: [
-        Expanded(
-          child: Column(
-            children: [
-              _buildHeader(context, activeTasks.length),
-              _buildFilters(context),
-              Expanded(
-                child: TaskListWidget(
-                  tasks: activeTasks,
-                  projects: widget.projects,
-                  emptyMessage: 'No tasks found',
-                  preserveOrder: true,
-                  onTaskTap: _selectTask,
-                  onTaskComplete: widget.onTaskComplete,
-                ),
-              ),
-            ],
-          ),
-        ),
-
-        // Detail panel
-        if (_selectedTask != null)
-          TaskDetail(
-            task: _selectedTask!,
-            project: _getProjectForTask(_selectedTask!),
-            projects: widget.projects,
-            onClose: () => setState(() => _selectedTask = null),
-            onUpdate: (task) {
-              widget.onTaskUpdate?.call(task);
-              setState(() => _selectedTask = task);
-            },
-            onDelete: (task) {
-              widget.onTaskDelete?.call(task);
-              setState(() => _selectedTask = null);
-            },
-            onComplete: (task) {
-              widget.onTaskComplete?.call(task);
-              setState(() => _selectedTask = null);
-            },
-          ),
-      ],
-    );
-  }
-
-  Widget _buildHeader(BuildContext context, int taskCount) {
-    // Get selected project name if a project is selected
-    final selectedProject = widget.selectedProjectId != null
-        ? widget.projects.where((p) => p.id == widget.selectedProjectId).firstOrNull
+  Widget _buildHeader(BuildContext context, WidgetRef ref, int taskCount) {
+    final selectedProject = selectedProjectId != null
+        ? projects.where((p) => p.id == selectedProjectId).firstOrNull
         : null;
     final headerTitle = selectedProject?.name ?? 'Tasks';
 
@@ -441,11 +396,12 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
     );
   }
 
-  Widget _buildFilters(BuildContext context) {
-    final hasActiveFilters = _searchQuery.isNotEmpty || _hasActiveFilter;
+  Widget _buildFilters(BuildContext context, WidgetRef ref) {
+    final searchQuery = ref.watch(tasksSearchQueryProvider);
+    final sortOption = ref.watch(tasksSortOptionProvider);
+    final hasActiveFilters = searchQuery.isNotEmpty || _hasActiveFilter(ref, sortOption);
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    // Theme-aware colors for filter controls - white with border for active look
     final filterBg = isDark ? AppTheme.gray800 : Colors.white;
     final filterBorder = isDark ? AppTheme.gray600 : AppTheme.gray300;
     final textColor = isDark ? AppTheme.gray200 : AppTheme.gray900;
@@ -465,23 +421,11 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
                 borderRadius: BorderRadius.circular(8),
                 border: Border.all(color: filterBorder),
               ),
-              child: TextField(
-                onChanged: (value) => setState(() => _searchQuery = value),
-                style: TextStyle(fontSize: 13, color: textColor),
-                decoration: InputDecoration(
-                  hintText: 'Search...',
-                  hintStyle: TextStyle(fontSize: 13, color: isDark ? AppTheme.gray400 : AppTheme.gray500),
-                  prefixIcon: Padding(
-                    padding: const EdgeInsets.only(left: 10, right: 8),
-                    child: Icon(LucideIcons.search, size: 16, color: isDark ? AppTheme.gray400 : AppTheme.gray500),
-                  ),
-                  prefixIconConstraints: const BoxConstraints(minWidth: 36),
-                  isDense: true,
-                  border: InputBorder.none,
-                  enabledBorder: InputBorder.none,
-                  focusedBorder: InputBorder.none,
-                  contentPadding: const EdgeInsets.symmetric(vertical: 10),
-                ),
+              child: _SearchField(
+                initialValue: searchQuery,
+                onChanged: (value) => ref.read(tasksSearchQueryProvider.notifier).state = value,
+                textColor: textColor,
+                isDark: isDark,
               ),
             ),
           ),
@@ -497,7 +441,7 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
             ),
           ),
           const SizedBox(width: 6),
-          _buildSortDropdown(context),
+          _buildSortDropdown(context, ref),
 
           const SizedBox(width: 12),
 
@@ -511,40 +455,67 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
             ),
           ),
           const SizedBox(width: 6),
-          _buildDynamicFilter(context),
+          _buildDynamicFilter(context, ref),
 
           // Clear filters button
           if (hasActiveFilters) ...[
             const SizedBox(width: 8),
-            _buildClearFiltersButton(isDark),
+            _buildClearFiltersButton(context, ref, isDark),
           ],
         ],
       ),
     );
   }
 
-  /// Build the appropriate filter dropdown based on current sort option
-  Widget _buildDynamicFilter(BuildContext context) {
-    switch (_sortOption) {
+  /// Check if any filter is active (non-"All")
+  bool _hasActiveFilter(WidgetRef ref, TaskSortOption sortOption) {
+    switch (sortOption) {
       case TaskSortOption.priority:
-        return _buildPriorityFilterDropdown(context);
+        return ref.read(tasksPriorityFilterProvider) != PriorityFilter.all;
       case TaskSortOption.dueDate:
-        return _buildDueDateFilterDropdown(context);
+        return ref.read(tasksDueDateFilterProvider) != DueDateFilter.all;
       case TaskSortOption.createdDate:
-        return _buildCreatedDateFilterDropdown(context);
+        return ref.read(tasksCreatedDateFilterProvider) != CreatedDateFilter.all;
       case TaskSortOption.byLabel:
-        return _buildLabelFilterDropdown(context);
+        return ref.read(tasksSelectedLabelIdProvider) != null;
       case TaskSortOption.byProject:
-        return _buildProjectFilterDropdown(context);
+        return ref.read(tasksSelectedProjectIdForFilterProvider) != null;
+    }
+  }
+
+  /// Reset all filters to default
+  void _resetFilters(WidgetRef ref) {
+    ref.read(tasksPriorityFilterProvider.notifier).state = PriorityFilter.all;
+    ref.read(tasksDueDateFilterProvider.notifier).state = DueDateFilter.all;
+    ref.read(tasksCreatedDateFilterProvider.notifier).state = CreatedDateFilter.all;
+    ref.read(tasksSelectedLabelIdProvider.notifier).state = null;
+    ref.read(tasksSelectedProjectIdForFilterProvider.notifier).state = null;
+  }
+
+  /// Build the appropriate filter dropdown based on current sort option
+  Widget _buildDynamicFilter(BuildContext context, WidgetRef ref) {
+    final sortOption = ref.watch(tasksSortOptionProvider);
+    switch (sortOption) {
+      case TaskSortOption.priority:
+        return _buildPriorityFilterDropdown(context, ref);
+      case TaskSortOption.dueDate:
+        return _buildDueDateFilterDropdown(context, ref);
+      case TaskSortOption.createdDate:
+        return _buildCreatedDateFilterDropdown(context, ref);
+      case TaskSortOption.byLabel:
+        return _buildLabelFilterDropdown(context, ref);
+      case TaskSortOption.byProject:
+        return _buildProjectFilterDropdown(context, ref);
     }
   }
 
   /// Priority filter dropdown
-  Widget _buildPriorityFilterDropdown(BuildContext context) {
-    final isActive = _priorityFilter != PriorityFilter.all;
+  Widget _buildPriorityFilterDropdown(BuildContext context, WidgetRef ref) {
+    final priorityFilter = ref.watch(tasksPriorityFilterProvider);
+    final isActive = priorityFilter != PriorityFilter.all;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final priorityColor = _priorityFilter.value != null
-        ? AppTheme.priorityColors[_priorityFilter.value] ?? AppTheme.gray500
+    final priorityColor = priorityFilter.value != null
+        ? AppTheme.priorityColors[priorityFilter.value] ?? AppTheme.gray500
         : AppTheme.gray500;
 
     final filterBg = isDark ? AppTheme.gray800 : Colors.white;
@@ -561,7 +532,7 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
         ),
       ),
       child: DropdownButton<PriorityFilter>(
-        value: _priorityFilter,
+        value: priorityFilter,
         selectedItemBuilder: (_) => PriorityFilter.values.map((filter) {
           if (filter == PriorityFilter.all) {
             return Row(
@@ -589,7 +560,7 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
                 filter.label,
                 style: TextStyle(
                   fontSize: 13,
-                  color: isActive && _priorityFilter == filter
+                  color: isActive && priorityFilter == filter
                       ? AppTheme.priorityColors[filter.value]
                       : isDark ? AppTheme.gray300 : AppTheme.gray700,
                 ),
@@ -628,7 +599,7 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
             ),
           );
         }).toList(),
-        onChanged: (value) => setState(() => _priorityFilter = value ?? PriorityFilter.all),
+        onChanged: (value) => ref.read(tasksPriorityFilterProvider.notifier).state = value ?? PriorityFilter.all,
         underline: const SizedBox.shrink(),
         isDense: true,
         icon: Icon(LucideIcons.chevronDown, size: 14, color: isActive ? priorityColor : AppTheme.gray400),
@@ -637,8 +608,9 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
   }
 
   /// Due date filter dropdown
-  Widget _buildDueDateFilterDropdown(BuildContext context) {
-    final isActive = _dueDateFilter != DueDateFilter.all;
+  Widget _buildDueDateFilterDropdown(BuildContext context, WidgetRef ref) {
+    final dueDateFilter = ref.watch(tasksDueDateFilterProvider);
+    final isActive = dueDateFilter != DueDateFilter.all;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final activeColor = AppTheme.primaryBlue;
 
@@ -656,7 +628,7 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
         ),
       ),
       child: DropdownButton<DueDateFilter>(
-        value: _dueDateFilter,
+        value: dueDateFilter,
         selectedItemBuilder: (_) => DueDateFilter.values.map((filter) {
           return Row(
             mainAxisSize: MainAxisSize.min,
@@ -689,7 +661,7 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
             ),
           );
         }).toList(),
-        onChanged: (value) => setState(() => _dueDateFilter = value ?? DueDateFilter.all),
+        onChanged: (value) => ref.read(tasksDueDateFilterProvider.notifier).state = value ?? DueDateFilter.all,
         underline: const SizedBox.shrink(),
         isDense: true,
         icon: Icon(LucideIcons.chevronDown, size: 14, color: isActive ? activeColor : AppTheme.gray400),
@@ -698,8 +670,9 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
   }
 
   /// Created date filter dropdown
-  Widget _buildCreatedDateFilterDropdown(BuildContext context) {
-    final isActive = _createdDateFilter != CreatedDateFilter.all;
+  Widget _buildCreatedDateFilterDropdown(BuildContext context, WidgetRef ref) {
+    final createdDateFilter = ref.watch(tasksCreatedDateFilterProvider);
+    final isActive = createdDateFilter != CreatedDateFilter.all;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final activeColor = AppTheme.primaryBlue;
 
@@ -717,7 +690,7 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
         ),
       ),
       child: DropdownButton<CreatedDateFilter>(
-        value: _createdDateFilter,
+        value: createdDateFilter,
         selectedItemBuilder: (_) => CreatedDateFilter.values.map((filter) {
           return Row(
             mainAxisSize: MainAxisSize.min,
@@ -750,7 +723,7 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
             ),
           );
         }).toList(),
-        onChanged: (value) => setState(() => _createdDateFilter = value ?? CreatedDateFilter.all),
+        onChanged: (value) => ref.read(tasksCreatedDateFilterProvider.notifier).state = value ?? CreatedDateFilter.all,
         underline: const SizedBox.shrink(),
         isDense: true,
         icon: Icon(LucideIcons.chevronDown, size: 14, color: isActive ? activeColor : AppTheme.gray400),
@@ -759,13 +732,14 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
   }
 
   /// Label filter dropdown - dynamically built from task labels
-  Widget _buildLabelFilterDropdown(BuildContext context) {
-    final isActive = _selectedLabelId != null;
+  Widget _buildLabelFilterDropdown(BuildContext context, WidgetRef ref) {
+    final selectedLabelId = ref.watch(tasksSelectedLabelIdProvider);
+    final isActive = selectedLabelId != null;
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     // Extract unique labels from tasks
     final labelsMap = <String, ({String id, String name, String color})>{};
-    for (final task in widget.tasks) {
+    for (final task in tasks) {
       for (final label in task.labels) {
         labelsMap[label.id] = (id: label.id, name: label.name, color: label.color);
       }
@@ -773,7 +747,7 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
     final labels = labelsMap.values.toList()..sort((a, b) => a.name.compareTo(b.name));
 
     // Find selected label for color
-    final selectedLabel = labels.where((l) => l.id == _selectedLabelId).firstOrNull;
+    final selectedLabel = labels.where((l) => l.id == selectedLabelId).firstOrNull;
     final labelColor = selectedLabel != null ? _parseColor(selectedLabel.color) : AppTheme.gray500;
 
     final filterBg = isDark ? AppTheme.gray800 : Colors.white;
@@ -790,7 +764,7 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
         ),
       ),
       child: DropdownButton<String?>(
-        value: _selectedLabelId,
+        value: selectedLabelId,
         selectedItemBuilder: (_) => [
           // All option
           Row(
@@ -818,7 +792,7 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
                 label.name,
                 style: TextStyle(
                   fontSize: 13,
-                  color: isActive && _selectedLabelId == label.id
+                  color: isActive && selectedLabelId == label.id
                       ? labelColor
                       : isDark ? AppTheme.gray300 : AppTheme.gray700,
                 ),
@@ -862,7 +836,7 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
             ),
           )),
         ],
-        onChanged: (value) => setState(() => _selectedLabelId = value),
+        onChanged: (value) => ref.read(tasksSelectedLabelIdProvider.notifier).state = value,
         underline: const SizedBox.shrink(),
         isDense: true,
         icon: Icon(LucideIcons.chevronDown, size: 14, color: isActive ? labelColor : AppTheme.gray400),
@@ -871,24 +845,25 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
   }
 
   /// Project filter dropdown - dynamically built from available projects
-  Widget _buildProjectFilterDropdown(BuildContext context) {
-    final isActive = _selectedProjectId != null;
+  Widget _buildProjectFilterDropdown(BuildContext context, WidgetRef ref) {
+    final selectedProjectIdForFilter = ref.watch(tasksSelectedProjectIdForFilterProvider);
+    final isActive = selectedProjectIdForFilter != null;
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     // Get projects that have tasks
     final projectsWithTasks = <String, ProjectEntity>{};
-    for (final task in widget.tasks) {
+    for (final task in tasks) {
       if (task.projectId != null) {
-        final project = _getProjectForTask(task);
+        final project = _getProjectForTask(task, projects);
         if (project != null) {
           projectsWithTasks[project.id] = project;
         }
       }
     }
-    final projects = projectsWithTasks.values.toList()..sort((a, b) => a.name.compareTo(b.name));
+    final availableProjects = projectsWithTasks.values.toList()..sort((a, b) => a.name.compareTo(b.name));
 
     // Find selected project for color
-    final selectedProject = projects.where((p) => p.id == _selectedProjectId).firstOrNull;
+    final selectedProject = availableProjects.where((p) => p.id == selectedProjectIdForFilter).firstOrNull;
     final projectColor = selectedProject != null ? _parseColor(selectedProject.color) : AppTheme.gray500;
 
     final filterBg = isDark ? AppTheme.gray800 : Colors.white;
@@ -905,7 +880,7 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
         ),
       ),
       child: DropdownButton<String?>(
-        value: _selectedProjectId,
+        value: selectedProjectIdForFilter,
         selectedItemBuilder: (_) => [
           // All option
           Row(
@@ -917,7 +892,7 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
             ],
           ),
           // Project options
-          ...projects.map((project) => Row(
+          ...availableProjects.map((project) => Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               Container(
@@ -933,7 +908,7 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
                 project.name,
                 style: TextStyle(
                   fontSize: 13,
-                  color: isActive && _selectedProjectId == project.id
+                  color: isActive && selectedProjectIdForFilter == project.id
                       ? projectColor
                       : isDark ? AppTheme.gray300 : AppTheme.gray700,
                 ),
@@ -953,7 +928,7 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
               ],
             ),
           ),
-          ...projects.map((project) => DropdownMenuItem(
+          ...availableProjects.map((project) => DropdownMenuItem(
             value: project.id,
             child: Row(
               children: [
@@ -977,7 +952,7 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
             ),
           )),
         ],
-        onChanged: (value) => setState(() => _selectedProjectId = value),
+        onChanged: (value) => ref.read(tasksSelectedProjectIdForFilterProvider.notifier).state = value,
         underline: const SizedBox.shrink(),
         isDense: true,
         icon: Icon(LucideIcons.chevronDown, size: 14, color: isActive ? projectColor : AppTheme.gray400),
@@ -997,12 +972,12 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
     return AppTheme.gray500;
   }
 
-  Widget _buildClearFiltersButton(bool isDark) {
+  Widget _buildClearFiltersButton(BuildContext context, WidgetRef ref, bool isDark) {
     return InkWell(
-      onTap: () => setState(() {
-        _searchQuery = '';
-        _resetFilters();
-      }),
+      onTap: () {
+        ref.read(tasksSearchQueryProvider.notifier).state = '';
+        _resetFilters(ref);
+      },
       borderRadius: BorderRadius.circular(6),
       child: Container(
         height: 36,
@@ -1030,7 +1005,8 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
     );
   }
 
-  Widget _buildSortDropdown(BuildContext context) {
+  Widget _buildSortDropdown(BuildContext context, WidgetRef ref) {
+    final sortOption = ref.watch(tasksSortOptionProvider);
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final filterBg = isDark ? AppTheme.gray800 : Colors.white;
     final filterBorder = isDark ? AppTheme.gray600 : AppTheme.gray300;
@@ -1044,7 +1020,7 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
         border: Border.all(color: filterBorder),
       ),
       child: DropdownButton<TaskSortOption>(
-        value: _sortOption,
+        value: sortOption,
         selectedItemBuilder: (_) => TaskSortOption.values.map((option) {
           return Row(
             mainAxisSize: MainAxisSize.min,
@@ -1069,11 +1045,9 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
           );
         }).toList(),
         onChanged: (value) {
-          if (value != null && value != _sortOption) {
-            setState(() {
-              _sortOption = value;
-              _resetFilters(); // Auto-reset filter when sort changes
-            });
+          if (value != null && value != sortOption) {
+            ref.read(tasksSortOptionProvider.notifier).state = value;
+            _resetFilters(ref); // Auto-reset filter when sort changes
           }
         },
         underline: const SizedBox.shrink(),
@@ -1083,18 +1057,80 @@ class _TasksWithTabsState extends State<TasksWithTabs> {
     );
   }
 
-  void _selectTask(TaskEntity task) {
-    setState(() => _selectedTask = task);
-  }
-
-  ProjectEntity? _getProjectForTask(TaskEntity task) {
+  static ProjectEntity? _getProjectForTask(TaskEntity task, List<ProjectEntity> projects) {
     if (task.projectId == null) return null;
     try {
-      return widget.projects.firstWhere(
+      return projects.firstWhere(
         (p) => p.id == task.projectId || p.id == 'todoist_${task.projectId}',
       );
     } catch (_) {
       return null;
     }
+  }
+}
+
+/// Stateful search field to preserve text input across widget rebuilds
+class _SearchField extends StatefulWidget {
+  final String initialValue;
+  final ValueChanged<String> onChanged;
+  final Color textColor;
+  final bool isDark;
+
+  const _SearchField({
+    required this.initialValue,
+    required this.onChanged,
+    required this.textColor,
+    required this.isDark,
+  });
+
+  @override
+  State<_SearchField> createState() => _SearchFieldState();
+}
+
+class _SearchFieldState extends State<_SearchField> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialValue);
+  }
+
+  @override
+  void didUpdateWidget(covariant _SearchField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Sync controller with provider state if cleared externally
+    if (widget.initialValue.isEmpty && _controller.text.isNotEmpty) {
+      _controller.clear();
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      controller: _controller,
+      onChanged: widget.onChanged,
+      style: TextStyle(fontSize: 13, color: widget.textColor),
+      decoration: InputDecoration(
+        hintText: 'Search...',
+        hintStyle: TextStyle(fontSize: 13, color: widget.isDark ? AppTheme.gray400 : AppTheme.gray500),
+        prefixIcon: Padding(
+          padding: const EdgeInsets.only(left: 10, right: 8),
+          child: Icon(LucideIcons.search, size: 16, color: widget.isDark ? AppTheme.gray400 : AppTheme.gray500),
+        ),
+        prefixIconConstraints: const BoxConstraints(minWidth: 36),
+        isDense: true,
+        border: InputBorder.none,
+        enabledBorder: InputBorder.none,
+        focusedBorder: InputBorder.none,
+        contentPadding: const EdgeInsets.symmetric(vertical: 10),
+      ),
+    );
   }
 }

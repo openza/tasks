@@ -6,23 +6,18 @@ import '../../../app/app_theme.dart';
 import '../../../domain/entities/task.dart';
 import '../../providers/task_provider.dart';
 import '../../providers/repository_provider.dart';
+import '../../providers/selected_project_provider.dart';
 import '../../widgets/tasks/task_list.dart';
 import '../../widgets/tasks/task_detail.dart';
 
-class OverdueScreen extends ConsumerStatefulWidget {
+class OverdueScreen extends ConsumerWidget {
   const OverdueScreen({super.key});
 
   @override
-  ConsumerState<OverdueScreen> createState() => _OverdueScreenState();
-}
-
-class _OverdueScreenState extends ConsumerState<OverdueScreen> {
-  TaskEntity? _selectedTask;
-
-  @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final overdueTasksAsync = ref.watch(overdueTasksProvider);
     final unifiedDataAsync = ref.watch(unifiedDataProvider);
+    final selectedTask = ref.watch(selectedTaskProvider);
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Container(
@@ -99,10 +94,11 @@ class _OverdueScreenState extends ConsumerState<OverdueScreen> {
                                 projects: data.projects,
                                 filter: TaskFilter.overdue,
                                 emptyMessage: 'No overdue tasks - great job!',
+                                selectedTaskId: selectedTask?.id,
                                 onTaskTap:
                                     (task) =>
-                                        setState(() => _selectedTask = task),
-                                onTaskComplete: _completeTask,
+                                        ref.read(selectedTaskIdProvider.notifier).state = task.id,
+                                onTaskComplete: (task) => _completeTask(ref, task),
                               ),
                           loading:
                               () => const Center(
@@ -120,15 +116,15 @@ class _OverdueScreenState extends ConsumerState<OverdueScreen> {
           ),
 
           // Detail panel
-          if (_selectedTask != null)
+          if (selectedTask != null)
             unifiedDataAsync.when(
               skipLoadingOnRefresh: true,
               data:
                   (data) => TaskDetail(
-                    task: _selectedTask!,
-                    project: _getProjectForTask(_selectedTask!, data.projects),
-                    onClose: () => setState(() => _selectedTask = null),
-                    onComplete: _completeTask,
+                    task: selectedTask,
+                    project: _getProjectForTask(selectedTask, data.projects),
+                    onClose: () => ref.read(selectedTaskIdProvider.notifier).state = null,
+                    onComplete: (task) => _completeTask(ref, task),
                   ),
               loading: () => const SizedBox.shrink(),
               error: (_, __) => const SizedBox.shrink(),
@@ -138,13 +134,14 @@ class _OverdueScreenState extends ConsumerState<OverdueScreen> {
     );
   }
 
-  Future<void> _completeTask(TaskEntity task) async {
+  Future<void> _completeTask(WidgetRef ref, TaskEntity task) async {
     final repository = await ref.read(taskRepositoryProvider.future);
     await repository.completeTask(task);
-    ref.invalidate(unifiedDataProvider);
-    ref.invalidate(overdueTasksProvider);
-    if (_selectedTask?.id == task.id) {
-      setState(() => _selectedTask = null);
+    ref.refresh(unifiedDataProvider);
+    ref.refresh(overdueTasksProvider);
+    final selectedTaskId = ref.read(selectedTaskIdProvider);
+    if (selectedTaskId == task.id) {
+      ref.read(selectedTaskIdProvider.notifier).state = null;
     }
   }
 

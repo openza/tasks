@@ -170,21 +170,20 @@ class SyncNotifier extends StateNotifier<SyncState> {
       }
 
       if (summary.success) {
-        // Refresh local providers - invalidate and wait for each to complete
-        // This ensures the dependency chain properly rebuilds
-        _ref.invalidate(localTasksProvider);
-        _ref.invalidate(localProjectsProvider);
-        _ref.invalidate(localLabelsProvider);
+        // Refresh local providers in background - keeps old data visible until new data ready
+        _ref.refresh(localTasksProvider);
+        _ref.refresh(localProjectsProvider);
+        _ref.refresh(localLabelsProvider);
 
-        // Force base providers to rebuild by reading them
+        // Wait for base providers to complete
         await Future.wait([
           _ref.read(localTasksProvider.future),
           _ref.read(localProjectsProvider.future),
           _ref.read(localLabelsProvider.future),
         ]);
 
-        // Now invalidate and rebuild unified provider with fresh base data
-        _ref.invalidate(unifiedDataProvider);
+        // Refresh unified provider with fresh base data
+        _ref.refresh(unifiedDataProvider);
         await _ref.read(unifiedDataProvider.future);
 
         state = state.copyWith(
@@ -261,20 +260,20 @@ class SyncNotifier extends StateNotifier<SyncState> {
       );
 
       if (summary.success) {
-        // Refresh local providers - invalidate and wait for each to complete
-        _ref.invalidate(localTasksProvider);
-        _ref.invalidate(localProjectsProvider);
-        _ref.invalidate(localLabelsProvider);
+        // Refresh local providers in background - keeps old data visible until new data ready
+        _ref.refresh(localTasksProvider);
+        _ref.refresh(localProjectsProvider);
+        _ref.refresh(localLabelsProvider);
 
-        // Force base providers to rebuild by reading them
+        // Wait for base providers to complete
         await Future.wait([
           _ref.read(localTasksProvider.future),
           _ref.read(localProjectsProvider.future),
           _ref.read(localLabelsProvider.future),
         ]);
 
-        // Now invalidate and rebuild unified provider with fresh base data
-        _ref.invalidate(unifiedDataProvider);
+        // Refresh unified provider with fresh base data
+        _ref.refresh(unifiedDataProvider);
         await _ref.read(unifiedDataProvider.future);
 
         state = state.copyWith(

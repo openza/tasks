@@ -5,6 +5,7 @@ import 'package:lucide_icons/lucide_icons.dart';
 import '../../../app/app_theme.dart';
 import '../../../domain/entities/label.dart';
 import '../../providers/repository_provider.dart';
+import '../../providers/selected_project_provider.dart';
 import '../../providers/task_provider.dart';
 import '../../widgets/badges/label_badge.dart';
 import '../../widgets/tasks/task_list.dart';
@@ -19,7 +20,7 @@ class NextActionsScreen extends ConsumerStatefulWidget {
 }
 
 class _NextActionsScreenState extends ConsumerState<NextActionsScreen> {
-  TaskEntity? _selectedTask;
+  // Label filtering is screen-specific, so keep as local state
   final Set<String> _selectedLabels = {};
 
   /// Get unique labels from tasks with counts
@@ -67,6 +68,7 @@ class _NextActionsScreenState extends ConsumerState<NextActionsScreen> {
   Widget build(BuildContext context) {
     final labeledTasksAsync = ref.watch(labeledTasksProvider);
     final unifiedDataAsync = ref.watch(unifiedDataProvider);
+    final selectedTask = ref.watch(selectedTaskProvider);
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Container(
@@ -158,9 +160,9 @@ class _NextActionsScreenState extends ConsumerState<NextActionsScreen> {
                                       : 'No labeled tasks found',
                               onTaskTap:
                                   (task) =>
-                                      setState(() => _selectedTask = task),
+                                      ref.read(selectedTaskIdProvider.notifier).state = task.id,
                               onTaskComplete: _completeTask,
-                              selectedTaskId: _selectedTask?.id,
+                              selectedTaskId: selectedTask?.id,
                             ),
                         loading:
                             () => const Center(
@@ -179,14 +181,14 @@ class _NextActionsScreenState extends ConsumerState<NextActionsScreen> {
           ),
 
           // Detail panel
-          if (_selectedTask != null)
+          if (selectedTask != null)
             unifiedDataAsync.when(
               skipLoadingOnRefresh: true,
               data:
                   (data) => TaskDetail(
-                    task: _selectedTask!,
-                    project: _getProjectForTask(_selectedTask!, data.projects),
-                    onClose: () => setState(() => _selectedTask = null),
+                    task: selectedTask,
+                    project: _getProjectForTask(selectedTask, data.projects),
+                    onClose: () => ref.read(selectedTaskIdProvider.notifier).state = null,
                     onComplete: _completeTask,
                   ),
               loading: () => const SizedBox.shrink(),
@@ -276,11 +278,12 @@ class _NextActionsScreenState extends ConsumerState<NextActionsScreen> {
   Future<void> _completeTask(TaskEntity task) async {
     final repository = await ref.read(taskRepositoryProvider.future);
     await repository.completeTask(task);
-    ref.invalidate(localTasksProvider);
-    ref.invalidate(unifiedDataProvider);
-    ref.invalidate(labeledTasksProvider);
-    if (_selectedTask?.id == task.id) {
-      setState(() => _selectedTask = null);
+    ref.refresh(localTasksProvider);
+    ref.refresh(unifiedDataProvider);
+    ref.refresh(labeledTasksProvider);
+    final selectedTaskId = ref.read(selectedTaskIdProvider);
+    if (selectedTaskId == task.id) {
+      ref.read(selectedTaskIdProvider.notifier).state = null;
     }
   }
 

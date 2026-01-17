@@ -317,9 +317,9 @@ class _ProjectsPaneState extends ConsumerState<ProjectsPane> {
         ),
       );
 
-      // Refresh the data - invalidate both providers to ensure cache is cleared
-      ref.invalidate(localProjectsProvider);
-      ref.invalidate(unifiedDataProvider);
+      // Refresh the data for smooth background update
+      ref.refresh(localProjectsProvider);
+      ref.refresh(unifiedDataProvider);
 
       if (mounted) {
         toastification.show(
@@ -391,10 +391,10 @@ class _ProjectsPaneState extends ConsumerState<ProjectsPane> {
         ref.read(selectedProjectIdProvider.notifier).state = null;
       }
 
-      // Refresh the data - invalidate both providers to ensure cache is cleared
-      ref.invalidate(localProjectsProvider);
-      ref.invalidate(localTasksProvider); // Tasks may have been moved/deleted
-      ref.invalidate(unifiedDataProvider);
+      // Refresh the data for smooth background update
+      ref.refresh(localProjectsProvider);
+      ref.refresh(localTasksProvider); // Tasks may have been moved/deleted
+      ref.refresh(unifiedDataProvider);
 
       if (mounted) {
         toastification.show(

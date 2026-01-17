@@ -73,22 +73,25 @@ class TasksScreen extends ConsumerWidget {
   Future<void> _completeTask(WidgetRef ref, TaskEntity task) async {
     final repository = await ref.read(taskRepositoryProvider.future);
     await repository.completeTask(task);
-    ref.invalidate(localTasksProvider);
-    ref.invalidate(unifiedDataProvider);
+    // Use refresh instead of invalidate for smooth background updates
+    ref.refresh(localTasksProvider);
+    ref.refresh(unifiedDataProvider);
   }
 
   Future<void> _updateTask(WidgetRef ref, TaskEntity task) async {
     final repository = await ref.read(taskRepositoryProvider.future);
     await repository.updateTask(task);
-    ref.invalidate(localTasksProvider);
-    ref.invalidate(localLabelsProvider);
-    ref.invalidate(unifiedDataProvider);
+    // Use refresh instead of invalidate for smooth background updates
+    ref.refresh(localTasksProvider);
+    ref.refresh(localLabelsProvider);
+    ref.refresh(unifiedDataProvider);
   }
 
   Future<void> _deleteTask(WidgetRef ref, TaskEntity task) async {
     final repository = await ref.read(taskRepositoryProvider.future);
     await repository.deleteTask(task);
-    ref.invalidate(localTasksProvider);
-    ref.invalidate(unifiedDataProvider);
+    // Use refresh instead of invalidate for smooth background updates
+    ref.refresh(localTasksProvider);
+    ref.refresh(unifiedDataProvider);
   }
 }
