@@ -7,23 +7,18 @@ import '../../../domain/entities/task.dart';
 import '../../../domain/entities/project.dart';
 import '../../providers/task_provider.dart';
 import '../../providers/repository_provider.dart';
+import '../../providers/selected_project_provider.dart';
 import '../../widgets/tasks/task_list.dart';
 import '../../widgets/tasks/task_detail.dart';
 
-class CompletedScreen extends ConsumerStatefulWidget {
+class CompletedScreen extends ConsumerWidget {
   const CompletedScreen({super.key});
 
   @override
-  ConsumerState<CompletedScreen> createState() => _CompletedScreenState();
-}
-
-class _CompletedScreenState extends ConsumerState<CompletedScreen> {
-  TaskEntity? _selectedTask;
-
-  @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final completedTasksAsync = ref.watch(completedTasksProvider);
     final unifiedDataAsync = ref.watch(unifiedDataProvider);
+    final selectedTask = ref.watch(selectedTaskProvider);
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Container(
@@ -96,8 +91,9 @@ class _CompletedScreenState extends ConsumerState<CompletedScreen> {
                         projects: data.projects,
                         filter: TaskFilter.project, // Use project filter to show all passed tasks
                         emptyMessage: 'No completed tasks yet',
-                        onTaskTap: (task) => setState(() => _selectedTask = task),
-                        onTaskComplete: _reopenTask,
+                        selectedTaskId: selectedTask?.id,
+                        onTaskTap: (task) => ref.read(selectedTaskIdProvider.notifier).state = task.id,
+                        onTaskComplete: (task) => _reopenTask(ref, task),
                       ),
                       loading: () => const Center(
                         child: CircularProgressIndicator(),
@@ -113,15 +109,15 @@ class _CompletedScreenState extends ConsumerState<CompletedScreen> {
           ),
 
           // Detail panel
-          if (_selectedTask != null)
+          if (selectedTask != null)
             unifiedDataAsync.when(
               skipLoadingOnRefresh: true,
               data: (data) => TaskDetail(
-                task: _selectedTask!,
-                project: _getProjectForTask(_selectedTask!, data.projects),
+                task: selectedTask,
+                project: _getProjectForTask(selectedTask, data.projects),
                 projects: data.projects,
-                onClose: () => setState(() => _selectedTask = null),
-                onComplete: _reopenTask,
+                onClose: () => ref.read(selectedTaskIdProvider.notifier).state = null,
+                onComplete: (task) => _reopenTask(ref, task),
               ),
               loading: () => const SizedBox.shrink(),
               error: (_, __) => const SizedBox.shrink(),
@@ -131,13 +127,14 @@ class _CompletedScreenState extends ConsumerState<CompletedScreen> {
     );
   }
 
-  Future<void> _reopenTask(TaskEntity task) async {
+  Future<void> _reopenTask(WidgetRef ref, TaskEntity task) async {
     final repository = await ref.read(taskRepositoryProvider.future);
     await repository.reopenTask(task);
-    ref.invalidate(unifiedDataProvider);
-    ref.invalidate(completedTasksProvider);
-    if (_selectedTask?.id == task.id) {
-      setState(() => _selectedTask = null);
+    ref.refresh(unifiedDataProvider);
+    ref.refresh(completedTasksProvider);
+    final selectedTaskId = ref.read(selectedTaskIdProvider);
+    if (selectedTaskId == task.id) {
+      ref.read(selectedTaskIdProvider.notifier).state = null;
     }
   }
 

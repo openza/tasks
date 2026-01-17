@@ -216,11 +216,11 @@ class NavRail extends ConsumerWidget {
         final repository = await ref.read(taskRepositoryProvider.future);
         await repository.createTask(task);
 
-        // Defer provider invalidation to next frame to avoid GPU context issues
-        // during dialog close animation
+        // Defer provider refresh to next frame to avoid GPU context issues
+        // during dialog close animation. Use refresh for smooth background update.
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          ref.invalidate(localTasksProvider);
-          ref.invalidate(unifiedDataProvider);
+          ref.refresh(localTasksProvider);
+          ref.refresh(unifiedDataProvider);
         });
 
         if (context.mounted) {
@@ -269,10 +269,10 @@ class NavRail extends ConsumerWidget {
         ),
       );
 
-      // Defer provider invalidation to next frame
+      // Defer provider refresh to next frame for smooth background update
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        ref.invalidate(localProjectsProvider);
-        ref.invalidate(unifiedDataProvider);
+        ref.refresh(localProjectsProvider);
+        ref.refresh(unifiedDataProvider);
       });
 
       if (context.mounted) {
