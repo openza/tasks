@@ -52,6 +52,7 @@ class _ProjectsPaneState extends ConsumerState<ProjectsPane> {
   @override
   Widget build(BuildContext context) {
     final projectsByProvider = ref.watch(projectsByProviderProvider);
+    final virtualProjects = ref.watch(providerVirtualProjectsProvider);
     final selectedProjectId = ref.watch(selectedProjectIdProvider);
 
     return Container(
@@ -155,6 +156,7 @@ class _ProjectsPaneState extends ConsumerState<ProjectsPane> {
                       padding: const EdgeInsets.symmetric(horizontal: 8),
                       children: _buildProviderGroups(
                         projectsByProvider,
+                        virtualProjects,
                         selectedProjectId,
                       ),
                     );
@@ -218,6 +220,7 @@ class _ProjectsPaneState extends ConsumerState<ProjectsPane> {
 
   List<Widget> _buildProviderGroups(
     Map<String, List<ProjectEntity>> projectsByProvider,
+    Map<String, List<VirtualProject>> virtualProjects,
     String? selectedProjectId,
   ) {
     final widgets = <Widget>[];
@@ -226,73 +229,79 @@ class _ProjectsPaneState extends ConsumerState<ProjectsPane> {
     const providerOrder = ['openza_tasks', 'todoist', 'msToDo'];
 
     for (final providerId in providerOrder) {
-      final projects = projectsByProvider[providerId];
-      if (projects == null || projects.isEmpty) continue;
+      // For local projects (openza_tasks), show from database
+      if (providerId == 'openza_tasks') {
+        final projects = projectsByProvider[providerId];
+        if (projects == null || projects.isEmpty) continue;
 
-      // Filter projects by search query
-      final filteredProjects =
-          _searchQuery.isEmpty
-              ? projects
-              : projects
-                  .where((p) => p.name.toLowerCase().contains(_searchQuery))
-                  .toList();
+        // Filter projects by search query
+        final filteredProjects =
+            _searchQuery.isEmpty
+                ? projects
+                : projects
+                    .where((p) => p.name.toLowerCase().contains(_searchQuery))
+                    .toList();
 
-      if (filteredProjects.isEmpty && _searchQuery.isNotEmpty) continue;
+        if (filteredProjects.isEmpty && _searchQuery.isNotEmpty) continue;
 
-      widgets.add(
-        _ProviderGroup(
-          providerId: providerId,
-          projects: filteredProjects,
-          selectedProjectId: selectedProjectId,
-          isExpanded: _expandedGroups[providerId] ?? true,
-          onToggleExpanded: () {
-            setState(() {
-              _expandedGroups[providerId] =
-                  !(_expandedGroups[providerId] ?? true);
-            });
-          },
-          onProjectSelected: (projectId) => _selectProject(projectId),
-          onEditProject: (project) => _editProject(context, project),
-          onDeleteProject: (project) => _deleteProject(context, project),
-          hexToColor: _hexToColor,
-        ),
-      );
-    }
+        widgets.add(
+          _ProviderGroup(
+            providerId: providerId,
+            projects: filteredProjects,
+            selectedProjectId: selectedProjectId,
+            isExpanded: _expandedGroups[providerId] ?? true,
+            onToggleExpanded: () {
+              setState(() {
+                _expandedGroups[providerId] =
+                    !(_expandedGroups[providerId] ?? true);
+              });
+            },
+            onProjectSelected: (projectId) => _selectProject(projectId),
+            onEditProject: (project) => _editProject(context, project),
+            onDeleteProject: (project) => _deleteProject(context, project),
+            hexToColor: _hexToColor,
+          ),
+        );
+      } else {
+        // For external providers (todoist, msToDo), show virtual projects from metadata
+        final vProjects = virtualProjects[providerId];
+        if (vProjects == null || vProjects.isEmpty) continue;
 
-    // Handle any other providers not in the predefined order
-    for (final entry in projectsByProvider.entries) {
-      if (providerOrder.contains(entry.key)) continue;
+        // Filter virtual projects by search query
+        final filteredProjects =
+            _searchQuery.isEmpty
+                ? vProjects
+                : vProjects
+                    .where((p) => p.name.toLowerCase().contains(_searchQuery))
+                    .toList();
 
-      final filteredProjects =
-          _searchQuery.isEmpty
-              ? entry.value
-              : entry.value
-                  .where((p) => p.name.toLowerCase().contains(_searchQuery))
-                  .toList();
+        if (filteredProjects.isEmpty && _searchQuery.isNotEmpty) continue;
 
-      if (filteredProjects.isEmpty) continue;
-
-      widgets.add(
-        _ProviderGroup(
-          providerId: entry.key,
-          projects: filteredProjects,
-          selectedProjectId: selectedProjectId,
-          isExpanded: _expandedGroups[entry.key] ?? true,
-          onToggleExpanded: () {
-            setState(() {
-              _expandedGroups[entry.key] =
-                  !(_expandedGroups[entry.key] ?? true);
-            });
-          },
-          onProjectSelected: (projectId) => _selectProject(projectId),
-          onEditProject: (project) => _editProject(context, project),
-          onDeleteProject: (project) => _deleteProject(context, project),
-          hexToColor: _hexToColor,
-        ),
-      );
+        widgets.add(
+          _VirtualProviderGroup(
+            providerId: providerId,
+            projects: filteredProjects,
+            selectedProjectId: selectedProjectId,
+            isExpanded: _expandedGroups[providerId] ?? true,
+            onToggleExpanded: () {
+              setState(() {
+                _expandedGroups[providerId] =
+                    !(_expandedGroups[providerId] ?? true);
+              });
+            },
+            onProjectSelected: (projectId) => _selectVirtualProject(projectId),
+          ),
+        );
+      }
     }
 
     return widgets;
+  }
+
+  void _selectVirtualProject(String virtualProjectId) {
+    ref.read(selectedProjectIdProvider.notifier).state = virtualProjectId;
+    // Navigate to tasks with the virtual project ID
+    context.go('${AppRoutes.tasks}?projectId=$virtualProjectId');
   }
 
   void _selectProject(String projectId) {
@@ -376,8 +385,9 @@ class _ProjectsPaneState extends ConsumerState<ProjectsPane> {
       taskCount: taskCount,
     );
 
-    if (action == null || action == DeleteProjectAction.cancel || !mounted)
+    if (action == null || action == DeleteProjectAction.cancel || !mounted) {
       return;
+    }
 
     try {
       // Use transactional delete to ensure atomicity
@@ -725,5 +735,229 @@ class _ProjectItemState extends State<_ProjectItem> {
         widget.onDelete?.call();
       }
     });
+  }
+}
+
+/// A collapsible group of virtual projects for external providers (Todoist, MS To-Do)
+class _VirtualProviderGroup extends StatelessWidget {
+  final String providerId;
+  final List<VirtualProject> projects;
+  final String? selectedProjectId;
+  final bool isExpanded;
+  final VoidCallback onToggleExpanded;
+  final void Function(String) onProjectSelected;
+
+  const _VirtualProviderGroup({
+    required this.providerId,
+    required this.projects,
+    required this.selectedProjectId,
+    required this.isExpanded,
+    required this.onToggleExpanded,
+    required this.onProjectSelected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Provider header
+        InkWell(
+          onTap: onToggleExpanded,
+          borderRadius: BorderRadius.circular(6),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+            child: Row(
+              children: [
+                Icon(
+                  isExpanded
+                      ? LucideIcons.chevronDown
+                      : LucideIcons.chevronRight,
+                  size: 12,
+                  color: AppTheme.gray400,
+                ),
+                const SizedBox(width: 6),
+                ProviderBadge(
+                  integrationId: providerId,
+                  showLabel: false,
+                  size: ProviderBadgeSize.small,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Builder(
+                    builder: (context) {
+                      final isDark = Theme.of(context).brightness == Brightness.dark;
+                      return Text(
+                        getProviderDisplayName(providerId).toUpperCase(),
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: isDark ? AppTheme.gray300 : AppTheme.gray600,
+                          letterSpacing: 0.5,
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                Builder(
+                  builder: (context) {
+                    final isDark = Theme.of(context).brightness == Brightness.dark;
+                    return Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: isDark ? AppTheme.gray700 : AppTheme.gray100,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        '${projects.length}',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w500,
+                          color: isDark ? AppTheme.gray300 : AppTheme.gray600,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ],
+            ),
+          ),
+        ),
+
+        // Virtual projects list
+        if (isExpanded)
+          ...projects.map(
+            (project) => _VirtualProjectItem(
+              project: project,
+              isSelected: project.id == selectedProjectId,
+              onTap: () => onProjectSelected(project.id),
+            ),
+          ),
+
+        const SizedBox(height: 8),
+      ],
+    );
+  }
+}
+
+/// Individual virtual project item in the list
+class _VirtualProjectItem extends StatefulWidget {
+  final VirtualProject project;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  const _VirtualProjectItem({
+    required this.project,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  @override
+  State<_VirtualProjectItem> createState() => _VirtualProjectItemState();
+}
+
+class _VirtualProjectItemState extends State<_VirtualProjectItem> {
+  bool _isHovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    // Theme-aware colors
+    final selectedBg =
+        isDark
+            ? AppTheme.gray700.withValues(alpha: 0.5)
+            : AppTheme.gray200.withValues(alpha: 0.6);
+    final hoverBg =
+        isDark ? AppTheme.gray700.withValues(alpha: 0.3) : AppTheme.gray100;
+    final selectedTextColor = isDark ? Colors.white : Colors.black;
+    final normalTextColor = isDark ? AppTheme.gray200 : AppTheme.gray900;
+
+    return Padding(
+      padding: const EdgeInsets.only(left: 20, top: 1, bottom: 1, right: 4),
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _isHovered = true),
+        onExit: (_) => setState(() => _isHovered = false),
+        child: Container(
+          decoration: BoxDecoration(
+            color:
+                widget.isSelected
+                    ? selectedBg
+                    : _isHovered
+                    ? hoverBg
+                    : Colors.transparent,
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: widget.onTap,
+              borderRadius: BorderRadius.circular(6),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
+                child: Row(
+                  children: [
+                    // Folder icon for virtual projects
+                    Icon(
+                      LucideIcons.folder,
+                      size: 16,
+                      color: _getProviderColor(widget.project.integrationId),
+                    ),
+                    const SizedBox(width: 10),
+                    // Project name
+                    Expanded(
+                      child: Text(
+                        widget.project.name,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight:
+                              widget.isSelected ? FontWeight.w500 : FontWeight.w400,
+                          color: widget.isSelected ? selectedTextColor : normalTextColor,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    // Task count badge
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: isDark ? AppTheme.gray700 : AppTheme.gray100,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        '${widget.project.taskCount}',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w500,
+                          color: isDark ? AppTheme.gray400 : AppTheme.gray500,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Color _getProviderColor(String integrationId) {
+    switch (integrationId) {
+      case 'todoist':
+        return const Color(0xFFE44332); // Todoist red
+      case 'msToDo':
+        return const Color(0xFF2564CF); // Microsoft blue
+      default:
+        return AppTheme.gray500;
+    }
   }
 }

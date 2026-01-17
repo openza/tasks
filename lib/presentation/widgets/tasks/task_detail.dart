@@ -346,7 +346,7 @@ class _TaskDetailState extends ConsumerState<TaskDetail> {
                 maxLines: 3,
               ),
             )
-            : Text(
+            : SelectableText(
                 widget.task.description!,
                 style: Theme.of(
                   context,
@@ -420,6 +420,14 @@ class _TaskDetailState extends ConsumerState<TaskDetail> {
             icon: LucideIcons.folder,
             label: widget.project!.name,
             color: projectColor,
+          ),
+
+        // Source project chip for external tasks (from provider metadata)
+        if (widget.task.isExternal && widget.task.sourceProjectId != null)
+          _buildMetadataChip(
+            icon: LucideIcons.link,
+            label: 'Source: ${widget.task.sourceProjectId}',
+            color: chipColor,
           ),
       ],
     );

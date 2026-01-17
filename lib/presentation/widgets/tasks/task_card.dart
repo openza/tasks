@@ -9,6 +9,7 @@ import '../../../domain/entities/project.dart';
 import '../../providers/integration_provider.dart';
 import '../badges/priority_badge.dart';
 import '../badges/label_badge.dart';
+import 'task_context_menu.dart';
 
 /// Card widget for displaying a single task
 class TaskCard extends ConsumerStatefulWidget {
@@ -16,6 +17,9 @@ class TaskCard extends ConsumerStatefulWidget {
   final ProjectEntity? project;
   final VoidCallback? onTap;
   final VoidCallback? onComplete;
+  final VoidCallback? onEdit;
+  final VoidCallback? onDelete;
+  final void Function(ProjectEntity?)? onMoveToProject;
   final bool showProject;
   final bool isSelected;
 
@@ -25,6 +29,9 @@ class TaskCard extends ConsumerStatefulWidget {
     this.project,
     this.onTap,
     this.onComplete,
+    this.onEdit,
+    this.onDelete,
+    this.onMoveToProject,
     this.showProject = true,
     this.isSelected = false,
   });
@@ -77,6 +84,7 @@ class _TaskCardState extends ConsumerState<TaskCard> {
         ),
         child: GestureDetector(
           onTap: widget.onTap,
+          onSecondaryTapUp: (details) => _showContextMenu(details.globalPosition),
           behavior: HitTestBehavior.opaque,
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
@@ -140,6 +148,32 @@ class _TaskCardState extends ConsumerState<TaskCard> {
         ),
       ),
     );
+  }
+
+  Future<void> _showContextMenu(Offset position) async {
+    final result = await TaskContextMenu.show(
+      context,
+      ref,
+      position,
+      task: widget.task,
+      onEdit: widget.onEdit,
+      onDelete: widget.onDelete,
+    );
+
+    if (result == null || !mounted) return;
+
+    switch (result.action) {
+      case TaskContextAction.moveToInbox:
+      case TaskContextAction.moveToProject:
+        widget.onMoveToProject?.call(result.targetProject);
+        break;
+      case TaskContextAction.edit:
+        widget.onEdit?.call();
+        break;
+      case TaskContextAction.delete:
+        widget.onDelete?.call();
+        break;
+    }
   }
 
   Widget _buildCheckbox() {
@@ -213,6 +247,9 @@ class _TaskCardState extends ConsumerState<TaskCard> {
         // Due date
         if (widget.task.dueDate != null) _buildDueDate(),
 
+        // Created date (subtle)
+        _buildCreatedDate(),
+
         // Integration indicator
         _buildIntegrationIndicator(),
       ],
@@ -268,6 +305,44 @@ class _TaskCardState extends ConsumerState<TaskCard> {
         ),
       ],
     );
+  }
+
+  Widget _buildCreatedDate() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final color = isDark ? AppTheme.gray400 : AppTheme.gray500;
+    final text = _getRelativeCreatedDate(widget.task.createdAt);
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(LucideIcons.clock, size: 10, color: color),
+        const SizedBox(width: 3),
+        Text(
+          text,
+          style: TextStyle(
+            fontSize: 10,
+            color: color,
+            fontWeight: FontWeight.w400,
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _getRelativeCreatedDate(DateTime createdAt) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final created = DateTime(createdAt.year, createdAt.month, createdAt.day);
+    final difference = today.difference(created).inDays;
+
+    if (difference == 0) return 'Today';
+    if (difference == 1) return 'Yesterday';
+    if (difference < 7) return '$difference days ago';
+    if (difference < 14) return '1 week ago';
+    if (difference < 30) return '${(difference / 7).floor()} weeks ago';
+    if (difference < 60) return '1 month ago';
+    if (difference < 365) return '${(difference / 30).floor()} months ago';
+    return AppDateUtils.formatForDisplay(createdAt);
   }
 
   Widget _buildIntegrationIndicator() {

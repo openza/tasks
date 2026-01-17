@@ -17,9 +17,13 @@ class TaskListWidget extends StatelessWidget {
   final String? emptyMessage;
   final bool sortByLabels;
   final bool sortByProject;
+  final bool preserveOrder;
   final bool showGradientBackground;
   final void Function(TaskEntity)? onTaskTap;
   final void Function(TaskEntity)? onTaskComplete;
+  final void Function(TaskEntity)? onTaskEdit;
+  final void Function(TaskEntity)? onTaskDelete;
+  final void Function(TaskEntity, ProjectEntity?)? onTaskMoveToProject;
   final String? selectedTaskId;
 
   const TaskListWidget({
@@ -32,9 +36,13 @@ class TaskListWidget extends StatelessWidget {
     this.emptyMessage,
     this.sortByLabels = false,
     this.sortByProject = false,
+    this.preserveOrder = false,
     this.showGradientBackground = false,
     this.onTaskTap,
     this.onTaskComplete,
+    this.onTaskEdit,
+    this.onTaskDelete,
+    this.onTaskMoveToProject,
     this.selectedTaskId,
   });
 
@@ -95,6 +103,11 @@ class TaskListWidget extends StatelessWidget {
                       onComplete: onTaskComplete != null
                           ? () => onTaskComplete!(task)
                           : null,
+                      onEdit: onTaskEdit != null ? () => onTaskEdit!(task) : null,
+                      onDelete: onTaskDelete != null ? () => onTaskDelete!(task) : null,
+                      onMoveToProject: onTaskMoveToProject != null
+                          ? (project) => onTaskMoveToProject!(task, project)
+                          : null,
                       showProject: filter != TaskFilter.project,
                       isSelected: selectedTaskId == task.id,
                     );
@@ -145,6 +158,11 @@ class TaskListWidget extends StatelessWidget {
   }
 
   List<TaskEntity> _sortTasks(List<TaskEntity> tasksToSort) {
+    // If preserveOrder is true, return tasks as-is (parent already sorted)
+    if (preserveOrder) {
+      return tasksToSort;
+    }
+
     final sorted = List<TaskEntity>.from(tasksToSort);
 
     if (sortByLabels) {

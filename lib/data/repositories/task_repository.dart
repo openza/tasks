@@ -236,16 +236,18 @@ class TaskRepository {
 
   /// Update a task
   /// Note: For integrated tasks (Todoist, MS To-Do), only local-enhancement fields
-  /// (notes, providerMetadata) are updated. Core fields are owned by the provider
-  /// and synced via Rust sync engine. Only completion status syncs back to providers.
+  /// (notes, providerMetadata, projectId) are updated. Core sync fields (title,
+  /// description, priority, status, due_date) are owned by the provider and synced
+  /// via Rust sync engine. Only completion status syncs back to providers.
+  ///
+  /// projectId is user-controlled for ALL tasks (wrapper pattern) - user can organize
+  /// any task into any local project. Provider's project is in providerMetadata.sourceTask.
   Future<TaskEntity> updateTask(TaskEntity task) async {
     return _updateLocalTask(task);
   }
 
   Future<TaskEntity> _updateLocalTask(TaskEntity task) async {
     // Check if this is a synced task (has external_id or integration prefix)
-    // For synced tasks, only update local-enhancement fields to avoid
-    // conflicting with Rust sync engine which owns the core sync fields
     final isSyncedTask = task.integrationId != 'openza_tasks';
 
     final providerMetadataJson = task.providerMetadata != null
@@ -253,12 +255,14 @@ class TaskRepository {
         : null;
 
     if (isSyncedTask) {
-      // Only update local-enhancement fields for synced tasks
-      // Core fields (title, description, priority, status, due_date, etc.)
+      // For synced tasks: update local-enhancement fields + projectId
+      // projectId is user-controlled (wrapper pattern) - not synced to provider
+      // Core sync fields (title, description, priority, status, due_date)
       // are owned by the sync engine and should not be modified directly
       await _database.updateTask(
         task.id,
         TasksCompanion(
+          projectId: Value(task.projectId), // User's local organization
           notes: Value(task.notes),
           providerMetadata: Value(providerMetadataJson),
           updatedAt: Value(DateTime.now()),
