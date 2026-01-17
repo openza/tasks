@@ -22,6 +22,7 @@ class TasksWithTabs extends ConsumerWidget {
   final void Function(TaskEntity)? onTaskComplete;
   final void Function(TaskEntity)? onTaskUpdate;
   final void Function(TaskEntity)? onTaskDelete;
+  final void Function(TaskEntity, ProjectEntity?)? onTaskMoveToProject;
 
   const TasksWithTabs({
     super.key,
@@ -31,6 +32,7 @@ class TasksWithTabs extends ConsumerWidget {
     this.onTaskComplete,
     this.onTaskUpdate,
     this.onTaskDelete,
+    this.onTaskMoveToProject,
   });
 
   @override
@@ -74,6 +76,7 @@ class TasksWithTabs extends ConsumerWidget {
                   preserveOrder: true,
                   onTaskTap: (task) => _selectTask(ref, task),
                   onTaskComplete: onTaskComplete,
+                  onTaskMoveToProject: onTaskMoveToProject,
                   selectedTaskId: selectedTask?.id,
                 ),
               ),
