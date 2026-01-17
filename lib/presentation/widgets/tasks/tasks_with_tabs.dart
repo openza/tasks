@@ -405,6 +405,7 @@ class TasksWithTabs extends ConsumerWidget {
     final filterBg = isDark ? AppTheme.gray800 : Colors.white;
     final filterBorder = isDark ? AppTheme.gray600 : AppTheme.gray300;
     final textColor = isDark ? AppTheme.gray200 : AppTheme.gray900;
+    final labelColor = isDark ? AppTheme.gray400 : AppTheme.gray500;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
@@ -429,7 +430,7 @@ class TasksWithTabs extends ConsumerWidget {
               ),
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 16),
 
           // Sort section with label
           Text(
@@ -437,13 +438,13 @@ class TasksWithTabs extends ConsumerWidget {
             style: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w500,
-              color: isDark ? AppTheme.gray400 : AppTheme.gray500,
+              color: labelColor,
             ),
           ),
-          const SizedBox(width: 6),
+          const SizedBox(width: 8),
           _buildSortDropdown(context, ref),
 
-          const SizedBox(width: 12),
+          const SizedBox(width: 16),
 
           // Filter section with label
           Text(
@@ -451,15 +452,15 @@ class TasksWithTabs extends ConsumerWidget {
             style: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w500,
-              color: isDark ? AppTheme.gray400 : AppTheme.gray500,
+              color: labelColor,
             ),
           ),
-          const SizedBox(width: 6),
+          const SizedBox(width: 8),
           _buildDynamicFilter(context, ref),
 
           // Clear filters button
           if (hasActiveFilters) ...[
-            const SizedBox(width: 8),
+            const SizedBox(width: 12),
             _buildClearFiltersButton(context, ref, isDark),
           ],
         ],
@@ -525,47 +526,51 @@ class TasksWithTabs extends ConsumerWidget {
       height: 36,
       padding: const EdgeInsets.symmetric(horizontal: 10),
       decoration: BoxDecoration(
-        color: isActive ? priorityColor.withValues(alpha: 0.08) : filterBg,
+        color: filterBg,
         borderRadius: BorderRadius.circular(8),
         border: Border.all(
-          color: isActive ? priorityColor.withValues(alpha: 0.3) : filterBorder,
+          color: isActive ? priorityColor : filterBorder,
         ),
       ),
       child: DropdownButton<PriorityFilter>(
         value: priorityFilter,
         selectedItemBuilder: (_) => PriorityFilter.values.map((filter) {
           if (filter == PriorityFilter.all) {
-            return Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(LucideIcons.flag, size: 14, color: AppTheme.gray500),
-                const SizedBox(width: 6),
-                const Text('All', style: TextStyle(fontSize: 13)),
-              ],
+            return Center(
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(LucideIcons.flag, size: 14, color: AppTheme.gray500),
+                  const SizedBox(width: 6),
+                  const Text('All', style: TextStyle(fontSize: 13)),
+                ],
+              ),
             );
           }
-          return Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 8,
-                height: 8,
-                decoration: BoxDecoration(
-                  color: AppTheme.priorityColors[filter.value],
-                  shape: BoxShape.circle,
+          return Center(
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: AppTheme.priorityColors[filter.value],
+                    shape: BoxShape.circle,
+                  ),
                 ),
-              ),
-              const SizedBox(width: 6),
-              Text(
-                filter.label,
-                style: TextStyle(
-                  fontSize: 13,
-                  color: isActive && priorityFilter == filter
-                      ? AppTheme.priorityColors[filter.value]
-                      : isDark ? AppTheme.gray300 : AppTheme.gray700,
+                const SizedBox(width: 6),
+                Text(
+                  filter.label,
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: isActive && priorityFilter == filter
+                        ? AppTheme.priorityColors[filter.value]
+                        : isDark ? AppTheme.gray300 : AppTheme.gray700,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           );
         }).toList(),
         items: PriorityFilter.values.map((filter) {
@@ -573,6 +578,7 @@ class TasksWithTabs extends ConsumerWidget {
             return DropdownMenuItem(
               value: filter,
               child: Row(
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   Icon(LucideIcons.layers, size: 14, color: AppTheme.gray500),
                   const SizedBox(width: 8),
@@ -584,6 +590,7 @@ class TasksWithTabs extends ConsumerWidget {
           return DropdownMenuItem(
             value: filter,
             child: Row(
+              mainAxisSize: MainAxisSize.min,
               children: [
                 Container(
                   width: 10,
@@ -621,34 +628,37 @@ class TasksWithTabs extends ConsumerWidget {
       height: 36,
       padding: const EdgeInsets.symmetric(horizontal: 10),
       decoration: BoxDecoration(
-        color: isActive ? activeColor.withValues(alpha: 0.08) : filterBg,
+        color: filterBg,
         borderRadius: BorderRadius.circular(8),
         border: Border.all(
-          color: isActive ? activeColor.withValues(alpha: 0.3) : filterBorder,
+          color: isActive ? activeColor : filterBorder,
         ),
       ),
       child: DropdownButton<DueDateFilter>(
         value: dueDateFilter,
         selectedItemBuilder: (_) => DueDateFilter.values.map((filter) {
-          return Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(LucideIcons.calendar, size: 14, color: isActive ? activeColor : AppTheme.gray500),
-              const SizedBox(width: 6),
-              Text(
-                filter.label,
-                style: TextStyle(
-                  fontSize: 13,
-                  color: isActive ? activeColor : (isDark ? AppTheme.gray300 : AppTheme.gray700),
+          return Center(
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(LucideIcons.calendar, size: 14, color: isActive ? activeColor : AppTheme.gray500),
+                const SizedBox(width: 6),
+                Text(
+                  filter.label,
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: isActive ? activeColor : (isDark ? AppTheme.gray300 : AppTheme.gray700),
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           );
         }).toList(),
         items: DueDateFilter.values.map((filter) {
           return DropdownMenuItem(
             value: filter,
             child: Row(
+              mainAxisSize: MainAxisSize.min,
               children: [
                 Icon(
                   filter == DueDateFilter.all ? LucideIcons.layers : LucideIcons.calendar,
@@ -683,34 +693,37 @@ class TasksWithTabs extends ConsumerWidget {
       height: 36,
       padding: const EdgeInsets.symmetric(horizontal: 10),
       decoration: BoxDecoration(
-        color: isActive ? activeColor.withValues(alpha: 0.08) : filterBg,
+        color: filterBg,
         borderRadius: BorderRadius.circular(8),
         border: Border.all(
-          color: isActive ? activeColor.withValues(alpha: 0.3) : filterBorder,
+          color: isActive ? activeColor : filterBorder,
         ),
       ),
       child: DropdownButton<CreatedDateFilter>(
         value: createdDateFilter,
         selectedItemBuilder: (_) => CreatedDateFilter.values.map((filter) {
-          return Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(LucideIcons.clock, size: 14, color: isActive ? activeColor : AppTheme.gray500),
-              const SizedBox(width: 6),
-              Text(
-                filter.label,
-                style: TextStyle(
-                  fontSize: 13,
-                  color: isActive ? activeColor : (isDark ? AppTheme.gray300 : AppTheme.gray700),
+          return Center(
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(LucideIcons.clock, size: 14, color: isActive ? activeColor : AppTheme.gray500),
+                const SizedBox(width: 6),
+                Text(
+                  filter.label,
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: isActive ? activeColor : (isDark ? AppTheme.gray300 : AppTheme.gray700),
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           );
         }).toList(),
         items: CreatedDateFilter.values.map((filter) {
           return DropdownMenuItem(
             value: filter,
             child: Row(
+              mainAxisSize: MainAxisSize.min,
               children: [
                 Icon(
                   filter == CreatedDateFilter.all ? LucideIcons.layers : LucideIcons.clock,
@@ -757,54 +770,59 @@ class TasksWithTabs extends ConsumerWidget {
       height: 36,
       padding: const EdgeInsets.symmetric(horizontal: 10),
       decoration: BoxDecoration(
-        color: isActive ? labelColor.withValues(alpha: 0.08) : filterBg,
+        color: filterBg,
         borderRadius: BorderRadius.circular(8),
         border: Border.all(
-          color: isActive ? labelColor.withValues(alpha: 0.3) : filterBorder,
+          color: isActive ? labelColor : filterBorder,
         ),
       ),
       child: DropdownButton<String?>(
         value: selectedLabelId,
         selectedItemBuilder: (_) => [
           // All option
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(LucideIcons.tag, size: 14, color: AppTheme.gray500),
-              const SizedBox(width: 6),
-              Text('All', style: TextStyle(fontSize: 13, color: isDark ? AppTheme.gray300 : AppTheme.gray700)),
-            ],
+          Center(
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(LucideIcons.tag, size: 14, color: AppTheme.gray500),
+                const SizedBox(width: 6),
+                Text('All', style: TextStyle(fontSize: 13, color: isDark ? AppTheme.gray300 : AppTheme.gray700)),
+              ],
+            ),
           ),
           // Label options
-          ...labels.map((label) => Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 8,
-                height: 8,
-                decoration: BoxDecoration(
-                  color: _parseColor(label.color),
-                  shape: BoxShape.circle,
+          ...labels.map((label) => Center(
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: _parseColor(label.color),
+                    shape: BoxShape.circle,
+                  ),
                 ),
-              ),
-              const SizedBox(width: 6),
-              Text(
-                label.name,
-                style: TextStyle(
-                  fontSize: 13,
-                  color: isActive && selectedLabelId == label.id
-                      ? labelColor
-                      : isDark ? AppTheme.gray300 : AppTheme.gray700,
+                const SizedBox(width: 6),
+                Text(
+                  label.name,
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: isActive && selectedLabelId == label.id
+                        ? labelColor
+                        : isDark ? AppTheme.gray300 : AppTheme.gray700,
+                  ),
+                  overflow: TextOverflow.ellipsis,
                 ),
-                overflow: TextOverflow.ellipsis,
-              ),
-            ],
+              ],
+            ),
           )),
         ],
         items: [
           DropdownMenuItem(
             value: null,
             child: Row(
+              mainAxisSize: MainAxisSize.min,
               children: [
                 Icon(LucideIcons.layers, size: 14, color: AppTheme.gray500),
                 const SizedBox(width: 8),
@@ -815,6 +833,7 @@ class TasksWithTabs extends ConsumerWidget {
           ...labels.map((label) => DropdownMenuItem(
             value: label.id,
             child: Row(
+              mainAxisSize: MainAxisSize.min,
               children: [
                 Container(
                   width: 10,
@@ -825,12 +844,10 @@ class TasksWithTabs extends ConsumerWidget {
                   ),
                 ),
                 const SizedBox(width: 8),
-                Flexible(
-                  child: Text(
-                    label.name,
-                    style: const TextStyle(fontSize: 13),
-                    overflow: TextOverflow.ellipsis,
-                  ),
+                Text(
+                  label.name,
+                  style: const TextStyle(fontSize: 13),
+                  overflow: TextOverflow.ellipsis,
                 ),
               ],
             ),
@@ -873,54 +890,59 @@ class TasksWithTabs extends ConsumerWidget {
       height: 36,
       padding: const EdgeInsets.symmetric(horizontal: 10),
       decoration: BoxDecoration(
-        color: isActive ? projectColor.withValues(alpha: 0.08) : filterBg,
+        color: filterBg,
         borderRadius: BorderRadius.circular(8),
         border: Border.all(
-          color: isActive ? projectColor.withValues(alpha: 0.3) : filterBorder,
+          color: isActive ? projectColor : filterBorder,
         ),
       ),
       child: DropdownButton<String?>(
         value: selectedProjectIdForFilter,
         selectedItemBuilder: (_) => [
           // All option
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(LucideIcons.folder, size: 14, color: AppTheme.gray500),
-              const SizedBox(width: 6),
-              Text('All', style: TextStyle(fontSize: 13, color: isDark ? AppTheme.gray300 : AppTheme.gray700)),
-            ],
+          Center(
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(LucideIcons.folder, size: 14, color: AppTheme.gray500),
+                const SizedBox(width: 6),
+                Text('All', style: TextStyle(fontSize: 13, color: isDark ? AppTheme.gray300 : AppTheme.gray700)),
+              ],
+            ),
           ),
           // Project options
-          ...availableProjects.map((project) => Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 8,
-                height: 8,
-                decoration: BoxDecoration(
-                  color: _parseColor(project.color),
-                  borderRadius: BorderRadius.circular(2),
+          ...availableProjects.map((project) => Center(
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: _parseColor(project.color),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
                 ),
-              ),
-              const SizedBox(width: 6),
-              Text(
-                project.name,
-                style: TextStyle(
-                  fontSize: 13,
-                  color: isActive && selectedProjectIdForFilter == project.id
-                      ? projectColor
-                      : isDark ? AppTheme.gray300 : AppTheme.gray700,
+                const SizedBox(width: 6),
+                Text(
+                  project.name,
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: isActive && selectedProjectIdForFilter == project.id
+                        ? projectColor
+                        : isDark ? AppTheme.gray300 : AppTheme.gray700,
+                  ),
+                  overflow: TextOverflow.ellipsis,
                 ),
-                overflow: TextOverflow.ellipsis,
-              ),
-            ],
+              ],
+            ),
           )),
         ],
         items: [
           DropdownMenuItem(
             value: null,
             child: Row(
+              mainAxisSize: MainAxisSize.min,
               children: [
                 Icon(LucideIcons.layers, size: 14, color: AppTheme.gray500),
                 const SizedBox(width: 8),
@@ -931,6 +953,7 @@ class TasksWithTabs extends ConsumerWidget {
           ...availableProjects.map((project) => DropdownMenuItem(
             value: project.id,
             child: Row(
+              mainAxisSize: MainAxisSize.min,
               children: [
                 Container(
                   width: 10,
@@ -941,12 +964,10 @@ class TasksWithTabs extends ConsumerWidget {
                   ),
                 ),
                 const SizedBox(width: 8),
-                Flexible(
-                  child: Text(
-                    project.name,
-                    style: const TextStyle(fontSize: 13),
-                    overflow: TextOverflow.ellipsis,
-                  ),
+                Text(
+                  project.name,
+                  style: const TextStyle(fontSize: 13),
+                  overflow: TextOverflow.ellipsis,
                 ),
               ],
             ),
@@ -1022,13 +1043,15 @@ class TasksWithTabs extends ConsumerWidget {
       child: DropdownButton<TaskSortOption>(
         value: sortOption,
         selectedItemBuilder: (_) => TaskSortOption.values.map((option) {
-          return Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(option.icon, size: 14, color: AppTheme.gray500),
-              const SizedBox(width: 6),
-              Text(option.displayName, style: const TextStyle(fontSize: 13)),
-            ],
+          return Center(
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(option.icon, size: 14, color: AppTheme.gray500),
+                const SizedBox(width: 6),
+                Text(option.displayName, style: const TextStyle(fontSize: 13)),
+              ],
+            ),
           );
         }).toList(),
         items: TaskSortOption.values.map((option) {
