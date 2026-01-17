@@ -2,6 +2,23 @@
 
 All notable changes to Openza Tasks will be documented in this file.
 
+## [0.4.0] - 2025-01-17
+
+### Added
+- **Quick Move to Project**: Right-click context menu on tasks to quickly move them between projects
+- **Virtual Todoist Projects**: Todoist projects now appear in the projects pane for easier navigation
+- **Dynamic Filters**: Filter options change based on sort criteria (priority filter when sorting by priority, date filter when sorting by date, etc.)
+- **UI State Persistence**: Selected task, search query, sort options, and filters now survive data refreshes and sync operations
+
+### Changed
+- Simplified import workflow with direct restore and typing confirmation for better UX
+- Refactored task view state management from StatefulWidget to Riverpod providers for better state persistence
+- Improved dropdown styling with consistent white backgrounds and proper vertical alignment
+
+### Fixed
+- Dropdown menu overflow on narrow screens
+- Missing onTaskMoveToProject parameter causing build errors
+
 ## [0.3.1] - 2025-01-04
 
 ### Fixed
