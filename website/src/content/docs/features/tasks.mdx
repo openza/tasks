@@ -1,0 +1,118 @@
+---
+title: Tasks
+description: Create, edit, and manage your tasks
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+
+Tasks are the core of Openza Tasks. You can create local tasks or sync tasks from Todoist and Microsoft To-Do.
+
+## Creating a Task
+
+<Steps>
+1. Click **Add Task** in the navigation rail
+2. Enter a title (required)
+3. Optionally set:
+   - Description
+   - Project (defaults to Inbox)
+   - Priority (Urgent, High, Normal, Low)
+   - Due date
+   - Labels
+4. Click **Add Task** or press Enter
+</Steps>
+
+<Aside type="note">
+Only local Openza Tasks projects and labels appear in the create dialog. To add tasks to Todoist or MS To-Do projects, create them in those apps and sync.
+</Aside>
+
+## Editing a Task
+
+<Steps>
+1. Click a task to open the details panel
+2. Click the **pencil icon** to enter edit mode
+3. Modify any fields
+4. Click **Save** to apply changes, or **Cancel** to discard
+</Steps>
+
+If you have unsaved changes and try to cancel, a confirmation dialog appears.
+
+### Editing Synced Tasks
+
+<Aside type="caution">
+Tasks from Todoist or Microsoft To-Do are **read-only** except for completion. You can organize them into local projects, but this is saved locally only and does not sync back.
+
+To edit title, description, priority, or due date, use the original app (Todoist or Microsoft To-Do).
+
+**Only completion syncs back** - marking a task complete or reopening it updates the original provider.
+</Aside>
+
+## Completing a Task
+
+Complete a task in two ways:
+- Click the **circular checkbox** on the task card or in the details panel
+- Click the **Complete** button in the details panel footer
+
+Completed tasks:
+- Show strikethrough text
+- Move to the Completed view
+- Record a completion timestamp
+
+### Reopening a Task
+
+To reopen a completed task:
+1. Go to the **Completed** view
+2. Click the task to open details
+3. Click **Reopen** in the footer
+
+<Aside type="tip">
+Completing or reopening synced tasks updates the original provider (Todoist/MS To-Do) on the next sync.
+</Aside>
+
+## Deleting a Task
+
+<Steps>
+1. Select the task to open details
+2. Click **Delete** in the footer
+3. Confirm the deletion in the dialog
+</Steps>
+
+You can also right-click a task and select **Delete** from the context menu.
+
+<Aside type="caution">
+Deletion cannot be undone. For synced tasks, the task is also deleted from the original provider.
+</Aside>
+
+## Task Properties
+
+| Property | Description |
+|----------|-------------|
+| **Title** | Task name (required) |
+| **Description** | Additional details |
+| **Project** | Which project the task belongs to |
+| **Priority** | Urgent, High, Normal, or Low |
+| **Due Date** | When the task is due |
+| **Labels** | Tags for categorization |
+| **Created** | When the task was created |
+| **Completed** | When the task was marked done |
+
+## Task Views
+
+Access different views from the navigation rail:
+
+| View | Shows |
+|------|-------|
+| **Today** | Tasks due today |
+| **Overdue** | Past-due tasks (highlighted in red) |
+| **Next Actions** | Tasks that have at least one label |
+| **Tasks** | All active tasks with filtering options |
+| **Completed** | Finished tasks, sorted by completion date |
+
+## Quick Actions
+
+Right-click any task to access:
+- **Move to Inbox** - Quick move to Inbox
+- **Move to Project** - Move to another project
+- **Edit** - Open edit mode
+- **Delete** - Remove the task
+
+See [App Layout](/tasks/features/dashboard) for sorting and filtering options in the Tasks view.
