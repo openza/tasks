@@ -1,6 +1,6 @@
 ---
-title: Dashboard Layout
-description: Overview of the Openza Tasks 4-pane GTD layout
+title: App Layout
+description: Overview of the Openza Tasks 4-pane layout
 ---
 
 Openza Tasks uses a **4-pane GTD-focused layout** designed for productivity and quick navigation.
@@ -41,7 +41,8 @@ The second pane shows all your projects:
 - **Search** - Find projects by name
 - **Provider Badges** - See which provider each project belongs to
 - **Project Selection** - Click to filter tasks by project
-- **Favorites** - Star projects for quick access
+
+See [Projects](/tasks/features/projects) for details on managing projects.
 
 ## Tasks List
 
@@ -51,6 +52,33 @@ The main content area displays tasks:
 - **Checkboxes** - Mark tasks complete with one click
 - **Quick Preview** - See task details at a glance
 - **Selection** - Click a task to open details
+- **Context Menu** - Right-click a task for quick actions (move to project, edit, delete)
+
+### Sorting Tasks
+
+Use the **Sort** dropdown to order tasks by:
+
+| Sort Option | Description |
+|-------------|-------------|
+| Priority | Urgent tasks first, then high, normal, low |
+| Due Date | Earliest deadlines first |
+| Created Date | Newest tasks first |
+| By Label | Group tasks by their labels |
+| By Project | Group tasks by project |
+
+### Filtering Tasks
+
+The **Filter** dropdown shows options based on your current sort:
+
+| When Sorting By | Filter Options |
+|-----------------|----------------|
+| Priority | All, Urgent, High, Normal, Low |
+| Due Date | All, Today, Yesterday, Last 7 Days, This Week, This Month, Older, No Date |
+| Created Date | All, Today, Yesterday, Last 7 Days, This Week, This Month, Older |
+| By Label | Available labels from your tasks |
+| By Project | Available projects |
+
+Filters reset automatically when you change the sort option.
 
 ## Task Details
 
@@ -67,5 +95,15 @@ The rightmost pane shows the selected task:
 From any pane, you can:
 - Click any task to view its details
 - Use checkboxes to mark tasks complete
+- Right-click a task to move it between projects
 - Use keyboard shortcuts for common actions
 - Drag to resize panes (coming soon)
+
+## State Persistence
+
+Your view settings are preserved across sync operations:
+
+- Selected task stays selected during background sync
+- Search query persists
+- Sort and filter choices are remembered
+- No need to re-navigate after data refreshes

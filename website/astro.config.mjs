@@ -30,15 +30,23 @@ export default defineConfig({
           ],
         },
         {
-          label: 'Guides',
+          label: 'Using the App',
+          items: [
+            { label: 'App Layout', slug: 'features/dashboard' },
+            { label: 'Tasks', slug: 'features/tasks' },
+            { label: 'Projects', slug: 'features/projects' },
+            { label: 'Labels', slug: 'features/labels' },
+            { label: 'Backup & Restore', slug: 'features/backup' },
+            { label: 'Import from Markdown', slug: 'features/import' },
+            { label: 'Export to Markdown', slug: 'features/export' },
+          ],
+        },
+        {
+          label: 'Integrations',
           items: [
             { label: 'Todoist Setup', slug: 'guides/todoist-setup' },
             { label: 'Microsoft To-Do', slug: 'guides/mstodo-setup' },
           ],
-        },
-        {
-          label: 'Features',
-          autogenerate: { directory: 'features' },
         },
         {
           label: 'Development',
