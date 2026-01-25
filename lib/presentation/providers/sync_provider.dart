@@ -258,8 +258,14 @@ class SyncNotifier extends StateNotifier<SyncState> {
       return;
     }
 
+    final existingTasks = await _ref.read(localTasksProvider.future);
+    final obsidianTasks = existingTasks.where((task) => task.integrationId == 'obsidian').toList();
+
     // Extract tasks from vault
-    final result = await _syncEngine!.extractFromObsidian(vaultPath);
+    final result = await _syncEngine!.extractFromObsidian(
+      vaultPath,
+      existingTasks: obsidianTasks,
+    );
 
     if (!result.success) {
       AppLogger.warning('Obsidian extraction failed: ${result.error}');

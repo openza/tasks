@@ -158,11 +158,17 @@ class SyncEngine {
   ///
   /// Unlike Todoist, there is NO write-back mechanism.
   /// Tasks are extracted once and owned by the app.
-  Future<SyncResult> extractFromObsidian(String vaultPath) async {
+  Future<SyncResult> extractFromObsidian(
+    String vaultPath, {
+    List<TaskEntity> existingTasks = const [],
+  }) async {
     try {
       AppLogger.info('Extracting tasks from Obsidian vault: $vaultPath');
 
-      final tasks = await _obsidianReader.readAllTasks(vaultPath);
+      final tasks = await _obsidianReader.readAllTasks(
+        vaultPath,
+        existingTasks: existingTasks,
+      );
 
       AppLogger.info('Extracted ${tasks.length} tasks from Obsidian');
 

@@ -1,3 +1,4 @@
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
 
@@ -23,11 +24,13 @@ class ObsidianVaultReader {
   ///
   /// [vaultPath] - The root path of the Obsidian vault
   /// [lastScanTime] - Optional timestamp to skip files not modified since then
+  /// [existingTasks] - Existing Obsidian tasks for ID reuse
   ///
   /// Returns a list of [TaskEntity] objects extracted from markdown files.
   Future<List<TaskEntity>> readAllTasks(
     String vaultPath, {
     DateTime? lastScanTime,
+    List<TaskEntity> existingTasks = const [],
   }) async {
     final vaultDir = Directory(vaultPath);
     if (!await vaultDir.exists()) {
@@ -37,6 +40,7 @@ class ObsidianVaultReader {
 
     final vaultId = _generateVaultId(vaultPath);
     final tasks = <TaskEntity>[];
+    final existingIdBuckets = _buildExistingIdBuckets(existingTasks);
     final now = DateTime.now();
 
     await for (final entity in vaultDir.list(recursive: true)) {
@@ -68,6 +72,7 @@ class ObsidianVaultReader {
           vaultPath: vaultPath,
           relativePath: relativePath,
           extractedAt: now,
+          existingIdBuckets: existingIdBuckets,
         );
         tasks.addAll(fileTasks);
       } catch (e) {
@@ -108,6 +113,7 @@ class ObsidianVaultReader {
     required String vaultPath,
     required String relativePath,
     required DateTime extractedAt,
+    required Map<String, ListQueue<String>> existingIdBuckets,
   }) async {
     String content;
     try {
@@ -129,6 +135,7 @@ class ObsidianVaultReader {
     final headingMap = _buildHeadingMap(content);
     final tasks = <TaskEntity>[];
     final lines = content.split('\n');
+    final seenCounts = <String, int>{};
 
     // Find line numbers for each task
     int taskIndex = 0;
@@ -137,8 +144,14 @@ class ObsidianVaultReader {
       if (_isCheckboxLine(line)) {
         final parsed = parsedTasks[taskIndex];
         final headingPath = _getHeadingPathForLine(headingMap, lineNum);
-        // Include line number to make IDs unique for duplicate task titles
-        final externalId = _generateTaskId(vaultId, relativePath, headingPath, parsed.title, lineNum);
+        final baseKey = _buildFingerprint(vaultId, relativePath, headingPath, parsed.title);
+        final occurrenceIndex = (seenCounts[baseKey] ?? 0);
+        seenCounts[baseKey] = occurrenceIndex + 1;
+
+        final existingIds = existingIdBuckets[baseKey];
+        final externalId = (existingIds != null && existingIds.isNotEmpty)
+            ? existingIds.removeFirst()
+            : _generateTaskId(baseKey, occurrenceIndex);
 
         // Generate project ID from file path for virtual project grouping
         final projectId = _generateProjectId(vaultId, relativePath);
@@ -195,18 +208,11 @@ class ObsidianVaultReader {
     return sha256.convert(bytes).toString().substring(0, 16);
   }
 
-  /// Generate a stable task ID from context.
+  /// Generate a stable task ID from a fingerprint key and occurrence index.
   ///
-  /// Format: SHA256(vaultId:relativePath:headingPath:lineNum:title) truncated to 32 chars
-  /// Line number is included to make IDs unique for duplicate task titles.
-  String _generateTaskId(
-    String vaultId,
-    String relativePath,
-    String headingPath,
-    String title,
-    int lineNum,
-  ) {
-    final input = '$vaultId:$relativePath:$headingPath:$lineNum:$title';
+  /// Format: SHA256(fingerprint:occurrence) truncated to 32 chars
+  String _generateTaskId(String fingerprint, int occurrenceIndex) {
+    final input = '$fingerprint:$occurrenceIndex';
     final bytes = utf8.encode(input);
     return sha256.convert(bytes).toString().substring(0, 32);
   }
@@ -290,6 +296,80 @@ class ObsidianVaultReader {
     }
     return '';
   }
+
+  /// Build a fingerprint key for task identity.
+  String _buildFingerprint(
+    String vaultId,
+    String relativePath,
+    String headingPath,
+    String title,
+  ) {
+    final normalizedTitle = _normalizeTaskTitle(title);
+    final normalizedHeading = headingPath.trim();
+    return '$vaultId:$relativePath:$normalizedHeading:$normalizedTitle';
+  }
+
+  /// Normalize task titles for stable fingerprinting.
+  String _normalizeTaskTitle(String title) {
+    return title.trim().replaceAll(RegExp(r'\s+'), ' ').toLowerCase();
+  }
+
+  Map<String, ListQueue<String>> _buildExistingIdBuckets(List<TaskEntity> tasks) {
+    final buckets = <String, List<_ExistingObsidianTask>>{};
+
+    for (final task in tasks) {
+      if (task.integrationId != 'obsidian') continue;
+      final sourceTask = task.providerMetadata?['sourceTask'] as Map<String, dynamic>?;
+      if (sourceTask == null) continue;
+
+      final vaultPath = sourceTask['vaultPath'] as String?;
+      final filePath = sourceTask['filePath'] as String?;
+      if (vaultPath == null || filePath == null) continue;
+
+      final vaultId = _generateVaultId(vaultPath);
+      final headingPath = sourceTask['headingPath'] as String? ?? '';
+      final baseKey = _buildFingerprint(vaultId, filePath, headingPath, task.title);
+
+      final lineNumberValue = sourceTask['lineNumber'];
+      final lineNumber = lineNumberValue is num ? lineNumberValue.toInt() : 0;
+
+      final externalId = _getExternalId(task);
+      buckets.putIfAbsent(baseKey, () => []).add(
+            _ExistingObsidianTask(
+              externalId: externalId,
+              lineNumber: lineNumber,
+            ),
+          );
+    }
+
+    final result = <String, ListQueue<String>>{};
+    buckets.forEach((key, list) {
+      list.sort((a, b) => a.lineNumber.compareTo(b.lineNumber));
+      result[key] = ListQueue.of(list.map((item) => item.externalId));
+    });
+
+    return result;
+  }
+
+  String _getExternalId(TaskEntity task) {
+    if (task.externalId != null && task.externalId!.isNotEmpty) {
+      return task.externalId!;
+    }
+    if (task.id.startsWith('obsidian_')) {
+      return task.id.substring('obsidian_'.length);
+    }
+    return task.id;
+  }
+}
+
+class _ExistingObsidianTask {
+  final String externalId;
+  final int lineNumber;
+
+  _ExistingObsidianTask({
+    required this.externalId,
+    required this.lineNumber,
+  });
 }
 
 /// Exception for timeout scenarios
