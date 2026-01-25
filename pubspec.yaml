@@ -15,7 +15,7 @@ dependencies:
   riverpod_annotation: ^3.0.3
 
   # Routing
-  go_router: ^14.6.3
+  go_router: ^17.0.1
 
   # Database
   drift: ^2.22.1
