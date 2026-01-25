@@ -13,6 +13,6 @@
     "astro": "^5.0.0",
     "@astrojs/starlight": "^0.30.0",
     "@astrojs/sitemap": "^3.2.0",
-    "sharp": "^0.33.0"
+    "sharp": "^0.34.5"
   }
 }
