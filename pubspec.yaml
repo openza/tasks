@@ -1,7 +1,7 @@
 name: openza_tasks
 description: "Openza Tasks - Local First Task Organizer"
 publish_to: 'none'
-version: 0.4.0+10
+version: 0.5.0+11
 
 environment:
   sdk: ^3.7.0
