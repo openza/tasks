@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if ! command -v gitleaks >/dev/null 2>&1; then
+  echo "gitleaks not found. Install it to run secret checks." >&2
+  exit 1
+fi
+
+gitleaks detect --source . --verbose
+
+if ! command -v dart >/dev/null 2>&1; then
+  echo "dart not found. Install Flutter/Dart to run formatting checks." >&2
+  exit 1
+fi
+
+dart format --output=none --set-exit-if-changed lib test
