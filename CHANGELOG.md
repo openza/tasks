@@ -2,6 +2,16 @@
 
 All notable changes to Openza Tasks will be documented in this file.
 
+## [0.5.0] - 2026-01-25
+
+### Added
+- **Obsidian vault import**: Extract tasks from markdown checkboxes with settings integration
+- **OSS automation**: CI workflow, issue/PR templates, CODEOWNERS, Dependabot, security policy, and local hook docs
+
+### Changed
+- Wrapper sync semantics: imported tasks are locally authoritative and no longer removed by remote deletes
+- Obsidian grouping now uses top-level folder buckets with stable ID reuse
+
 ## [0.4.0] - 2025-01-17
 
 ### Added

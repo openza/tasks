@@ -25,7 +25,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.e);
 
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 3;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -37,6 +37,9 @@ class AppDatabase extends _$AppDatabase {
         onUpgrade: (Migrator m, int from, int to) async {
           if (from < 2) {
             await _migrateV1toV2(m);
+          }
+          if (from < 3) {
+            await _migrateV2toV3(m);
           }
         },
       );
@@ -226,6 +229,16 @@ class AppDatabase extends _$AppDatabase {
     await customStatement('PRAGMA foreign_keys = ON');
   }
 
+  /// Migrate from schema v2 to v3
+  /// This adds the Obsidian integration for existing users
+  Future<void> _migrateV2toV3(Migrator m) async {
+    // Insert Obsidian integration
+    await customStatement('''
+      INSERT OR IGNORE INTO integrations (id, name, display_name, color, icon, logo_path, is_active, is_configured, created_at)
+      VALUES ('obsidian', 'obsidian', 'Obsidian', '#7C3AED', 'file-text', 'assets/logos/obsidian.svg', 0, 0, strftime('%s', 'now'))
+    ''');
+  }
+
   /// Insert default integration providers
   Future<void> _insertDefaultIntegrations() async {
     await batch((batch) {
@@ -254,6 +267,14 @@ class AppDatabase extends _$AppDatabase {
           color: const Value('#00A4EF'),
           icon: const Value('layout-grid'),
           logoPath: const Value('assets/logos/microsoft.svg'),
+        ),
+        IntegrationsCompanion.insert(
+          id: 'obsidian',
+          name: 'obsidian',
+          displayName: 'Obsidian',
+          color: const Value('#7C3AED'),
+          icon: const Value('file-text'),
+          logoPath: const Value('assets/logos/obsidian.svg'),
         ),
       ], mode: InsertMode.insertOrIgnore);
     });

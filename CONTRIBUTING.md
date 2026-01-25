@@ -23,6 +23,8 @@ Thank you for your interest in contributing! This guide covers the development w
 
 4. Run: `./dev.sh`
 
+See `docs/development/environment.md` for toolchain versions and optional local hooks.
+
 ## Making Changes
 
 1. Create a feature branch:
@@ -43,7 +45,17 @@ Thank you for your interest in contributing! This guide covers the development w
    flutter test
    ```
 
-5. Commit using conventional commits:
+5. Optional local hooks (recommended):
+   ```bash
+   git config core.hooksPath .githooks
+   ```
+
+6. Run secret scanning before committing:
+   ```bash
+   gitleaks detect --source . --verbose
+   ```
+
+7. Commit using conventional commits:
    ```bash
    git commit -m "feat: add new feature"
    # Types: feat, fix, chore, docs, refactor, test

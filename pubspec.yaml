@@ -1,7 +1,7 @@
 name: openza_tasks
 description: "Openza Tasks - Local First Task Organizer"
 publish_to: 'none'
-version: 0.4.0+10
+version: 0.5.0+11
 
 environment:
   sdk: ^3.7.0
@@ -44,6 +44,7 @@ dependencies:
   # Utilities
   intl: ^0.20.1
   uuid: ^4.5.1
+  crypto: ^3.0.3
   logger: ^2.5.0
   equatable: ^2.0.7
   collection: ^1.19.1

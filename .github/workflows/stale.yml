@@ -1,0 +1,29 @@
+name: Stale Issues and PRs
+
+on:
+  schedule:
+    - cron: '0 3 * * 1'
+  workflow_dispatch:
+
+jobs:
+  stale:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mark stale items
+        uses: actions/stale@v9
+        with:
+          days-before-stale: 60
+          days-before-close: 14
+          stale-issue-message: >-
+            This issue has been marked as stale due to inactivity. If it is still relevant,
+            please add a comment to keep it open.
+          stale-pr-message: >-
+            This PR has been marked as stale due to inactivity. If it is still relevant,
+            please update it or leave a comment.
+          close-issue-message: >-
+            Closing due to inactivity. Please reopen if this is still needed.
+          close-pr-message: >-
+            Closing due to inactivity. Please reopen when ready.
+          exempt-issue-labels: 'pinned,security,help wanted'
+          exempt-pr-labels: 'pinned,security,help wanted'
+          operations-per-run: 100

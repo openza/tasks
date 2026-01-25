@@ -8,6 +8,7 @@ import '../../core/utils/logger.dart';
 import '../../domain/entities/task.dart';
 import '../../domain/entities/project.dart';
 import '../../domain/entities/label.dart';
+import '../datasources/local/obsidian/obsidian_vault_reader.dart';
 import '../datasources/remote/todoist_api.dart';
 import 'sync_ffi.dart';
 
@@ -77,12 +78,19 @@ class SyncResult {
 
 /// Sync engine that coordinates sync between API and local database via Rust FFI
 class SyncEngine {
-  final TodoistApi? _todoistApi;
+  TodoistApi? _todoistApi;
+  final ObsidianVaultReader _obsidianReader = ObsidianVaultReader();
   final SyncFfi _ffi = SyncFfi();
   bool _ffiAvailable = false;
 
   SyncEngine({TodoistApi? todoistApi}) : _todoistApi = todoistApi {
     _initFfi();
+  }
+
+  bool get hasTodoistApi => _todoistApi != null;
+
+  void setTodoistApi(TodoistApi? api) {
+    _todoistApi = api;
   }
 
   void _initFfi() {
@@ -144,6 +152,44 @@ class SyncEngine {
         error: e.toString(),
       );
     }
+  }
+
+  /// Extract all tasks from Obsidian vault (one-way extraction)
+  ///
+  /// Unlike Todoist, there is NO write-back mechanism.
+  /// Tasks are extracted once and owned by the app.
+  Future<SyncResult> extractFromObsidian(
+    String vaultPath, {
+    List<TaskEntity> existingTasks = const [],
+  }) async {
+    try {
+      AppLogger.info('Extracting tasks from Obsidian vault: $vaultPath');
+
+      final tasks = await _obsidianReader.readAllTasks(
+        vaultPath,
+        existingTasks: existingTasks,
+      );
+
+      AppLogger.info('Extracted ${tasks.length} tasks from Obsidian');
+
+      return SyncResult(
+        success: true,
+        tasks: tasks,
+        projects: [], // No provider projects for Obsidian
+        labels: [],   // No labels from markdown
+      );
+    } catch (e, stack) {
+      AppLogger.error('Failed to extract from Obsidian', e, stack);
+      return SyncResult(
+        success: false,
+        error: e.toString(),
+      );
+    }
+  }
+
+  /// Check if Obsidian vault is accessible
+  Future<bool> isObsidianVaultAccessible(String path) async {
+    return _obsidianReader.isVaultAccessible(path);
   }
 
   /// Sanitize string for FFI - remove control characters that can cause issues
@@ -219,12 +265,16 @@ class SyncEngine {
 
   /// Perform incremental sync via Rust FFI
   /// Note: Provider projects are NOT synced. See initialSync for details.
+  ///
+  /// [deleteOrphans] - When false, tasks missing from remote are NOT deleted locally.
+  /// Wrapper pattern: after initial import, local tasks are authoritative.
   Future<SyncSummary> incrementalSync({
     required String provider,
     required List<TaskEntity> tasks,
     required List<ProjectEntity> projects, // Ignored - not synced to DB
     required List<LabelEntity> labels,
     String? syncToken,
+    bool deleteOrphans = false,
   }) async {
     if (!_ffiAvailable) {
       return SyncSummary(
@@ -249,6 +299,7 @@ class SyncEngine {
         projectsJson: projectsJson,
         labelsJson: labelsJson,
         syncToken: syncToken,
+        deleteOrphans: deleteOrphans,
       );
 
       final result = jsonDecode(resultJson) as Map<String, dynamic>;
@@ -314,14 +365,15 @@ class SyncEngine {
     required String taskId,
     required bool completed,
   }) async {
-    if (_todoistApi == null) return false;
+    final api = _todoistApi;
+    if (api == null) return false;
 
     try {
       // taskId is now the provider's external ID directly
       if (completed) {
-        await _todoistApi.completeTask(taskId);
+        await api.completeTask(taskId);
       } else {
-        await _todoistApi.reopenTask(taskId);
+        await api.reopenTask(taskId);
       }
       return true;
     } catch (e) {

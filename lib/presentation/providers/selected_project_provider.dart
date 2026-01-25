@@ -207,6 +207,7 @@ const providerDisplayNames = {
   'openza_tasks': 'Local',
   'todoist': 'Todoist',
   'msToDo': 'Microsoft To-Do',
+  'obsidian': 'Obsidian',
 };
 
 /// Get display name for a provider
