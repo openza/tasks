@@ -169,4 +169,19 @@ class SecureStorageService {
   Future<String?> getActiveProvider() async {
     return read(key: StorageKeys.activeProvider);
   }
+
+  /// Store Obsidian vault path
+  Future<void> storeObsidianVaultPath(String path) async {
+    await write(key: StorageKeys.obsidianVaultPath, value: path);
+  }
+
+  /// Get Obsidian vault path
+  Future<String?> getObsidianVaultPath() async {
+    return read(key: StorageKeys.obsidianVaultPath);
+  }
+
+  /// Clear Obsidian vault path
+  Future<void> clearObsidianVaultPath() async {
+    await delete(key: StorageKeys.obsidianVaultPath);
+  }
 }

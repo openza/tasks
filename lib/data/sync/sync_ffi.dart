@@ -102,9 +102,11 @@ class SyncFfi {
     required String projectsJson,
     required String labelsJson,
     String? syncToken,
+    bool deleteOrphans = false,
   }) {
     initialize();
 
+    // Use v2 function that supports deleteOrphans parameter
     final func = _lib.lookupFunction<
         Pointer<Utf8> Function(
           Pointer<Utf8>,
@@ -113,6 +115,7 @@ class SyncFfi {
           Pointer<Utf8>,
           Pointer<Utf8>,
           Pointer<Utf8>,
+          Bool,
         ),
         Pointer<Utf8> Function(
           Pointer<Utf8>,
@@ -121,7 +124,8 @@ class SyncFfi {
           Pointer<Utf8>,
           Pointer<Utf8>,
           Pointer<Utf8>,
-        )>('incremental_sync');
+          bool,
+        )>('incremental_sync_v2');
 
     final dbPathPtr = dbPath.toNativeUtf8();
     final providerPtr = provider.toNativeUtf8();
@@ -131,7 +135,7 @@ class SyncFfi {
     final tokenPtr = (syncToken ?? '').toNativeUtf8();
 
     try {
-      final resultPtr = func(dbPathPtr, providerPtr, tasksPtr, projectsPtr, labelsPtr, tokenPtr);
+      final resultPtr = func(dbPathPtr, providerPtr, tasksPtr, projectsPtr, labelsPtr, tokenPtr, deleteOrphans);
       final result = resultPtr.toDartString();
       _freeResult(resultPtr);
       return result;

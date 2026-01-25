@@ -13,6 +13,7 @@ class AuthState {
   final String? activeIntegrationId;
   final bool todoistAuthenticated;
   final bool msToDoAuthenticated;
+  final bool obsidianConfigured;
   final String? error;
 
   const AuthState({
@@ -20,10 +21,14 @@ class AuthState {
     this.activeIntegrationId,
     this.todoistAuthenticated = false,
     this.msToDoAuthenticated = false,
+    this.obsidianConfigured = false,
     this.error,
   });
 
   bool get isAuthenticated => todoistAuthenticated || msToDoAuthenticated;
+
+  /// Check if any provider is connected (including Obsidian)
+  bool get hasAnyProvider => todoistAuthenticated || msToDoAuthenticated || obsidianConfigured;
 
   AuthState copyWith({
     bool? isLoading,
@@ -31,6 +36,7 @@ class AuthState {
     bool clearActiveIntegrationId = false,
     bool? todoistAuthenticated,
     bool? msToDoAuthenticated,
+    bool? obsidianConfigured,
     String? error,
   }) {
     return AuthState(
@@ -38,6 +44,7 @@ class AuthState {
       activeIntegrationId: clearActiveIntegrationId ? null : (activeIntegrationId ?? this.activeIntegrationId),
       todoistAuthenticated: todoistAuthenticated ?? this.todoistAuthenticated,
       msToDoAuthenticated: msToDoAuthenticated ?? this.msToDoAuthenticated,
+      obsidianConfigured: obsidianConfigured ?? this.obsidianConfigured,
       error: error,
     );
   }
@@ -55,6 +62,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
     try {
       final todoistToken = await _storage.getTodoistAccessToken();
       final msToDoToken = await _storage.getMsToDoAccessToken();
+      final obsidianVaultPath = await _storage.getObsidianVaultPath();
       final activeIntegrationId = await _storage.getActiveProvider();
 
       // Check if MS To-Do is properly configured (client ID must be set for token refresh)
@@ -65,6 +73,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
       if (msToDoToken != null && !msToDoConfigured) {
         await _storage.clearMsToDoTokens();
       }
+
+      // Check if Obsidian is configured (vault path is set)
+      final obsidianValid = obsidianVaultPath != null && obsidianVaultPath.isNotEmpty;
 
       String? effectiveIntegrationId = activeIntegrationId;
 
@@ -89,6 +100,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
         activeIntegrationId: effectiveIntegrationId,
         todoistAuthenticated: todoistToken != null,
         msToDoAuthenticated: msToDoValid,
+        obsidianConfigured: obsidianValid,
       );
     } catch (e) {
       state = AuthState(
@@ -176,11 +188,31 @@ class AuthNotifier extends StateNotifier<AuthState> {
   Future<void> signOutAll() async {
     await _storage.clearTodoistTokens();
     await _storage.clearMsToDoTokens();
+    await _storage.clearObsidianVaultPath();
 
     state = const AuthState(
       isLoading: false,
       todoistAuthenticated: false,
       msToDoAuthenticated: false,
+      obsidianConfigured: false,
+    );
+  }
+
+  /// Set Obsidian as configured with vault path
+  Future<void> setObsidianConfigured(String vaultPath) async {
+    await _storage.storeObsidianVaultPath(vaultPath);
+
+    state = state.copyWith(
+      obsidianConfigured: true,
+    );
+  }
+
+  /// Disconnect Obsidian
+  Future<void> disconnectObsidian() async {
+    await _storage.clearObsidianVaultPath();
+
+    state = state.copyWith(
+      obsidianConfigured: false,
     );
   }
 }

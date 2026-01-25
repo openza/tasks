@@ -44,6 +44,9 @@ pub fn initial_sync(
 
 /// Perform incremental sync with remote data
 /// Uses "remote wins" strategy for conflicts
+///
+/// When delete_orphans is false, tasks missing from remote are NOT deleted locally.
+/// This is used for sources like Obsidian where the app owns task existence.
 pub fn incremental_sync(
     db_path: String,
     provider: String,
@@ -51,6 +54,7 @@ pub fn incremental_sync(
     remote_projects_json: String,
     remote_labels_json: String,
     sync_token: Option<String>,
+    delete_orphans: bool,
 ) -> String {
     let result = (|| -> Result<SyncSummary, String> {
         let remote_tasks: Vec<Task> =
@@ -68,6 +72,7 @@ pub fn incremental_sync(
                 remote_projects,
                 remote_labels,
                 sync_token,
+                delete_orphans,
             )
             .map_err(|e| e.to_string())
     })();

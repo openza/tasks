@@ -34,6 +34,7 @@ class _ProjectsPaneState extends ConsumerState<ProjectsPane> {
     'openza_tasks': true,
     'todoist': true,
     'msToDo': true,
+    'obsidian': true,
   };
 
   @override
@@ -226,7 +227,7 @@ class _ProjectsPaneState extends ConsumerState<ProjectsPane> {
     final widgets = <Widget>[];
 
     // Define the order of providers to display
-    const providerOrder = ['openza_tasks', 'todoist', 'msToDo'];
+    const providerOrder = ['openza_tasks', 'todoist', 'msToDo', 'obsidian'];
 
     for (final providerId in providerOrder) {
       // For local projects (openza_tasks), show from database
@@ -956,6 +957,8 @@ class _VirtualProjectItemState extends State<_VirtualProjectItem> {
         return const Color(0xFFE44332); // Todoist red
       case 'msToDo':
         return const Color(0xFF2564CF); // Microsoft blue
+      case 'obsidian':
+        return const Color(0xFF7C3AED); // Obsidian purple
       default:
         return AppTheme.gray500;
     }

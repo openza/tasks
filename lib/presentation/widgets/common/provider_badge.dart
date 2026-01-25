@@ -15,6 +15,7 @@ enum ProviderBadgeSize {
 class ProviderColors {
   static const Color todoist = Color(0xFFE44332);
   static const Color msToDo = Color(0xFF00A4EF);
+  static const Color obsidian = Color(0xFF7C3AED);
   static const Color local = AppTheme.gray500;
 
   /// Get color for an integration ID
@@ -24,6 +25,8 @@ class ProviderColors {
         return todoist;
       case 'msToDo':
         return msToDo;
+      case 'obsidian':
+        return obsidian;
       case 'openza_tasks':
       default:
         return local;
@@ -55,6 +58,8 @@ class ProviderBadge extends StatelessWidget {
         return 'Todoist';
       case 'msToDo':
         return 'MS To-Do';
+      case 'obsidian':
+        return 'Obsidian';
       case 'openza_tasks':
         return 'Local';
       default:

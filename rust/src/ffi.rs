@@ -105,6 +105,48 @@ pub unsafe extern "C" fn incremental_sync(
         projects_json,
         labels_json,
         sync_token,
+        false, // delete_orphans: default to false for wrapper pattern
+    );
+    string_to_c_str(result)
+}
+
+/// Perform incremental sync with remote data (with delete_orphans option)
+///
+/// When delete_orphans is false, tasks missing from remote are NOT deleted locally.
+/// This is used for sources like Obsidian where the app owns task existence.
+///
+/// # Safety
+/// All string pointers must be valid null-terminated C strings
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn incremental_sync_v2(
+    db_path: *const c_char,
+    provider: *const c_char,
+    tasks_json: *const c_char,
+    projects_json: *const c_char,
+    labels_json: *const c_char,
+    sync_token: *const c_char,
+    delete_orphans: bool,
+) -> *mut c_char {
+    let db_path = c_str_to_string(db_path);
+    let provider = c_str_to_string(provider);
+    let tasks_json = c_str_to_string(tasks_json);
+    let projects_json = c_str_to_string(projects_json);
+    let labels_json = c_str_to_string(labels_json);
+    let sync_token_str = c_str_to_string(sync_token);
+    let sync_token = if sync_token_str.is_empty() {
+        None
+    } else {
+        Some(sync_token_str)
+    };
+
+    let result = api::incremental_sync(
+        db_path,
+        provider,
+        tasks_json,
+        projects_json,
+        labels_json,
+        sync_token,
+        delete_orphans,
     );
     string_to_c_str(result)
 }

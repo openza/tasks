@@ -268,6 +268,9 @@ impl SyncEngine {
     /// Perform incremental sync: diff remote vs local and apply changes
     /// Uses "remote wins" strategy for conflicts
     /// All write operations are wrapped in a transaction for atomicity
+    ///
+    /// When delete_orphans is false, tasks missing from remote are NOT deleted locally.
+    /// This is used for sources like Obsidian where the app owns task existence.
     pub fn incremental_sync(
         &self,
         integration_id: &str,
@@ -275,6 +278,7 @@ impl SyncEngine {
         remote_projects: Vec<Project>,
         remote_labels: Vec<Label>,
         sync_token: Option<String>,
+        delete_orphans: bool,
     ) -> SyncResult<SyncSummary> {
         info!(
             "[{}] Starting incremental sync: {} tasks, {} projects, {} labels (token: {:?})",
@@ -378,6 +382,7 @@ impl SyncEngine {
         }
 
         // Process remote tasks in sorted order
+        let is_wrapper_provider = matches!(integration_id, "todoist" | "msToDo" | "obsidian");
         for task in &sorted_tasks {
             let provider_metadata_json = task
                 .provider_metadata
@@ -386,44 +391,54 @@ impl SyncEngine {
                 .transpose()?;
 
             if local_task_map.contains_key(&task.id) {
-                // Task exists locally - update
-                // IMPORTANT: Do NOT update project_id - preserve user's local organization
-                // Provider's project is stored in provider_metadata.sourceTask.projectId
-                // This follows the wrapper pattern where users organize tasks locally
-                tx.execute(
-                    "UPDATE tasks SET
-                        title = ?2,
-                        description = ?3,
-                        parent_id = ?4,
-                        priority = ?5,
-                        status = ?6,
-                        due_date = ?7,
-                        due_time = ?8,
-                        provider_metadata = ?9,
-                        updated_at = ?10,
-                        completed_at = ?11
-                     WHERE id = ?1",
-                    rusqlite::params![
-                        task.id,
-                        task.title,
-                        task.description,
-                        task.parent_id,
-                        task.priority,
-                        task.status,
-                        task.due_date.map(|dt| dt.timestamp()),
-                        task.due_time,
-                        provider_metadata_json,
-                        task.updated_at.unwrap_or(task.created_at).timestamp(),
-                        task.completed_at.map(|dt| dt.timestamp()),
-                    ],
-                )?;
+                if is_wrapper_provider {
+                    // Task exists locally - refresh provider snapshot only.
+                    // Wrapper pattern: after initial import, local fields are authoritative.
+                    tx.execute(
+                        "UPDATE tasks SET
+                            provider_metadata = ?2
+                         WHERE id = ?1",
+                        rusqlite::params![task.id, provider_metadata_json],
+                    )?;
+                } else {
+                    // Non-wrapper providers can update local fields from source.
+                    tx.execute(
+                        "UPDATE tasks SET
+                            title = ?2,
+                            description = ?3,
+                            parent_id = ?4,
+                            priority = ?5,
+                            status = ?6,
+                            due_date = ?7,
+                            due_time = ?8,
+                            provider_metadata = ?9,
+                            updated_at = ?10,
+                            completed_at = ?11
+                         WHERE id = ?1",
+                        rusqlite::params![
+                            task.id,
+                            task.title,
+                            task.description,
+                            task.parent_id,
+                            task.priority,
+                            task.status,
+                            task.due_date.map(|dt| dt.timestamp()),
+                            task.due_time,
+                            provider_metadata_json,
+                            task.updated_at.unwrap_or(task.created_at).timestamp(),
+                            task.completed_at.map(|dt| dt.timestamp()),
+                        ],
+                    )?;
+                }
                 tasks_updated += 1;
             } else {
                 // New task from remote
                 // project_id comes from remote (null for wrapper pattern)
                 // User will organize into local projects later
+                // Use INSERT OR REPLACE to handle duplicate IDs in the same batch
+                // (e.g., Obsidian tasks with same title under same heading)
                 tx.execute(
-                    "INSERT INTO tasks (id, external_id, integration_id, title, description, project_id,
+                    "INSERT OR REPLACE INTO tasks (id, external_id, integration_id, title, description, project_id,
                                        parent_id, priority, status, due_date, due_time, notes,
                                        provider_metadata, created_at, updated_at, completed_at)
                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
@@ -460,16 +475,22 @@ impl SyncEngine {
         }
 
         // Detect deleted tasks (in local but not in remote)
-        // Todoist REST API only returns active tasks, so any task not in
-        // the response was either deleted remotely or completed.
-        // Preserve locally-completed tasks for history - only delete if
-        // the task was NOT completed locally (status != 'completed')
-        for (local_id, local_task) in &local_task_map {
-            if !remote_task_ids.contains(local_id) {
-                // Skip deletion for locally-completed tasks to preserve history
-                if local_task.status != "completed" {
-                    tx.execute("DELETE FROM tasks WHERE id = ?1", rusqlite::params![local_id])?;
-                    tasks_deleted += 1;
+        // When delete_orphans is true (e.g., Todoist):
+        //   - Todoist REST API only returns active tasks, so any task not in
+        //     the response was either deleted remotely or completed.
+        //   - Preserve locally-completed tasks for history - only delete if
+        //     the task was NOT completed locally (status != 'completed')
+        // When delete_orphans is false (e.g., Obsidian):
+        //   - App owns task existence, so missing tasks are NOT deleted
+        //   - User must manually delete if desired
+        if delete_orphans {
+            for (local_id, local_task) in &local_task_map {
+                if !remote_task_ids.contains(local_id) {
+                    // Skip deletion for locally-completed tasks to preserve history
+                    if local_task.status != "completed" {
+                        tx.execute("DELETE FROM tasks WHERE id = ?1", rusqlite::params![local_id])?;
+                        tasks_deleted += 1;
+                    }
                 }
             }
         }

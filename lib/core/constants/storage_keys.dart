@@ -19,6 +19,9 @@ class StorageKeys {
   static const String oauthState = 'oauth_state';
   static const String oauthCodeVerifier = 'oauth_code_verifier';
 
+  // Obsidian
+  static const String obsidianVaultPath = 'obsidian_vault_path';
+
   // User preferences
   static const String themeMode = 'theme_mode';
   static const String sidebarCollapsed = 'sidebar_collapsed';

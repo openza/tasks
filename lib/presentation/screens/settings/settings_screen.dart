@@ -57,6 +57,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     {'id': 'provider', 'label': 'Providers', 'icon': LucideIcons.layers},
     {'id': 'todoist', 'label': 'Todoist', 'icon': LucideIcons.checkCircle},
     {'id': 'mstodo', 'label': 'Microsoft To-Do', 'icon': LucideIcons.layoutGrid},
+    {'id': 'obsidian', 'label': 'Obsidian', 'icon': LucideIcons.fileText},
     {'id': 'backup', 'label': 'Backup', 'icon': LucideIcons.hardDrive},
     {'id': 'import', 'label': 'Import', 'icon': LucideIcons.folderUp},
     {'id': 'export', 'label': 'Export', 'icon': LucideIcons.fileUp},
@@ -193,6 +194,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         return _buildTodoistContent(context);
       case 'mstodo':
         return _buildMsToDoContent(context);
+      case 'obsidian':
+        return _buildObsidianContent(context);
       case 'backup':
         return _buildBackupContent(context);
       case 'import':
@@ -300,6 +303,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             color: const Color(0xFF00A4EF),
             isConnected: authState.msToDoAuthenticated,
             onConfigure: () => setState(() => _selectedCategory = 'mstodo'),
+          ),
+          const SizedBox(height: 12),
+          _ProviderStatus(
+            name: 'Obsidian',
+            icon: LucideIcons.fileText,
+            color: const Color(0xFF7C3AED),
+            isConnected: authState.obsidianConfigured,
+            onConfigure: () => setState(() => _selectedCategory = 'obsidian'),
           ),
         ],
       ),
@@ -811,6 +822,265 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         ],
       ),
     );
+  }
+
+  Widget _buildObsidianContent(BuildContext context) {
+    final authState = ref.watch(authProvider);
+    final isConnected = authState.obsidianConfigured;
+
+    return Padding(
+      padding: const EdgeInsets.all(24),
+      child: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF7C3AED).withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(
+                    LucideIcons.fileText,
+                    size: 24,
+                    color: Color(0xFF7C3AED),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Text(
+                  'Obsidian',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Extract tasks from your Obsidian vault. Tasks are imported from markdown checkboxes.',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: AppTheme.gray500,
+                  ),
+            ),
+            const SizedBox(height: 24),
+
+            // Connection status
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: isConnected
+                    ? AppTheme.successGreen.withValues(alpha: 0.1)
+                    : AppTheme.gray100,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: isConnected
+                      ? AppTheme.successGreen.withValues(alpha: 0.3)
+                      : AppTheme.gray200,
+                ),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    isConnected ? LucideIcons.checkCircle2 : LucideIcons.xCircle,
+                    size: 20,
+                    color: isConnected ? AppTheme.successGreen : AppTheme.gray400,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    isConnected ? 'Connected' : 'Not Connected',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w500,
+                      color: isConnected ? AppTheme.successGreen : AppTheme.gray500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 24),
+
+            // Sync behavior info
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFF7C3AED).withValues(alpha: 0.05),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: const Color(0xFF7C3AED).withValues(alpha: 0.2),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(LucideIcons.refreshCw, size: 16, color: Color(0xFF7C3AED)),
+                      const SizedBox(width: 8),
+                      Text(
+                        'How It Works',
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                              fontWeight: FontWeight.w600,
+                              color: const Color(0xFF7C3AED),
+                            ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  _SyncBehaviorRow(
+                    icon: LucideIcons.arrowDown,
+                    label: 'One-way extraction',
+                    description: 'Tasks are imported from markdown checkboxes',
+                  ),
+                  const SizedBox(height: 8),
+                  _SyncBehaviorRow(
+                    icon: LucideIcons.edit3,
+                    label: 'Full ownership',
+                    description: 'Edit any field in the app - changes stay local',
+                  ),
+                  const SizedBox(height: 8),
+                  _SyncBehaviorRow(
+                    icon: LucideIcons.fileX,
+                    label: 'No write-back',
+                    description: 'Markdown files are never modified',
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 24),
+
+            if (isConnected) ...[
+              OutlinedButton.icon(
+                onPressed: () async {
+                  await ref.read(authProvider.notifier).disconnectObsidian();
+                  ref.invalidate(unifiedDataProvider);
+                },
+                icon: const Icon(LucideIcons.logOut, size: 16),
+                label: const Text('Disconnect'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppTheme.errorRed,
+                  side: const BorderSide(color: AppTheme.errorRed),
+                ),
+              ),
+            ] else ...[
+              // Vault folder selection
+              Text(
+                'Vault Folder',
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+              ),
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () => _selectObsidianVault(),
+                  icon: const Icon(LucideIcons.folderOpen, size: 16),
+                  label: const Text('Select Vault Folder'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF7C3AED),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 24),
+
+              // Help section
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF7C3AED).withValues(alpha: 0.05),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: const Color(0xFF7C3AED).withValues(alpha: 0.2),
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(LucideIcons.info, size: 18, color: Color(0xFF7C3AED)),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Supported task format',
+                          style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                                fontWeight: FontWeight.w600,
+                                color: const Color(0xFF7C3AED),
+                              ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      '- [ ] Uncompleted task\n'
+                      '- [x] Completed task\n'
+                      '* [ ] Asterisk bullet\n'
+                      '+ [ ] Plus bullet',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: AppTheme.gray600,
+                            fontFamily: 'monospace',
+                            height: 1.5,
+                          ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _selectObsidianVault() async {
+    // Use file_selector to pick a directory
+    final String? directoryPath = await getDirectoryPath();
+
+    if (directoryPath == null || !mounted) return;
+
+    // Validate the vault
+    final isValid = await Directory(directoryPath).exists();
+
+    if (!isValid) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Row(
+              children: [
+                Icon(LucideIcons.alertTriangle, color: Colors.white, size: 18),
+                SizedBox(width: 8),
+                Text('Invalid folder. Please select a valid directory.'),
+              ],
+            ),
+            backgroundColor: AppTheme.errorRed,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          ),
+        );
+      }
+      return;
+    }
+
+    // Save the vault path
+    await ref.read(authProvider.notifier).setObsidianConfigured(directoryPath);
+    ref.invalidate(unifiedDataProvider);
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Row(
+            children: [
+              Icon(LucideIcons.checkCircle2, color: Colors.white, size: 18),
+              SizedBox(width: 8),
+              Text('Obsidian vault connected! Tasks will be extracted on next sync.'),
+            ],
+          ),
+          backgroundColor: AppTheme.successGreen,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        ),
+      );
+    }
   }
 
   Widget _buildBackupContent(BuildContext context) {

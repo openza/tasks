@@ -235,13 +235,11 @@ class TaskRepository {
   // ============ UPDATE ============
 
   /// Update a task
-  /// Note: For integrated tasks (Todoist, MS To-Do), only local-enhancement fields
-  /// (notes, providerMetadata, projectId) are updated. Core sync fields (title,
-  /// description, priority, status, due_date) are owned by the provider and synced
-  /// via Rust sync engine. Only completion status syncs back to providers.
+  /// Note: App owns task completely after sync - ALL fields can be edited locally.
+  /// Only completion status syncs back to providers (Todoist, MS To-Do, etc.)
+  /// via the outbox pattern. Local edits are user's personal enhancements.
   ///
-  /// projectId is user-controlled for ALL tasks (wrapper pattern) - user can organize
-  /// any task into any local project. Provider's project is in providerMetadata.sourceTask.
+  /// For Obsidian tasks: completely local, no write-back mechanism exists.
   Future<TaskEntity> updateTask(TaskEntity task) async {
     return _updateLocalTask(task);
   }
@@ -255,14 +253,19 @@ class TaskRepository {
         : null;
 
     if (isSyncedTask) {
-      // For synced tasks: update local-enhancement fields + projectId
-      // projectId is user-controlled (wrapper pattern) - not synced to provider
-      // Core sync fields (title, description, priority, status, due_date)
-      // are owned by the sync engine and should not be modified directly
+      // App owns task completely after sync - allow ALL field edits
+      // Only completion syncs back to provider (via outbox)
+      // Local edits are user's personal enhancements that don't affect the source
       await _database.updateTask(
         task.id,
         TasksCompanion(
-          projectId: Value(task.projectId), // User's local organization
+          title: Value(task.title),
+          description: Value(task.description),
+          projectId: Value(task.projectId),
+          priority: Value(task.priority),
+          status: Value(task.status.value),
+          dueDate: Value(task.dueDate),
+          dueTime: Value(task.dueTime),
           notes: Value(task.notes),
           providerMetadata: Value(providerMetadataJson),
           updatedAt: Value(DateTime.now()),
