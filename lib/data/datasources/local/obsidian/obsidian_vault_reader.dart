@@ -187,11 +187,9 @@ class ObsidianVaultReader {
 
   /// Generate a stable project ID from file path.
   ///
-  /// Groups tasks by their parent directory (or file name for root files).
+  /// Groups tasks by their top-level folder (or Vault Root for root files).
   String _generateProjectId(String vaultId, String relativePath) {
-    // Use the parent directory for grouping, or file name for root files
-    final dir = p.dirname(relativePath);
-    final groupKey = dir == '.' ? p.basenameWithoutExtension(relativePath) : dir;
+    final groupKey = _projectGroupKey(relativePath);
     final input = '$vaultId:$groupKey';
     final bytes = utf8.encode(input);
     return sha256.convert(bytes).toString().substring(0, 16);
@@ -216,20 +214,26 @@ class ObsidianVaultReader {
   /// Extract project name from file path.
   ///
   /// Examples:
-  /// - 'work.md' → 'Work'
-  /// - 'projects/client-a.md' → 'Client A'
+  /// - 'work.md' → 'Vault Root'
+  /// - 'projects/client-a.md' → 'Projects'
   /// - 'daily/2024-01-15.md' → 'Daily'
   String _extractProjectName(String relativePath) {
-    final fileName = p.basenameWithoutExtension(relativePath);
-
-    // Use parent folder name if file is in a subfolder
-    final dir = p.dirname(relativePath);
-    if (dir != '.' && dir.isNotEmpty) {
-      final folderName = p.basename(dir);
-      return _titleCase(folderName.replaceAll(RegExp(r'[-_]'), ' '));
+    final groupKey = _projectGroupKey(relativePath);
+    if (groupKey == 'vault_root') {
+      return 'Vault Root';
     }
+    return _titleCase(groupKey.replaceAll(RegExp(r'[-_]'), ' '));
+  }
 
-    return _titleCase(fileName.replaceAll(RegExp(r'[-_]'), ' '));
+  /// Get the top-level grouping key for a file path.
+  ///
+  /// Root files are grouped under "vault_root".
+  String _projectGroupKey(String relativePath) {
+    final parts = p.split(relativePath);
+    if (parts.length <= 1) {
+      return 'vault_root';
+    }
+    return parts.first;
   }
 
   /// Convert string to title case
