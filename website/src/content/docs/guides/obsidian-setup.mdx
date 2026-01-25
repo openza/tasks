@@ -1,0 +1,59 @@
+---
+title: Obsidian Setup
+description: Extract tasks from your Obsidian vault
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+
+Openza Tasks can extract tasks from your Obsidian vault by scanning markdown
+checkboxes. The vault is never modified.
+
+## Connect Your Vault
+
+<Steps>
+1. Open **Settings** in Openza Tasks
+2. Select **Obsidian** in the sidebar
+3. Click **Select Vault Folder**
+4. Choose the root folder of your Obsidian vault
+</Steps>
+
+After connecting, click **Sync** in the navigation rail to extract tasks.
+
+## Supported Task Format
+
+Openza Tasks recognizes GitHub Flavored Markdown checkboxes:
+
+```markdown
+- [ ] Open task
+- [x] Completed task
+* [ ] Asterisk bullet
++ [ ] Plus bullet
+```
+
+Only lines with a checkbox and a non-empty title are imported.
+
+## How Tasks Are Organized
+
+- Tasks appear under the **Obsidian** provider in the Projects pane.
+- The top-level vault folder becomes a virtual project name.
+- Files in the vault root are grouped under **Vault Root**.
+- Heading paths (e.g., `Project > Phase`) are stored for context.
+
+## Behavior & Limits
+
+<Aside type="note">
+Obsidian extraction is one-way. Edits in Openza Tasks stay local, and your
+vault files are never changed.
+</Aside>
+
+- **No write-back:** Changes made in Openza Tasks do not update your vault.
+- **No deletions:** Removing a checkbox in Obsidian does not delete the task
+  in the app. Delete locally if needed.
+- **File scope:** Only `.md` files are scanned; hidden folders like `.obsidian`
+  are skipped.
+- **File size limit:** Files larger than 5 MB are ignored.
+
+## Tips
+
+- Re-run **Sync** after editing notes to pull new checkboxes.
+- Keep headings consistent if you want tasks to stay grouped by section.

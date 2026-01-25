@@ -46,6 +46,7 @@ export default defineConfig({
           items: [
             { label: 'Todoist Setup', slug: 'guides/todoist-setup' },
             { label: 'Microsoft To-Do', slug: 'guides/mstodo-setup' },
+            { label: 'Obsidian Setup', slug: 'guides/obsidian-setup' },
           ],
         },
         {
