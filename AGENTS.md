@@ -33,6 +33,7 @@
 ## Security & Configuration
 - Never commit secrets; use `.env.example` for templates and keep `.env.local` gitignored.
 - Use `flutter_secure_storage` for credentials and avoid logging sensitive data.
+- Before committing, run `gitleaks detect --source . --verbose`.
 - Provide SQL migration scripts instead of executing migrations directly in development.
 
 ## Agent-Specific Instructions
