@@ -49,6 +49,26 @@ class MarkdownTaskParser {
     return tasks;
   }
 
+  /// Parse a single line and return a task if it matches checkbox syntax.
+  static ParsedTask? parseLine(String line) {
+    if (line.length > _maxLineLength) {
+      return null;
+    }
+
+    final match = _checkboxPattern.firstMatch(line);
+    if (match == null) return null;
+
+    final checkboxState = match.group(1);
+    final title = match.group(2)?.trim();
+
+    if (title == null || title.isEmpty) return null;
+
+    return ParsedTask(
+      title: _sanitizeTitle(title),
+      isCompleted: checkboxState?.toLowerCase() == 'x',
+    );
+  }
+
   /// Sanitize task title by trimming and limiting length
   static String _sanitizeTitle(String title) {
     final trimmed = title.trim();

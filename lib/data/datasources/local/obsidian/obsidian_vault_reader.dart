@@ -128,8 +128,7 @@ class ObsidianVaultReader {
       }
     }
 
-    final parsedTasks = MarkdownTaskParser.parse(content);
-    if (parsedTasks.isEmpty) return [];
+    if (!MarkdownTaskParser.containsCheckboxes(content)) return [];
 
     final projectName = _extractProjectName(relativePath);
     final headingMap = _buildHeadingMap(content);
@@ -137,59 +136,50 @@ class ObsidianVaultReader {
     final lines = content.split('\n');
     final seenCounts = <String, int>{};
 
-    // Find line numbers for each task
-    int taskIndex = 0;
-    for (int lineNum = 0; lineNum < lines.length && taskIndex < parsedTasks.length; lineNum++) {
-      final line = lines[lineNum];
-      if (_isCheckboxLine(line)) {
-        final parsed = parsedTasks[taskIndex];
-        final headingPath = _getHeadingPathForLine(headingMap, lineNum);
-        final baseKey = _buildFingerprint(vaultId, relativePath, headingPath, parsed.title);
-        final occurrenceIndex = (seenCounts[baseKey] ?? 0);
-        seenCounts[baseKey] = occurrenceIndex + 1;
+    for (int lineNum = 0; lineNum < lines.length; lineNum++) {
+      final parsed = MarkdownTaskParser.parseLine(lines[lineNum]);
+      if (parsed == null) continue;
 
-        final existingIds = existingIdBuckets[baseKey];
-        final externalId = (existingIds != null && existingIds.isNotEmpty)
-            ? existingIds.removeFirst()
-            : _generateTaskId(baseKey, occurrenceIndex);
+      final headingPath = _getHeadingPathForLine(headingMap, lineNum);
+      final baseKey = _buildFingerprint(vaultId, relativePath, headingPath, parsed.title);
+      final occurrenceIndex = (seenCounts[baseKey] ?? 0);
+      seenCounts[baseKey] = occurrenceIndex + 1;
+
+      final existingIds = existingIdBuckets[baseKey];
+      final externalId = (existingIds != null && existingIds.isNotEmpty)
+          ? existingIds.removeFirst()
+          : _generateTaskId(baseKey, occurrenceIndex);
 
         // Generate project ID from file path for virtual project grouping
         final projectId = _generateProjectId(vaultId, relativePath);
 
-        tasks.add(TaskEntity(
-          id: 'obsidian_$externalId',
-          externalId: externalId,
-          integrationId: 'obsidian',
-          title: parsed.title,
-          description: null,
-          projectId: null, // User will organize locally
-          priority: 2, // Default priority
-          status: parsed.isCompleted ? TaskStatus.completed : TaskStatus.pending,
-          createdAt: extractedAt,
-          updatedAt: extractedAt,
-          completedAt: parsed.isCompleted ? extractedAt : null,
-          providerMetadata: {
-            'sourceTask': {
-              'vaultPath': vaultPath,
-              'filePath': relativePath,
-              'projectId': projectId, // For virtual project grouping
-              'projectName': projectName,
-              'headingPath': headingPath,
-              'lineNumber': lineNum + 1, // 1-indexed for display
-            },
+      tasks.add(TaskEntity(
+        id: 'obsidian_$externalId',
+        externalId: externalId,
+        integrationId: 'obsidian',
+        title: parsed.title,
+        description: null,
+        projectId: null, // User will organize locally
+        priority: 2, // Default priority
+        status: parsed.isCompleted ? TaskStatus.completed : TaskStatus.pending,
+        createdAt: extractedAt,
+        updatedAt: extractedAt,
+        completedAt: parsed.isCompleted ? extractedAt : null,
+        providerMetadata: {
+          'sourceTask': {
+            'vaultPath': vaultPath,
+            'filePath': relativePath,
+            'projectId': projectId, // For virtual project grouping
+            'projectName': projectName,
+            'headingPath': headingPath,
+            'lineNumber': lineNum + 1, // 1-indexed for display
+            'title': parsed.title, // Immutable source title for ID reuse
           },
-        ));
-
-        taskIndex++;
-      }
+        },
+      ));
     }
 
     return tasks;
-  }
-
-  /// Check if a line is a checkbox line
-  bool _isCheckboxLine(String line) {
-    return RegExp(r'^\s*[-*+]\s*\[([ xX])\]').hasMatch(line);
   }
 
   /// Generate a stable ID for a vault (hash of path)
@@ -328,7 +318,9 @@ class ObsidianVaultReader {
 
       final vaultId = _generateVaultId(vaultPath);
       final headingPath = sourceTask['headingPath'] as String? ?? '';
-      final baseKey = _buildFingerprint(vaultId, filePath, headingPath, task.title);
+      final sourceTitle = sourceTask['title'] as String?;
+      final titleForFingerprint = sourceTitle?.isNotEmpty == true ? sourceTitle! : task.title;
+      final baseKey = _buildFingerprint(vaultId, filePath, headingPath, titleForFingerprint);
 
       final lineNumberValue = sourceTask['lineNumber'];
       final lineNumber = lineNumberValue is num ? lineNumberValue.toInt() : 0;
