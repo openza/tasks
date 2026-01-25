@@ -58,7 +58,7 @@ dependencies:
   freezed_annotation: ^3.0.0
 
   # Desktop Window Management
-  window_manager: ^0.4.3
+  window_manager: ^0.5.1
 
   # Toast/Notifications
   toastification: ^2.3.0
