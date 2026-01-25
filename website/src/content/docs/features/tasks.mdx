@@ -38,12 +38,12 @@ If you have unsaved changes and try to cancel, a confirmation dialog appears.
 
 ### Editing Synced Tasks
 
-<Aside type="caution">
-Tasks from Todoist or Microsoft To-Do are **read-only** except for completion. You can organize them into local projects, but this is saved locally only and does not sync back.
+<Aside type="note">
+Tasks from Todoist, Microsoft To-Do, and Obsidian are editable in Openza Tasks. Edits to title,
+description, due date, priority, labels, and local project assignments stay local.
 
-To edit title, description, priority, or due date, use the original app (Todoist or Microsoft To-Do).
-
-**Only completion syncs back** - marking a task complete or reopening it updates the original provider.
+For Todoist and Microsoft To-Do, **only completion syncs back**. For Obsidian, the vault is never
+modified; re-sync to pull changes from your notes.
 </Aside>
 
 ## Completing a Task
@@ -79,7 +79,8 @@ Completing or reopening synced tasks updates the original provider (Todoist/MS T
 You can also right-click a task and select **Delete** from the context menu.
 
 <Aside type="caution">
-Deletion cannot be undone. For synced tasks, the task is also deleted from the original provider.
+Deletion cannot be undone. For Todoist and Microsoft To-Do tasks, deletion also removes the task from
+the original provider. For Obsidian tasks, deletion is local only and does not change your vault.
 </Aside>
 
 ## Task Properties
