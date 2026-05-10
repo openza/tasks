@@ -1,0 +1,19 @@
+<Project>
+  <PropertyGroup>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <LangVersion>latest</LangVersion>
+    <UseSharedCompilation>false</UseSharedCompilation>
+    <Authors>Openza contributors</Authors>
+    <Company>Openza</Company>
+    <Product>Openza Tasks</Product>
+    <Copyright>Copyright (c) Openza contributors</Copyright>
+    <RepositoryType>git</RepositoryType>
+    <RepositoryUrl>https://github.com/openza/tasks</RepositoryUrl>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <NeutralLanguage>en-US</NeutralLanguage>
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+</Project>

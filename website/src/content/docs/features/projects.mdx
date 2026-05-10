@@ -14,20 +14,19 @@ Projects help you group related tasks together. Openza Tasks supports both local
 Projects created in Openza Tasks that you fully control:
 
 - Create, edit, and delete freely
-- Assign any color from the palette
+- Assign a color
 - Move tasks between them
 
 ### Provider Projects
 
-Projects from Todoist, Microsoft To-Do, or Obsidian appear in the sidebar automatically:
+Projects from Todoist or Microsoft To Do appear in the sidebar automatically:
 
 - **Read-only** - Cannot edit or delete from Openza Tasks
-- Managed through the original provider (Obsidian uses vault folders)
+- Managed through the original provider
 - Tasks synced from these projects show their source project
 
 <Aside type="note">
-Provider projects are extracted from your synced tasks. For Obsidian, tasks are grouped by their
-top-level vault folder, and root files appear under **Vault Root**.
+Provider projects are extracted from your synced tasks.
 </Aside>
 
 ### The Inbox
@@ -41,10 +40,9 @@ Every integration has a default Inbox project:
 ## Creating a Project
 
 <Steps>
-1. Click **Add Project** in the navigation rail
+1. Click **New project** in the command bar
 2. Enter a project name
-3. Choose a color from the palette
-4. Click **Create**
+3. Click **Create**
 </Steps>
 
 The new project appears in your Projects pane under the Openza Tasks section.
@@ -53,10 +51,9 @@ The new project appears in your Projects pane under the Openza Tasks section.
 
 <Steps>
 1. Find the project in the Projects pane
-2. Right-click or click the menu icon
-3. Select **Edit**
-4. Change the name or color
-5. Click **Save**
+2. Click **Edit**
+3. Change the name, color, or favorite status
+4. Click **Save**
 </Steps>
 
 <Aside type="note">
@@ -66,8 +63,8 @@ Only local Openza Tasks projects can be edited. Provider projects must be edited
 ## Deleting a Project
 
 <Steps>
-1. Right-click the project or click the menu icon
-2. Select **Delete**
+1. Select the project
+2. Click **Delete**
 3. Choose what to do with the tasks:
    - **Move to Inbox** - Tasks are preserved in Inbox
    - **Delete tasks** - Tasks are permanently removed
@@ -86,22 +83,9 @@ You can move tasks to a different project in two ways:
 
 <Steps>
 1. Select a task to open the details pane
-2. Click **Edit**
-3. Use the project dropdown to select a new project
-4. Click **Save**
+2. Use the project dropdown to select a new project
+3. Click **Save task**
 </Steps>
-
-### From Context Menu
-
-<Steps>
-1. Right-click on any task in the list
-2. Select **Move to Inbox** or **Move to Project**
-3. Choose the target project from the submenu
-</Steps>
-
-<Aside type="tip">
-The context menu shows your 3 most recent projects for quick access. Select "More projects..." to see all available projects.
-</Aside>
 
 ## Filtering by Project
 
@@ -109,21 +93,10 @@ Click any project in the Projects pane to filter the task list:
 
 - Only tasks from that project are shown
 - The project name appears in the header
-- Click the project again or select another view to clear the filter
+- Select **All projects** or another view to clear the filter
 
 ## Project Colors
 
-When creating or editing a project, choose from 8 colors:
+When editing a local project, enter a hex color such as `#3b82f6`.
 
-| Color | Use Case Example |
-|-------|------------------|
-| Gray | Archive or low-priority |
-| Blue | Work projects |
-| Green | Personal or health |
-| Red | Urgent or important |
-| Amber | Warnings or pending |
-| Purple | Creative projects |
-| Pink | Personal projects |
-| Cyan | Learning or research |
-
-Colors help you visually distinguish projects in the sidebar and on task cards.
+Colors are stored with the project and can be used by richer project visuals as the WinUI app matures.

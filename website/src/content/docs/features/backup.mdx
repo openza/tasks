@@ -5,36 +5,27 @@ description: Protect your tasks with automatic backups
 
 import { Steps, Aside } from '@astrojs/starlight/components';
 
-Openza Tasks automatically backs up your local database to protect your tasks from data loss.
+Openza Tasks can automatically back up your local database to protect your tasks from data loss.
 
 ## Automatic Backups
 
-By default, Openza Tasks creates daily backups of your task database. You can configure the backup frequency in Settings.
-
-### Backup Frequency Options
-
-| Frequency | Description |
-|-----------|-------------|
-| Hourly | Best for heavy users who make frequent changes |
-| Daily | Recommended for most users (default) |
-| Weekly | For light usage or when storage is limited |
+By default, Openza Tasks creates one startup backup per day. You can turn startup backups on or off in Settings.
 
 ### Enabling/Disabling Auto-Backup
 
 <Steps>
-1. Open **Settings** (gear icon in the navigation rail)
-2. Go to the **Backup** page
-3. Toggle **Automatic Backup** on or off
-4. Select your preferred frequency
+1. Open **Settings** from the left navigation
+2. Find the **Backups** section
+3. Toggle **Create a backup on startup** on or off
 </Steps>
 
 ## Manual Backup
 
-Create a backup anytime from the Settings modal:
+Create a backup anytime from Settings:
 
 <Steps>
-1. Open **Settings** > **Backup**
-2. Click **Backup Now**
+1. Open **Settings**
+2. Click **Create backup**
 3. The backup appears in your backup list
 </Steps>
 
@@ -47,13 +38,13 @@ Your backups are displayed with:
 - **Time** of creation
 - **File size**
 
-### Download Backup
+### Export Backup
 
 Export a backup to save externally or transfer to another computer:
 
 <Steps>
-1. Find the backup you want to download
-2. Click the **Download** button
+1. Select the backup you want to export
+2. Click **Export selected**
 3. Choose a save location
 4. The backup is saved as a `.db` file
 </Steps>
@@ -66,23 +57,21 @@ Restoring a backup will replace your current data. This action cannot be undone.
 
 <Steps>
 1. Select the backup to restore
-2. Click the **Restore** button
-3. Type **RESTORE** in the confirmation dialog to proceed
-4. Restart the app when prompted
+2. Click **Restore selected**
+3. Confirm the restore dialog
 </Steps>
 
-The typing confirmation prevents accidental data replacement.
+Openza Tasks creates a safety copy of the current database before replacing it.
 
 ### Restore from External File
 
 Restore a backup from another computer or external storage:
 
 <Steps>
-1. Open **Settings** > **Backup**
-2. Click **Import Backup**
+1. Open **Settings**
+2. Click **Restore from file**
 3. Select a `.db` file from your computer
-4. Type **RESTORE** in the confirmation dialog
-5. Restart the app when prompted
+4. Confirm the restore dialog
 </Steps>
 
 <Aside type="note">

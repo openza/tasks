@@ -1,11 +1,11 @@
 ---
 title: Import from Markdown
-description: Import tasks from markdown files or text
+description: Import tasks from markdown files
 ---
 
 import { Steps, Aside } from '@astrojs/starlight/components';
 
-Import tasks directly from markdown files or pasted text using GitHub Flavored Markdown (GFM) checkbox syntax.
+Import tasks directly from Markdown files using GitHub Flavored Markdown (GFM) checkbox syntax.
 
 ## Supported Format
 
@@ -27,54 +27,28 @@ Priority, due dates, and labels are not imported from markdown. You can add thes
 
 ## Import Methods
 
-### Method 1: Paste Text
+### Import File
 
 <Steps>
-1. Click **Import** in the navigation rail
-2. Select the **Paste** tab
-3. Paste your markdown text
-4. Review detected tasks
-5. Click **Import**
-</Steps>
-
-### Method 2: Import File
-
-<Steps>
-1. Click **Import** in the navigation rail
-2. Select the **File** tab
-3. Click **Choose File**
-4. Select a `.md` or `.txt` file
-5. Review detected tasks
-6. Click **Import**
+1. Click **Import** in the command bar
+2. Select a `.md`, `.markdown`, or `.txt` file
+3. Openza Tasks imports detected checkboxes into the Inbox project
 </Steps>
 
 ## Duplicate Detection
 
-When importing, Openza Tasks checks for duplicate tasks:
-
-| Option | Behavior |
-|--------|----------|
-| Skip duplicates | Existing tasks are not modified |
-| Create anyway | Import all tasks even if duplicates exist |
-
-## Task Preview
-
-Before importing, you'll see:
-- List of all detected tasks
-- Checkbox status (open/completed)
-- Total count of tasks to import
+Duplicate detection is not part of WinUI V1. Review imported tasks after import and delete anything you do not need.
 
 <Aside type="tip">
-Review the preview carefully before importing. You can go back and edit your markdown if needed.
+Import into a clean Inbox or project-specific file when you want an easier review pass.
 </Aside>
 
 ## Safety Limits
 
 To prevent issues with large files:
 
-- **Maximum file size**: 5 MB
 - **Maximum line length**: 10,000 characters
-- **Encoding**: UTF-8 only
+- **Encoding**: Windows text picker default decoding
 
 ## Examples
 

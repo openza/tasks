@@ -1,0 +1,31 @@
+<ResourceDictionary
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <Thickness x:Key="PanePadding">20,18</Thickness>
+    <Thickness x:Key="PagePadding">28,24</Thickness>
+    <CornerRadius x:Key="OpenzaPaneCornerRadius">8</CornerRadius>
+    <CornerRadius x:Key="OpenzaRowCornerRadius">8</CornerRadius>
+
+    <SolidColorBrush x:Key="OpenzaAccentBrush" Color="#2563EB" />
+    <SolidColorBrush x:Key="OpenzaQuietBorderBrush" Color="#1F000000" />
+    <SolidColorBrush x:Key="OpenzaQuietSurfaceBrush" Color="#08000000" />
+    <SolidColorBrush x:Key="OpenzaDangerBrush" Color="#B42318" />
+
+    <Style x:Key="OpenzaSectionHeaderTextBlockStyle" TargetType="TextBlock" BasedOn="{StaticResource BodyStrongTextBlockStyle}">
+        <Setter Property="Margin" Value="0,20,0,6" />
+    </Style>
+
+    <Style x:Key="OpenzaMetadataTextBlockStyle" TargetType="TextBlock">
+        <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
+        <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+        <Setter Property="FontSize" Value="13" />
+    </Style>
+
+    <Style x:Key="OpenzaIconButtonStyle" TargetType="AppBarButton">
+        <Setter Property="IsCompact" Value="True" />
+        <Setter Property="MinWidth" Value="40" />
+        <Setter Property="MinHeight" Value="36" />
+    </Style>
+
+</ResourceDictionary>

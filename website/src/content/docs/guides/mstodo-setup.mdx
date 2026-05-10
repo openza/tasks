@@ -1,35 +1,38 @@
 ---
-title: Microsoft To-Do Setup
-description: Connect your Microsoft To-Do account to Openza Tasks
+title: Microsoft To Do Setup
+description: Connect your Microsoft To Do account to Openza Tasks
 ---
 
 import { Steps, Aside } from '@astrojs/starlight/components';
 
-Openza Tasks uses Microsoft's OAuth 2.0 to securely connect to your Microsoft To-Do account.
+Openza Tasks syncs Microsoft To Do through Microsoft Graph using MSAL.NET with Windows Web Account Manager (WAM).
 
 <Aside type="caution">
-  Microsoft To-Do integration requires a Microsoft personal or work/school account.
+  Microsoft To Do integration requires a Microsoft personal or work/school account.
 </Aside>
 
 ## Setup Process
 
 <Steps>
-1. **Launch Openza Tasks** and click "Connect with Microsoft" on the login screen
+1. **Open Settings** in Openza Tasks
 
-2. **Sign in to Microsoft**
+2. **Confirm the Microsoft app client ID**
 
-   A browser window will open for Microsoft authentication
+   Store builds can include this automatically. Source builds can set `OPENZA_TASKS_MSTODO_CLIENT_ID`, pass `-p:MicrosoftToDoClientId=...` at build time, or paste the public client ID in Settings.
 
-3. **Grant Permissions**
+   For source builds, the Azure app registration must be a public client/native app and include this redirect URI:
 
-   Openza Tasks requests access to:
-   - Read and write your tasks
-   - Access your task lists
-   - Read your profile information
+   ```text
+   ms-appx-web://microsoft.aad.brokerplugin/{client_id}
+   ```
 
-4. **Return to the App**
+3. **Click Connect Microsoft To Do**
 
-   After authorization, you'll be redirected back with your tasks loaded
+4. **Sign in with Microsoft**
+
+   Windows shows the account broker sign-in experience and may reuse a Windows account already connected to the device.
+
+5. **Run Sync**
 </Steps>
 
 ## What Syncs
@@ -39,22 +42,28 @@ Openza Tasks uses Microsoft's OAuth 2.0 to securely connect to your Microsoft To
 | Tasks | Yes |
 | Lists | Yes |
 | Due Dates | Yes |
-| Recurrence | Yes |
-| Categories | Coming soon |
+| Complete/Reopen | Yes |
+| Create/Edit/Delete write-back | Not in V1 |
+| Recurrence | Not yet |
+| Categories | Yes, imported as labels when available |
 
 ## Troubleshooting
 
-### "Tenant Not Allowed" Error
+### Client ID missing
 
-This can occur with some organizational accounts. Contact your IT administrator to allow third-party app access.
+Open-source source builds need a public Azure app registration client ID. This is not a client secret.
 
-### Token Refresh Issues
+### Broker redirect URI missing
 
-If you're frequently being logged out:
+If sign-in fails immediately after choosing an account, verify that the Azure app registration includes `ms-appx-web://microsoft.aad.brokerplugin/{client_id}` as a mobile and desktop redirect URI.
+
+### Sign-in or refresh issues
+
+If Microsoft sync stops:
 1. Disconnect your account in Settings
-2. Clear any cached data
-3. Reconnect your Microsoft account
+2. Connect Microsoft To Do again
+3. Run Sync
 
 <Aside type="tip">
-  Your tokens are stored securely in your system's secret storage service (e.g., GNOME Keyring, KWallet).
+  The current access token is stored in Windows Credential Locker. The MSAL cache is stored locally and encrypted for the current Windows user.
 </Aside>

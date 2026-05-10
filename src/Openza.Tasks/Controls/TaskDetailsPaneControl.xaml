@@ -1,0 +1,164 @@
+<UserControl
+    x:Class="Openza.Tasks.Controls.TaskDetailsPaneControl"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Grid RowDefinitions="Auto,*,Auto" Background="{ThemeResource LayerFillColorDefaultBrush}">
+        <Grid Padding="20,18" ColumnDefinitions="*,Auto" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="0,0,0,1">
+            <StackPanel Spacing="2">
+                <TextBlock Text="Task details" Style="{ThemeResource SubtitleTextBlockStyle}" />
+                <TextBlock
+                    x:Name="SourceText"
+                    Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
+            </StackPanel>
+            <Button
+                Grid.Column="1"
+                Width="36"
+                Height="36"
+                Padding="0"
+                Click="OnCancelEditClicked"
+                ToolTipService.ToolTip="Close details"
+                AutomationProperties.Name="Close task details">
+                <FontIcon Glyph="&#xE711;" FontSize="14" />
+            </Button>
+        </Grid>
+
+        <ScrollViewer Grid.Row="1" Padding="20" HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Spacing="14">
+                <InfoBar
+                    x:Name="ProviderInfo"
+                    IsOpen="False"
+                    IsClosable="False"
+                    Severity="Informational"
+                    Title="Synced task" />
+
+                <TextBox
+                    x:Name="TitleEditor"
+                    Header="Title"
+                    PlaceholderText="Task title"
+                    HorizontalAlignment="Stretch"
+                    TextChanged="OnEditorChanged" />
+                <TextBox
+                    x:Name="DescriptionEditor"
+                    Header="Description"
+                    PlaceholderText=""
+                    AcceptsReturn="True"
+                    MinHeight="88"
+                    HorizontalAlignment="Stretch"
+                    TextChanged="OnEditorChanged" />
+
+                <ComboBox
+                    x:Name="WorkflowEditor"
+                    Header="Status"
+                    HorizontalAlignment="Stretch"
+                    SelectionChanged="OnSelectionChanged">
+                    <ComboBoxItem x:Name="NoWorkflowItem" Content="Open" Tag="none" IsSelected="True" />
+                    <ComboBoxItem Content="Next" Tag="next" />
+                    <ComboBoxItem Content="Waiting For" Tag="waiting" />
+                    <ComboBoxItem Content="Someday/Maybe" Tag="someday" />
+                </ComboBox>
+
+                <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
+                    <StackPanel Spacing="2">
+                        <ComboBox
+                            x:Name="ProjectEditor"
+                            Header="Project"
+                            DisplayMemberPath="Name"
+                            SelectedValuePath="Id"
+                            HorizontalAlignment="Stretch"
+                            SelectionChanged="OnSelectionChanged" />
+                    </StackPanel>
+                    <ComboBox
+                        x:Name="PriorityEditor"
+                        Grid.Column="1"
+                        Header="Priority"
+                        HorizontalAlignment="Stretch"
+                        SelectionChanged="OnSelectionChanged">
+                        <ComboBoxItem Content="Urgent" Tag="1" />
+                        <ComboBoxItem Content="High" Tag="2" />
+                        <ComboBoxItem Content="Normal" Tag="3" />
+                        <ComboBoxItem Content="Low" Tag="4" />
+                    </ComboBox>
+                </Grid>
+
+                <CalendarDatePicker
+                    x:Name="DueDateEditor"
+                    Header="Due date"
+                    HorizontalAlignment="Stretch"
+                    DateChanged="OnDueDateChanged" />
+
+                <StackPanel Spacing="8">
+                    <AutoSuggestBox
+                        x:Name="LabelEditor"
+                        Header="Labels"
+                        PlaceholderText="Add label"
+                        QueryIcon="Add"
+                        GotFocus="OnLabelEditorGotFocus"
+                        TextChanged="OnLabelTextChanged"
+                        QuerySubmitted="OnLabelSubmitted"
+                        SuggestionChosen="OnLabelSuggestionChosen" />
+                    <ItemsControl x:Name="SelectedLabelsList">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Button
+                                    Margin="0,0,6,6"
+                                    Padding="10,4"
+                                    Click="OnRemoveLabelClicked"
+                                    Tag="{Binding Id}">
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <TextBlock Text="{Binding Name}" />
+                                        <FontIcon Glyph="&#xE711;" FontSize="10" />
+                                    </StackPanel>
+                                </Button>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+
+                <TextBox
+                    x:Name="LabelsEditor"
+                    Visibility="Collapsed"
+                    Header="Labels"
+                    HorizontalAlignment="Stretch"
+                    TextChanged="OnEditorChanged" />
+                <TextBox
+                    x:Name="NotesEditor"
+                    Header="Notes"
+                    PlaceholderText=""
+                    AcceptsReturn="True"
+                    MinHeight="140"
+                    HorizontalAlignment="Stretch"
+                    TextChanged="OnEditorChanged" />
+            </StackPanel>
+        </ScrollViewer>
+
+        <Grid
+            Grid.Row="2"
+            Padding="20,14"
+            ColumnDefinitions="Auto,Auto,*,Auto,Auto"
+            ColumnSpacing="8"
+            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+            BorderThickness="0,1,0,0">
+            <Button
+                x:Name="SaveButton"
+                Content="Save"
+                Style="{StaticResource AccentButtonStyle}"
+                Click="OnSaveTaskClicked" />
+            <Button
+                Grid.Column="1"
+                Content="Cancel"
+                Click="OnCancelEditClicked" />
+            <Button
+                x:Name="DeleteButton"
+                Grid.Column="3"
+                Content="Delete"
+                IsEnabled="False"
+                Click="OnDeleteTaskClicked" />
+            <Button
+                x:Name="CompleteButton"
+                Grid.Column="4"
+                Content="Complete"
+                IsEnabled="False"
+                Click="OnToggleCompleteClicked" />
+        </Grid>
+    </Grid>
+</UserControl>

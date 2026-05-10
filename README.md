@@ -1,148 +1,74 @@
 # Openza Tasks
 
-**Local First. Open Source.**
+**Windows Native. Local First. Open Source.**
 
-A local-first task organizer for Linux and Windows. Store tasks locally and optionally sync with Todoist and Microsoft To-Do.
+Openza Tasks is a Windows-native task manager for people who want fast local task capture with optional provider sync. The active app is built with WinUI 3 and stores data locally in SQLite.
 
 ## Features
 
-- **Local-first storage** - Your tasks live on your device, always accessible
-- **Provider sync** - Optional integration with Todoist and Microsoft To-Do
-- **4-pane GTD layout** - Projects, tasks, and details at a glance
-- **Automatic backups** - Daily backups with restore and export options
-- **Dark theme** - Easy on the eyes, day or night
-- **Markdown import/export** - Bring tasks in, take them out
-- **Native desktop apps** - Linux (AppImage & Flatpak) and Windows (Installer)
+- **Native Windows app** - WinUI 3, MSIX packaging, Mica where available
+- **Local-first storage** - tasks, projects, labels, backups, and imports live on your device
+- **Provider sync** - optional Todoist and Microsoft To Do reconnect/sync
+- **Focused task layout** - navigation, projects, task list, and details in one productive surface
+- **Markdown import/export** - import GFM checkboxes and export tasks grouped by project
+- **Automatic migration** - imports the legacy Flutter SQLite database when present
 
 ## Download
 
-Get the latest release from [GitHub Releases](https://github.com/openza/tasks/releases):
+V1 is Store-first. Until the Microsoft Store listing is public, install and test from Visual Studio or an MSIX package created locally.
 
-### Linux
+Legacy Flutter/Linux packages remain available in older GitHub releases, but they are no longer the active product line.
 
-- **AppImage**: Download, make executable (`chmod +x`), and run
-- **Flatpak**: Download and install with `flatpak install Openza-Tasks-*.flatpak`
-
-**System Requirements:** Ubuntu 22.04+, Fedora 35+, Debian 12+ (GLIBC 2.34+), or any Linux with Flatpak
-
-### Windows
-
-- **Installer**: Download `Openza-Tasks-*-Setup.exe` and run to install
-
-**System Requirements:** Windows 10 or later, x64 architecture
-
-## Building from Source
+## Building From Source
 
 ### Prerequisites
 
-- Flutter SDK 3.7+
-- Rust toolchain (for sync engine)
-- Platform-specific build dependencies (see below)
+- Windows 10 22H2 or Windows 11
+- .NET 10 SDK
+- Visual Studio 2026 Community or newer with:
+  - .NET desktop development
+  - Universal Windows Platform development
+  - Windows App SDK C# components
 
-### Linux
-
-```bash
-# Install Flutter (https://docs.flutter.dev/get-started/install/linux)
-
-# Install Rust
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-
-# Install Linux build dependencies
-sudo apt-get update
-sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libstdc++-12-dev libsecret-1-dev
-
-# Clone and build
-git clone https://github.com/openza/tasks.git
-cd tasks
-flutter pub get
-cd rust && cargo build --release && cd ..
-flutter build linux --release
-
-# Run
-./build/linux/x64/release/bundle/openza_tasks
-```
-
-### Windows
+Microsoft's WinUI setup can install the required workloads:
 
 ```powershell
-# Install Flutter (https://docs.flutter.dev/get-started/install/windows)
-# Install Rust (https://rustup.rs)
-# Install Visual Studio 2022 with "Desktop development with C++" workload
-
-# Clone and build
-git clone https://github.com/openza/tasks.git
-cd tasks
-flutter pub get
-dart run build_runner build --delete-conflicting-outputs
-cd rust; cargo build --release; cd ..
-copy rust\target\release\openza_sync.dll .
-flutter build windows --release
-
-# Create installer (requires Inno Setup: winget install JRSoftware.InnoSetup)
-dart run inno_bundle --release --no-app
-
-# Run
-.\build\windows\x64\runner\Release\openza_tasks.exe
+winget configure -f https://aka.ms/winui-config
 ```
 
-## Connecting Task Providers
+### Build And Test
 
-### Todoist
-
-1. Go to **Settings → Todoist**
-2. Get your API token from [Todoist Settings → Integrations → Developer](https://todoist.com/app/settings/integrations/developer)
-3. Paste your API token and click **Connect**
-
-### Microsoft To-Do
-
-1. Go to **Settings → Microsoft To-Do**
-2. Click **Sign in with Microsoft**
-3. Authorize the app with your Microsoft account
-
-## Development
-
-```bash
-# Get dependencies
-flutter pub get
-
-# Generate code (Drift, Freezed, Riverpod)
-dart run build_runner build --delete-conflicting-outputs
-
-# Run tests
-flutter test
-
-# Analyze code
-flutter analyze
-
-# Run with hot reload
-flutter run -d linux    # Linux
-flutter run -d windows  # Windows
+```powershell
+dotnet restore Openza.Tasks.slnx
+dotnet test src\Openza.Tasks.Tests\Openza.Tasks.Tests.csproj -c Release
+dotnet build src\Openza.Tasks\Openza.Tasks.csproj -c Release --no-restore
 ```
+
+### Run In Visual Studio
+
+1. Open `Openza.Tasks.slnx`.
+2. Select the `Openza Tasks` launch profile.
+3. Use `x64`.
+4. In Configuration Manager, enable **Build** and **Deploy** for `Openza.Tasks`.
+5. Press F5.
 
 ## Architecture
 
-```
-lib/
-├── core/           # Constants, theme, utilities
-├── data/           # Repositories, API clients, database, sync engine
-├── domain/         # Entities, repository interfaces
-└── presentation/   # Screens, widgets, Riverpod providers
-
-rust/
-└── src/            # Rust sync engine with FFI bindings
+```text
+src/
+  Openza.Tasks/        WinUI 3 packaged app
+  Openza.Tasks.Core/   SQLite data, migration, import/export, provider sync
+  Openza.Tasks.Tests/  Unit and migration tests
 ```
 
-### Tech Stack
+The sync engine is C# in `Openza.Tasks.Core`. The previous Rust FFI engine is not shipped with the WinUI app.
 
-- **Frontend**: Flutter 3.7+, Riverpod, GoRouter, Drift (SQLite)
-- **Sync Engine**: Rust with FFI bridge
-- **Code Generation**: Freezed, JsonSerializable
+For Microsoft To Do source builds, provide a public Azure app registration client ID via `OPENZA_TASKS_MSTODO_CLIENT_ID`, the Settings page, or `-p:MicrosoftToDoClientId=...` during build. The Azure app registration must allow public client flows and include the WAM redirect URI `ms-appx-web://microsoft.aad.brokerplugin/{client_id}`. Do not commit client secrets.
+
+## Privacy
+
+Openza Tasks does not add telemetry or analytics. Provider tokens are stored locally using Windows Credential Locker. See [PRIVACY.md](PRIVACY.md).
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
-
-## Author
-
-**Deependra Solanky**
-- GitHub: [@solankydev](https://github.com/solankydev)
+MIT License - see [LICENSE](LICENSE).

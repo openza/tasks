@@ -1,161 +1,44 @@
-name: Release
+name: Release Validation
 
 on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  build-linux:
-    runs-on: ubuntu-24.04
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: 'stable'
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Install Linux dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            clang \
-            cmake \
-            ninja-build \
-            pkg-config \
-            libgtk-3-dev \
-            liblzma-dev \
-            libstdc++-12-dev \
-            libnotify-dev \
-            libsecret-1-dev
-
-      - name: Get dependencies
-        run: flutter pub get
-
-      - name: Build Linux release
-        run: |
-          flutter build linux --release \
-            --dart-define=MSTODO_CLIENT_ID=${{ secrets.MSTODO_CLIENT_ID }} \
-            --dart-define=MSTODO_TENANT_ID=${{ secrets.MSTODO_TENANT_ID }}
-
-      - name: Create AppImage
-        run: |
-          chmod +x scripts/build-appimage.sh
-          ./scripts/build-appimage.sh
-
-      - name: Install Flatpak dependencies
-        run: |
-          sudo apt-get install -y flatpak flatpak-builder
-          sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-          sudo flatpak install -y flathub org.gnome.Platform//46 org.gnome.Sdk//46
-
-      - name: Build Flatpak
-        run: |
-          chmod +x scripts/build-flatpak.sh
-          ./scripts/build-flatpak.sh
-
-      - name: Upload Linux artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: linux-artifacts
-          path: |
-            Openza-Tasks-*.AppImage
-            Openza-Tasks-*.flatpak
-
-  build-windows:
+  validate-windows:
     runs-on: windows-latest
 
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
         with:
-          channel: 'stable'
+          dotnet-version: '10.0.x'
 
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+      - name: Restore
+        run: dotnet restore Openza.Tasks.slnx
 
-      - name: Get dependencies
-        run: flutter pub get
+      - name: Test
+        run: dotnet test src\Openza.Tasks.Tests\Openza.Tasks.Tests.csproj -c Release --no-restore
 
-      - name: Generate code
-        run: dart run build_runner build --delete-conflicting-outputs
-
-      - name: Build Rust sync engine
-        run: |
-          cd rust
-          cargo build --release
-          cd ..
-          copy rust\target\release\openza_sync.dll .
-
-      - name: Build Windows release
-        run: |
-          flutter build windows --release `
-            --dart-define=MSTODO_CLIENT_ID=${{ secrets.MSTODO_CLIENT_ID }} `
-            --dart-define=MSTODO_TENANT_ID=${{ secrets.MSTODO_TENANT_ID }}
-
-      - name: Copy DLL to release folder
-        run: copy openza_sync.dll build\windows\x64\runner\Release\
-
-      - name: Install Inno Setup
-        shell: powershell
-        run: |
-          # Check if Inno Setup is already installed
-          if (Test-Path "C:\Program Files (x86)\Inno Setup 6\ISCC.exe") {
-            Write-Host "Inno Setup is already installed"
-          } else {
-            winget install JRSoftware.InnoSetup --accept-package-agreements --accept-source-agreements
-          }
-          # Add to PATH for this job
-          echo "C:\Program Files (x86)\Inno Setup 6" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-
-      - name: Get version from tag
-        id: get_version
-        shell: bash
-        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
-
-      - name: Create Windows installer
-        run: dart run inno_bundle --release --no-app --app-version ${{ steps.get_version.outputs.VERSION }}
-
-      - name: Rename installer with version
-        shell: bash
-        run: |
-          mv build/windows/x64/installer/Release/OpenzaTasks-x86_64-*-Installer.exe Openza-Tasks-${{ steps.get_version.outputs.VERSION }}-Setup.exe
-
-      - name: Upload Windows artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-artifacts
-          path: Openza-Tasks-*-Setup.exe
+      - name: Build app
+        run: dotnet build src\Openza.Tasks\Openza.Tasks.csproj -c Release --no-restore
 
   release:
-    needs: [build-linux, build-windows]
+    needs: validate-windows
     runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
 
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Download Linux artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: linux-artifacts
-
-      - name: Download Windows artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: windows-artifacts
 
       - name: Get version from tag
         id: get_version
@@ -164,31 +47,21 @@ jobs:
       - name: Extract changelog for version
         id: changelog
         run: |
-          # Extract changelog section for this version
           VERSION="${{ steps.get_version.outputs.VERSION }}"
           CHANGELOG=$(awk "/^## \[$VERSION\]/{flag=1; next} /^## \[/{flag=0} flag" CHANGELOG.md)
-          # Handle multi-line output
           echo "CONTENT<<EOF" >> $GITHUB_OUTPUT
           echo "$CHANGELOG" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-      - name: Create Release
+      - name: Create draft release
         uses: softprops/action-gh-release@v1
         with:
           name: Openza Tasks v${{ steps.get_version.outputs.VERSION }}
           draft: true
           prerelease: false
-          files: |
-            Openza-Tasks-*.AppImage
-            Openza-Tasks-*.flatpak
-            Openza-Tasks-*-Setup.exe
           body: |
             ${{ steps.changelog.outputs.CONTENT }}
 
-            ---
-            **Installation:**
-            - **Linux (AppImage):** Download, make executable with `chmod +x`, and run
-            - **Linux (Flatpak):** Download and install with `flatpak install Openza-Tasks-*.flatpak`
-            - **Windows:** Download and run the installer
+            Openza Tasks is Store-first. Build and upload Store MSIX packages from the Visual Studio Store packaging flow after associating the app with Partner Center.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

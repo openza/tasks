@@ -1,78 +1,35 @@
 ---
 title: Installation
-description: How to install Openza Tasks on your system
+description: How to install Openza Tasks on Windows
 ---
 
-import { Tabs, TabItem, Steps } from '@astrojs/starlight/components';
+import { Steps } from '@astrojs/starlight/components';
 
-Openza Tasks is available for Linux (AppImage/Flatpak) and Windows (Installer).
+Openza Tasks V1 is Windows-first and Store-first.
 
-## Download
+## Microsoft Store
 
-<Tabs>
-  <TabItem label="Windows">
-    Download the latest installer from [GitHub Releases](https://github.com/openza/tasks/releases/latest).
+The public Microsoft Store listing is the preferred distribution channel once certification is complete.
 
-    <Steps>
-    1. Download `Openza-Tasks-*-Setup.exe`
-    2. Run the installer
-    3. Follow the installation wizard
-    4. Launch from Start Menu
-    </Steps>
+## Local Developer Install
 
-    **System Requirements:**
-    - Windows 10 or later
-    - x64 architecture
-  </TabItem>
+<Steps>
+1. Install the WinUI/.NET toolchain:
 
-  <TabItem label="AppImage">
-    Download the latest AppImage from the [GitHub Releases](https://github.com/openza/tasks/releases/latest) page.
+   ```powershell
+   winget configure -f https://aka.ms/winui-config
+   ```
 
-    <Steps>
-    1. Download the `.AppImage` file
-    2. Make it executable:
-       ```bash
-       chmod +x Openza-Tasks-*.AppImage
-       ```
-    3. Run the application:
-       ```bash
-       ./Openza-Tasks-*.AppImage
-       ```
-    </Steps>
+2. Open `Openza.Tasks.slnx` in Visual Studio.
+3. Select the `Openza Tasks` launch profile.
+4. Select `x64`.
+5. Enable **Build** and **Deploy** for `Openza.Tasks` in Configuration Manager.
+6. Press F5.
+</Steps>
 
-    **System Requirements:**
-    - Ubuntu 22.04+, Fedora 35+, or Debian 12+
-    - GLIBC 2.34 or newer
-  </TabItem>
+## Requirements
 
-  <TabItem label="Flatpak">
-    Download the Flatpak bundle from [GitHub Releases](https://github.com/openza/tasks/releases/latest).
+- Windows 10 22H2 or Windows 11
+- x64 architecture for V1
 
-    <Steps>
-    1. Install Flatpak if not already installed:
-       ```bash
-       # Ubuntu/Debian
-       sudo apt install flatpak
-
-       # Fedora
-       sudo dnf install flatpak
-       ```
-    2. Install the Openza Tasks Flatpak:
-       ```bash
-       flatpak install Openza-Tasks-*.flatpak
-       ```
-    3. Run the application:
-       ```bash
-       flatpak run com.openza.tasks
-       ```
-    </Steps>
-  </TabItem>
-</Tabs>
-
-## Build from Source
-
-If you prefer to build from source, see the [Building from Source](/tasks/development/building) guide.
-
-## Next Steps
-
-After installation, proceed to [Configuration](/tasks/getting-started/configuration) to set up your task providers.
+Legacy Linux AppImage/Flatpak builds are preserved in older GitHub releases but are not part of the active WinUI product line.

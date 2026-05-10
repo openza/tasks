@@ -1,0 +1,67 @@
+<UserControl
+    x:Class="Openza.Tasks.Pages.SyncPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:toolkit="using:CommunityToolkit.WinUI.Controls">
+    <StackPanel Spacing="24">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
+            <StackPanel Spacing="4">
+                <TextBlock Text="Sync" Style="{ThemeResource TitleTextBlockStyle}" />
+                <TextBlock
+                    Text="Import provider tasks and send completion or reopen changes back to connected providers."
+                    Style="{StaticResource OpenzaMetadataTextBlockStyle}"
+                    TextWrapping="Wrap" />
+            </StackPanel>
+            <StackPanel
+                Grid.Column="1"
+                Orientation="Horizontal"
+                Spacing="10"
+                VerticalAlignment="Top">
+                <ProgressRing
+                    x:Name="SyncProgress"
+                    Width="24"
+                    Height="24"
+                    IsActive="False"
+                    Visibility="Collapsed" />
+                <Button
+                    x:Name="SyncNowButton"
+                    Content="Sync now"
+                    Click="OnRunSyncClicked" />
+            </StackPanel>
+        </Grid>
+
+        <StackPanel Spacing="10">
+            <TextBlock Text="Providers" Style="{StaticResource OpenzaSectionHeaderTextBlockStyle}" />
+            <toolkit:SettingsCard Header="Connection status" Description="Connect providers in Settings before running sync.">
+                <toolkit:SettingsCard.HeaderIcon>
+                    <FontIcon Glyph="&#xE8A7;" />
+                </toolkit:SettingsCard.HeaderIcon>
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <TextBlock
+                        x:Name="ProviderStatusText"
+                        Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
+                    <Button Content="Provider settings" Click="OnOpenSettingsClicked" />
+                </StackPanel>
+            </toolkit:SettingsCard>
+
+            <toolkit:SettingsCard Header="Last result" Description="Review the latest sync outcome before retrying.">
+                <toolkit:SettingsCard.HeaderIcon>
+                    <FontIcon Glyph="&#xE895;" />
+                </toolkit:SettingsCard.HeaderIcon>
+                <TextBlock
+                    x:Name="LastSyncText"
+                    Style="{StaticResource OpenzaMetadataTextBlockStyle}"
+                    TextWrapping="Wrap" />
+            </toolkit:SettingsCard>
+        </StackPanel>
+
+        <StackPanel Spacing="10">
+            <TextBlock Text="V1 sync boundary" Style="{StaticResource OpenzaSectionHeaderTextBlockStyle}" />
+            <toolkit:SettingsCard Header="Read provider fields, write completion only" Description="Openza Tasks reads tasks, projects, labels, due dates, and priorities. Todoist and Microsoft To Do write-back is limited to completion and reopen changes in V1.">
+                <toolkit:SettingsCard.HeaderIcon>
+                    <FontIcon Glyph="&#xE946;" />
+                </toolkit:SettingsCard.HeaderIcon>
+            </toolkit:SettingsCard>
+        </StackPanel>
+    </StackPanel>
+</UserControl>

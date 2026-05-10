@@ -1,0 +1,104 @@
+<UserControl
+    x:Class="Openza.Tasks.Pages.SettingsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:toolkit="using:CommunityToolkit.WinUI.Controls">
+    <StackPanel Spacing="24">
+        <StackPanel Spacing="4">
+            <TextBlock Text="Settings" Style="{ThemeResource TitleTextBlockStyle}" />
+            <TextBlock
+                Text="Configure appearance, provider connections, and local backups."
+                Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
+        </StackPanel>
+
+        <StackPanel Spacing="10">
+            <TextBlock Text="Appearance" Style="{StaticResource OpenzaSectionHeaderTextBlockStyle}" />
+            <toolkit:SettingsCard Header="Theme" Description="Follow Windows by default, or choose a fixed app theme.">
+                <toolkit:SettingsCard.HeaderIcon>
+                    <FontIcon Glyph="&#xE771;" />
+                </toolkit:SettingsCard.HeaderIcon>
+                <ComboBox
+                    x:Name="ThemeCombo"
+                    Width="180"
+                    SelectionChanged="OnThemeChanged">
+                    <ComboBoxItem Content="System" Tag="System" IsSelected="True" />
+                    <ComboBoxItem Content="Light" Tag="Light" />
+                    <ComboBoxItem Content="Dark" Tag="Dark" />
+                </ComboBox>
+            </toolkit:SettingsCard>
+        </StackPanel>
+
+        <StackPanel Spacing="10">
+            <TextBlock Text="Providers" Style="{StaticResource OpenzaSectionHeaderTextBlockStyle}" />
+            <toolkit:SettingsCard Header="Connection status" Description="Provider tokens stay in Windows credential storage.">
+                <toolkit:SettingsCard.HeaderIcon>
+                    <FontIcon Glyph="&#xE8A7;" />
+                </toolkit:SettingsCard.HeaderIcon>
+                <TextBlock
+                    x:Name="ProviderStatusText"
+                    Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
+            </toolkit:SettingsCard>
+
+            <toolkit:SettingsExpander Header="Todoist" Description="Paste a Todoist API token to import tasks and sync completion changes.">
+                <toolkit:SettingsExpander.HeaderIcon>
+                    <FontIcon Glyph="&#xE73E;" />
+                </toolkit:SettingsExpander.HeaderIcon>
+                <StackPanel Spacing="10" Padding="0,8,0,0">
+                    <PasswordBox x:Name="TodoistTokenBox" Header="API token" PlaceholderText="Paste Todoist token" />
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button Content="Connect Todoist" Click="OnConnectTodoistClicked" />
+                        <Button Content="Disconnect" Click="OnDisconnectTodoistClicked" />
+                    </StackPanel>
+                </StackPanel>
+            </toolkit:SettingsExpander>
+
+            <toolkit:SettingsExpander Header="Microsoft To Do" Description="Use a public Azure app registration client ID.">
+                <toolkit:SettingsExpander.HeaderIcon>
+                    <FontIcon Glyph="&#xE787;" />
+                </toolkit:SettingsExpander.HeaderIcon>
+                <StackPanel Spacing="10" Padding="0,8,0,0">
+                    <TextBox x:Name="MicrosoftClientIdBox" Header="App client ID" PlaceholderText="Public client ID from Azure app registration" />
+                    <TextBox x:Name="MicrosoftTenantIdBox" Header="Tenant" PlaceholderText="common" />
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button Content="Connect Microsoft To Do" Click="OnConnectMicrosoftClicked" />
+                        <Button Content="Disconnect" Click="OnDisconnectMicrosoftClicked" />
+                    </StackPanel>
+                </StackPanel>
+            </toolkit:SettingsExpander>
+        </StackPanel>
+
+        <StackPanel Spacing="10">
+            <TextBlock Text="Backups" Style="{StaticResource OpenzaSectionHeaderTextBlockStyle}" />
+            <toolkit:SettingsCard Header="Automatic backup" Description="Create a local backup when the app starts.">
+                <toolkit:SettingsCard.HeaderIcon>
+                    <FontIcon Glyph="&#xE777;" />
+                </toolkit:SettingsCard.HeaderIcon>
+                <ToggleSwitch x:Name="AutoBackupSwitch" Toggled="OnAutoBackupToggled" />
+            </toolkit:SettingsCard>
+
+            <toolkit:SettingsExpander Header="Backup files" Description="Create, export, and restore local SQLite database backups.">
+                <toolkit:SettingsExpander.HeaderIcon>
+                    <FontIcon Glyph="&#xE8F1;" />
+                </toolkit:SettingsExpander.HeaderIcon>
+                <StackPanel Spacing="12" Padding="0,8,0,0">
+                    <CommandBar Background="Transparent" DefaultLabelPosition="Right">
+                        <AppBarButton Icon="Save" Label="Create backup" Click="OnCreateBackupClicked" />
+                        <AppBarButton Icon="Refresh" Label="Refresh" Click="OnRefreshBackupsClicked" />
+                        <AppBarButton Icon="OpenFile" Label="Restore from file" Click="OnRestoreBackupClicked" />
+                    </CommandBar>
+                    <ListView
+                        x:Name="BackupsList"
+                        MinHeight="120"
+                        MaxHeight="260"
+                        ItemsSource="{x:Bind Backups, Mode=OneWay}"
+                        DisplayMemberPath="DisplayName" />
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button Content="Export selected" Click="OnExportBackupClicked" />
+                        <Button Content="Restore selected" Click="OnRestoreSelectedBackupClicked" />
+                        <Button Content="Delete selected" Click="OnDeleteBackupClicked" />
+                    </StackPanel>
+                </StackPanel>
+            </toolkit:SettingsExpander>
+        </StackPanel>
+    </StackPanel>
+</UserControl>

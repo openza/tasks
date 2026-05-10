@@ -1,0 +1,166 @@
+<UserControl
+    x:Class="Openza.Tasks.Shell.AppShell"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:pages="using:Openza.Tasks.Pages">
+    <Grid Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+        <NavigationView
+            x:Name="ShellNav"
+            PaneDisplayMode="Left"
+            IsPaneOpen="True"
+            OpenPaneLength="220"
+            CompactPaneLength="56"
+            IsBackButtonVisible="Collapsed"
+            IsSettingsVisible="False"
+            SelectionChanged="OnNavigationSelectionChanged">
+            <NavigationView.MenuItems>
+                <NavigationViewItem x:Name="InboxNavItem" Content="Inbox" Tag="inbox">
+                    <NavigationViewItem.InfoBadge>
+                        <InfoBadge x:Name="InboxBadge" Visibility="Collapsed" />
+                    </NavigationViewItem.InfoBadge>
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE715;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem x:Name="NextNavItem" Content="Next Actions" Tag="next">
+                    <NavigationViewItem.InfoBadge>
+                        <InfoBadge x:Name="NextBadge" Visibility="Collapsed" />
+                    </NavigationViewItem.InfoBadge>
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE734;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem x:Name="TodayNavItem" Content="Today" Tag="today">
+                    <NavigationViewItem.InfoBadge>
+                        <InfoBadge x:Name="TodayBadge" Visibility="Collapsed" />
+                    </NavigationViewItem.InfoBadge>
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE787;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem x:Name="OverdueNavItem" Content="Overdue" Tag="overdue">
+                    <NavigationViewItem.InfoBadge>
+                        <InfoBadge x:Name="OverdueBadge" Visibility="Collapsed" />
+                    </NavigationViewItem.InfoBadge>
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE7BA;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem x:Name="WaitingNavItem" Content="Waiting For" Tag="waiting">
+                    <NavigationViewItem.InfoBadge>
+                        <InfoBadge x:Name="WaitingBadge" Visibility="Collapsed" />
+                    </NavigationViewItem.InfoBadge>
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE823;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem x:Name="SomedayNavItem" Content="Someday" Tag="someday">
+                    <NavigationViewItem.InfoBadge>
+                        <InfoBadge x:Name="SomedayBadge" Visibility="Collapsed" />
+                    </NavigationViewItem.InfoBadge>
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE8FD;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem x:Name="TasksNavItem" Content="Tasks" Tag="tasks">
+                    <NavigationViewItem.InfoBadge>
+                        <InfoBadge x:Name="TasksBadge" Visibility="Collapsed" />
+                    </NavigationViewItem.InfoBadge>
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE8A5;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem x:Name="CompletedNavItem" Content="Completed" Tag="completed">
+                    <NavigationViewItem.InfoBadge>
+                        <InfoBadge x:Name="CompletedBadge" Visibility="Collapsed" />
+                    </NavigationViewItem.InfoBadge>
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE73E;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem Content="Sync" Tag="sync">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE895;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+            </NavigationView.MenuItems>
+            <NavigationView.FooterMenuItems>
+                <NavigationViewItem Content="Settings" Tag="settings">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE713;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+            </NavigationView.FooterMenuItems>
+
+            <Grid RowDefinitions="Auto,*">
+                <InfoBar
+                    x:Name="StatusInfo"
+                    IsOpen="False"
+                    IsClosable="True"
+                    Margin="20,12,20,0" />
+
+                <Grid Grid.Row="1">
+                    <pages:TasksPage
+                        x:Name="TasksPage"
+                        SearchTextChanged="OnSearchTextChanged"
+                        SortChanged="OnSortChanged"
+                        PriorityChanged="OnPriorityChanged"
+                        LabelChanged="OnLabelChanged"
+                        ProjectSearchTextChanged="OnProjectSearchTextChanged"
+                        ProjectSelected="OnProjectSelected"
+                        ClearProjectClicked="OnClearProjectClicked"
+                        AddProjectClicked="OnAddProjectClicked"
+                        EditProjectClicked="OnEditProjectClicked"
+                        DeleteProjectClicked="OnDeleteProjectClicked"
+                        TaskSelected="OnTaskSelected"
+                        ToggleCompleteClicked="OnToggleCompleteClicked"
+                        CopyTaskIdClicked="OnCopyTaskIdClicked"
+                        DeleteTaskClicked="OnDeleteTaskClicked"
+                        SaveTaskClicked="OnSaveTaskClicked"
+                        DetailsToggleCompleteClicked="OnDetailsToggleCompleteClicked"
+                        DetailsDeleteTaskClicked="OnDetailsDeleteTaskClicked"
+                        DetailsCancelEditClicked="OnDetailsCancelEditClicked"
+                        QuickAddClicked="OnQuickAddClicked"
+                        ImportClicked="OnImportClicked"
+                        ExportClicked="OnExportClicked" />
+
+                    <ScrollViewer
+                        x:Name="SettingsWorkspace"
+                        Visibility="Collapsed"
+                        Padding="40,32"
+                        HorizontalScrollBarVisibility="Disabled"
+                        SizeChanged="OnPageWorkspaceSizeChanged">
+                        <pages:SettingsPage
+                            x:Name="SettingsPage"
+                            HorizontalAlignment="Left"
+                            ThemeChanged="OnThemeChanged"
+                            ConnectTodoistClicked="OnConnectTodoistClicked"
+                            ConnectMicrosoftClicked="OnConnectMicrosoftClicked"
+                            DisconnectTodoistClicked="OnDisconnectTodoistClicked"
+                            DisconnectMicrosoftClicked="OnDisconnectMicrosoftClicked"
+                            CreateBackupClicked="OnCreateBackupClicked"
+                            RestoreBackupClicked="OnRestoreBackupClicked"
+                            RefreshBackupsClicked="OnRefreshBackupsClicked"
+                            ExportBackupClicked="OnExportBackupClicked"
+                            RestoreSelectedBackupClicked="OnRestoreSelectedBackupClicked"
+                            DeleteBackupClicked="OnDeleteBackupClicked"
+                            AutoBackupToggled="OnAutoBackupToggled" />
+                    </ScrollViewer>
+
+                    <ScrollViewer
+                        x:Name="SyncWorkspace"
+                        Visibility="Collapsed"
+                        Padding="40,32"
+                        HorizontalScrollBarVisibility="Disabled"
+                        SizeChanged="OnPageWorkspaceSizeChanged">
+                        <pages:SyncPage
+                            x:Name="SyncPage"
+                            HorizontalAlignment="Left"
+                            RunSyncClicked="OnSyncClicked"
+                            OpenSettingsClicked="OnOpenSettingsFromSyncClicked" />
+                    </ScrollViewer>
+                </Grid>
+            </Grid>
+        </NavigationView>
+    </Grid>
+</UserControl>

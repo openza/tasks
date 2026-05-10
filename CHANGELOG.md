@@ -2,6 +2,19 @@
 
 All notable changes to Openza Tasks will be documented in this file.
 
+## [Unreleased]
+
+### Changed
+- Rebuilt the active app as a Windows-native WinUI 3/.NET 10 application.
+- Replaced the Rust FFI sync path with a C# sync engine in `Openza.Tasks.Core`.
+- Switched active release validation from Flutter/Linux artifacts to WinUI build and tests.
+- Marked Flutter/Linux packages as legacy release artifacts.
+
+### Added
+- Automatic legacy Flutter SQLite database import for Windows users.
+- Windows Credential Locker abstraction for provider tokens.
+- Unit tests for Markdown parsing, SQLite storage, legacy migration, and sync outbox behavior.
+
 ## [0.5.0] - 2026-01-25
 
 ### Added

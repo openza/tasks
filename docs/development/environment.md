@@ -1,27 +1,23 @@
 # Development Environment
 
-This project targets Flutter (Dart) with a Rust sync engine. Use the latest stable toolchains where possible.
+Openza Tasks targets Windows 10 22H2+ and Windows 11.
 
-## Toolchains
+## Required
 
-- Flutter: 3.7+ (stable)
-- Dart: comes with Flutter
-- Rust: stable (rustup)
-- Node.js: 20+ (for website docs)
-- pnpm: 9+
+- .NET 10 SDK
+- Visual Studio with .NET desktop, UWP, and Windows App SDK C# workloads
+- Git
 
-## Linux Dependencies
+Install the recommended WinUI toolchain:
 
-```bash
-sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libstdc++-12-dev
+```powershell
+winget configure -f https://aka.ms/winui-config
 ```
 
-## Optional Local Hooks
+## Verify
 
-To enable repo hooks:
-
-```bash
-git config core.hooksPath .githooks
+```powershell
+dotnet restore Openza.Tasks.slnx
+dotnet test src\Openza.Tasks.Tests\Openza.Tasks.Tests.csproj -c Release
+dotnet build src\Openza.Tasks\Openza.Tasks.csproj -c Release --no-restore
 ```
-
-The default pre-commit hook runs gitleaks and Dart formatting checks.

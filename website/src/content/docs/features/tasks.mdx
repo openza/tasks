@@ -5,12 +5,12 @@ description: Create, edit, and manage your tasks
 
 import { Steps, Aside } from '@astrojs/starlight/components';
 
-Tasks are the core of Openza Tasks. You can create local tasks or sync tasks from Todoist and Microsoft To-Do.
+Tasks are the core of Openza Tasks. You can create local tasks or sync tasks from Todoist and Microsoft To Do.
 
 ## Creating a Task
 
 <Steps>
-1. Click **Add Task** in the navigation rail
+1. Click **Add task** in the command bar
 2. Enter a title (required)
 3. Optionally set:
    - Description
@@ -18,42 +18,39 @@ Tasks are the core of Openza Tasks. You can create local tasks or sync tasks fro
    - Priority (Urgent, High, Normal, Low)
    - Due date
    - Labels
-4. Click **Add Task** or press Enter
+4. Click **Save task**
 </Steps>
 
 <Aside type="note">
-Only local Openza Tasks projects and labels appear in the create dialog. To add tasks to Todoist or MS To-Do projects, create them in those apps and sync.
+Only local Openza Tasks projects and labels appear for new local tasks. To add tasks to Todoist or Microsoft To Do projects, create them in those apps and sync.
 </Aside>
 
 ## Editing a Task
 
 <Steps>
 1. Click a task to open the details panel
-2. Click the **pencil icon** to enter edit mode
-3. Modify any fields
-4. Click **Save** to apply changes, or **Cancel** to discard
+2. Modify fields in the details pane
+3. Click **Save task**
 </Steps>
 
-If you have unsaved changes and try to cancel, a confirmation dialog appears.
+The details pane is always editable in the current WinUI V1.
 
 ### Editing Synced Tasks
 
 <Aside type="note">
-Tasks from Todoist, Microsoft To-Do, and Obsidian are editable in Openza Tasks. Edits to title,
+Tasks from Todoist and Microsoft To Do are editable in Openza Tasks. Edits to title,
 description, due date, priority, labels, and local project assignments stay local.
 
-For Todoist and Microsoft To-Do, **only completion syncs back**. For Obsidian, the vault is never
-modified; re-sync to pull changes from your notes.
+For Todoist and Microsoft To Do, **only completion syncs back** in V1.
 </Aside>
 
 ## Completing a Task
 
 Complete a task in two ways:
-- Click the **circular checkbox** on the task card or in the details panel
+- Click the checkbox on the task row or in the details panel
 - Click the **Complete** button in the details panel footer
 
 Completed tasks:
-- Show strikethrough text
 - Move to the Completed view
 - Record a completion timestamp
 
@@ -65,7 +62,7 @@ To reopen a completed task:
 3. Click **Reopen** in the footer
 
 <Aside type="tip">
-Completing or reopening synced tasks updates the original provider (Todoist/MS To-Do) on the next sync.
+Completing or reopening synced tasks updates the original provider (Todoist/Microsoft To Do) on the next sync.
 </Aside>
 
 ## Deleting a Task
@@ -76,11 +73,9 @@ Completing or reopening synced tasks updates the original provider (Todoist/MS T
 3. Confirm the deletion in the dialog
 </Steps>
 
-You can also right-click a task and select **Delete** from the context menu.
-
 <Aside type="caution">
-Deletion cannot be undone. For Todoist and Microsoft To-Do tasks, deletion also removes the task from
-the original provider. For Obsidian tasks, deletion is local only and does not change your vault.
+Deletion cannot be undone locally. For Todoist and Microsoft To Do tasks, V1 does not delete the task from
+the original provider; only completion and reopen are written back on sync.
 </Aside>
 
 ## Task Properties
@@ -98,22 +93,20 @@ the original provider. For Obsidian tasks, deletion is local only and does not c
 
 ## Task Views
 
-Access different views from the navigation rail:
+Access different views from the left navigation:
 
 | View | Shows |
 |------|-------|
 | **Today** | Tasks due today |
 | **Overdue** | Past-due tasks (highlighted in red) |
-| **Next Actions** | Tasks that have at least one label |
+| **Next Actions** | Active tasks that have at least one label |
 | **Tasks** | All active tasks with filtering options |
 | **Completed** | Finished tasks, sorted by completion date |
 
 ## Quick Actions
 
-Right-click any task to access:
-- **Move to Inbox** - Quick move to Inbox
-- **Move to Project** - Move to another project
-- **Edit** - Open edit mode
-- **Delete** - Remove the task
+Task rows provide compact actions for:
+- **Copy task ID**
+- **Delete**
 
 See [App Layout](/tasks/features/dashboard) for sorting and filtering options in the Tasks view.
