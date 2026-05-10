@@ -6,8 +6,8 @@
     <Border
         x:Name="RowSurface"
         Margin="0"
-        Padding="12,8"
-        CornerRadius="0"
+        Padding="14,10"
+        CornerRadius="6"
         BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
         BorderThickness="0,0,0,1"
         Background="Transparent"
@@ -28,11 +28,24 @@
                 AutomationProperties.Name="{Binding CompletionAutomationName}" />
 
             <StackPanel Grid.Column="1" Spacing="5">
-                <TextBlock
-                    Text="{Binding Title}"
-                    FontSize="14"
-                    FontWeight="SemiBold"
-                    TextTrimming="CharacterEllipsis" />
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                    <TextBlock
+                        Text="{Binding Title}"
+                        FontSize="14"
+                        FontWeight="SemiBold"
+                        MaxLines="1"
+                        TextTrimming="CharacterEllipsis" />
+                    <Border
+                        Grid.Column="1"
+                        Padding="7,2"
+                        CornerRadius="10"
+                        Background="{StaticResource OpenzaQuietSurfaceBrush}"
+                        Visibility="{Binding StatusVisibility}">
+                        <TextBlock
+                            Text="{Binding StatusText}"
+                            Style="{StaticResource OpenzaCaptionTextBlockStyle}" />
+                    </Border>
+                </Grid>
                 <TextBlock
                     Text="{Binding MetadataText}"
                     MaxLines="1"
@@ -46,29 +59,32 @@
                     Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
             </StackPanel>
 
-            <CommandBar
+            <StackPanel
                 x:Name="ActionsBar"
                 Grid.Column="2"
-                DefaultLabelPosition="Collapsed"
-                Background="Transparent"
-                OverflowButtonVisibility="Collapsed"
+                Orientation="Horizontal"
+                Spacing="4"
                 Opacity="0"
                 GotFocus="OnActionsGotFocus"
                 LostFocus="OnActionsLostFocus"
                 VerticalAlignment="Center">
-                <AppBarButton
-                    Style="{StaticResource OpenzaIconButtonStyle}"
-                    Icon="Copy"
-                    Label="Copy task ID"
+                <Button
+                    Style="{StaticResource OpenzaIconOnlyButtonStyle}"
                     Tag="{Binding Id}"
-                    Click="OnCopyTaskIdClicked" />
-                <AppBarButton
-                    Style="{StaticResource OpenzaIconButtonStyle}"
-                    Icon="Delete"
-                    Label="Delete task"
+                    Click="OnCopyTaskIdClicked"
+                    ToolTipService.ToolTip="Copy task ID"
+                    AutomationProperties.Name="Copy task ID">
+                    <FontIcon Glyph="&#xE8C8;" FontSize="14" />
+                </Button>
+                <Button
+                    Style="{StaticResource OpenzaIconOnlyButtonStyle}"
                     Tag="{Binding Id}"
-                    Click="OnDeleteTaskClicked" />
-            </CommandBar>
+                    Click="OnDeleteTaskClicked"
+                    ToolTipService.ToolTip="Delete task"
+                    AutomationProperties.Name="Delete task">
+                    <FontIcon Glyph="&#xE74D;" FontSize="14" />
+                </Button>
+            </StackPanel>
         </Grid>
     </Border>
 </UserControl>

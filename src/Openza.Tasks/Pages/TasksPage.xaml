@@ -69,9 +69,15 @@
             </Grid>
 
             <Grid
+                x:Name="FilterGrid"
                 Grid.Row="1"
                 Margin="0,22,0,16"
-                ColumnSpacing="10">
+                ColumnSpacing="10"
+                RowSpacing="10">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="0" />
+                </Grid.RowDefinitions>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" MinWidth="240" />
                     <ColumnDefinition Width="150" />

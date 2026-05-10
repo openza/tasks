@@ -22,7 +22,7 @@
             </Button>
         </Grid>
 
-        <ScrollViewer Grid.Row="1" Padding="20" HorizontalScrollBarVisibility="Disabled">
+        <ScrollViewer Grid.Row="1" Padding="22,18,22,18" HorizontalScrollBarVisibility="Disabled">
             <StackPanel Spacing="14">
                 <InfoBar
                     x:Name="ProviderInfo"
@@ -31,87 +31,103 @@
                     Severity="Informational"
                     Title="Synced task" />
 
-                <TextBox
-                    x:Name="TitleEditor"
-                    Header="Title"
-                    PlaceholderText="Task title"
-                    HorizontalAlignment="Stretch"
-                    TextChanged="OnEditorChanged" />
-                <TextBox
-                    x:Name="DescriptionEditor"
-                    Header="Description"
-                    PlaceholderText=""
-                    AcceptsReturn="True"
-                    MinHeight="88"
-                    HorizontalAlignment="Stretch"
-                    TextChanged="OnEditorChanged" />
+                <StackPanel Spacing="10">
+                    <TextBlock Text="Task" Style="{StaticResource OpenzaFormSectionHeaderTextBlockStyle}" />
+                    <TextBox
+                        x:Name="TitleEditor"
+                        Header="Title"
+                        PlaceholderText="Task title"
+                        HorizontalAlignment="Stretch"
+                        TextChanged="OnEditorChanged" />
+                    <TextBox
+                        x:Name="DescriptionEditor"
+                        Header="Description"
+                        PlaceholderText=""
+                        AcceptsReturn="True"
+                        MinHeight="68"
+                        HorizontalAlignment="Stretch"
+                        TextChanged="OnEditorChanged" />
+                </StackPanel>
 
-                <ComboBox
-                    x:Name="WorkflowEditor"
-                    Header="Status"
-                    HorizontalAlignment="Stretch"
-                    SelectionChanged="OnSelectionChanged">
-                    <ComboBoxItem x:Name="NoWorkflowItem" Content="Open" Tag="none" IsSelected="True" />
-                    <ComboBoxItem Content="Next" Tag="next" />
-                    <ComboBoxItem Content="Waiting For" Tag="waiting" />
-                    <ComboBoxItem Content="Someday/Maybe" Tag="someday" />
-                </ComboBox>
-
-                <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
-                    <StackPanel Spacing="2">
+                <StackPanel Spacing="10">
+                    <TextBlock Text="Organize" Style="{StaticResource OpenzaFormSectionHeaderTextBlockStyle}" />
+                    <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="10">
+                        <ComboBox
+                            x:Name="WorkflowEditor"
+                            Header="Status"
+                            HorizontalAlignment="Stretch"
+                            SelectionChanged="OnSelectionChanged">
+                            <ComboBoxItem x:Name="NoWorkflowItem" Content="Open" Tag="none" IsSelected="True" />
+                            <ComboBoxItem Content="Next" Tag="next" />
+                            <ComboBoxItem Content="Waiting For" Tag="waiting" />
+                            <ComboBoxItem Content="Someday/Maybe" Tag="someday" />
+                        </ComboBox>
+                        <CalendarDatePicker
+                            x:Name="DueDateEditor"
+                            Grid.Column="1"
+                            Header="Due date"
+                            HorizontalAlignment="Stretch"
+                            DateChanged="OnDueDateChanged" />
                         <ComboBox
                             x:Name="ProjectEditor"
+                            Grid.Row="1"
                             Header="Project"
                             DisplayMemberPath="Name"
                             SelectedValuePath="Id"
                             HorizontalAlignment="Stretch"
                             SelectionChanged="OnSelectionChanged" />
-                    </StackPanel>
-                    <ComboBox
-                        x:Name="PriorityEditor"
-                        Grid.Column="1"
-                        Header="Priority"
-                        HorizontalAlignment="Stretch"
-                        SelectionChanged="OnSelectionChanged">
-                        <ComboBoxItem Content="Urgent" Tag="1" />
-                        <ComboBoxItem Content="High" Tag="2" />
-                        <ComboBoxItem Content="Normal" Tag="3" />
-                        <ComboBoxItem Content="Low" Tag="4" />
-                    </ComboBox>
-                </Grid>
-
-                <CalendarDatePicker
-                    x:Name="DueDateEditor"
-                    Header="Due date"
-                    HorizontalAlignment="Stretch"
-                    DateChanged="OnDueDateChanged" />
-
-                <StackPanel Spacing="8">
-                    <AutoSuggestBox
-                        x:Name="LabelEditor"
-                        Header="Labels"
-                        PlaceholderText="Add label"
-                        QueryIcon="Add"
-                        GotFocus="OnLabelEditorGotFocus"
-                        TextChanged="OnLabelTextChanged"
-                        QuerySubmitted="OnLabelSubmitted"
-                        SuggestionChosen="OnLabelSuggestionChosen" />
-                    <ItemsControl x:Name="SelectedLabelsList">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <Button
-                                    Margin="0,0,6,6"
-                                    Padding="10,4"
-                                    Click="OnRemoveLabelClicked"
-                                    Tag="{Binding Id}">
-                                    <StackPanel Orientation="Horizontal" Spacing="6">
-                                        <TextBlock Text="{Binding Name}" />
-                                        <FontIcon Glyph="&#xE711;" FontSize="10" />
-                                    </StackPanel>
-                                </Button>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
+                        <ComboBox
+                            x:Name="PriorityEditor"
+                            Grid.Row="1"
+                            Grid.Column="1"
+                            Header="Priority"
+                            HorizontalAlignment="Stretch"
+                            SelectionChanged="OnSelectionChanged">
+                            <ComboBoxItem Content="Urgent" Tag="1" />
+                            <ComboBoxItem Content="High" Tag="2" />
+                            <ComboBoxItem Content="Normal" Tag="3" />
+                            <ComboBoxItem Content="Low" Tag="4" />
+                        </ComboBox>
+                        <AutoSuggestBox
+                            x:Name="LabelEditor"
+                            Grid.Row="2"
+                            Grid.ColumnSpan="2"
+                            Header="Labels"
+                            PlaceholderText="Add label"
+                            QueryIcon="Add"
+                            GotFocus="OnLabelEditorGotFocus"
+                            TextChanged="OnLabelTextChanged"
+                            QuerySubmitted="OnLabelSubmitted"
+                            SuggestionChosen="OnLabelSuggestionChosen" />
+                    </Grid>
+                    <ScrollViewer
+                        MaxHeight="36"
+                        HorizontalScrollBarVisibility="Hidden"
+                        VerticalScrollBarVisibility="Disabled"
+                        HorizontalScrollMode="Enabled"
+                        VerticalScrollMode="Disabled">
+                        <ItemsControl x:Name="SelectedLabelsList">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <StackPanel Orientation="Horizontal" />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Button
+                                        Margin="0,0,6,6"
+                                        Padding="10,4"
+                                        Click="OnRemoveLabelClicked"
+                                        Tag="{Binding Id}">
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <TextBlock Text="{Binding Name}" />
+                                            <FontIcon Glyph="&#xE711;" FontSize="10" />
+                                        </StackPanel>
+                                    </Button>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
                 </StackPanel>
 
                 <TextBox
@@ -120,14 +136,16 @@
                     Header="Labels"
                     HorizontalAlignment="Stretch"
                     TextChanged="OnEditorChanged" />
-                <TextBox
-                    x:Name="NotesEditor"
-                    Header="Notes"
-                    PlaceholderText=""
-                    AcceptsReturn="True"
-                    MinHeight="140"
-                    HorizontalAlignment="Stretch"
-                    TextChanged="OnEditorChanged" />
+                <StackPanel Spacing="10">
+                    <TextBlock Text="Notes" Style="{StaticResource OpenzaFormSectionHeaderTextBlockStyle}" />
+                    <TextBox
+                        x:Name="NotesEditor"
+                        PlaceholderText=""
+                        AcceptsReturn="True"
+                        MinHeight="104"
+                        HorizontalAlignment="Stretch"
+                        TextChanged="OnEditorChanged" />
+                </StackPanel>
             </StackPanel>
         </ScrollViewer>
 

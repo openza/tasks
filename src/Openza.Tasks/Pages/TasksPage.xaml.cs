@@ -262,15 +262,24 @@ public sealed partial class TasksPage : UserControl
 
         void AddQuickLabel(LabelItem label)
         {
-            if (selectedLabels.Any(item => string.Equals(item.Name, label.Name, StringComparison.CurrentCultureIgnoreCase)))
+            if (!selectedLabels.Any(item => string.Equals(item.Name, label.Name, StringComparison.CurrentCultureIgnoreCase)))
             {
-                return;
+                selectedLabels.Add(label);
+                RefreshQuickLabelChips();
             }
 
-            selectedLabels.Add(label);
-            labelBox.Text = string.Empty;
-            RefreshQuickLabelChips();
+            ClearQuickLabelInputAfterSelection();
+        }
+
+        void ClearQuickLabelInputAfterSelection()
+        {
             labelBox.ItemsSource = Array.Empty<string>();
+            labelBox.DispatcherQueue.TryEnqueue(() =>
+            {
+                labelBox.Text = string.Empty;
+                labelBox.ItemsSource = Array.Empty<string>();
+                labelBox.Focus(FocusState.Programmatic);
+            });
         }
 
         labelBox.TextChanged += (_, args) =>
@@ -301,12 +310,32 @@ public sealed partial class TasksPage : UserControl
         };
         RefreshQuickLabelSuggestions(includeAllWhenEmpty: false);
 
-        var stack = new StackPanel { Spacing = 12, MinWidth = 420 };
+        var detailsGrid = new Grid
+        {
+            ColumnSpacing = 10,
+            RowSpacing = 10,
+        };
+        detailsGrid.ColumnDefinitions.Add(new ColumnDefinition());
+        detailsGrid.ColumnDefinitions.Add(new ColumnDefinition());
+        detailsGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        detailsGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+        Grid.SetRow(projectBox, 0);
+        Grid.SetColumn(projectBox, 0);
+        Grid.SetRow(workflowBox, 0);
+        Grid.SetColumn(workflowBox, 1);
+        Grid.SetRow(priorityBox, 1);
+        Grid.SetColumn(priorityBox, 0);
+        Grid.SetRow(duePicker, 1);
+        Grid.SetColumn(duePicker, 1);
+        detailsGrid.Children.Add(projectBox);
+        detailsGrid.Children.Add(workflowBox);
+        detailsGrid.Children.Add(priorityBox);
+        detailsGrid.Children.Add(duePicker);
+
+        var stack = new StackPanel { Spacing = 14, MinWidth = 460 };
         stack.Children.Add(titleBox);
-        stack.Children.Add(projectBox);
-        stack.Children.Add(workflowBox);
-        stack.Children.Add(priorityBox);
-        stack.Children.Add(duePicker);
+        stack.Children.Add(detailsGrid);
         stack.Children.Add(labelBox);
         stack.Children.Add(labelChips);
 
@@ -357,6 +386,7 @@ public sealed partial class TasksPage : UserControl
     private void UpdateWorkbenchLayout(double width)
     {
         var showProjectsPane = _projectsPaneEnabled;
+        UpdateFilterLayout(width < 1120 || (width < 1360 && _detailsOpen));
 
         if (width < 980)
         {
@@ -396,6 +426,67 @@ public sealed partial class TasksPage : UserControl
 
         DetailsHost.Visibility = Visibility.Visible;
         DetailsColumn.Width = width < 1280 ? new GridLength(380) : new GridLength(440);
+    }
+
+    private void UpdateFilterLayout(bool compact)
+    {
+        if (FilterGrid.ColumnDefinitions.Count < 4 || FilterGrid.RowDefinitions.Count < 2)
+        {
+            return;
+        }
+
+        if (compact)
+        {
+            FilterGrid.RowDefinitions[1].Height = GridLength.Auto;
+            FilterGrid.ColumnDefinitions[0].Width = new GridLength(132);
+            FilterGrid.ColumnDefinitions[0].MinWidth = 0;
+            FilterGrid.ColumnDefinitions[1].Width = new GridLength(168);
+            FilterGrid.ColumnDefinitions[1].MinWidth = 0;
+            FilterGrid.ColumnDefinitions[2].Width = new GridLength(1, GridUnitType.Star);
+            FilterGrid.ColumnDefinitions[2].MinWidth = 120;
+            FilterGrid.ColumnDefinitions[3].Width = new GridLength(0);
+            FilterGrid.ColumnDefinitions[3].MinWidth = 0;
+
+            Grid.SetRow(SearchBox, 0);
+            Grid.SetColumn(SearchBox, 0);
+            Grid.SetColumnSpan(SearchBox, 3);
+
+            Grid.SetRow(SortCombo, 1);
+            Grid.SetColumn(SortCombo, 0);
+            Grid.SetColumnSpan(SortCombo, 1);
+
+            Grid.SetRow(PriorityCombo, 1);
+            Grid.SetColumn(PriorityCombo, 1);
+            Grid.SetColumnSpan(PriorityCombo, 1);
+
+            Grid.SetRow(LabelCombo, 1);
+            Grid.SetColumn(LabelCombo, 2);
+            Grid.SetColumnSpan(LabelCombo, 2);
+            return;
+        }
+
+        FilterGrid.RowDefinitions[1].Height = new GridLength(0);
+        FilterGrid.ColumnDefinitions[0].Width = new GridLength(1, GridUnitType.Star);
+        FilterGrid.ColumnDefinitions[0].MinWidth = 240;
+        FilterGrid.ColumnDefinitions[1].Width = new GridLength(150);
+        FilterGrid.ColumnDefinitions[2].Width = new GridLength(160);
+        FilterGrid.ColumnDefinitions[3].Width = new GridLength(190);
+
+        Grid.SetRow(SearchBox, 0);
+        Grid.SetColumn(SearchBox, 0);
+        Grid.SetColumnSpan(SearchBox, 1);
+
+        Grid.SetRow(SortCombo, 0);
+        Grid.SetColumn(SortCombo, 1);
+        Grid.SetColumnSpan(SortCombo, 1);
+
+        Grid.SetRow(PriorityCombo, 0);
+        Grid.SetColumn(PriorityCombo, 2);
+        Grid.SetColumnSpan(PriorityCombo, 1);
+
+        Grid.SetRow(LabelCombo, 0);
+        Grid.SetColumn(LabelCombo, 3);
+        Grid.SetColumnSpan(LabelCombo, 1);
     }
 
     private void OnSearchTextChanged(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args) => SearchTextChanged?.Invoke(sender, args);

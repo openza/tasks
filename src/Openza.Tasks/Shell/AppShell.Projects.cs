@@ -72,7 +72,7 @@ public sealed partial class AppShell
                 {
                     _ => "\uE8B7",
                 },
-                Count = projects.Count,
+                Count = projects.Sum(project => project.ActiveTaskCount),
                 IsExpanded = true,
             };
 

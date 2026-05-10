@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 
 namespace Openza.Tasks.Controls;
 
@@ -24,11 +25,13 @@ public sealed partial class TaskRowControl : UserControl
     private void OnPointerEntered(object sender, PointerRoutedEventArgs e)
     {
         ActionsBar.Opacity = 1;
+        RowSurface.Background = (Brush)Application.Current.Resources["OpenzaQuietHoverBrush"];
     }
 
     private void OnPointerExited(object sender, PointerRoutedEventArgs e)
     {
         ActionsBar.Opacity = ActionsBar.FocusState == FocusState.Unfocused ? 0 : 1;
+        RowSurface.Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
     }
 
     private void OnActionsGotFocus(object sender, RoutedEventArgs e)

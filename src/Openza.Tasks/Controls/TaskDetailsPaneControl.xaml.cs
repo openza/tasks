@@ -232,8 +232,7 @@ public sealed partial class TaskDetailsPaneControl : UserControl
             AddSelectedLabel(GetOrCreateLabel(args.QueryText));
         }
 
-        sender.Text = string.Empty;
-        ClearLabelSuggestions();
+        ClearLabelInputAfterSelection(sender);
     }
 
     private void OnLabelSuggestionChosen(AutoSuggestBox sender, AutoSuggestBoxSuggestionChosenEventArgs args)
@@ -244,8 +243,7 @@ public sealed partial class TaskDetailsPaneControl : UserControl
         }
 
         AddSelectedLabel(GetOrCreateLabel(labelName));
-        sender.Text = string.Empty;
-        ClearLabelSuggestions();
+        ClearLabelInputAfterSelection(sender);
     }
 
     private void OnRemoveLabelClicked(object sender, RoutedEventArgs e)
@@ -328,6 +326,17 @@ public sealed partial class TaskDetailsPaneControl : UserControl
     private void ClearLabelSuggestions()
     {
         LabelEditor.ItemsSource = Array.Empty<string>();
+    }
+
+    private void ClearLabelInputAfterSelection(AutoSuggestBox sender)
+    {
+        ClearLabelSuggestions();
+        sender.DispatcherQueue.TryEnqueue(() =>
+        {
+            sender.Text = string.Empty;
+            ClearLabelSuggestions();
+            sender.Focus(FocusState.Programmatic);
+        });
     }
 
     private void OnSaveTaskClicked(object sender, RoutedEventArgs e) => SaveTaskClicked?.Invoke(sender, e);

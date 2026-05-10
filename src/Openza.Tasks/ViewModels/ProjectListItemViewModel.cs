@@ -1,4 +1,6 @@
 using Openza.Tasks.Core.Models;
+using FontWeight = Windows.UI.Text.FontWeight;
+using WinUIFontWeights = Microsoft.UI.Text.FontWeights;
 
 namespace Openza.Tasks.ViewModels;
 
@@ -17,6 +19,7 @@ public sealed class ProjectListItemViewModel
     public string CountText => ActiveTaskCount == 0 ? string.Empty : ActiveTaskCount.ToString(System.Globalization.CultureInfo.InvariantCulture);
     public string AccessibilityName => $"{Name}, {SourceName}, {ActiveTaskCount} active tasks";
     public double IsSelectedOpacity => IsSelected ? 1 : 0;
+    public FontWeight NameWeight => IsSelected ? WinUIFontWeights.SemiBold : WinUIFontWeights.Normal;
     public string Glyph => "\uE8B7";
 
     public static ProjectListItemViewModel FromProject(ProjectItem project, int activeTaskCount, bool isSelected) => new()

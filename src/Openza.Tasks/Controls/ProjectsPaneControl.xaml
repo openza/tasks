@@ -14,7 +14,7 @@
             <StackPanel Spacing="2">
                 <TextBlock Text="Projects" Style="{ThemeResource SubtitleTextBlockStyle}" />
                 <TextBlock
-                    Text="Grouped by source"
+                    Text="Filter all tasks"
                     Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
             </StackPanel>
             <Button
@@ -37,29 +37,31 @@
             TextChanged="OnProjectSearchTextChanged" />
 
         <ScrollViewer Grid.Row="2" HorizontalScrollBarVisibility="Disabled">
-            <ListView
+            <ItemsControl
                 x:Name="ProjectGroupsList"
-                ItemsSource="{x:Bind ProjectGroups, Mode=OneWay}"
-                SelectionMode="None"
-                IsItemClickEnabled="False">
-                <ListView.ItemTemplate>
+                ItemsSource="{x:Bind ProjectGroups, Mode=OneWay}">
+                <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="vm:ProjectGroupViewModel">
-                        <StackPanel Margin="0,0,0,10">
+                        <StackPanel Margin="0,0,0,18">
                             <Button
                                 HorizontalAlignment="Stretch"
                                 HorizontalContentAlignment="Stretch"
-                                MinHeight="34"
-                                Padding="10,6"
+                                MinHeight="30"
+                                Padding="4,6"
                                 Background="Transparent"
+                                BorderBrush="Transparent"
                                 BorderThickness="0"
                                 Tag="{x:Bind Id}"
                                 Click="OnProjectGroupHeaderClicked">
                                 <Grid ColumnDefinitions="18,*,Auto,18" ColumnSpacing="8">
-                                    <FontIcon Glyph="{x:Bind Glyph}" FontSize="13" />
+                                    <FontIcon
+                                        Glyph="{x:Bind Glyph}"
+                                        FontSize="13"
+                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                     <TextBlock
                                         Grid.Column="1"
                                         Text="{x:Bind Name}"
-                                        FontSize="12"
+                                        FontSize="13"
                                         FontWeight="SemiBold"
                                         Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                     <TextBlock
@@ -84,8 +86,9 @@
                                             HorizontalContentAlignment="Stretch"
                                             MinHeight="36"
                                             Margin="0,1"
-                                            Padding="10,7"
+                                            Padding="8,7"
                                             Background="Transparent"
+                                            BorderBrush="Transparent"
                                             BorderThickness="0"
                                             Tag="{x:Bind Id}"
                                             Click="OnProjectButtonClicked"
@@ -114,11 +117,13 @@
                                                 <FontIcon
                                                     Grid.Column="1"
                                                     Glyph="{x:Bind Glyph}"
-                                                    FontSize="13" />
+                                                    FontSize="13"
+                                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                                 <TextBlock
                                                     Grid.Column="2"
                                                     Text="{x:Bind Name}"
-                                                    TextTrimming="CharacterEllipsis" />
+                                                    TextTrimming="CharacterEllipsis"
+                                                    FontWeight="{x:Bind NameWeight}" />
                                                 <TextBlock
                                                     Grid.Column="3"
                                                     Margin="8,0,0,0"
@@ -131,8 +136,8 @@
                             </ItemsControl>
                         </StackPanel>
                     </DataTemplate>
-                </ListView.ItemTemplate>
-            </ListView>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
         </ScrollViewer>
     </Grid>
 </UserControl>
