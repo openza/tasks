@@ -5,7 +5,7 @@
   xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
   xmlns:mp="http://schemas.microsoft.com/appx/2014/phone/manifest"
   IgnorableNamespaces="uap rescap mp">
-  <Identity Name="Openza.OpenzaTasks" Publisher="CN=Openza" Version="0.1.1.0" ProcessorArchitecture="x64" />
+  <Identity Name="Openza.OpenzaTasks" Publisher="CN=Openza" Version="0.1.2.0" ProcessorArchitecture="x64" />
   <Properties>
     <DisplayName>Openza Tasks</DisplayName>
     <PublisherDisplayName>Openza</PublisherDisplayName>
