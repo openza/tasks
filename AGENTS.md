@@ -28,6 +28,7 @@ Also follow the shared Openza guidance in `../AGENTS.md`. Keep this file limited
 - Prefer user-defined labels, filters, and saved views over hardcoded concepts such as context, area, energy, person, or review ritual.
 - Do not add a separate methodology-specific page or signal when the same outcome can be achieved through transparent data, project selection, labels, filters, and custom views.
 - Treat Spaces as user-owned visibility scopes, not provider-specific concepts. Do not hardcode Work/Personal or any user's routing logic in app code; put one-off routing in explicit import/setup scripts or future user-configurable rules.
+- Store V1 is a fresh-start WinUI product. Do not auto-migrate legacy Flutter databases or old local app stores unless the user explicitly changes that product decision.
 
 ## Testing Guidelines
 - Prefer unit tests for repositories, migration, backup/restore, import/export, provider mappers, and sync jobs.
@@ -39,6 +40,7 @@ Also follow the shared Openza guidance in `../AGENTS.md`. Keep this file limited
 - PRs should describe changes, reference issues, and include screenshots for UI changes.
 
 ## Security & Configuration
+- This is a public open-source repo. Do not commit local SQLite databases, personal task data, provider cache snapshots, screenshots with private tasks, generated certificates, MSIX/AppPackages outputs, Store-private metadata, or machine-specific files.
 - Never commit secrets; use `.env.example` for templates and keep `.env.local` gitignored.
 - Use Windows Credential Locker for credentials and avoid logging sensitive data.
 - Before committing, run `gitleaks detect --source . --verbose`.

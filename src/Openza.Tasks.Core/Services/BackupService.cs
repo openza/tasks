@@ -1,3 +1,5 @@
+using Microsoft.Data.Sqlite;
+
 namespace Openza.Tasks.Core.Services;
 
 public sealed class BackupService(string databasePath, string backupDirectory, int maxBackups = 7)
@@ -6,14 +8,14 @@ public sealed class BackupService(string databasePath, string backupDirectory, i
     public string BackupDirectory { get; } = backupDirectory;
     public int MaxBackups { get; } = maxBackups;
 
-    public Task<string> CreateBackupAsync(CancellationToken cancellationToken = default)
+    public async Task<string> CreateBackupAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         Directory.CreateDirectory(BackupDirectory);
-        var backupPath = Path.Combine(BackupDirectory, $"openza_tasks_{DateTimeOffset.Now:yyyyMMdd_HHmmss}.db");
-        File.Copy(DatabasePath, backupPath, overwrite: false);
+        var backupPath = CreateUniqueBackupPath(BackupDirectory);
+        await CopyDatabaseOnlineAsync(DatabasePath, backupPath, overwrite: false, cancellationToken).ConfigureAwait(false);
         PruneOldBackups();
-        return Task.FromResult(backupPath);
+        return backupPath;
     }
 
     public IReadOnlyList<string> ListBackups()
@@ -39,12 +41,11 @@ public sealed class BackupService(string databasePath, string backupDirectory, i
             .ToList();
     }
 
-    public Task ExportDatabaseAsync(string destinationPath, CancellationToken cancellationToken = default)
+    public async Task ExportDatabaseAsync(string destinationPath, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         Directory.CreateDirectory(Path.GetDirectoryName(destinationPath) ?? ".");
-        File.Copy(DatabasePath, destinationPath, overwrite: true);
-        return Task.CompletedTask;
+        await CopyDatabaseOnlineAsync(DatabasePath, destinationPath, overwrite: true, cancellationToken).ConfigureAwait(false);
     }
 
     public Task ExportBackupAsync(string sourcePath, string destinationPath, CancellationToken cancellationToken = default)
@@ -106,6 +107,73 @@ public sealed class BackupService(string databasePath, string backupDirectory, i
         foreach (var oldBackup in ListBackups().Skip(MaxBackups))
         {
             File.Delete(oldBackup);
+        }
+    }
+
+    private static string CreateUniqueBackupPath(string backupDirectory)
+    {
+        for (var attempt = 0; attempt < 100; attempt++)
+        {
+            var suffix = attempt == 0 ? string.Empty : $"-{attempt:00}";
+            var fileName = $"openza_tasks_{DateTimeOffset.Now:yyyyMMdd_HHmmss_fff}{suffix}.db";
+            var path = Path.Combine(backupDirectory, fileName);
+            if (!File.Exists(path))
+            {
+                return path;
+            }
+        }
+
+        return Path.Combine(backupDirectory, $"openza_tasks_{DateTimeOffset.UtcNow.Ticks}.db");
+    }
+
+    private static async Task CopyDatabaseOnlineAsync(
+        string sourcePath,
+        string destinationPath,
+        bool overwrite,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var finalDestinationPath = Path.GetFullPath(destinationPath);
+        var destinationDirectory = Path.GetDirectoryName(finalDestinationPath) ?? ".";
+        Directory.CreateDirectory(destinationDirectory);
+
+        if (!overwrite && File.Exists(finalDestinationPath))
+        {
+            throw new IOException($"Backup file already exists: {finalDestinationPath}");
+        }
+
+        var tempPath = Path.Combine(destinationDirectory, $".{Path.GetFileName(finalDestinationPath)}.{Guid.NewGuid():N}.tmp");
+        try
+        {
+            await using var source = new SqliteConnection(new SqliteConnectionStringBuilder
+            {
+                DataSource = sourcePath,
+                Mode = SqliteOpenMode.ReadOnly,
+                Pooling = false,
+            }.ToString());
+            await source.OpenAsync(cancellationToken).ConfigureAwait(false);
+
+            await using var destination = new SqliteConnection(new SqliteConnectionStringBuilder
+            {
+                DataSource = tempPath,
+                Mode = SqliteOpenMode.ReadWriteCreate,
+                Pooling = false,
+            }.ToString());
+            await destination.OpenAsync(cancellationToken).ConfigureAwait(false);
+
+            source.BackupDatabase(destination);
+            await destination.CloseAsync().ConfigureAwait(false);
+            await source.CloseAsync().ConfigureAwait(false);
+
+            File.Move(tempPath, finalDestinationPath, overwrite);
+        }
+        finally
+        {
+            if (File.Exists(tempPath))
+            {
+                File.Delete(tempPath);
+            }
         }
     }
 

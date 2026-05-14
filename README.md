@@ -11,13 +11,13 @@ Openza Tasks is a Windows-native task manager for people who want fast local tas
 - **Provider sync** - optional Todoist and Microsoft To Do reconnect/sync
 - **Focused task layout** - navigation, projects, task list, and details in one productive surface
 - **Markdown import/export** - import GFM checkboxes and export tasks grouped by project
-- **Clean V3 database** - Store V1 starts fresh with planner-ready local data
+- **Clean local database** - Store V1 starts fresh with planner-ready local data
 
 ## Download
 
 V1 is Store-first. Until the Microsoft Store listing is public, install and test from Visual Studio or an MSIX package created locally.
 
-Legacy Flutter/Linux packages remain available in older GitHub releases, but they are no longer the active product line.
+Legacy Flutter/Linux packages remain available in older GitHub releases, but they are no longer the active product line. Store V1 does not auto-migrate legacy Flutter databases; users start with a clean WinUI workspace and can reconnect integrations.
 
 ## Building From Source
 

@@ -3,7 +3,6 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
 using Openza.Tasks.Core.Credentials;
 using Openza.Tasks.Core.Data;
-using Openza.Tasks.Core.Migration;
 using Openza.Tasks.Core.Services;
 using Openza.Tasks.Core.Sync;
 using Openza.Tasks.Services;
@@ -22,8 +21,7 @@ public sealed partial class MainWindow : Window
         ICredentialStore credentials,
         BackupService backupService,
         AppSettingsService settings,
-        MicrosoftToDoAuthService microsoftAuth,
-        MigrationResult migration)
+        MicrosoftToDoAuthService microsoftAuth)
     {
         _settings = settings;
 
@@ -38,7 +36,7 @@ public sealed partial class MainWindow : Window
         RestoreWindowState();
         Closed += OnClosed;
 
-        _shell = new AppShell(this, store, syncEngine, credentials, backupService, settings, microsoftAuth, migration);
+        _shell = new AppShell(this, store, syncEngine, credentials, backupService, settings, microsoftAuth);
         Root.Children.Add(_shell);
     }
 

@@ -19,7 +19,7 @@ dotnet build src\Openza.Tasks\Openza.Tasks.csproj -c Release --no-restore
 - Never commit secrets, `.env` files, generated certificates, MSIX packages, or Store-private data.
 - Run `gitleaks detect --source . --verbose` before publishing.
 - Keep provider tokens behind `ICredentialStore`; do not log token values.
-- Keep SQLite migration compatible with the legacy Flutter database at `%APPDATA%\com.openza.tasks\openza_tasks.db`.
+- Store V1 is a fresh-start WinUI app. Do not auto-migrate legacy Flutter databases; consider explicit import tooling later if the product decision changes.
 - XAML changes must compile through the app project.
 
 ## Architecture

@@ -2,7 +2,6 @@ using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.Windows.AppLifecycle;
 using Openza.Tasks.Core.Data;
-using Openza.Tasks.Core.Migration;
 using Openza.Tasks.Core.Services;
 using Openza.Tasks.Core.Sync;
 using Openza.Tasks.Services;
@@ -26,13 +25,13 @@ public partial class App : Application
         AppInstance.GetCurrent().Activated += OnActivated;
     }
 
-    protected override void OnLaunched(Microsoft.UI.Xaml.LaunchActivatedEventArgs args)
+    protected override async void OnLaunched(Microsoft.UI.Xaml.LaunchActivatedEventArgs args)
     {
         AppLog.Write("OnLaunched");
         var current = AppInstance.FindOrRegisterForKey("Openza.Tasks.Main");
         if (!current.IsCurrent)
         {
-            _ = current.RedirectActivationToAsync(AppInstance.GetCurrent().GetActivatedEventArgs());
+            await current.RedirectActivationToAsync(AppInstance.GetCurrent().GetActivatedEventArgs());
             Environment.Exit(0);
             return;
         }
@@ -54,8 +53,7 @@ public partial class App : Application
         {
             var appData = ApplicationData.Current.LocalFolder.Path;
             var databasePath = Path.Combine(appData, CoreAppDataPaths.DatabaseFileName);
-            var migration = MigratePreviousCleanCoreDatabaseName(appData, databasePath);
-            AppLog.Write(migration.Message);
+            AppLog.Write("Store V1 uses a fresh local Openza Tasks database.");
 
             var store = new SqliteTaskStore(databasePath);
             await store.InitializeAsync().ConfigureAwait(true);
@@ -71,7 +69,7 @@ public partial class App : Application
                 Path.Combine(appData, "msal-cache.bin"),
                 () => _window is null ? IntPtr.Zero : WindowNative.GetWindowHandle(_window));
 
-            _window = new MainWindow(store, syncEngine, credentials, backupService, settings, microsoftAuth, migration);
+            _window = new MainWindow(store, syncEngine, credentials, backupService, settings, microsoftAuth);
             _window.Activate();
             await _window.InitializeAsync().ConfigureAwait(true);
         }
@@ -80,35 +78,5 @@ public partial class App : Application
             AppLog.Write(exception);
             throw;
         }
-    }
-
-    private static MigrationResult MigratePreviousCleanCoreDatabaseName(string appData, string databasePath)
-    {
-        var previousPath = Path.Combine(appData, CoreAppDataPaths.PreviousCleanCoreDatabaseFileName);
-        if (!File.Exists(previousPath))
-        {
-            return MigrationResult.Skipped("Store V1 uses the local Openza Tasks database.");
-        }
-
-        if (File.Exists(databasePath) &&
-            File.GetLastWriteTimeUtc(databasePath) >= File.GetLastWriteTimeUtc(previousPath))
-        {
-            return MigrationResult.Skipped("Openza Tasks database filename is already current.");
-        }
-
-        Directory.CreateDirectory(Path.GetDirectoryName(databasePath) ?? ".");
-        string? backupPath = null;
-        if (File.Exists(databasePath))
-        {
-            backupPath = $"{databasePath}.pre-db-rename-{DateTimeOffset.UtcNow:yyyyMMddHHmmss}.bak";
-            File.Copy(databasePath, backupPath, overwrite: false);
-        }
-
-        File.Copy(previousPath, databasePath, overwrite: true);
-        return new MigrationResult(
-            true,
-            $"Migrated Openza Tasks database filename from {CoreAppDataPaths.PreviousCleanCoreDatabaseFileName} to {CoreAppDataPaths.DatabaseFileName}.",
-            backupPath,
-            previousPath);
     }
 }

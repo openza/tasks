@@ -750,7 +750,7 @@ public sealed class SqliteTaskStoreTests : IDisposable
     }
 
     [Fact]
-    public async Task Initialize_upgrades_legacy_flutter_schema()
+    public async Task Initialize_upgrades_existing_sqlite_schema()
     {
         Directory.CreateDirectory(_directory);
         var databasePath = Path.Combine(_directory, "legacy-openza.db");

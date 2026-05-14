@@ -4,7 +4,6 @@ using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Openza.Tasks.Core.Credentials;
 using Openza.Tasks.Core.Data;
-using Openza.Tasks.Core.Migration;
 using Openza.Tasks.Core.Models;
 using Openza.Tasks.Core.Services;
 using Openza.Tasks.Core.Sync;
@@ -28,7 +27,6 @@ public sealed partial class AppShell : UserControl
     private readonly BackupService _backupService;
     private readonly AppSettingsService _settings;
     private readonly MicrosoftToDoAuthService _microsoftAuth;
-    private readonly MigrationResult _migration;
     private readonly Window _ownerWindow;
     private readonly HttpClient _httpClient = new();
     private readonly List<SpaceItem> _spaces = [];
@@ -63,8 +61,7 @@ public sealed partial class AppShell : UserControl
         ICredentialStore credentials,
         BackupService backupService,
         AppSettingsService settings,
-        MicrosoftToDoAuthService microsoftAuth,
-        MigrationResult migration)
+        MicrosoftToDoAuthService microsoftAuth)
     {
         _ownerWindow = ownerWindow;
         _store = store;
@@ -73,7 +70,6 @@ public sealed partial class AppShell : UserControl
         _backupService = backupService;
         _settings = settings;
         _microsoftAuth = microsoftAuth;
-        _migration = migration;
         InitializeComponent();
         AddKeyboardShortcuts();
         _uiReady = true;
@@ -106,11 +102,6 @@ public sealed partial class AppShell : UserControl
         if (IsTaskView(_currentView))
         {
             await RefreshTasksAsync().ConfigureAwait(true);
-        }
-
-        if (_migration.WasMigrated)
-        {
-            ShowInfo("Data migrated", "Your existing Openza Tasks database was imported. Reconnect integrations from Settings.", InfoBarSeverity.Success);
         }
 
         StartAutoSyncTimer();

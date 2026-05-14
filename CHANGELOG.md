@@ -11,9 +11,8 @@ All notable changes to Openza Tasks will be documented in this file.
 - Marked Flutter/Linux packages as legacy release artifacts.
 
 ### Added
-- Automatic legacy Flutter SQLite database import for Windows users.
 - Windows Credential Locker abstraction for provider tokens.
-- Unit tests for Markdown parsing, SQLite storage, legacy migration, and sync outbox behavior.
+- Unit tests for Markdown parsing, SQLite storage, backup/export, and sync outbox behavior.
 
 ## [0.5.0] - 2026-01-25
 
