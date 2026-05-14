@@ -18,6 +18,7 @@ public sealed record ProviderSourceItem
     public DateTimeOffset? PlannedAt { get; init; }
     public DateOnly? DeadlineOn { get; init; }
     public DateTimeOffset? DeadlineAt { get; init; }
+    public string? RecurrenceRule { get; init; }
     public string? SourceUrl { get; init; }
     public string? SnapshotJson { get; init; }
     public string AdoptionState { get; init; } = ProviderSourceAdoptionStates.NotAdopted;

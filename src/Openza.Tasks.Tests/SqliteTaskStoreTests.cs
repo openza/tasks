@@ -322,7 +322,7 @@ public sealed class SqliteTaskStoreTests : IDisposable
     }
 
     [Fact]
-    public async Task AdoptProviderSourceItem_adds_open_source_task_to_inbox()
+    public async Task AdoptProviderSourceItem_adds_one_time_open_source_task_to_inbox()
     {
         var store = CreateStore();
         await store.InitializeAsync();
@@ -349,6 +349,93 @@ public sealed class SqliteTaskStoreTests : IDisposable
         Assert.Null(task.ProjectId);
         Assert.Equal(IntegrationIds.Todoist, task.SourceIntegrationId);
         Assert.Equal("Todoist Inbox", task.SourceProjectName);
+    }
+
+    [Fact]
+    public async Task AdoptProviderSourceItem_adds_recurring_dated_source_task_without_inbox_workflow()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        await store.UpsertProviderSourceItemAsync(new ProviderSourceItem
+        {
+            Id = "source_todoist_recurring",
+            IntegrationId = IntegrationIds.Todoist,
+            ProviderConnectionId = "todoist_default",
+            ExternalId = "remote_recurring",
+            ProviderTaskId = "remote_recurring",
+            Title = "Pay monthly bill",
+            SourceProjectName = "Bills",
+            CompletionState = TaskCompletionState.Open,
+            PlannedOn = new DateOnly(2026, 6, 6),
+            RecurrenceRule = "every 6th",
+        });
+
+        var added = await store.AdoptProviderSourceItemAsync("source_todoist_recurring");
+        var inbox = await store.GetTasksAsync(new TaskQuery { Kind = TaskListKind.Inbox });
+        var all = await store.GetTasksAsync(new TaskQuery { Kind = TaskListKind.All });
+
+        Assert.NotNull(added);
+        Assert.Empty(inbox);
+        var task = Assert.Single(all);
+        Assert.Equal(added.Id, task.Id);
+        Assert.Equal(TaskWorkflowStatus.None, task.WorkflowStatus);
+        Assert.Equal(TaskCompletionState.Open, task.CompletionState);
+        Assert.Equal(new DateOnly(2026, 6, 6), task.PlannedOn);
+        Assert.Equal("every 6th", task.RecurrenceRule);
+    }
+
+    [Fact]
+    public async Task UpsertProviderSourceItem_auto_adds_recurring_dated_source_task_outside_inbox()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+
+        await store.UpsertProviderSourceItemAsync(new ProviderSourceItem
+        {
+            Id = "source_todoist_auto_recurring",
+            IntegrationId = IntegrationIds.Todoist,
+            ProviderConnectionId = "todoist_default",
+            ExternalId = "remote_auto_recurring",
+            ProviderTaskId = "remote_auto_recurring",
+            Title = "Automatic recurring bill",
+            SuggestedSpaceId = SpaceIds.Default,
+            PlannedOn = new DateOnly(2026, 6, 6),
+            RecurrenceRule = "every 6th",
+        });
+
+        var source = Assert.Single(await store.GetProviderSourceItemsAsync(IntegrationIds.Todoist, includeAdopted: true));
+        var inbox = await store.GetTasksAsync(new TaskQuery { Kind = TaskListKind.Inbox, SpaceId = SpaceIds.Default });
+        var all = await store.GetTasksAsync(new TaskQuery { Kind = TaskListKind.All, SpaceId = SpaceIds.Default });
+
+        Assert.Equal(ProviderSourceAdoptionStates.Adopted, source.AdoptionState);
+        Assert.Empty(inbox);
+        var task = Assert.Single(all);
+        Assert.Equal(source.AdoptedTaskId, task.Id);
+        Assert.Equal(TaskWorkflowStatus.None, task.WorkflowStatus);
+        Assert.Equal("every 6th", task.RecurrenceRule);
+    }
+
+    [Fact]
+    public async Task Initialize_moves_existing_recurring_dated_inbox_tasks_out_of_inbox()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        await store.UpsertTaskAsync(new TaskItem
+        {
+            Id = "task_recurring_inbox",
+            Title = "Monthly bill",
+            WorkflowStatus = TaskWorkflowStatus.Inbox,
+            PlannedOn = new DateOnly(2026, 6, 6),
+            RecurrenceRule = "every 6th",
+        });
+
+        await store.InitializeAsync();
+
+        var inbox = await store.GetTasksAsync(new TaskQuery { Kind = TaskListKind.Inbox });
+        var all = await store.GetTasksAsync(new TaskQuery { Kind = TaskListKind.All });
+
+        Assert.Empty(inbox);
+        Assert.Equal(TaskWorkflowStatus.None, Assert.Single(all).WorkflowStatus);
     }
 
     [Fact]

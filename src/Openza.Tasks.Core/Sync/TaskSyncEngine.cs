@@ -115,6 +115,7 @@ public sealed class TaskSyncEngine(ITaskStore store, ConflictPolicy? conflictPol
             PlannedAt = task.PlannedAt,
             DeadlineOn = task.DeadlineOn,
             DeadlineAt = task.DeadlineAt,
+            RecurrenceRule = task.RecurrenceRule,
             SourceUrl = BuildSourceUrl(task),
             SnapshotJson = task.ProviderMetadataJson,
             LastSeenAt = DateTimeOffset.UtcNow,

@@ -22,7 +22,7 @@ public sealed class SyncProviderTests
                       "project_id": "project1",
                       "parent_id": "parent1",
                       "priority": 4,
-                      "due": { "date": "2026-05-12" },
+                      "due": { "date": "2026-05-12", "is_recurring": true, "string": "every 12th" },
                       "labels": ["release"],
                       "added_at": "2026-05-01T10:00:00Z"
                     }
@@ -65,6 +65,7 @@ public sealed class SyncProviderTests
         Assert.Equal("todoist_parent1", task.ParentId);
         Assert.Equal(TaskItemStatus.None, task.Status);
         Assert.Equal(1, task.Priority);
+        Assert.Equal("every 12th", task.RecurrenceRule);
         Assert.Equal("release", Assert.Single(task.Labels).Name);
         Assert.Contains(handler.Requests, request => request.Method == HttpMethod.Get && request.Uri.PathAndQuery == "/api/v1/tasks?limit=200");
         Assert.Contains(handler.Requests, request => request.Method == HttpMethod.Get && request.Uri.PathAndQuery == "/api/v1/tasks?limit=200&cursor=next-page");
@@ -102,6 +103,7 @@ public sealed class SyncProviderTests
                       "status": "notStarted",
                       "categories": ["Release"],
                       "dueDateTime": { "dateTime": "2026-05-12T00:00:00" },
+                      "recurrence": { "pattern": { "type": "weekly" } },
                       "createdDateTime": "2026-05-01T10:00:00Z"
                     }
                   ]
@@ -127,6 +129,7 @@ public sealed class SyncProviderTests
         Assert.Equal("mstodo_list1", task.ProjectId);
         Assert.Equal(TaskItemStatus.None, task.Status);
         Assert.Equal(1, task.Priority);
+        Assert.Equal("weekly", task.RecurrenceRule);
         Assert.Equal("Release", Assert.Single(task.Labels).Name);
         var completionRequest = Assert.Single(handler.Requests, request => request.Method == HttpMethod.Patch);
         Assert.Equal("/v1.0/me/todo/lists/list1/tasks/task1", completionRequest.Uri.AbsolutePath);

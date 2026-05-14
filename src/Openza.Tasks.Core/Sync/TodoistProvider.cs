@@ -172,6 +172,7 @@ public sealed class TodoistProvider(HttpClient httpClient, string accessToken, s
                 PlannedAt = HasSpecificTime(plannedAt) ? plannedAt : null,
                 DeadlineOn = TaskDateValues.FromDateTimeOffset(deadlineAt),
                 DeadlineAt = HasSpecificTime(deadlineAt) ? deadlineAt : null,
+                RecurrenceRule = ParseTodoistRecurrence(task),
                 CreatedAt = ParseDate(GetString(task, "created_at")) ?? ParseDate(GetString(task, "added_at")) ?? DateTimeOffset.UtcNow,
                 CompletedAt = ParseDate(GetString(task, "completed_at")),
                 Labels = MapTaskLabels(task, providerConnectionId),
@@ -231,6 +232,16 @@ public sealed class TodoistProvider(HttpClient httpClient, string accessToken, s
         }
 
         return ParseDate(GetString(deadline, "datetime")) ?? ParseDate(GetString(deadline, "date"));
+    }
+
+    private static string? ParseTodoistRecurrence(JsonElement task)
+    {
+        if (!task.TryGetProperty("due", out var due) || due.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
+        {
+            return null;
+        }
+
+        return GetBool(due, "is_recurring") ? GetString(due, "string") ?? "recurring" : null;
     }
 
     private static bool HasSpecificTime(DateTimeOffset? value) =>

@@ -152,6 +152,7 @@ public sealed class MicrosoftToDoProvider(HttpClient httpClient, string accessTo
             },
             DeadlineOn = TaskDateValues.FromDateTimeOffset(due),
             DeadlineAt = HasSpecificTime(due) ? due : null,
+            RecurrenceRule = ParseGraphRecurrence(task),
             CreatedAt = ParseDate(GetString(task, "createdDateTime")) ?? DateTimeOffset.UtcNow,
             CompletedAt = ParseGraphDate(task, "completedDateTime"),
             Labels = MapCategories(task, categories, providerConnectionId),
@@ -160,6 +161,24 @@ public sealed class MicrosoftToDoProvider(HttpClient httpClient, string accessTo
                 msToDo = new { id, listId, synced_at = DateTimeOffset.UtcNow },
             }),
         };
+    }
+
+    private static string? ParseGraphRecurrence(JsonElement task)
+    {
+        if (!task.TryGetProperty("recurrence", out var recurrence) ||
+            recurrence.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
+        {
+            return null;
+        }
+
+        if (recurrence.TryGetProperty("pattern", out var pattern) &&
+            pattern.TryGetProperty("type", out var type) &&
+            type.ValueKind == JsonValueKind.String)
+        {
+            return type.GetString();
+        }
+
+        return recurrence.GetRawText();
     }
 
     private HttpRequestMessage CreateRequest(HttpMethod method, string pathOrUrl)

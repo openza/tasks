@@ -119,6 +119,46 @@ public sealed class TaskSyncEngineTests : IDisposable
         Assert.Equal("remote_1", task.SourceExternalId);
     }
 
+    [Fact]
+    public async Task Sync_reopens_completed_recurring_provider_task_with_next_source_date()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        var provider = new FakeProvider
+        {
+            Title = "Pay monthly bill",
+            PlannedOn = new DateOnly(2026, 6, 6),
+            RecurrenceRule = "every 6th",
+        };
+        var engine = new TaskSyncEngine(store);
+
+        var firstSync = await engine.SyncAsync(provider);
+        var task = Assert.Single(await store.GetTasksAsync(new TaskQuery { Kind = TaskListKind.All }));
+        await store.QueueCompletionAsync(new PendingCompletion
+        {
+            Id = "completion_recurring",
+            TaskId = task.Id,
+            Provider = IntegrationIds.Todoist,
+            ProviderTaskId = task.SourceProviderTaskId!,
+            Completed = true,
+            CompletedAt = DateTimeOffset.UtcNow,
+        });
+        await store.CompleteTaskAsync(task.Id);
+
+        provider.PlannedOn = new DateOnly(2026, 7, 6);
+        var secondSync = await engine.SyncAsync(provider);
+
+        var refreshed = await store.GetTaskAsync(task.Id);
+        Assert.True(firstSync.Success);
+        Assert.True(secondSync.Success);
+        Assert.NotNull(refreshed);
+        Assert.Equal(1, provider.CompletedCalls);
+        Assert.Equal(TaskCompletionState.Open, refreshed.CompletionState);
+        Assert.Null(refreshed.CompletedAt);
+        Assert.Equal(new DateOnly(2026, 7, 6), refreshed.PlannedOn);
+        Assert.Equal("every 6th", refreshed.RecurrenceRule);
+    }
+
     private SqliteTaskStore CreateStore()
     {
         Directory.CreateDirectory(_directory);
@@ -134,6 +174,8 @@ public sealed class TaskSyncEngineTests : IDisposable
     {
         public string IntegrationId => IntegrationIds.Todoist;
         public string Title { get; set; } = "Remote task";
+        public DateOnly? PlannedOn { get; set; }
+        public string? RecurrenceRule { get; set; }
         public int CompletedCalls { get; private set; }
 
         public Task<ProviderSnapshot> FetchSnapshotAsync(CancellationToken cancellationToken = default)
@@ -145,6 +187,8 @@ public sealed class TaskSyncEngineTests : IDisposable
                     ExternalId = "remote_1",
                     IntegrationId = IntegrationIds.Todoist,
                     Title = Title,
+                    PlannedOn = PlannedOn,
+                    RecurrenceRule = RecurrenceRule,
                 }],
                 [],
                 []));

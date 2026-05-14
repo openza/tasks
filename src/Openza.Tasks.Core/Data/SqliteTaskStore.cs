@@ -449,7 +449,7 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
             SELECT id, integration_id, provider_connection_id, external_id, provider_task_id, title, description,
                    source_project_id, source_project_name, suggested_space_id, priority, completion_state,
                    planned_on, planned_at, deadline_on, deadline_at, source_url,
-                   snapshot_json, adoption_state, adopted_task_id, first_seen_at, last_seen_at, updated_at
+                   recurrence_rule, snapshot_json, adoption_state, adopted_task_id, first_seen_at, last_seen_at, updated_at
             FROM provider_source_items
             WHERE (@integration_id IS NULL OR integration_id = @integration_id)
               AND (
@@ -494,7 +494,22 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         };
 
         await UpsertProviderSourceItemCoreAsync(connection, source, cancellationToken).ConfigureAwait(false);
-        if (source.AdoptionState == ProviderSourceAdoptionStates.Adopted && !string.IsNullOrWhiteSpace(source.AdoptedTaskId))
+        if (ShouldBypassInbox(source) && source.AdoptionState == ProviderSourceAdoptionStates.NotAdopted)
+        {
+            var now = DateTimeOffset.UtcNow;
+            var task = CreateTaskFromSource(source, source.SuggestedSpaceId ?? SpaceIds.Default, now);
+            await UpsertTaskCoreAsync(connection, task, cancellationToken).ConfigureAwait(false);
+            await SetTaskLabelsCoreAsync(connection, task.Id, task.Labels, cancellationToken).ConfigureAwait(false);
+
+            source = source with
+            {
+                AdoptionState = ProviderSourceAdoptionStates.Adopted,
+                AdoptedTaskId = task.Id,
+                UpdatedAt = now,
+            };
+            await UpsertProviderSourceItemCoreAsync(connection, source, cancellationToken).ConfigureAwait(false);
+        }
+        else if (source.AdoptionState == ProviderSourceAdoptionStates.Adopted && !string.IsNullOrWhiteSpace(source.AdoptedTaskId))
         {
             await RefreshAdoptedTaskFromSourceAsync(connection, source, cancellationToken).ConfigureAwait(false);
         }
@@ -524,30 +539,7 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         }
 
         var now = DateTimeOffset.UtcNow;
-        var task = new TaskItem
-        {
-            Id = $"local_{Guid.NewGuid():N}",
-            SpaceId = string.IsNullOrWhiteSpace(spaceId) ? source.SuggestedSpaceId ?? SpaceIds.Default : spaceId,
-            IntegrationId = IntegrationIds.Local,
-            Title = source.Title,
-            Description = source.Description,
-            Priority = source.Priority,
-            CompletionState = source.CompletionState,
-            WorkflowStatus = source.CompletionState == TaskCompletionState.Open ? TaskWorkflowStatus.Inbox : TaskWorkflowStatus.None,
-            PlannedOn = source.PlannedOn,
-            PlannedAt = source.PlannedAt,
-            DeadlineOn = source.DeadlineOn,
-            DeadlineAt = source.DeadlineAt,
-            SourceIntegrationId = source.IntegrationId,
-            SourceConnectionId = source.ProviderConnectionId,
-            SourceExternalId = source.ExternalId,
-            SourceProviderTaskId = source.ProviderTaskId,
-            SourceUrl = source.SourceUrl,
-            SourceMetadataJson = BuildSourceMetadataJson(source),
-            CreatedAt = now,
-            UpdatedAt = now,
-            CompletedAt = source.CompletionState == TaskCompletionState.Completed ? now : null,
-        };
+        var task = CreateTaskFromSource(source, string.IsNullOrWhiteSpace(spaceId) ? source.SuggestedSpaceId ?? SpaceIds.Default : spaceId, now);
 
         await UpsertTaskCoreAsync(connection, task, cancellationToken).ConfigureAwait(false);
         await SetTaskLabelsCoreAsync(connection, task.Id, task.Labels, cancellationToken).ConfigureAwait(false);
@@ -562,6 +554,49 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return task;
     }
+
+    private static TaskItem CreateTaskFromSource(ProviderSourceItem source, string spaceId, DateTimeOffset now) => new()
+    {
+        Id = $"local_{Guid.NewGuid():N}",
+        SpaceId = spaceId,
+        IntegrationId = IntegrationIds.Local,
+        Title = source.Title,
+        Description = source.Description,
+        Priority = source.Priority,
+        CompletionState = source.CompletionState,
+        WorkflowStatus = InitialWorkflowStatusFor(source),
+        PlannedOn = source.PlannedOn,
+        PlannedAt = source.PlannedAt,
+        DeadlineOn = source.DeadlineOn,
+        DeadlineAt = source.DeadlineAt,
+        RecurrenceRule = source.RecurrenceRule,
+        SourceIntegrationId = source.IntegrationId,
+        SourceConnectionId = source.ProviderConnectionId,
+        SourceExternalId = source.ExternalId,
+        SourceProviderTaskId = source.ProviderTaskId,
+        SourceUrl = source.SourceUrl,
+        SourceMetadataJson = BuildSourceMetadataJson(source),
+        CreatedAt = now,
+        UpdatedAt = now,
+        CompletedAt = source.CompletionState == TaskCompletionState.Completed ? now : null,
+    };
+
+    private static TaskWorkflowStatus InitialWorkflowStatusFor(ProviderSourceItem source)
+    {
+        if (source.CompletionState != TaskCompletionState.Open)
+        {
+            return TaskWorkflowStatus.None;
+        }
+
+        return ShouldBypassInbox(source) ? TaskWorkflowStatus.None : TaskWorkflowStatus.Inbox;
+    }
+
+    private static bool ShouldBypassInbox(ProviderSourceItem source) =>
+        !string.IsNullOrWhiteSpace(source.RecurrenceRule) &&
+        (source.PlannedOn is not null ||
+            source.PlannedAt is not null ||
+            source.DeadlineOn is not null ||
+            source.DeadlineAt is not null);
 
     public async Task<bool> SkipProviderSourceItemAsync(string sourceItemId, CancellationToken cancellationToken = default)
     {
@@ -989,7 +1024,7 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
             SELECT id, integration_id, provider_connection_id, external_id, provider_task_id, title, description,
                    source_project_id, source_project_name, suggested_space_id, priority, completion_state,
                    planned_on, planned_at, deadline_on, deadline_at, source_url,
-                   snapshot_json, adoption_state, adopted_task_id, first_seen_at, last_seen_at, updated_at
+                   recurrence_rule, snapshot_json, adoption_state, adopted_task_id, first_seen_at, last_seen_at, updated_at
             FROM provider_source_items
             WHERE id = @id
             """;
@@ -1005,7 +1040,7 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
             SELECT id, integration_id, provider_connection_id, external_id, provider_task_id, title, description,
                    source_project_id, source_project_name, suggested_space_id, priority, completion_state,
                    planned_on, planned_at, deadline_on, deadline_at, source_url,
-                   snapshot_json, adoption_state, adopted_task_id, first_seen_at, last_seen_at, updated_at
+                   recurrence_rule, snapshot_json, adoption_state, adopted_task_id, first_seen_at, last_seen_at, updated_at
             FROM provider_source_items
             WHERE provider_connection_id = @provider_connection_id AND external_id = @external_id
             """;
@@ -1022,11 +1057,11 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
             INSERT INTO provider_source_items (id, integration_id, provider_connection_id, external_id, provider_task_id, title, description,
                                                source_project_id, source_project_name, suggested_space_id, priority, completion_state,
                                                planned_on, planned_at, deadline_on, deadline_at,
-                                               source_url, snapshot_json, adoption_state, adopted_task_id, first_seen_at, last_seen_at, updated_at)
+                                               source_url, recurrence_rule, snapshot_json, adoption_state, adopted_task_id, first_seen_at, last_seen_at, updated_at)
             VALUES (@id, @integration_id, @provider_connection_id, @external_id, @provider_task_id, @title, @description,
                     @source_project_id, @source_project_name, @suggested_space_id, @priority, @completion_state,
                     @planned_on, @planned_at, @deadline_on, @deadline_at,
-                    @source_url, @snapshot_json, @adoption_state, @adopted_task_id, @first_seen_at, @last_seen_at, @updated_at)
+                    @source_url, @recurrence_rule, @snapshot_json, @adoption_state, @adopted_task_id, @first_seen_at, @last_seen_at, @updated_at)
             ON CONFLICT(provider_connection_id, external_id) DO UPDATE SET
                 provider_task_id = excluded.provider_task_id,
                 title = excluded.title,
@@ -1041,6 +1076,7 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
                 deadline_on = excluded.deadline_on,
                 deadline_at = excluded.deadline_at,
                 source_url = excluded.source_url,
+                recurrence_rule = excluded.recurrence_rule,
                 snapshot_json = excluded.snapshot_json,
                 adoption_state = excluded.adoption_state,
                 adopted_task_id = excluded.adopted_task_id,
@@ -1064,6 +1100,7 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         command.Parameters.AddWithValue("@deadline_on", ToDbValue(source.DeadlineOn));
         command.Parameters.AddWithValue("@deadline_at", ToDbValue(source.DeadlineAt));
         command.Parameters.AddWithValue("@source_url", ToDbValue(source.SourceUrl));
+        command.Parameters.AddWithValue("@recurrence_rule", ToDbValue(source.RecurrenceRule));
         command.Parameters.AddWithValue("@snapshot_json", ToDbValue(source.SnapshotJson));
         command.Parameters.AddWithValue("@adoption_state", source.AdoptionState);
         command.Parameters.AddWithValue("@adopted_task_id", ToDbValue(source.AdoptedTaskId));
@@ -1084,6 +1121,23 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
                 source_provider_task_id = @source_provider_task_id,
                 source_url = @source_url,
                 source_metadata = @source_metadata,
+                recurrence_rule = COALESCE(NULLIF(recurrence_rule, ''), @recurrence_rule),
+                planned_on = CASE
+                    WHEN completion_state = 'completed' AND @recurrence_rule IS NOT NULL AND TRIM(@recurrence_rule) != '' THEN @planned_on
+                    ELSE planned_on
+                END,
+                planned_at = CASE
+                    WHEN completion_state = 'completed' AND @recurrence_rule IS NOT NULL AND TRIM(@recurrence_rule) != '' THEN @planned_at
+                    ELSE planned_at
+                END,
+                deadline_on = CASE
+                    WHEN completion_state = 'completed' AND @recurrence_rule IS NOT NULL AND TRIM(@recurrence_rule) != '' THEN @deadline_on
+                    ELSE deadline_on
+                END,
+                deadline_at = CASE
+                    WHEN completion_state = 'completed' AND @recurrence_rule IS NOT NULL AND TRIM(@recurrence_rule) != '' THEN @deadline_at
+                    ELSE deadline_at
+                END,
                 updated_at = @updated_at,
                 completed_at = CASE
                     WHEN @completion_state = 'completed' THEN COALESCE(completed_at, @updated_at)
@@ -1098,6 +1152,11 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         command.Parameters.AddWithValue("@source_provider_task_id", source.ProviderTaskId);
         command.Parameters.AddWithValue("@source_url", ToDbValue(source.SourceUrl));
         command.Parameters.AddWithValue("@source_metadata", BuildSourceMetadataJson(source));
+        command.Parameters.AddWithValue("@recurrence_rule", ToDbValue(source.RecurrenceRule));
+        command.Parameters.AddWithValue("@planned_on", ToDbValue(source.PlannedOn));
+        command.Parameters.AddWithValue("@planned_at", ToDbValue(source.PlannedAt));
+        command.Parameters.AddWithValue("@deadline_on", ToDbValue(source.DeadlineOn));
+        command.Parameters.AddWithValue("@deadline_at", ToDbValue(source.DeadlineAt));
         command.Parameters.AddWithValue("@updated_at", ToDbDate(DateTimeOffset.UtcNow));
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
@@ -1121,12 +1180,13 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         DeadlineOn = ReadDateOnly(reader, 14),
         DeadlineAt = ReadDate(reader, 15),
         SourceUrl = GetNullableString(reader, 16),
-        SnapshotJson = GetNullableString(reader, 17),
-        AdoptionState = reader.GetString(18),
-        AdoptedTaskId = GetNullableString(reader, 19),
-        FirstSeenAt = ReadDate(reader, 20) ?? DateTimeOffset.UtcNow,
-        LastSeenAt = ReadDate(reader, 21) ?? DateTimeOffset.UtcNow,
-        UpdatedAt = ReadDate(reader, 22),
+        RecurrenceRule = GetNullableString(reader, 17),
+        SnapshotJson = GetNullableString(reader, 18),
+        AdoptionState = reader.GetString(19),
+        AdoptedTaskId = GetNullableString(reader, 20),
+        FirstSeenAt = ReadDate(reader, 21) ?? DateTimeOffset.UtcNow,
+        LastSeenAt = ReadDate(reader, 22) ?? DateTimeOffset.UtcNow,
+        UpdatedAt = ReadDate(reader, 23),
     };
 
     private static string BuildProviderSourceItemId(string providerConnectionId, string externalId) =>
@@ -1148,6 +1208,7 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
                 source.SourceProjectId,
                 source.SourceProjectName,
                 source.SourceUrl,
+                source.RecurrenceRule,
                 synced_at = DateTimeOffset.UtcNow,
             },
         });
@@ -1554,6 +1615,7 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         await AddColumnIfMissingAsync(connection, "provider_source_items", "planned_at", "INTEGER", cancellationToken).ConfigureAwait(false);
         await AddColumnIfMissingAsync(connection, "provider_source_items", "deadline_on", "TEXT", cancellationToken).ConfigureAwait(false);
         await AddColumnIfMissingAsync(connection, "provider_source_items", "deadline_at", "INTEGER", cancellationToken).ConfigureAwait(false);
+        await AddColumnIfMissingAsync(connection, "provider_source_items", "recurrence_rule", "TEXT", cancellationToken).ConfigureAwait(false);
         await AddColumnIfMissingAsync(connection, "provider_source_items", "due_date", "INTEGER", cancellationToken).ConfigureAwait(false);
         await AddColumnIfMissingAsync(connection, "provider_source_items", "due_time", "TEXT", cancellationToken).ConfigureAwait(false);
 
@@ -1800,6 +1862,23 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         {
             await ExecuteNonQueryAsync(connection, "DELETE FROM projects WHERE id = 'proj_inbox'", cancellationToken).ConfigureAwait(false);
         }
+
+        await ExecuteNonQueryAsync(connection, """
+            UPDATE tasks
+            SET workflow_status = 'none',
+                updated_at = COALESCE(updated_at, strftime('%s', 'now'))
+            WHERE completion_state = 'open'
+              AND workflow_status = 'inbox'
+              AND recurrence_rule IS NOT NULL
+              AND TRIM(recurrence_rule) != ''
+              AND (
+                    planned_on IS NOT NULL OR
+                    planned_at IS NOT NULL OR
+                    deadline_on IS NOT NULL OR
+                    deadline_at IS NOT NULL OR
+                    scheduled_start IS NOT NULL
+                  )
+            """, cancellationToken).ConfigureAwait(false);
     }
 
     private static async Task EnsureLabelsCompatibilityAsync(SqliteConnection connection, CancellationToken cancellationToken)
@@ -2112,6 +2191,7 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
           planned_at INTEGER,
           deadline_on TEXT,
           deadline_at INTEGER,
+          recurrence_rule TEXT,
           source_url TEXT,
           snapshot_json TEXT,
           adoption_state TEXT NOT NULL DEFAULT 'not_adopted',
