@@ -159,6 +159,34 @@ public sealed class TaskSyncEngineTests : IDisposable
         Assert.Equal("every 6th", refreshed.RecurrenceRule);
     }
 
+    [Fact]
+    public async Task Sync_refreshes_open_recurring_provider_task_with_next_source_date()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        var provider = new FakeProvider
+        {
+            Title = "Pay monthly bill",
+            PlannedOn = new DateOnly(2026, 6, 6),
+            RecurrenceRule = "every 6th",
+        };
+        var engine = new TaskSyncEngine(store);
+
+        var firstSync = await engine.SyncAsync(provider);
+        var task = Assert.Single(await store.GetTasksAsync(new TaskQuery { Kind = TaskListKind.All }));
+
+        provider.PlannedOn = new DateOnly(2026, 7, 6);
+        var secondSync = await engine.SyncAsync(provider);
+
+        var refreshed = await store.GetTaskAsync(task.Id);
+        Assert.True(firstSync.Success);
+        Assert.True(secondSync.Success);
+        Assert.NotNull(refreshed);
+        Assert.Equal(TaskCompletionState.Open, refreshed.CompletionState);
+        Assert.Equal(new DateOnly(2026, 7, 6), refreshed.PlannedOn);
+        Assert.Equal("every 6th", refreshed.RecurrenceRule);
+    }
+
     private SqliteTaskStore CreateStore()
     {
         Directory.CreateDirectory(_directory);

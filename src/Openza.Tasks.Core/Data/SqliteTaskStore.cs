@@ -1121,21 +1121,24 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
                 source_provider_task_id = @source_provider_task_id,
                 source_url = @source_url,
                 source_metadata = @source_metadata,
-                recurrence_rule = COALESCE(NULLIF(recurrence_rule, ''), @recurrence_rule),
+                recurrence_rule = CASE
+                    WHEN @recurrence_rule IS NOT NULL AND TRIM(@recurrence_rule) != '' THEN @recurrence_rule
+                    ELSE recurrence_rule
+                END,
                 planned_on = CASE
-                    WHEN completion_state = 'completed' AND @recurrence_rule IS NOT NULL AND TRIM(@recurrence_rule) != '' THEN @planned_on
+                    WHEN @recurrence_rule IS NOT NULL AND TRIM(@recurrence_rule) != '' THEN @planned_on
                     ELSE planned_on
                 END,
                 planned_at = CASE
-                    WHEN completion_state = 'completed' AND @recurrence_rule IS NOT NULL AND TRIM(@recurrence_rule) != '' THEN @planned_at
+                    WHEN @recurrence_rule IS NOT NULL AND TRIM(@recurrence_rule) != '' THEN @planned_at
                     ELSE planned_at
                 END,
                 deadline_on = CASE
-                    WHEN completion_state = 'completed' AND @recurrence_rule IS NOT NULL AND TRIM(@recurrence_rule) != '' THEN @deadline_on
+                    WHEN @recurrence_rule IS NOT NULL AND TRIM(@recurrence_rule) != '' THEN @deadline_on
                     ELSE deadline_on
                 END,
                 deadline_at = CASE
-                    WHEN completion_state = 'completed' AND @recurrence_rule IS NOT NULL AND TRIM(@recurrence_rule) != '' THEN @deadline_at
+                    WHEN @recurrence_rule IS NOT NULL AND TRIM(@recurrence_rule) != '' THEN @deadline_at
                     ELSE deadline_at
                 END,
                 updated_at = @updated_at,
