@@ -57,9 +57,18 @@
     <ProjectReference Include="..\Openza.Tasks.Core\Openza.Tasks.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup Condition="'$(Configuration)' == 'Debug'">
+    <AppxManifest Include="Package.Dev.appxmanifest" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(Configuration)' != 'Debug'">
+    <AppxManifest Include="Package.appxmanifest" />
+  </ItemGroup>
+
   <ItemGroup>
     <Content Include="Assets\*.png" />
     <None Include="Package.appxmanifest" />
+    <None Include="Package.Dev.appxmanifest" />
   </ItemGroup>
 
   <Target Name="DisableStoreUploadPackagingForCommandLineBuild" BeforeTargets="_GenerateAppxUploadPackageRecipe;_GenerateAppxUploadPackageFile;_CreateAppStoreContainerForUAP;GenerateUploadMsixPackage" Condition="'$(BuildingInsideVisualStudio)' != 'true' and '$(GenerateAppxPackageOnBuild)' != 'true' and '$(PublishAppxPackage)' != 'true'">

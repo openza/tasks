@@ -6,8 +6,10 @@ public sealed record TaskCountSummary(
     int Waiting,
     int Someday,
     int Today,
+    int Calendar,
     int Overdue,
     int Open,
     int All,
     int Completed,
-    IReadOnlyDictionary<string, int> ActiveByProject);
+    IReadOnlyDictionary<string, int> ActiveByProject,
+    IReadOnlyDictionary<string, int> NextByProject);

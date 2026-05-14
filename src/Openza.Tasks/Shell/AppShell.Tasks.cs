@@ -29,10 +29,12 @@ public sealed partial class AppShell
         var selectedProject = _currentView == "tasks" ? GetSelectedProject() : null;
         var query = new TaskQuery
         {
+            SpaceId = _currentSpaceId,
             Kind = _currentView switch
             {
                 "inbox" => TaskListKind.Inbox,
                 "today" => TaskListKind.Today,
+                "calendar" => TaskListKind.Calendar,
                 "overdue" => TaskListKind.Overdue,
                 "waiting" => TaskListKind.Waiting,
                 "someday" => TaskListKind.Someday,
@@ -42,18 +44,27 @@ public sealed partial class AppShell
             },
             ProjectId = selectedProject?.Id,
             LabelId = _labelFilterId,
+            DateScope = _dateScopeFilter,
+            RepeatScope = _repeatScopeFilter,
             SearchText = TasksPage.SearchText,
             SortMode = _sortMode,
             Priority = _priorityFilter,
         };
 
         var tasks = await _store.GetTasksAsync(query).ConfigureAwait(true);
-        TasksPage.ViewModel.Tasks.Clear();
-        foreach (var task in tasks)
-        {
-            projects.TryGetValue(task.ProjectId ?? string.Empty, out var project);
-            TasksPage.ViewModel.Tasks.Add(new TaskListItemViewModel(task, project));
-        }
+        var taskItems = tasks
+            .Select(task =>
+            {
+                projects.TryGetValue(task.ProjectId ?? string.Empty, out var project);
+                return new TaskListItemViewModel(
+                task,
+                project,
+                _currentView,
+                selectedProject is not null);
+            })
+            .ToList();
+
+        TasksPage.ViewModel.SetTasks(taskItems, _groupMode);
 
         if (_selectedTaskId is not null && tasks.All(task => task.Id != _selectedTaskId))
         {
@@ -71,6 +82,7 @@ public sealed partial class AppShell
         {
             "inbox" => "Inbox",
             "today" => "Today",
+            "calendar" => "Calendar",
             "overdue" => "Overdue",
             "waiting" => "Waiting For",
             "someday" => "Someday",
@@ -87,7 +99,20 @@ public sealed partial class AppShell
 
         TasksPage.ViewModel.SelectedProject = selectedProject;
         TasksPage.SetHeader(title, subtitle, selectedProject is not null);
-        TasksPage.ViewModel.IsEmpty = TasksPage.ViewModel.Tasks.Count == 0;
+        var counts = await _store.GetTaskCountsAsync(_currentSpaceId).ConfigureAwait(true);
+        var sourceItems = await _store.GetProviderSourceItemsAsync(spaceId: _currentSpaceId, includeAdopted: false, includeIgnored: true).ConfigureAwait(true);
+        TasksPage.SetGetStartedVisible(_settings.Settings.ShowGetStarted &&
+            string.Equals(_currentView, "inbox", StringComparison.Ordinal) &&
+            counts.All == 0 &&
+            sourceItems.Count == 0 &&
+            TasksPage.ViewModel.IsEmpty &&
+            selectedProject is null &&
+            string.IsNullOrWhiteSpace(TasksPage.SearchText) &&
+            _priorityFilter is null &&
+            _dateScopeFilter == TaskDateScope.All &&
+            _repeatScopeFilter == TaskRepeatScope.Include &&
+            _labelFilterId is null);
+        ApplySourceItems(sourceItems);
     }
 
     private async void OnSearchTextChanged(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args)
@@ -100,42 +125,63 @@ public sealed partial class AppShell
         await RefreshTasksAsync().ConfigureAwait(true);
     }
 
-    private async void OnSortChanged(object sender, SelectionChangedEventArgs e)
+    private async void OnSortChanged(object sender, EventArgs e)
     {
         if (!_uiReady)
         {
             return;
         }
 
-        _sortMode = TasksPage.SortTag switch
-        {
-            "due" => TaskSortMode.DueDate,
-            "created" => TaskSortMode.CreatedNewest,
-            "title" => TaskSortMode.Title,
-            _ => TaskSortMode.PriorityThenDueDate,
-        };
+        ApplyViewControlsFromPage();
+        await SaveTaskViewPreferencesAsync().ConfigureAwait(true);
         await RefreshTasksAsync().ConfigureAwait(true);
     }
 
-    private async void OnPriorityChanged(object sender, SelectionChangedEventArgs e)
+    private async void OnGroupChanged(object sender, EventArgs e)
     {
         if (!_uiReady)
         {
             return;
         }
 
-        _priorityFilter = TasksPage.PriorityFilter;
+        ApplyViewControlsFromPage();
+        await SaveTaskViewPreferencesAsync().ConfigureAwait(true);
         await RefreshTasksAsync().ConfigureAwait(true);
     }
 
-    private async void OnLabelChanged(object sender, SelectionChangedEventArgs e)
+    private async void OnPriorityChanged(object sender, EventArgs e)
     {
         if (!_uiReady)
         {
             return;
         }
 
-        _labelFilterId = TasksPage.LabelFilterId;
+        ApplyViewControlsFromPage();
+        await SaveTaskViewPreferencesAsync().ConfigureAwait(true);
+        await RefreshTasksAsync().ConfigureAwait(true);
+    }
+
+    private async void OnRepeatScopeChanged(object sender, EventArgs e)
+    {
+        if (!_uiReady)
+        {
+            return;
+        }
+
+        ApplyViewControlsFromPage();
+        await SaveTaskViewPreferencesAsync().ConfigureAwait(true);
+        await RefreshTasksAsync().ConfigureAwait(true);
+    }
+
+    private async void OnLabelChanged(object sender, EventArgs e)
+    {
+        if (!_uiReady)
+        {
+            return;
+        }
+
+        ApplyViewControlsFromPage();
+        await SaveTaskViewPreferencesAsync().ConfigureAwait(true);
         await RefreshTasksAsync().ConfigureAwait(true);
     }
 
@@ -174,7 +220,7 @@ public sealed partial class AppShell
 
     private async void OnQuickAddClicked(object sender, RoutedEventArgs e)
     {
-        var quickAdd = await TasksPage.ShowQuickAddAsync(DefaultProjectForQuickAdd(), DefaultStatusForCurrentView(), DefaultDueDateForCurrentView()).ConfigureAwait(true);
+        var quickAdd = await TasksPage.ShowQuickAddAsync(DefaultProjectForQuickAdd(), DefaultStatusForCurrentView(), DefaultDateForCurrentView()).ConfigureAwait(true);
         if (quickAdd is null)
         {
             return;
@@ -183,11 +229,12 @@ public sealed partial class AppShell
         var task = new TaskItem
         {
             Id = $"local_{Guid.NewGuid():N}",
+            SpaceId = _currentSpaceId,
             IntegrationId = IntegrationIds.Local,
             Title = quickAdd.Title,
             ProjectId = quickAdd.ProjectId,
             Priority = quickAdd.Priority,
-            DueDate = quickAdd.DueDate,
+            PlannedOn = quickAdd.PlannedOn,
             Status = quickAdd.Status,
             CreatedAt = DateTimeOffset.UtcNow,
             UpdatedAt = DateTimeOffset.UtcNow,
@@ -206,6 +253,23 @@ public sealed partial class AppShell
         }
     }
 
+    private void OnConnectProvidersClicked(object sender, RoutedEventArgs e)
+    {
+        SelectNavigation("settings");
+    }
+
+    private void OnExploreSyncClicked(object sender, RoutedEventArgs e)
+    {
+        SelectNavigation("sync");
+    }
+
+    private async void OnDismissGetStartedClicked(object sender, RoutedEventArgs e)
+    {
+        _settings.Settings.ShowGetStarted = false;
+        await _settings.SaveAsync().ConfigureAwait(true);
+        TasksPage.SetGetStartedVisible(false);
+    }
+
     private async void OnSaveTaskClicked(object sender, RoutedEventArgs e)
     {
         var title = TasksPage.DetailsPanel.TitleText;
@@ -217,11 +281,18 @@ public sealed partial class AppShell
         }
 
         var integrationId = existing?.IntegrationId ?? IntegrationIds.Local;
-        var labelsIntegration = existing?.IsProviderTask == true ? IntegrationIds.Local : integrationId;
-        var task = existing?.IsProviderTask == true
+        var isLinkedProviderTask = existing?.HasProviderSource == true || existing?.IsProviderTask == true;
+        var labelsIntegration = isLinkedProviderTask ? IntegrationIds.Local : integrationId;
+        var task = isLinkedProviderTask && existing is not null
             ? existing with
             {
                 Status = existing.IsCompleted ? existing.Status : TasksPage.DetailsPanel.SelectedStatus,
+                ProjectId = TasksPage.DetailsPanel.SelectedProject?.Id,
+                Priority = TasksPage.DetailsPanel.SelectedPriority,
+                PlannedOn = TasksPage.DetailsPanel.SelectedPlannedOn,
+                PlannedAt = PreserveExactTime(TasksPage.DetailsPanel.SelectedPlannedOn, existing.PlannedOn, existing.PlannedAt),
+                DeadlineOn = TasksPage.DetailsPanel.SelectedDeadlineOn,
+                DeadlineAt = PreserveExactTime(TasksPage.DetailsPanel.SelectedDeadlineOn, existing.DeadlineOn, existing.DeadlineAt),
                 Notes = EmptyToNull(TasksPage.DetailsPanel.NotesText),
                 UpdatedAt = DateTimeOffset.UtcNow,
                 Labels = BuildLabels(TasksPage.DetailsPanel.LabelsText, labelsIntegration),
@@ -230,13 +301,15 @@ public sealed partial class AppShell
             {
                 Id = existing?.Id ?? $"local_{Guid.NewGuid():N}",
                 ExternalId = existing?.ExternalId,
+                SpaceId = existing?.SpaceId ?? _currentSpaceId,
                 IntegrationId = integrationId,
                 Title = title,
                 Description = EmptyToNull(TasksPage.DetailsPanel.DescriptionText),
                 ProjectId = TasksPage.DetailsPanel.SelectedProject?.Id,
                 Priority = TasksPage.DetailsPanel.SelectedPriority,
                 Status = existing?.IsCompleted == true ? existing.Status : TasksPage.DetailsPanel.SelectedStatus,
-                DueDate = TasksPage.DetailsPanel.SelectedDueDate,
+                PlannedOn = TasksPage.DetailsPanel.SelectedPlannedOn,
+                DeadlineOn = TasksPage.DetailsPanel.SelectedDeadlineOn,
                 Notes = EmptyToNull(TasksPage.DetailsPanel.NotesText),
                 ProviderMetadataJson = existing?.ProviderMetadataJson,
                 CreatedAt = existing?.CreatedAt ?? DateTimeOffset.UtcNow,
@@ -251,8 +324,11 @@ public sealed partial class AppShell
         await LoadLabelsAsync().ConfigureAwait(true);
         await LoadProjectsAsync().ConfigureAwait(true);
         await RefreshTasksAsync().ConfigureAwait(true);
-        ShowInfo(existing?.IsProviderTask == true ? "Local fields saved" : "Task saved", task.Title, InfoBarSeverity.Success);
+        ShowInfo("Task saved", task.Title, InfoBarSeverity.Success);
     }
+
+    private static DateTimeOffset? PreserveExactTime(DateOnly? selectedDate, DateOnly? existingDate, DateTimeOffset? existingDateTime) =>
+        selectedDate == existingDate ? existingDateTime : null;
 
     private async void OnToggleCompleteClicked(object sender, RoutedEventArgs e)
     {
@@ -283,13 +359,14 @@ public sealed partial class AppShell
         }
 
         var completed = !task.IsCompleted;
-        if (task.IsProviderTask && !string.IsNullOrWhiteSpace(task.ExternalId))
+        if ((task.HasProviderSource || task.IsProviderTask) &&
+            (!string.IsNullOrWhiteSpace(task.SourceProviderTaskId) || !string.IsNullOrWhiteSpace(task.ExternalId)))
         {
             await _store.QueueCompletionAsync(new PendingCompletion
             {
                 Id = $"completion_{task.Id}_{DateTimeOffset.UtcNow.ToUnixTimeSeconds()}",
                 TaskId = task.Id,
-                Provider = task.IntegrationId,
+                Provider = task.SourceIntegrationId ?? task.IntegrationId,
                 ProviderTaskId = BuildProviderTaskId(task),
                 Completed = completed,
                 CompletedAt = completed ? DateTimeOffset.UtcNow : null,
@@ -402,13 +479,14 @@ public sealed partial class AppShell
 
     private TaskItemStatus DefaultStatusForCurrentView() => _currentView switch
     {
+        "tasks" when _selectedProjectId is not null => TaskItemStatus.None,
         "next" => TaskItemStatus.Next,
         "waiting" => TaskItemStatus.Waiting,
         "someday" => TaskItemStatus.Someday,
-        _ => TaskItemStatus.None,
+        _ => TaskItemStatus.Inbox,
     };
 
-    private DateTimeOffset? DefaultDueDateForCurrentView() =>
+    private DateTimeOffset? DefaultDateForCurrentView() =>
         string.Equals(_currentView, "today", StringComparison.Ordinal)
             ? DateTimeOffset.Now.Date
             : null;
@@ -456,6 +534,11 @@ public sealed partial class AppShell
 
     private static string BuildProviderTaskId(TaskItem task)
     {
+        if (!string.IsNullOrWhiteSpace(task.SourceProviderTaskId))
+        {
+            return task.SourceProviderTaskId;
+        }
+
         if (task.IntegrationId == IntegrationIds.MicrosoftToDo && task.ProjectId?.StartsWith("mstodo_", StringComparison.Ordinal) == true)
         {
             return $"{task.ProjectId["mstodo_".Length..]}|{task.ExternalId}";

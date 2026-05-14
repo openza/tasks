@@ -15,7 +15,7 @@ public sealed partial class TaskDetailsPaneControl : UserControl
         IntegrationId = IntegrationIds.Local,
     };
 
-    private bool _loading;
+    private bool _loading = true;
     private string _originalSnapshot = string.Empty;
     private TaskItem? _loadedTask;
     private List<ProjectItem> _projectOptions = [];
@@ -41,16 +41,20 @@ public sealed partial class TaskDetailsPaneControl : UserControl
 
     public string LabelsText => string.Join(", ", _selectedLabels.Select(label => label.Name));
 
-    public DateTimeOffset? SelectedDueDate => DueDateEditor.Date;
+    public DateOnly? SelectedPlannedOn => TaskDateValues.FromDateTimeOffset(DateEditor.Date);
+
+    public DateOnly? SelectedDeadlineOn => TaskDateValues.FromDateTimeOffset(DeadlineDateEditor.Date);
 
     public ProjectItem? SelectedProject =>
-        ProjectEditor.SelectedItem is ProjectItem project && !string.IsNullOrWhiteSpace(project.Id)
+        ProjectEditor?.SelectedItem is ProjectItem project && !string.IsNullOrWhiteSpace(project.Id)
             ? project
             : null;
 
     public TaskItemStatus SelectedStatus =>
-        (WorkflowEditor.SelectedItem as ComboBoxItem)?.Tag?.ToString() switch
+        (WorkflowEditor?.SelectedItem as ComboBoxItem)?.Tag?.ToString() switch
         {
+            "inbox" => TaskItemStatus.Inbox,
+            "none" => TaskItemStatus.None,
             "next" => TaskItemStatus.Next,
             "waiting" => TaskItemStatus.Waiting,
             "someday" => TaskItemStatus.Someday,
@@ -58,20 +62,26 @@ public sealed partial class TaskDetailsPaneControl : UserControl
         };
 
     public int SelectedPriority =>
-        int.TryParse((PriorityEditor.SelectedItem as ComboBoxItem)?.Tag?.ToString(), out var priority) ? priority : 3;
+        int.TryParse((PriorityEditor?.SelectedItem as ComboBoxItem)?.Tag?.ToString(), out var priority) ? priority : 3;
 
-    public bool IsEditingExistingProviderTask => _loadedTask?.IsProviderTask == true;
+    public bool IsEditingExistingProviderTask => _loadedTask?.IsProviderTask == true || _loadedTask?.HasProviderSource == true;
 
     public bool HasUnsavedChanges => !_loading && CurrentSnapshot() != _originalSnapshot;
 
     public void SetProjects(IEnumerable<ProjectItem> projects)
     {
+        var selectedProjectId = ProjectEditor?.SelectedItem is ProjectItem selectedProject
+            ? selectedProject.Id
+            : string.Empty;
         _projectOptions = [InboxProject, .. projects];
-        ProjectEditor.ItemsSource = _projectOptions;
-        if (ProjectEditor.SelectedItem is null)
+        if (ProjectEditor is null)
         {
-            ProjectEditor.SelectedItem = InboxProject;
+            return;
         }
+
+        ProjectEditor.ItemsSource = _projectOptions;
+        ProjectEditor.SelectedItem = _projectOptions.FirstOrDefault(project =>
+            string.Equals(project.Id, selectedProjectId, StringComparison.Ordinal)) ?? InboxProject;
     }
 
     public void SetLabels(IEnumerable<LabelItem> labels)
@@ -85,39 +95,47 @@ public sealed partial class TaskDetailsPaneControl : UserControl
         _loading = true;
         _loadedTask = task;
         var editor = new TaskEditorViewModel { Task = task, Project = project };
-        SourceText.Text = editor.SourceText;
-        ProviderInfo.IsOpen = editor.IsProviderOwned;
-        ProviderInfo.Message = editor.ProviderOwnershipText;
+        HeaderTitleText.Text = string.IsNullOrWhiteSpace(task.Title) ? "Task details" : task.Title;
+        HeaderCompleteBox.IsChecked = task.IsCompleted;
+        HeaderCompleteBox.IsEnabled = true;
+        SourceText.Text = HeaderContextText(editor.SourceText, project);
+        SetProviderPresentation(editor, task, project);
 
         TitleEditor.Text = task.Title;
         DescriptionEditor.Text = task.Description ?? string.Empty;
         NotesEditor.Text = task.Notes ?? string.Empty;
         SetSelectedLabels(task.Labels);
-        DueDateEditor.Date = task.DueDate;
+        DateEditor.Date = TaskDateValues.ToLocalDateTime(task.PlannedOn);
+        DeadlineDateEditor.Date = TaskDateValues.ToLocalDateTime(task.DeadlineOn);
         SelectProject(project);
         SelectStatus(task.Status);
         SelectPriority(task.Priority);
         SetProviderFieldEditability(editor.CanEditProviderFields);
 
         CompleteButton.IsEnabled = true;
+        var isLinkedProviderTask = task.IsProviderTask || task.HasProviderSource;
         CompleteButton.Content = task.IsCompleted ? "Reopen" : "Complete";
         DeleteButton.IsEnabled = true;
-        SaveButton.Content = task.IsProviderTask ? "Save local fields" : "Save";
+        SaveButton.Content = "Save";
         _originalSnapshot = CurrentSnapshot();
         _loading = false;
     }
 
-    public void ClearForNewTask(ProjectItem? defaultProject, int defaultPriority, TaskItemStatus defaultStatus = TaskItemStatus.None)
+    public void ClearForNewTask(ProjectItem? defaultProject, int defaultPriority, TaskItemStatus defaultStatus = TaskItemStatus.Inbox)
     {
         _loading = true;
         _loadedTask = null;
-        SourceText.Text = "Openza Tasks";
-        ProviderInfo.IsOpen = false;
+        HeaderTitleText.Text = "New task";
+        HeaderCompleteBox.IsChecked = false;
+        HeaderCompleteBox.IsEnabled = false;
+        SourceText.Text = HeaderContextText("Openza Tasks", defaultProject);
+        SetProviderPresentation(new TaskEditorViewModel(), null, defaultProject);
         TitleEditor.Text = string.Empty;
         DescriptionEditor.Text = string.Empty;
         NotesEditor.Text = string.Empty;
         SetSelectedLabels([]);
-        DueDateEditor.Date = null;
+        DateEditor.Date = null;
+        DeadlineDateEditor.Date = null;
         SelectProject(defaultProject);
         SelectStatus(defaultStatus);
         SelectPriority(defaultPriority);
@@ -132,13 +150,42 @@ public sealed partial class TaskDetailsPaneControl : UserControl
 
     public void ResetDirtyState() => _originalSnapshot = CurrentSnapshot();
 
-    private void SetProviderFieldEditability(bool canEditProviderFields)
+    private void SetProviderFieldEditability(bool canEditProviderContent)
     {
-        TitleEditor.IsReadOnly = !canEditProviderFields;
-        DescriptionEditor.IsReadOnly = !canEditProviderFields;
-        ProjectEditor.IsEnabled = canEditProviderFields;
-        PriorityEditor.IsEnabled = canEditProviderFields;
-        DueDateEditor.IsEnabled = canEditProviderFields;
+        TitleEditor.IsReadOnly = !canEditProviderContent;
+        DescriptionEditor.IsReadOnly = !canEditProviderContent;
+        EditableTaskSection.Visibility = canEditProviderContent ? Visibility.Visible : Visibility.Collapsed;
+        ProviderTaskSection.Visibility = canEditProviderContent ? Visibility.Collapsed : Visibility.Visible;
+        DateEditor.Visibility = Visibility.Visible;
+        DeadlineDateEditor.Visibility = Visibility.Visible;
+        ProjectEditor.Visibility = Visibility.Visible;
+        PriorityEditor.Visibility = Visibility.Visible;
+        OrganizeHeader.Text = "Organize";
+    }
+
+    private void SetProviderPresentation(TaskEditorViewModel editor, TaskItem? task, ProjectItem? project)
+    {
+        if (!editor.IsProviderOwned || task is null)
+        {
+            ProviderTitleText.Text = string.Empty;
+            ProviderDescriptionText.Text = string.Empty;
+            ProviderDescriptionText.Visibility = Visibility.Collapsed;
+            ProviderProjectText.Text = string.Empty;
+            ProviderDateText.Text = string.Empty;
+            ProviderDeadlineText.Text = string.Empty;
+            ProviderPriorityText.Text = string.Empty;
+            ProviderSourceText.Text = string.Empty;
+            return;
+        }
+
+        ProviderTitleText.Text = task.Title;
+        ProviderDescriptionText.Text = task.Description ?? string.Empty;
+        ProviderDescriptionText.Visibility = string.IsNullOrWhiteSpace(task.Description) ? Visibility.Collapsed : Visibility.Visible;
+        ProviderProjectText.Text = task.SourceProjectName ?? project?.Name ?? "Inbox";
+        ProviderDateText.Text = FormatDate(task.SourcePlannedMoment ?? task.PlannedMoment);
+        ProviderDeadlineText.Text = FormatDate(task.SourceDeadlineMoment ?? task.DeadlineMoment);
+        ProviderPriorityText.Text = FormatPriority(task.SourcePriority ?? task.Priority);
+        ProviderSourceText.Text = editor.SourceText;
     }
 
     private void SelectProject(ProjectItem? project)
@@ -151,6 +198,8 @@ public sealed partial class TaskDetailsPaneControl : UserControl
     {
         var tag = status switch
         {
+            TaskItemStatus.Inbox => "inbox",
+            TaskItemStatus.None => "none",
             TaskItemStatus.Next => "next",
             TaskItemStatus.Waiting => "waiting",
             TaskItemStatus.Someday => "someday",
@@ -183,26 +232,105 @@ public sealed partial class TaskDetailsPaneControl : UserControl
         PriorityEditor.SelectedIndex = 2;
     }
 
+    private static string FormatPriority(int priority) => priority switch
+    {
+        1 => "Urgent",
+        2 => "High",
+        3 => "Normal",
+        _ => "Low",
+    };
+
+    private static string FormatDate(DateTimeOffset? date)
+    {
+        if (date is null)
+        {
+            return "No date";
+        }
+
+        var localDate = date.Value.LocalDateTime.Date;
+        var today = DateTimeOffset.Now.Date;
+        if (localDate == today)
+        {
+            return "Today";
+        }
+
+        if (localDate == today.AddDays(1))
+        {
+            return "Tomorrow";
+        }
+
+        return date.Value.ToString("MMM d, yyyy", System.Globalization.CultureInfo.CurrentCulture);
+    }
+
+    private static string HeaderContextText(string source, ProjectItem? project)
+    {
+        var projectName = string.IsNullOrWhiteSpace(project?.Name) ? "Inbox" : project.Name;
+        return $"{projectName} · {source}";
+    }
+
+    private string CurrentSourceText()
+    {
+        if (_loadedTask is null)
+        {
+            return "Openza Tasks";
+        }
+
+        return TaskListItemViewModel.SourceName(_loadedTask.SourceIntegrationId ?? _loadedTask.IntegrationId);
+    }
+
     private string CurrentSnapshot() =>
         string.Join('\u001f',
             TitleEditor.Text,
             DescriptionEditor.Text,
             NotesEditor.Text,
             LabelsText,
-            DueDateEditor.Date?.ToString("O", System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty,
+            DateEditor.Date?.ToString("O", System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty,
+            DeadlineDateEditor.Date?.ToString("O", System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty,
             SelectedStatus.ToStorageValue(),
             SelectedProject?.Id ?? string.Empty,
             SelectedPriority.ToString(System.Globalization.CultureInfo.InvariantCulture));
 
     private void OnEditorChanged(object sender, TextChangedEventArgs e)
     {
+        if (ReferenceEquals(sender, TitleEditor) && !_loading)
+        {
+            HeaderTitleText.Text = string.IsNullOrWhiteSpace(TitleEditor.Text) ? "New task" : TitleEditor.Text.Trim();
+        }
+    }
+
+    private void OnWorkflowSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loading || ProjectEditor is null)
+        {
+            return;
+        }
+
+        if (SelectedStatus == TaskItemStatus.Inbox && SelectedProject is not null)
+        {
+            ProjectEditor.SelectedItem = InboxProject;
+        }
+    }
+
+    private void OnProjectSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loading || WorkflowEditor is null)
+        {
+            return;
+        }
+
+        if (SelectedProject is not null && SelectedStatus == TaskItemStatus.Inbox)
+        {
+            SelectStatus(TaskItemStatus.None);
+        }
+
+        SourceText.Text = HeaderContextText(CurrentSourceText(), SelectedProject);
     }
 
     private void OnSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
     }
 
-    private void OnDueDateChanged(CalendarDatePicker sender, CalendarDatePickerDateChangedEventArgs args)
+    private void OnTaskDateChanged(CalendarDatePicker sender, CalendarDatePickerDateChangedEventArgs args)
     {
     }
 

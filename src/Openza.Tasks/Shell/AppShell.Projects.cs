@@ -12,14 +12,14 @@ public sealed partial class AppShell
     private async Task LoadProjectsAsync()
     {
         _allProjects.Clear();
-        _allProjects.AddRange(await _store.GetProjectsAsync().ConfigureAwait(true));
-        TasksPage.SetProjectOptions(_allProjects);
+        _allProjects.AddRange(await _store.GetProjectsAsync(_currentSpaceId, includeArchived: true).ConfigureAwait(true));
+        TasksPage.SetProjectOptions(_allProjects.Where(project => project.EffectiveStatus != ProjectLifecycleStates.Archived));
         await RefreshProjectListAsync().ConfigureAwait(true);
     }
 
     private async Task RefreshProjectListAsync()
     {
-        var counts = await _store.GetTaskCountsAsync().ConfigureAwait(true);
+        var counts = await _store.GetTaskCountsAsync(_currentSpaceId).ConfigureAwait(true);
         UpdateNavigationCounts(counts);
         TasksPage.ViewModel.ProjectGroups.Clear();
         _projectIdByName.Clear();
@@ -37,13 +37,10 @@ public sealed partial class AppShell
             .Where(project => string.IsNullOrWhiteSpace(search) || project.Name.Contains(search, StringComparison.CurrentCultureIgnoreCase))
             .Where(project => project.IntegrationId != IntegrationIds.Obsidian)
             .GroupBy(project => project.IntegrationId)
-            .OrderBy(group => group.Key switch
-            {
-                IntegrationIds.Local => 0,
-                IntegrationIds.Todoist => 1,
-                IntegrationIds.MicrosoftToDo => 2,
-                _ => 9,
-            });
+            .OrderBy(group => ProjectGroupSortOrder(group.Key))
+            .ThenBy(group => ProjectGroupName(group.Key), StringComparer.CurrentCultureIgnoreCase)
+            .ToList();
+        var showSourceHeaders = groups.Count > 1 || groups.Any(group => group.Key != IntegrationIds.Local);
 
         foreach (var group in groups)
         {
@@ -54,9 +51,11 @@ public sealed partial class AppShell
                 .Select(project =>
                 {
                     counts.ActiveByProject.TryGetValue(project.Id, out var count);
+                    counts.NextByProject.TryGetValue(project.Id, out var nextCount);
                     _projectIdByName[project.Name] = project.Id;
-                    return ProjectListItemViewModel.FromProject(project, count, string.Equals(project.Id, _selectedProjectId, StringComparison.Ordinal));
+                    return ProjectListItemViewModel.FromProject(project, count, nextCount, string.Equals(project.Id, _selectedProjectId, StringComparison.Ordinal));
                 })
+                .Where(ProjectMatchesFilter)
                 .ToList();
 
             if (projects.Count == 0)
@@ -67,13 +66,14 @@ public sealed partial class AppShell
             var groupViewModel = new ProjectGroupViewModel
             {
                 Id = group.Key,
-                Name = SourceName(group.Key),
+                Name = ProjectGroupName(group.Key),
                 Glyph = group.Key switch
                 {
                     _ => "\uE8B7",
                 },
                 Count = projects.Sum(project => project.ActiveTaskCount),
                 IsExpanded = true,
+                ShowHeader = showSourceHeaders,
             };
 
             foreach (var project in projects)
@@ -85,6 +85,16 @@ public sealed partial class AppShell
         }
     }
 
+    private static string ProjectGroupName(string groupId) => SourceName(groupId);
+
+    private static int ProjectGroupSortOrder(string groupId) => groupId switch
+    {
+        IntegrationIds.Local => 1,
+        IntegrationIds.Todoist => 2,
+        IntegrationIds.MicrosoftToDo => 3,
+        _ => 9,
+    };
+
     private async void OnProjectSearchTextChanged(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args)
     {
         if (!_uiReady)
@@ -92,6 +102,17 @@ public sealed partial class AppShell
             return;
         }
 
+        await RefreshProjectListAsync().ConfigureAwait(true);
+    }
+
+    private async void OnProjectFilterChanged(TasksPage sender, string filter)
+    {
+        if (!_uiReady)
+        {
+            return;
+        }
+
+        _projectFilter = string.IsNullOrWhiteSpace(filter) ? "all" : filter;
         await RefreshProjectListAsync().ConfigureAwait(true);
     }
 
@@ -111,6 +132,10 @@ public sealed partial class AppShell
         if (!string.Equals(_currentView, "tasks", StringComparison.Ordinal))
         {
             SelectNavigationSilently("tasks");
+        }
+        else
+        {
+            ApplyTaskViewPreferences();
         }
 
         _selectedTaskId = null;
@@ -134,6 +159,7 @@ public sealed partial class AppShell
         }
 
         _selectedProjectId = null;
+        ApplyTaskViewPreferences();
         _selectedTaskId = null;
         TasksPage.HideDetailsPane();
         TasksPage.ClearTaskSelection();
@@ -160,6 +186,7 @@ public sealed partial class AppShell
             await _store.UpsertProjectAsync(new ProjectItem
             {
                 Id = $"proj_{Guid.NewGuid():N}",
+                SpaceId = _currentSpaceId,
                 Name = textBox.Text.Trim(),
                 IntegrationId = IntegrationIds.Local,
                 CreatedAt = DateTimeOffset.UtcNow,
@@ -192,10 +219,26 @@ public sealed partial class AppShell
 
         var nameBox = new TextBox { Header = "Project name", Text = project.Name };
         var colorBox = new TextBox { Header = "Color", Text = project.Color, PlaceholderText = "#808080" };
+        var statusBox = new ComboBox
+        {
+            Header = "Status",
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            Items =
+            {
+                new ComboBoxItem { Content = "Active", Tag = ProjectLifecycleStates.Active },
+                new ComboBoxItem { Content = "Completed", Tag = ProjectLifecycleStates.Completed },
+                new ComboBoxItem { Content = "Archived", Tag = ProjectLifecycleStates.Archived },
+            },
+        };
+        statusBox.SelectedItem = statusBox.Items
+            .OfType<ComboBoxItem>()
+            .FirstOrDefault(item => string.Equals(item.Tag?.ToString(), project.EffectiveStatus, StringComparison.Ordinal)) ??
+            statusBox.Items.FirstOrDefault();
         var favoriteBox = new CheckBox { Content = "Favorite project", IsChecked = project.IsFavorite };
         var stack = new StackPanel { Spacing = 12 };
         stack.Children.Add(nameBox);
         stack.Children.Add(colorBox);
+        stack.Children.Add(statusBox);
         stack.Children.Add(favoriteBox);
 
         var dialog = new ContentDialog
@@ -212,10 +255,13 @@ public sealed partial class AppShell
             return;
         }
 
+        var status = (statusBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? ProjectLifecycleStates.Active;
         await _store.UpsertProjectAsync(project with
         {
             Name = nameBox.Text.Trim(),
             Color = NormalizeColor(colorBox.Text),
+            Status = status,
+            IsArchived = status == ProjectLifecycleStates.Archived,
             IsFavorite = favoriteBox.IsChecked == true,
             UpdatedAt = DateTimeOffset.UtcNow,
         }).ConfigureAwait(true);
@@ -296,6 +342,14 @@ public sealed partial class AppShell
             : "#808080";
     }
 
+    private bool ProjectMatchesFilter(ProjectListItemViewModel project) => _projectFilter switch
+    {
+        ProjectLifecycleStates.Active => project.Status == ProjectLifecycleStates.Active,
+        ProjectLifecycleStates.Completed => project.Status == ProjectLifecycleStates.Completed,
+        ProjectLifecycleStates.Archived => project.Status == ProjectLifecycleStates.Archived,
+        _ => project.Status != ProjectLifecycleStates.Archived,
+    };
+
     private void UpdateNavigationCounts(TaskCountSummary counts)
     {
         SetBadge(InboxBadge, counts.Inbox);
@@ -303,14 +357,21 @@ public sealed partial class AppShell
         SetBadge(WaitingBadge, counts.Waiting);
         SetBadge(SomedayBadge, counts.Someday);
         SetBadge(TodayBadge, counts.Today);
+        SetBadge(CalendarBadge, counts.Calendar);
         SetBadge(OverdueBadge, counts.Overdue);
-        SetBadge(TasksBadge, counts.Open);
-        SetBadge(CompletedBadge, counts.Completed);
+        HideBadge(TasksBadge);
+        HideBadge(CompletedBadge);
     }
 
     private static void SetBadge(InfoBadge badge, int count)
     {
         badge.Value = count;
         badge.Visibility = count > 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private static void HideBadge(InfoBadge badge)
+    {
+        badge.Value = 0;
+        badge.Visibility = Visibility.Collapsed;
     }
 }

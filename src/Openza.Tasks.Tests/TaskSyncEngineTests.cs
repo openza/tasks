@@ -9,7 +9,7 @@ public sealed class TaskSyncEngineTests : IDisposable
     private readonly string _directory = Path.Combine(Path.GetTempPath(), "openza-tasks-sync-tests", Guid.NewGuid().ToString("N"));
 
     [Fact]
-    public async Task Sync_imports_provider_tasks_and_pushes_pending_completions()
+    public async Task Sync_records_provider_source_items_and_pushes_pending_completions()
     {
         var store = CreateStore();
         await store.InitializeAsync();
@@ -31,6 +31,8 @@ public sealed class TaskSyncEngineTests : IDisposable
         Assert.Equal(1, result.CompletionsSynced);
         Assert.Equal(1, provider.CompletedCalls);
         Assert.Empty(await store.GetPendingCompletionsAsync(IntegrationIds.Todoist));
+        Assert.Empty(await store.GetTasksAsync(new TaskQuery { Kind = TaskListKind.All }));
+        Assert.Single(await store.GetProviderSourceItemsAsync(IntegrationIds.Todoist));
     }
 
     [Fact]
@@ -52,10 +54,11 @@ public sealed class TaskSyncEngineTests : IDisposable
         Assert.True(result.Success);
         Assert.Equal(0, result.TasksDeleted);
         Assert.NotNull(await store.GetTaskAsync("todoist_orphan"));
+        Assert.Empty(await store.GetTasksAsync(new TaskQuery { Kind = TaskListKind.All }));
     }
 
     [Fact]
-    public async Task Sync_merges_provider_refresh_without_losing_local_project_or_notes()
+    public async Task Sync_refreshes_adopted_wrapper_provider_fields_without_overwriting_openza_fields()
     {
         var store = CreateStore();
         await store.InitializeAsync();
@@ -65,30 +68,55 @@ public sealed class TaskSyncEngineTests : IDisposable
             IntegrationId = IntegrationIds.Local,
             Name = "Local project",
         });
-        await store.UpsertTaskAsync(new TaskItem
-        {
-            Id = "todoist_remote_1",
-            ExternalId = "remote_1",
-            IntegrationId = IntegrationIds.Todoist,
-            Title = "Old title",
-            ProjectId = "proj_local",
-            Status = TaskItemStatus.Waiting,
-            Notes = "Local note",
-            CreatedAt = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero),
-        });
+        var provider = new FakeProvider { Title = "Remote task" };
         var engine = new TaskSyncEngine(store);
 
-        var result = await engine.SyncAsync(new FakeProvider());
+        var firstSync = await engine.SyncAsync(provider);
+        var source = Assert.Single(await store.GetProviderSourceItemsAsync(IntegrationIds.Todoist));
+        var adopted = await store.AdoptProviderSourceItemAsync(source.Id);
+        Assert.True(firstSync.Success);
+        Assert.NotNull(adopted);
 
-        var task = await store.GetTaskAsync("todoist_remote_1");
+        var localCreatedAt = adopted.CreatedAt;
+        await store.UpsertTaskAsync(adopted with
+        {
+            Title = "Old title",
+            ProjectId = "proj_local",
+            Priority = 1,
+            Status = TaskItemStatus.Waiting,
+            Notes = "Local note",
+            PlannedOn = new DateOnly(2026, 5, 13),
+            DeadlineOn = new DateOnly(2026, 5, 14),
+            ScheduledStart = new DateTimeOffset(2026, 5, 13, 9, 0, 0, 0, TimeSpan.Zero),
+            ScheduledEnd = new DateTimeOffset(2026, 5, 13, 10, 0, 0, 0, TimeSpan.Zero),
+            DurationMinutes = 60,
+            RecurrenceRule = "FREQ=WEEKLY;BYDAY=WE",
+            LocalMetadataJson = """{"focus":"deep"}""",
+        });
+
+        provider.Title = "Remote task updated";
+        var result = await engine.SyncAsync(provider);
+
+        var task = await store.GetTaskAsync(adopted.Id);
         Assert.True(result.Success);
         Assert.Equal(1, result.TasksUpdated);
         Assert.NotNull(task);
-        Assert.Equal("Remote task", task.Title);
+        Assert.Equal("Remote task updated", task.Title);
         Assert.Equal("proj_local", task.ProjectId);
+        Assert.Equal(1, task.Priority);
         Assert.Equal(TaskItemStatus.Waiting, task.Status);
         Assert.Equal("Local note", task.Notes);
-        Assert.Equal(new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero), task.CreatedAt);
+        Assert.Equal(new DateOnly(2026, 5, 13), task.PlannedOn);
+        Assert.Equal(new DateOnly(2026, 5, 14), task.DeadlineOn);
+        Assert.Equal(new DateTimeOffset(2026, 5, 13, 9, 0, 0, 0, TimeSpan.Zero), task.ScheduledStart);
+        Assert.Equal(new DateTimeOffset(2026, 5, 13, 10, 0, 0, 0, TimeSpan.Zero), task.ScheduledEnd);
+        Assert.Equal(60, task.DurationMinutes);
+        Assert.Equal("FREQ=WEEKLY;BYDAY=WE", task.RecurrenceRule);
+        Assert.Equal("""{"focus":"deep"}""", task.LocalMetadataJson);
+        Assert.Equal(localCreatedAt.ToUnixTimeSeconds(), task.CreatedAt.ToUnixTimeSeconds());
+        Assert.Equal(IntegrationIds.Local, task.IntegrationId);
+        Assert.Equal(IntegrationIds.Todoist, task.SourceIntegrationId);
+        Assert.Equal("remote_1", task.SourceExternalId);
     }
 
     private SqliteTaskStore CreateStore()
@@ -105,6 +133,7 @@ public sealed class TaskSyncEngineTests : IDisposable
     private sealed class FakeProvider : ISyncProvider
     {
         public string IntegrationId => IntegrationIds.Todoist;
+        public string Title { get; set; } = "Remote task";
         public int CompletedCalls { get; private set; }
 
         public Task<ProviderSnapshot> FetchSnapshotAsync(CancellationToken cancellationToken = default)
@@ -115,7 +144,7 @@ public sealed class TaskSyncEngineTests : IDisposable
                     Id = "todoist_remote_1",
                     ExternalId = "remote_1",
                     IntegrationId = IntegrationIds.Todoist,
-                    Title = "Remote task",
+                    Title = Title,
                 }],
                 [],
                 []));

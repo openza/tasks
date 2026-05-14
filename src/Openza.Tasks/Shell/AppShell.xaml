@@ -13,10 +13,59 @@
             IsBackButtonVisible="Collapsed"
             IsSettingsVisible="False"
             SelectionChanged="OnNavigationSelectionChanged">
+            <NavigationView.Resources>
+                <SolidColorBrush x:Key="NavigationViewItemBackgroundSelected" Color="#1A2563EB" />
+                <SolidColorBrush x:Key="NavigationViewItemBackgroundSelectedPointerOver" Color="#242563EB" />
+                <SolidColorBrush x:Key="NavigationViewItemBackgroundPressed" Color="#2E2563EB" />
+            </NavigationView.Resources>
+            <NavigationView.PaneHeader>
+                <ComboBox
+                    x:Name="SpaceSelector"
+                    Margin="12,8,12,8"
+                    HorizontalAlignment="Stretch"
+                    DisplayMemberPath="Name"
+                    SelectedValuePath="Id"
+                    SelectionChanged="OnSpaceSelectionChanged"
+                    AutomationProperties.Name="Current space" />
+            </NavigationView.PaneHeader>
             <NavigationView.MenuItems>
+                <NavigationViewItem
+                    x:Name="AddTaskNavItem"
+                    Margin="6,4,6,6"
+                    Background="{StaticResource OpenzaAccentBrush}"
+                    Foreground="{StaticResource OpenzaOnAccentBrush}"
+                    SelectsOnInvoked="False"
+                    Tag="add-task"
+                    PointerEntered="OnAddTaskPointerEntered"
+                    PointerExited="OnAddTaskPointerExited"
+                    PointerPressed="OnAddTaskPointerPressed"
+                    PointerReleased="OnAddTaskPointerEntered"
+                    ToolTipService.ToolTip="Add task">
+                    <NavigationViewItem.Resources>
+                        <SolidColorBrush x:Key="NavigationViewItemBackground" Color="#2563EB" />
+                        <SolidColorBrush x:Key="NavigationViewItemBackgroundPointerOver" Color="#1D4ED8" />
+                        <SolidColorBrush x:Key="NavigationViewItemBackgroundPressed" Color="#1E40AF" />
+                        <SolidColorBrush x:Key="NavigationViewItemForeground" Color="#FFFFFFFF" />
+                        <SolidColorBrush x:Key="NavigationViewItemForegroundPointerOver" Color="#FFFFFFFF" />
+                        <SolidColorBrush x:Key="NavigationViewItemForegroundPressed" Color="#FFFFFFFF" />
+                        <SolidColorBrush x:Key="NavigationViewItemIconForeground" Color="#FFFFFFFF" />
+                        <SolidColorBrush x:Key="NavigationViewItemIconForegroundPointerOver" Color="#FFFFFFFF" />
+                        <SolidColorBrush x:Key="NavigationViewItemIconForegroundPressed" Color="#FFFFFFFF" />
+                    </NavigationViewItem.Resources>
+                    <NavigationViewItem.Content>
+                        <TextBlock
+                            Text="Add task"
+                            FontWeight="SemiBold"
+                            Foreground="{StaticResource OpenzaOnAccentBrush}" />
+                    </NavigationViewItem.Content>
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE710;" Foreground="{StaticResource OpenzaOnAccentBrush}" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItemSeparator />
                 <NavigationViewItem x:Name="InboxNavItem" Content="Inbox" Tag="inbox">
                     <NavigationViewItem.InfoBadge>
-                        <InfoBadge x:Name="InboxBadge" Visibility="Collapsed" />
+                        <InfoBadge x:Name="InboxBadge" Style="{StaticResource OpenzaNavInfoBadgeStyle}" Visibility="Collapsed" />
                     </NavigationViewItem.InfoBadge>
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE715;" />
@@ -24,7 +73,7 @@
                 </NavigationViewItem>
                 <NavigationViewItem x:Name="NextNavItem" Content="Next Actions" Tag="next">
                     <NavigationViewItem.InfoBadge>
-                        <InfoBadge x:Name="NextBadge" Visibility="Collapsed" />
+                        <InfoBadge x:Name="NextBadge" Style="{StaticResource OpenzaNavInfoBadgeStyle}" Visibility="Collapsed" />
                     </NavigationViewItem.InfoBadge>
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE734;" />
@@ -32,15 +81,23 @@
                 </NavigationViewItem>
                 <NavigationViewItem x:Name="TodayNavItem" Content="Today" Tag="today">
                     <NavigationViewItem.InfoBadge>
-                        <InfoBadge x:Name="TodayBadge" Visibility="Collapsed" />
+                        <InfoBadge x:Name="TodayBadge" Style="{StaticResource OpenzaNavInfoBadgeStyle}" Visibility="Collapsed" />
                     </NavigationViewItem.InfoBadge>
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE787;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
+                <NavigationViewItem x:Name="CalendarNavItem" Content="Calendar" Tag="calendar">
+                    <NavigationViewItem.InfoBadge>
+                        <InfoBadge x:Name="CalendarBadge" Style="{StaticResource OpenzaNavInfoBadgeStyle}" Visibility="Collapsed" />
+                    </NavigationViewItem.InfoBadge>
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE163;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
                 <NavigationViewItem x:Name="OverdueNavItem" Content="Overdue" Tag="overdue">
                     <NavigationViewItem.InfoBadge>
-                        <InfoBadge x:Name="OverdueBadge" Visibility="Collapsed" />
+                        <InfoBadge x:Name="OverdueBadge" Style="{StaticResource OpenzaNavDangerInfoBadgeStyle}" Visibility="Collapsed" />
                     </NavigationViewItem.InfoBadge>
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE7BA;" />
@@ -48,7 +105,7 @@
                 </NavigationViewItem>
                 <NavigationViewItem x:Name="WaitingNavItem" Content="Waiting For" Tag="waiting">
                     <NavigationViewItem.InfoBadge>
-                        <InfoBadge x:Name="WaitingBadge" Visibility="Collapsed" />
+                        <InfoBadge x:Name="WaitingBadge" Style="{StaticResource OpenzaNavInfoBadgeStyle}" Visibility="Collapsed" />
                     </NavigationViewItem.InfoBadge>
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE823;" />
@@ -56,7 +113,7 @@
                 </NavigationViewItem>
                 <NavigationViewItem x:Name="SomedayNavItem" Content="Someday" Tag="someday">
                     <NavigationViewItem.InfoBadge>
-                        <InfoBadge x:Name="SomedayBadge" Visibility="Collapsed" />
+                        <InfoBadge x:Name="SomedayBadge" Style="{StaticResource OpenzaNavInfoBadgeStyle}" Visibility="Collapsed" />
                     </NavigationViewItem.InfoBadge>
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE8FD;" />
@@ -64,7 +121,7 @@
                 </NavigationViewItem>
                 <NavigationViewItem x:Name="TasksNavItem" Content="Tasks" Tag="tasks">
                     <NavigationViewItem.InfoBadge>
-                        <InfoBadge x:Name="TasksBadge" Visibility="Collapsed" />
+                        <InfoBadge x:Name="TasksBadge" Style="{StaticResource OpenzaNavInfoBadgeStyle}" Visibility="Collapsed" />
                     </NavigationViewItem.InfoBadge>
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE8A5;" />
@@ -72,7 +129,7 @@
                 </NavigationViewItem>
                 <NavigationViewItem x:Name="CompletedNavItem" Content="Completed" Tag="completed">
                     <NavigationViewItem.InfoBadge>
-                        <InfoBadge x:Name="CompletedBadge" Visibility="Collapsed" />
+                        <InfoBadge x:Name="CompletedBadge" Style="{StaticResource OpenzaNavInfoBadgeStyle}" Visibility="Collapsed" />
                     </NavigationViewItem.InfoBadge>
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE73E;" />
@@ -104,9 +161,12 @@
                         x:Name="TasksPage"
                         SearchTextChanged="OnSearchTextChanged"
                         SortChanged="OnSortChanged"
+                        GroupChanged="OnGroupChanged"
                         PriorityChanged="OnPriorityChanged"
+                        RepeatScopeChanged="OnRepeatScopeChanged"
                         LabelChanged="OnLabelChanged"
                         ProjectSearchTextChanged="OnProjectSearchTextChanged"
+                        ProjectFilterChanged="OnProjectFilterChanged"
                         ProjectSelected="OnProjectSelected"
                         ClearProjectClicked="OnClearProjectClicked"
                         AddProjectClicked="OnAddProjectClicked"
@@ -122,13 +182,21 @@
                         DetailsCancelEditClicked="OnDetailsCancelEditClicked"
                         QuickAddClicked="OnQuickAddClicked"
                         ImportClicked="OnImportClicked"
-                        ExportClicked="OnExportClicked" />
+                        ExportClicked="OnExportClicked"
+                        ConnectProvidersClicked="OnConnectProvidersClicked"
+                        ExploreSyncClicked="OnExploreSyncClicked"
+                        DismissGetStartedClicked="OnDismissGetStartedClicked"
+                        AddConnectedTaskClicked="OnAddSourceClicked"
+                        SkipConnectedTaskClicked="OnSkipSourceClicked"
+                        UnskipConnectedTaskClicked="OnUnskipSourceClicked"
+                        ReviewConnectedTasksClicked="OnReviewConnectedTasksClicked"
+                        ShowSkippedConnectedTasksChanged="OnShowSkippedConnectedTasksChanged"
+                        AddAllConnectedTasksClicked="OnAddAllConnectedTasksClicked" />
 
-                    <ScrollViewer
+                    <Grid
                         x:Name="SettingsWorkspace"
                         Visibility="Collapsed"
                         Padding="40,32"
-                        HorizontalScrollBarVisibility="Disabled"
                         SizeChanged="OnPageWorkspaceSizeChanged">
                         <pages:SettingsPage
                             x:Name="SettingsPage"
@@ -144,8 +212,12 @@
                             ExportBackupClicked="OnExportBackupClicked"
                             RestoreSelectedBackupClicked="OnRestoreSelectedBackupClicked"
                             DeleteBackupClicked="OnDeleteBackupClicked"
-                            AutoBackupToggled="OnAutoBackupToggled" />
-                    </ScrollViewer>
+                            AutoBackupToggled="OnAutoBackupToggled"
+                            AutoSyncToggled="OnAutoSyncToggled"
+                            AddSpaceClicked="OnAddSpaceClicked"
+                            RenameSpaceClicked="OnRenameSpaceClicked"
+                            ArchiveSpaceClicked="OnArchiveSpaceClicked" />
+                    </Grid>
 
                     <ScrollViewer
                         x:Name="SyncWorkspace"
@@ -157,7 +229,8 @@
                             x:Name="SyncPage"
                             HorizontalAlignment="Left"
                             RunSyncClicked="OnSyncClicked"
-                            OpenSettingsClicked="OnOpenSettingsFromSyncClicked" />
+                            OpenSettingsClicked="OnOpenSettingsFromSyncClicked"
+                            OpenInboxClicked="OnOpenInboxFromSyncClicked" />
                     </ScrollViewer>
                 </Grid>
             </Grid>

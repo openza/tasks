@@ -13,51 +13,47 @@ public sealed class TaskSyncEngine(ITaskStore store, ConflictPolicy? conflictPol
         {
             var completionsSynced = await SyncPendingCompletionsAsync(provider, cancellationToken).ConfigureAwait(false);
             var snapshot = await provider.FetchSnapshotAsync(cancellationToken).ConfigureAwait(false);
-            var existing = await store.GetTasksAsync(new TaskQuery(), cancellationToken).ConfigureAwait(false);
+            var providerConnectionId = provider.ProviderConnectionId;
+            var existing = await store.GetProviderSourceItemsAsync(provider.IntegrationId, includeAdopted: true, includeIgnored: true, cancellationToken: cancellationToken).ConfigureAwait(false);
             var existingByExternalId = existing
-                .Where(t => t.IntegrationId == provider.IntegrationId && !string.IsNullOrWhiteSpace(t.ExternalId))
-                .ToDictionary(t => t.ExternalId!, StringComparer.Ordinal);
+                .Where(t => ProviderConnectionMatches(t.ProviderConnectionId, providerConnectionId, provider.IntegrationId))
+                .ToDictionary(t => t.ExternalId, StringComparer.Ordinal);
+            var projectNames = snapshot.Projects.ToDictionary(project => project.Id, project => project.Name, StringComparer.Ordinal);
             var remoteExternalIds = new HashSet<string>(StringComparer.Ordinal);
 
-            var tasksAdded = 0;
-            var tasksUpdated = 0;
+            var sourceItemsAdded = 0;
+            var sourceItemsUpdated = 0;
 
-            foreach (var project in snapshot.Projects)
+            foreach (var incomingTask in SortParentsFirst(snapshot.Tasks))
             {
-                await store.UpsertProjectAsync(project, cancellationToken).ConfigureAwait(false);
-            }
-
-            foreach (var label in snapshot.Labels)
-            {
-                await store.UpsertLabelAsync(label, cancellationToken).ConfigureAwait(false);
-            }
-
-            foreach (var task in SortParentsFirst(snapshot.Tasks))
-            {
-                if (!string.IsNullOrWhiteSpace(task.ExternalId))
+                var task = string.IsNullOrWhiteSpace(incomingTask.ProviderConnectionId)
+                    ? incomingTask with { ProviderConnectionId = providerConnectionId }
+                    : incomingTask;
+                if (string.IsNullOrWhiteSpace(task.ExternalId))
                 {
-                    remoteExternalIds.Add(task.ExternalId);
+                    continue;
                 }
 
-                if (task.ExternalId is not null && existingByExternalId.TryGetValue(task.ExternalId, out var local))
+                remoteExternalIds.Add(task.ExternalId);
+                await store.UpsertProviderSourceItemAsync(ToProviderSourceItem(task, providerConnectionId, projectNames), cancellationToken).ConfigureAwait(false);
+                if (existingByExternalId.ContainsKey(task.ExternalId))
                 {
-                    await store.UpsertTaskAsync(MergeProviderTask(local, task), cancellationToken).ConfigureAwait(false);
-                    tasksUpdated++;
+                    sourceItemsUpdated++;
+                    continue;
                 }
-                else
-                {
-                    await store.UpsertTaskAsync(task, cancellationToken).ConfigureAwait(false);
-                    tasksAdded++;
-                }
+
+                sourceItemsAdded++;
             }
 
             var tasksDeleted = 0;
             if (_conflictPolicy.DeleteOrphans)
             {
-                foreach (var orphan in existingByExternalId.Values.Where(t => t.ExternalId is not null && !remoteExternalIds.Contains(t.ExternalId)))
+                foreach (var orphan in existingByExternalId.Values.Where(t => !remoteExternalIds.Contains(t.ExternalId)))
                 {
-                    await store.DeleteTaskAsync(orphan.Id, cancellationToken).ConfigureAwait(false);
-                    tasksDeleted++;
+                    // Direction 2 keeps provider removals non-destructive by default. Even with
+                    // orphan cleanup enabled, adopted Openza tasks stay intact; the source item can
+                    // be hidden/ignored in a later route-specific cleanup policy.
+                    _ = orphan;
                 }
             }
 
@@ -65,11 +61,11 @@ public sealed class TaskSyncEngine(ITaskStore store, ConflictPolicy? conflictPol
             return new SyncSummary(
                 provider.IntegrationId,
                 true,
-                tasksAdded,
-                tasksUpdated,
+                sourceItemsAdded,
+                sourceItemsUpdated,
                 tasksDeleted,
-                snapshot.Projects.Count,
-                snapshot.Labels.Count,
+                0,
+                0,
                 completionsSynced,
                 NewSyncToken: snapshot.SyncToken);
         }
@@ -93,29 +89,74 @@ public sealed class TaskSyncEngine(ITaskStore store, ConflictPolicy? conflictPol
         return synced;
     }
 
-    private static TaskItem MergeProviderTask(TaskItem local, TaskItem remote)
+    private static ProviderSourceItem ToProviderSourceItem(
+        TaskItem task,
+        string providerConnectionId,
+        IReadOnlyDictionary<string, string> projectNames)
     {
-        // The app owns local enhancement fields after sync. Providers own completion,
-        // while Openza owns local GTD workflow lists and notes.
-        return remote with
+        var sourceProjectName = task.ProjectId is not null && projectNames.TryGetValue(task.ProjectId, out var projectName)
+            ? projectName
+            : null;
+
+        return new ProviderSourceItem
         {
-            Id = local.Id,
-            ProjectId = local.ProjectId ?? remote.ProjectId,
-            Status = ResolveMergedStatus(local.Status, remote.Status),
-            Notes = local.Notes,
-            CreatedAt = local.CreatedAt,
-            UpdatedAt = DateTimeOffset.UtcNow,
+            IntegrationId = task.IntegrationId,
+            ProviderConnectionId = providerConnectionId,
+            ExternalId = task.ExternalId!,
+            ProviderTaskId = BuildProviderTaskId(task),
+            Title = task.Title,
+            Description = task.Description,
+            SourceProjectId = task.ProjectId,
+            SourceProjectName = sourceProjectName,
+            SuggestedSpaceId = task.SpaceId,
+            Priority = task.Priority,
+            CompletionState = task.CompletionState,
+            PlannedOn = task.PlannedOn,
+            PlannedAt = task.PlannedAt,
+            DeadlineOn = task.DeadlineOn,
+            DeadlineAt = task.DeadlineAt,
+            SourceUrl = BuildSourceUrl(task),
+            SnapshotJson = task.ProviderMetadataJson,
+            LastSeenAt = DateTimeOffset.UtcNow,
         };
     }
 
-    private static TaskItemStatus ResolveMergedStatus(TaskItemStatus local, TaskItemStatus remote)
+    private static bool ProviderConnectionMatches(string? taskConnectionId, string providerConnectionId, string integrationId)
     {
-        if (!remote.IsOpen())
+        if (string.IsNullOrWhiteSpace(taskConnectionId))
         {
-            return remote;
+            return string.Equals(providerConnectionId, integrationId, StringComparison.Ordinal) ||
+                string.Equals(providerConnectionId, DefaultProviderConnectionId(integrationId), StringComparison.Ordinal);
         }
 
-        return local.IsOpen() ? local : TaskItemStatus.None;
+        return string.Equals(taskConnectionId, providerConnectionId, StringComparison.Ordinal);
+    }
+
+    private static string DefaultProviderConnectionId(string integrationId) => integrationId switch
+    {
+        IntegrationIds.Local => "local_default",
+        IntegrationIds.Todoist => "todoist_default",
+        IntegrationIds.MicrosoftToDo => "mstodo_default",
+        _ => integrationId,
+    };
+
+    private static string BuildProviderTaskId(TaskItem task)
+    {
+        if (task.IntegrationId == IntegrationIds.MicrosoftToDo &&
+            task.ProjectId?.StartsWith("mstodo_", StringComparison.Ordinal) == true &&
+            !string.IsNullOrWhiteSpace(task.ExternalId))
+        {
+            return $"{task.ProjectId["mstodo_".Length..]}|{task.ExternalId}";
+        }
+
+        return task.ExternalId ?? task.Id;
+    }
+
+    private static string? BuildSourceUrl(TaskItem task)
+    {
+        return task.IntegrationId == IntegrationIds.Todoist && !string.IsNullOrWhiteSpace(task.ExternalId)
+            ? $"https://todoist.com/showTask?id={Uri.EscapeDataString(task.ExternalId)}"
+            : null;
     }
 
     private static IEnumerable<TaskItem> SortParentsFirst(IEnumerable<TaskItem> tasks)

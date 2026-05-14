@@ -54,8 +54,7 @@ public partial class App : Application
         {
             var appData = ApplicationData.Current.LocalFolder.Path;
             var databasePath = Path.Combine(appData, CoreAppDataPaths.DatabaseFileName);
-            var migrator = new FlutterDatabaseMigrator(CoreAppDataPaths.GetLegacyFlutterDatabasePath(), databasePath);
-            var migration = await migrator.MigrateIfNeededAsync(CoreAppDataPaths.GetLegacyFlutterDatabaseCandidates()).ConfigureAwait(true);
+            var migration = MigratePreviousCleanCoreDatabaseName(appData, databasePath);
             AppLog.Write(migration.Message);
 
             var store = new SqliteTaskStore(databasePath);
@@ -81,5 +80,35 @@ public partial class App : Application
             AppLog.Write(exception);
             throw;
         }
+    }
+
+    private static MigrationResult MigratePreviousCleanCoreDatabaseName(string appData, string databasePath)
+    {
+        var previousPath = Path.Combine(appData, CoreAppDataPaths.PreviousCleanCoreDatabaseFileName);
+        if (!File.Exists(previousPath))
+        {
+            return MigrationResult.Skipped("Store V1 uses the local Openza Tasks database.");
+        }
+
+        if (File.Exists(databasePath) &&
+            File.GetLastWriteTimeUtc(databasePath) >= File.GetLastWriteTimeUtc(previousPath))
+        {
+            return MigrationResult.Skipped("Openza Tasks database filename is already current.");
+        }
+
+        Directory.CreateDirectory(Path.GetDirectoryName(databasePath) ?? ".");
+        string? backupPath = null;
+        if (File.Exists(databasePath))
+        {
+            backupPath = $"{databasePath}.pre-db-rename-{DateTimeOffset.UtcNow:yyyyMMddHHmmss}.bak";
+            File.Copy(databasePath, backupPath, overwrite: false);
+        }
+
+        File.Copy(previousPath, databasePath, overwrite: true);
+        return new MigrationResult(
+            true,
+            $"Migrated Openza Tasks database filename from {CoreAppDataPaths.PreviousCleanCoreDatabaseFileName} to {CoreAppDataPaths.DatabaseFileName}.",
+            backupPath,
+            previousPath);
     }
 }

@@ -1,4 +1,5 @@
 using System.Data;
+using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Openza.Tasks.Core.Models;
 
@@ -21,21 +22,32 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
     {
         await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         var tasks = await ReadTasksAsync(connection, cancellationToken).ConfigureAwait(false);
-        var today = DateTimeOffset.Now.Date;
+        var today = DateOnly.FromDateTime(DateTimeOffset.Now.LocalDateTime);
 
-        IEnumerable<TaskItem> filtered = tasks;
+        IEnumerable<TaskItem> filtered = tasks.Where(t => t.IntegrationId == IntegrationIds.Local);
+        if (!string.IsNullOrWhiteSpace(query.SpaceId))
+        {
+            filtered = filtered.Where(t => t.SpaceId == query.SpaceId);
+        }
+
         filtered = query.Kind switch
         {
-            TaskListKind.Inbox => filtered.Where(t => t.IsOpen && t.Status == TaskItemStatus.None && t.ProjectId is null),
-            TaskListKind.NextActions => filtered.Where(t => t.IsOpen && t.Status == TaskItemStatus.Next),
-            TaskListKind.Waiting => filtered.Where(t => t.IsOpen && t.Status == TaskItemStatus.Waiting),
-            TaskListKind.Someday => filtered.Where(t => t.IsOpen && t.Status == TaskItemStatus.Someday),
-            TaskListKind.Today => filtered.Where(t => t.IsOpen && t.DueDate?.LocalDateTime.Date == today),
-            TaskListKind.Overdue => filtered.Where(t => t.IsOpen && t.DueDate?.LocalDateTime.Date < today),
+            TaskListKind.Inbox => filtered.Where(t => t.IsOpen && t.WorkflowStatus == TaskWorkflowStatus.Inbox && string.IsNullOrWhiteSpace(t.ProjectId)),
+            TaskListKind.NextActions => filtered.Where(t => t.IsOpen && t.WorkflowStatus == TaskWorkflowStatus.Next),
+            TaskListKind.Waiting => filtered.Where(t => t.IsOpen && t.WorkflowStatus == TaskWorkflowStatus.Waiting),
+            TaskListKind.Someday => filtered.Where(t => t.IsOpen && t.WorkflowStatus == TaskWorkflowStatus.Someday),
+            TaskListKind.Today => filtered.Where(t => t.IsOpen && HasRelevantDateOn(t, today, query.DateScope)),
+            TaskListKind.Calendar => filtered.Where(t => t.IsOpen && HasRelevantDate(t, query.DateScope)),
+            TaskListKind.Overdue => filtered.Where(t => t.IsOpen && HasRelevantDateBefore(t, today, query.DateScope)),
             TaskListKind.Open => filtered.Where(t => t.IsOpen),
             TaskListKind.Completed => filtered.Where(t => t.IsCompleted),
             _ => filtered,
         };
+
+        if (query.RepeatScope != TaskRepeatScope.Include)
+        {
+            filtered = filtered.Where(t => MatchesRepeatScope(t, query.RepeatScope));
+        }
 
         if (!string.IsNullOrWhiteSpace(query.ProjectId))
         {
@@ -63,36 +75,110 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
 
         filtered = query.SortMode switch
         {
-            TaskSortMode.DueDate => filtered.OrderBy(t => t.DueDate is null).ThenBy(t => t.DueDate),
+            TaskSortMode.Date => filtered.OrderBy(t => RelevantDate(t, query.DateScope) is null).ThenBy(t => RelevantDate(t, query.DateScope)),
             TaskSortMode.CreatedNewest => filtered.OrderByDescending(t => t.CreatedAt),
             TaskSortMode.Title => filtered.OrderBy(t => t.Title, StringComparer.CurrentCultureIgnoreCase),
             TaskSortMode.Project => filtered.OrderBy(t => t.ProjectId ?? string.Empty).ThenBy(t => t.Priority),
-            _ => filtered.OrderBy(t => t.IsCompleted).ThenBy(t => t.Priority).ThenBy(t => t.DueDate is null).ThenBy(t => t.DueDate).ThenByDescending(t => t.CreatedAt),
+            _ => filtered.OrderBy(t => t.IsCompleted).ThenBy(t => t.Priority).ThenBy(t => RelevantDate(t, query.DateScope) is null).ThenBy(t => RelevantDate(t, query.DateScope)).ThenByDescending(t => t.CreatedAt),
         };
 
         return filtered.ToList();
     }
 
-    public async Task<TaskCountSummary> GetTaskCountsAsync(CancellationToken cancellationToken = default)
+    private static bool HasRelevantDate(TaskItem task, TaskDateScope scope)
+    {
+        return RelevantDates(task, scope).Any();
+    }
+
+    private static bool MatchesRepeatScope(TaskItem task, TaskRepeatScope scope)
+    {
+        var isRepeating = !string.IsNullOrWhiteSpace(task.RecurrenceRule);
+        return scope switch
+        {
+            TaskRepeatScope.Exclude => !isRepeating,
+            TaskRepeatScope.Only => isRepeating,
+            _ => true,
+        };
+    }
+
+    private static bool HasRelevantDateOn(TaskItem task, DateOnly date, TaskDateScope scope)
+    {
+        return RelevantDates(task, scope).Any(value => DateOnly.FromDateTime(value.LocalDateTime) == date);
+    }
+
+    private static bool HasRelevantDateBefore(TaskItem task, DateOnly date, TaskDateScope scope)
+    {
+        return RelevantDates(task, scope).Any(value => DateOnly.FromDateTime(value.LocalDateTime) < date);
+    }
+
+    private static DateTimeOffset? RelevantDate(TaskItem task, TaskDateScope scope)
+    {
+        var dates = RelevantDates(task, scope).ToList();
+        return dates.Count == 0 ? null : dates.Min();
+    }
+
+    private static IEnumerable<DateTimeOffset> RelevantDates(TaskItem task, TaskDateScope scope)
+    {
+        if (task.PlannedMoment is { } planned)
+        {
+            yield return planned;
+        }
+
+        if (task.DeadlineMoment is { } deadline)
+        {
+            yield return deadline;
+        }
+
+        if (task.ScheduledStart is { } scheduledStart)
+        {
+            yield return scheduledStart;
+        }
+    }
+
+    public async Task<TaskCountSummary> GetTaskCountsAsync(string? spaceId = null, CancellationToken cancellationToken = default)
     {
         await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        var todayDate = DateOnly.FromDateTime(DateTimeOffset.Now.LocalDateTime);
         var todayStart = new DateTimeOffset(DateTimeOffset.Now.Date, DateTimeOffset.Now.Offset).ToUnixTimeSeconds();
         var tomorrowStart = new DateTimeOffset(DateTimeOffset.Now.Date.AddDays(1), DateTimeOffset.Now.Offset).ToUnixTimeSeconds();
 
         var command = connection.CreateCommand();
         command.CommandText = """
             SELECT
-              SUM(CASE WHEN status = 'none' AND project_id IS NULL THEN 1 ELSE 0 END) AS inbox,
-              SUM(CASE WHEN status = 'next' THEN 1 ELSE 0 END) AS next_actions,
-              SUM(CASE WHEN status = 'waiting' THEN 1 ELSE 0 END) AS waiting,
-              SUM(CASE WHEN status = 'someday' THEN 1 ELSE 0 END) AS someday,
-              SUM(CASE WHEN status NOT IN ('completed', 'cancelled') AND due_date >= @today_start AND due_date < @tomorrow_start THEN 1 ELSE 0 END) AS today,
-              SUM(CASE WHEN status NOT IN ('completed', 'cancelled') AND due_date IS NOT NULL AND due_date < @today_start THEN 1 ELSE 0 END) AS overdue,
-              SUM(CASE WHEN status NOT IN ('completed', 'cancelled') THEN 1 ELSE 0 END) AS open_tasks,
+              SUM(CASE WHEN completion_state = 'open' AND workflow_status = 'inbox' AND project_id IS NULL THEN 1 ELSE 0 END) AS inbox,
+              SUM(CASE WHEN completion_state = 'open' AND workflow_status = 'next' THEN 1 ELSE 0 END) AS next_actions,
+              SUM(CASE WHEN completion_state = 'open' AND workflow_status = 'waiting' THEN 1 ELSE 0 END) AS waiting,
+              SUM(CASE WHEN completion_state = 'open' AND workflow_status = 'someday' THEN 1 ELSE 0 END) AS someday,
+              SUM(CASE WHEN completion_state = 'open' AND (
+                    planned_on = @today_date OR
+                    deadline_on = @today_date OR
+                    (planned_at >= @today_start AND planned_at < @tomorrow_start) OR
+                    (deadline_at >= @today_start AND deadline_at < @tomorrow_start) OR
+                    (scheduled_start >= @today_start AND scheduled_start < @tomorrow_start)
+                  ) THEN 1 ELSE 0 END) AS today,
+              SUM(CASE WHEN completion_state = 'open' AND (
+                    (planned_on IS NOT NULL AND planned_on < @today_date) OR
+                    (deadline_on IS NOT NULL AND deadline_on < @today_date) OR
+                    (planned_at IS NOT NULL AND planned_at < @today_start) OR
+                    (deadline_at IS NOT NULL AND deadline_at < @today_start) OR
+                    (scheduled_start IS NOT NULL AND scheduled_start < @today_start)
+                  ) THEN 1 ELSE 0 END) AS overdue,
+              SUM(CASE WHEN completion_state = 'open' AND (
+                    planned_on IS NOT NULL OR
+                    deadline_on IS NOT NULL OR
+                    planned_at IS NOT NULL OR
+                    deadline_at IS NOT NULL OR
+                    scheduled_start IS NOT NULL
+                  ) THEN 1 ELSE 0 END) AS calendar,
+              SUM(CASE WHEN completion_state = 'open' THEN 1 ELSE 0 END) AS open_tasks,
               COUNT(*) AS all_tasks,
-              SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS completed
+              SUM(CASE WHEN completion_state = 'completed' THEN 1 ELSE 0 END) AS completed
             FROM tasks
+            WHERE integration_id = 'openza_tasks'
+              AND (@space_id IS NULL OR space_id = @space_id)
             """;
+        command.Parameters.AddWithValue("@space_id", ToDbValue(spaceId));
+        command.Parameters.AddWithValue("@today_date", TaskDateValues.ToStorageValue(todayDate));
         command.Parameters.AddWithValue("@today_start", todayStart);
         command.Parameters.AddWithValue("@tomorrow_start", tomorrowStart);
 
@@ -102,6 +188,7 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         var someday = 0;
         var today = 0;
         var overdue = 0;
+        var calendar = 0;
         var open = 0;
         var all = 0;
         var completed = 0;
@@ -116,33 +203,41 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
                 someday = ReadNullableInt(reader, 3);
                 today = ReadNullableInt(reader, 4);
                 overdue = ReadNullableInt(reader, 5);
-                open = ReadNullableInt(reader, 6);
-                all = ReadNullableInt(reader, 7);
-                completed = ReadNullableInt(reader, 8);
+                calendar = ReadNullableInt(reader, 6);
+                open = ReadNullableInt(reader, 7);
+                all = ReadNullableInt(reader, 8);
+                completed = ReadNullableInt(reader, 9);
             }
         }
 
         var byProjectCommand = connection.CreateCommand();
         byProjectCommand.CommandText = """
-            SELECT project_id, COUNT(*)
+            SELECT project_id,
+                   COUNT(*) AS open_count,
+                   SUM(CASE WHEN workflow_status = 'next' THEN 1 ELSE 0 END) AS next_count
             FROM tasks
-            WHERE status NOT IN ('completed', 'cancelled') AND project_id IS NOT NULL
+            WHERE integration_id = 'openza_tasks' AND completion_state = 'open' AND project_id IS NOT NULL
+              AND (@space_id IS NULL OR space_id = @space_id)
             GROUP BY project_id
             """;
+        byProjectCommand.Parameters.AddWithValue("@space_id", ToDbValue(spaceId));
 
         var byProject = new Dictionary<string, int>(StringComparer.Ordinal);
+        var nextByProject = new Dictionary<string, int>(StringComparer.Ordinal);
         await using (var reader = await byProjectCommand.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
         {
             while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             {
                 if (!reader.IsDBNull(0))
                 {
-                    byProject[reader.GetString(0)] = reader.GetInt32(1);
+                    var projectId = reader.GetString(0);
+                    byProject[projectId] = reader.GetInt32(1);
+                    nextByProject[projectId] = ReadNullableInt(reader, 2);
                 }
             }
         }
 
-        return new TaskCountSummary(inbox, nextActions, waiting, someday, today, overdue, open, all, completed, byProject);
+        return new TaskCountSummary(inbox, nextActions, waiting, someday, today, calendar, overdue, open, all, completed, byProject, nextByProject);
     }
 
     public async Task<TaskItem?> GetTaskAsync(string id, CancellationToken cancellationToken = default)
@@ -151,17 +246,67 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         return (await ReadTasksAsync(connection, cancellationToken).ConfigureAwait(false)).FirstOrDefault(t => t.Id == id);
     }
 
-    public async Task<IReadOnlyList<ProjectItem>> GetProjectsAsync(bool includeArchived = false, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<SpaceItem>> GetSpacesAsync(bool includeArchived = false, CancellationToken cancellationToken = default)
     {
         await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT id, external_id, integration_id, name, description, color, icon, parent_id,
-                   sort_order, is_favorite, is_archived, provider_metadata, created_at, updated_at
-            FROM projects
+            SELECT id, name, color, icon, sort_order, is_archived, created_at, updated_at
+            FROM spaces
             WHERE @include_archived = 1 OR is_archived = 0
+            ORDER BY sort_order, name
+            """;
+        command.Parameters.AddWithValue("@include_archived", includeArchived ? 1 : 0);
+
+        var spaces = new List<SpaceItem>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            spaces.Add(ReadSpace(reader));
+        }
+
+        return spaces;
+    }
+
+    public async Task UpsertSpaceAsync(SpaceItem space, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO spaces (id, name, color, icon, sort_order, is_archived, created_at, updated_at)
+            VALUES (@id, @name, @color, @icon, @sort_order, @is_archived, @created_at, @updated_at)
+            ON CONFLICT(id) DO UPDATE SET
+                name = excluded.name,
+                color = excluded.color,
+                icon = excluded.icon,
+                sort_order = excluded.sort_order,
+                is_archived = excluded.is_archived,
+                updated_at = excluded.updated_at
+            """;
+        command.Parameters.AddWithValue("@id", space.Id);
+        command.Parameters.AddWithValue("@name", space.Name);
+        command.Parameters.AddWithValue("@color", space.Color);
+        command.Parameters.AddWithValue("@icon", ToDbValue(space.Icon));
+        command.Parameters.AddWithValue("@sort_order", space.SortOrder);
+        command.Parameters.AddWithValue("@is_archived", space.IsArchived ? 1 : 0);
+        command.Parameters.AddWithValue("@created_at", ToDbDate(space.CreatedAt));
+        command.Parameters.AddWithValue("@updated_at", ToDbValue(space.UpdatedAt));
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<IReadOnlyList<ProjectItem>> GetProjectsAsync(string? spaceId = null, bool includeArchived = false, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT id, external_id, space_id, integration_id, provider_connection_id, name, description, color, icon, parent_id,
+                   sort_order, is_favorite, is_archived, status, provider_metadata, created_at, updated_at
+            FROM projects
+            WHERE integration_id = 'openza_tasks' AND (@include_archived = 1 OR (is_archived = 0 AND COALESCE(status, 'active') != 'archived'))
+              AND (@space_id IS NULL OR space_id = @space_id)
             ORDER BY is_favorite DESC, sort_order, name
             """;
+        command.Parameters.AddWithValue("@space_id", ToDbValue(spaceId));
         command.Parameters.AddWithValue("@include_archived", includeArchived ? 1 : 0);
 
         var projects = new List<ProjectItem>();
@@ -179,9 +324,10 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT id, external_id, integration_id, name, color, description, sort_order,
+            SELECT id, external_id, integration_id, provider_connection_id, name, color, description, sort_order,
                    is_favorite, provider_metadata, created_at
             FROM labels
+            WHERE integration_id = 'openza_tasks'
             ORDER BY sort_order, name
             """;
 
@@ -230,6 +376,362 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         return integrations;
     }
 
+    public async Task<IReadOnlyList<ProviderConnectionInfo>> GetProviderConnectionsAsync(CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT id, workspace_id, integration_id, display_name, account_key, status, settings,
+                   last_sync_at, created_at, updated_at
+            FROM provider_connections
+            ORDER BY integration_id, display_name
+            """;
+
+        var connections = new List<ProviderConnectionInfo>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            connections.Add(new ProviderConnectionInfo
+            {
+                Id = reader.GetString(0),
+                WorkspaceId = reader.GetString(1),
+                IntegrationId = reader.GetString(2),
+                DisplayName = reader.GetString(3),
+                AccountKey = GetNullableString(reader, 4),
+                Status = reader.GetString(5),
+                SettingsJson = GetNullableString(reader, 6),
+                LastSyncAt = ReadDate(reader, 7),
+                CreatedAt = ReadDate(reader, 8) ?? DateTimeOffset.UtcNow,
+                UpdatedAt = ReadDate(reader, 9),
+            });
+        }
+
+        return connections;
+    }
+
+    public async Task UpsertProviderConnectionAsync(ProviderConnectionInfo connectionInfo, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO provider_connections (id, workspace_id, integration_id, display_name, account_key, status, settings,
+                                              last_sync_at, created_at, updated_at)
+            VALUES (@id, @workspace_id, @integration_id, @display_name, @account_key, @status, @settings,
+                    @last_sync_at, @created_at, @updated_at)
+            ON CONFLICT(id) DO UPDATE SET
+                workspace_id = excluded.workspace_id,
+                integration_id = excluded.integration_id,
+                display_name = excluded.display_name,
+                account_key = excluded.account_key,
+                status = excluded.status,
+                settings = excluded.settings,
+                last_sync_at = excluded.last_sync_at,
+                updated_at = excluded.updated_at
+            """;
+        command.Parameters.AddWithValue("@id", connectionInfo.Id);
+        command.Parameters.AddWithValue("@workspace_id", connectionInfo.WorkspaceId);
+        command.Parameters.AddWithValue("@integration_id", connectionInfo.IntegrationId);
+        command.Parameters.AddWithValue("@display_name", connectionInfo.DisplayName);
+        command.Parameters.AddWithValue("@account_key", ToDbValue(connectionInfo.AccountKey));
+        command.Parameters.AddWithValue("@status", connectionInfo.Status);
+        command.Parameters.AddWithValue("@settings", ToDbValue(connectionInfo.SettingsJson));
+        command.Parameters.AddWithValue("@last_sync_at", ToDbValue(connectionInfo.LastSyncAt));
+        command.Parameters.AddWithValue("@created_at", ToDbDate(connectionInfo.CreatedAt));
+        command.Parameters.AddWithValue("@updated_at", ToDbValue(connectionInfo.UpdatedAt));
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<IReadOnlyList<ProviderSourceItem>> GetProviderSourceItemsAsync(string? integrationId = null, string? spaceId = null, bool includeAdopted = false, bool includeIgnored = false, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT id, integration_id, provider_connection_id, external_id, provider_task_id, title, description,
+                   source_project_id, source_project_name, suggested_space_id, priority, completion_state,
+                   planned_on, planned_at, deadline_on, deadline_at, source_url,
+                   snapshot_json, adoption_state, adopted_task_id, first_seen_at, last_seen_at, updated_at
+            FROM provider_source_items
+            WHERE (@integration_id IS NULL OR integration_id = @integration_id)
+              AND (
+                @space_id IS NULL
+                OR suggested_space_id = @space_id
+                OR suggested_space_id IS NULL
+                OR NOT EXISTS (SELECT 1 FROM spaces WHERE spaces.id = provider_source_items.suggested_space_id)
+              )
+              AND (@include_adopted = 1 OR adoption_state != 'adopted')
+              AND (@include_ignored = 1 OR adoption_state != 'ignored')
+            ORDER BY last_seen_at DESC, title
+            """;
+        command.Parameters.AddWithValue("@integration_id", ToDbValue(integrationId));
+        command.Parameters.AddWithValue("@space_id", ToDbValue(spaceId));
+        command.Parameters.AddWithValue("@include_adopted", includeAdopted ? 1 : 0);
+        command.Parameters.AddWithValue("@include_ignored", includeIgnored ? 1 : 0);
+
+        var items = new List<ProviderSourceItem>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            items.Add(ReadProviderSourceItem(reader));
+        }
+
+        return items;
+    }
+
+    public async Task UpsertProviderSourceItemAsync(ProviderSourceItem item, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        var existing = await ReadProviderSourceItemByExternalAsync(connection, item.ProviderConnectionId, item.ExternalId, cancellationToken).ConfigureAwait(false);
+        var source = item with
+        {
+            Id = string.IsNullOrWhiteSpace(item.Id) ? BuildProviderSourceItemId(item.ProviderConnectionId, item.ExternalId) : item.Id,
+            AdoptionState = existing?.AdoptionState ?? item.AdoptionState,
+            AdoptedTaskId = existing?.AdoptedTaskId ?? item.AdoptedTaskId,
+            SuggestedSpaceId = await ResolveProviderSourceSpaceIdAsync(connection, existing?.SuggestedSpaceId, item.SuggestedSpaceId, cancellationToken).ConfigureAwait(false),
+            FirstSeenAt = existing?.FirstSeenAt ?? item.FirstSeenAt,
+            LastSeenAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow,
+        };
+
+        await UpsertProviderSourceItemCoreAsync(connection, source, cancellationToken).ConfigureAwait(false);
+        if (source.AdoptionState == ProviderSourceAdoptionStates.Adopted && !string.IsNullOrWhiteSpace(source.AdoptedTaskId))
+        {
+            await RefreshAdoptedTaskFromSourceAsync(connection, source, cancellationToken).ConfigureAwait(false);
+        }
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<TaskItem?> AdoptProviderSourceItemAsync(string sourceItemId, string spaceId = SpaceIds.Default, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        var source = await ReadProviderSourceItemByIdAsync(connection, sourceItemId, cancellationToken).ConfigureAwait(false);
+        if (source is null || source.AdoptionState == ProviderSourceAdoptionStates.Ignored)
+        {
+            return null;
+        }
+
+        if (source.AdoptionState == ProviderSourceAdoptionStates.Adopted && !string.IsNullOrWhiteSpace(source.AdoptedTaskId))
+        {
+            var existingTasks = await ReadTasksAsync(connection, cancellationToken).ConfigureAwait(false);
+            var existing = existingTasks.FirstOrDefault(task => task.Id == source.AdoptedTaskId);
+            if (existing is not null)
+            {
+                await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+                return existing;
+            }
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var task = new TaskItem
+        {
+            Id = $"local_{Guid.NewGuid():N}",
+            SpaceId = string.IsNullOrWhiteSpace(spaceId) ? source.SuggestedSpaceId ?? SpaceIds.Default : spaceId,
+            IntegrationId = IntegrationIds.Local,
+            Title = source.Title,
+            Description = source.Description,
+            Priority = source.Priority,
+            CompletionState = source.CompletionState,
+            WorkflowStatus = source.CompletionState == TaskCompletionState.Open ? TaskWorkflowStatus.Inbox : TaskWorkflowStatus.None,
+            PlannedOn = source.PlannedOn,
+            PlannedAt = source.PlannedAt,
+            DeadlineOn = source.DeadlineOn,
+            DeadlineAt = source.DeadlineAt,
+            SourceIntegrationId = source.IntegrationId,
+            SourceConnectionId = source.ProviderConnectionId,
+            SourceExternalId = source.ExternalId,
+            SourceProviderTaskId = source.ProviderTaskId,
+            SourceUrl = source.SourceUrl,
+            SourceMetadataJson = BuildSourceMetadataJson(source),
+            CreatedAt = now,
+            UpdatedAt = now,
+            CompletedAt = source.CompletionState == TaskCompletionState.Completed ? now : null,
+        };
+
+        await UpsertTaskCoreAsync(connection, task, cancellationToken).ConfigureAwait(false);
+        await SetTaskLabelsCoreAsync(connection, task.Id, task.Labels, cancellationToken).ConfigureAwait(false);
+
+        var adopted = source with
+        {
+            AdoptionState = ProviderSourceAdoptionStates.Adopted,
+            AdoptedTaskId = task.Id,
+            UpdatedAt = now,
+        };
+        await UpsertProviderSourceItemCoreAsync(connection, adopted, cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return task;
+    }
+
+    public async Task<bool> SkipProviderSourceItemAsync(string sourceItemId, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        var source = await ReadProviderSourceItemByIdAsync(connection, sourceItemId, cancellationToken).ConfigureAwait(false);
+        if (source is null || source.AdoptionState == ProviderSourceAdoptionStates.Adopted)
+        {
+            return false;
+        }
+
+        var skipped = source with
+        {
+            AdoptionState = ProviderSourceAdoptionStates.Ignored,
+            UpdatedAt = DateTimeOffset.UtcNow,
+        };
+        await UpsertProviderSourceItemCoreAsync(connection, skipped, cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return true;
+    }
+
+    public async Task<bool> UnskipProviderSourceItemAsync(string sourceItemId, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        var source = await ReadProviderSourceItemByIdAsync(connection, sourceItemId, cancellationToken).ConfigureAwait(false);
+        if (source is null || source.AdoptionState != ProviderSourceAdoptionStates.Ignored)
+        {
+            return false;
+        }
+
+        var unskipped = source with
+        {
+            AdoptionState = ProviderSourceAdoptionStates.NotAdopted,
+            UpdatedAt = DateTimeOffset.UtcNow,
+        };
+        await UpsertProviderSourceItemCoreAsync(connection, unskipped, cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return true;
+    }
+
+    public async Task<IReadOnlyList<SyncRouteInfo>> GetSyncRoutesAsync(CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT id, workspace_id, name, source_connection_id, target_connection_id, mode, visibility,
+                   schedule, is_enabled, settings, created_at, updated_at
+            FROM sync_routes
+            ORDER BY name
+            """;
+
+        var routes = new List<SyncRouteInfo>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            routes.Add(new SyncRouteInfo
+            {
+                Id = reader.GetString(0),
+                WorkspaceId = reader.GetString(1),
+                Name = reader.GetString(2),
+                SourceConnectionId = GetNullableString(reader, 3),
+                TargetConnectionId = GetNullableString(reader, 4),
+                Mode = reader.GetString(5),
+                Visibility = reader.GetString(6),
+                ScheduleJson = GetNullableString(reader, 7),
+                IsEnabled = reader.GetInt32(8) != 0,
+                SettingsJson = GetNullableString(reader, 9),
+                CreatedAt = ReadDate(reader, 10) ?? DateTimeOffset.UtcNow,
+                UpdatedAt = ReadDate(reader, 11),
+            });
+        }
+
+        return routes;
+    }
+
+    public async Task UpsertSyncRouteAsync(SyncRouteInfo route, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO sync_routes (id, workspace_id, name, source_connection_id, target_connection_id, mode, visibility,
+                                     schedule, is_enabled, settings, created_at, updated_at)
+            VALUES (@id, @workspace_id, @name, @source_connection_id, @target_connection_id, @mode, @visibility,
+                    @schedule, @is_enabled, @settings, @created_at, @updated_at)
+            ON CONFLICT(id) DO UPDATE SET
+                workspace_id = excluded.workspace_id,
+                name = excluded.name,
+                source_connection_id = excluded.source_connection_id,
+                target_connection_id = excluded.target_connection_id,
+                mode = excluded.mode,
+                visibility = excluded.visibility,
+                schedule = excluded.schedule,
+                is_enabled = excluded.is_enabled,
+                settings = excluded.settings,
+                updated_at = excluded.updated_at
+            """;
+        command.Parameters.AddWithValue("@id", route.Id);
+        command.Parameters.AddWithValue("@workspace_id", route.WorkspaceId);
+        command.Parameters.AddWithValue("@name", route.Name);
+        command.Parameters.AddWithValue("@source_connection_id", ToDbValue(route.SourceConnectionId));
+        command.Parameters.AddWithValue("@target_connection_id", ToDbValue(route.TargetConnectionId));
+        command.Parameters.AddWithValue("@mode", route.Mode);
+        command.Parameters.AddWithValue("@visibility", route.Visibility);
+        command.Parameters.AddWithValue("@schedule", ToDbValue(route.ScheduleJson));
+        command.Parameters.AddWithValue("@is_enabled", route.IsEnabled ? 1 : 0);
+        command.Parameters.AddWithValue("@settings", ToDbValue(route.SettingsJson));
+        command.Parameters.AddWithValue("@created_at", ToDbDate(route.CreatedAt));
+        command.Parameters.AddWithValue("@updated_at", ToDbValue(route.UpdatedAt));
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task RecordSyncRouteRunAsync(SyncRouteRunInfo run, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO sync_runs (id, route_id, connection_id, started_at, finished_at, status, summary, error)
+            VALUES (@id, @route_id, @connection_id, @started_at, @finished_at, @status, @summary, @error)
+            ON CONFLICT(id) DO UPDATE SET
+                route_id = excluded.route_id,
+                connection_id = excluded.connection_id,
+                finished_at = excluded.finished_at,
+                status = excluded.status,
+                summary = excluded.summary,
+                error = excluded.error
+            """;
+        command.Parameters.AddWithValue("@id", run.Id);
+        command.Parameters.AddWithValue("@route_id", ToDbValue(run.RouteId));
+        command.Parameters.AddWithValue("@connection_id", ToDbValue(run.ConnectionId));
+        command.Parameters.AddWithValue("@started_at", ToDbDate(run.StartedAt));
+        command.Parameters.AddWithValue("@finished_at", ToDbValue(run.FinishedAt));
+        command.Parameters.AddWithValue("@status", run.Status);
+        command.Parameters.AddWithValue("@summary", ToDbValue(run.SummaryJson));
+        command.Parameters.AddWithValue("@error", ToDbValue(run.Error));
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<IReadOnlyList<SyncRouteRunInfo>> GetSyncRouteRunsAsync(string? routeId = null, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT id, route_id, connection_id, started_at, finished_at, status, summary, error
+            FROM sync_runs
+            WHERE @route_id IS NULL OR route_id = @route_id
+            ORDER BY started_at DESC
+            """;
+        command.Parameters.AddWithValue("@route_id", (object?)routeId ?? DBNull.Value);
+
+        var runs = new List<SyncRouteRunInfo>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            runs.Add(new SyncRouteRunInfo
+            {
+                Id = reader.GetString(0),
+                RouteId = GetNullableString(reader, 1),
+                ConnectionId = GetNullableString(reader, 2),
+                StartedAt = ReadDate(reader, 3) ?? DateTimeOffset.UtcNow,
+                FinishedAt = ReadDate(reader, 4),
+                Status = reader.GetString(5),
+                SummaryJson = GetNullableString(reader, 6),
+                Error = GetNullableString(reader, 7),
+            });
+        }
+
+        return runs;
+    }
+
     public async Task UpsertTaskAsync(TaskItem task, CancellationToken cancellationToken = default)
     {
         await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
@@ -244,13 +746,15 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         var command = connection.CreateCommand();
         command.CommandText = """
-            INSERT INTO projects (id, external_id, integration_id, name, description, color, icon, parent_id,
-                                  sort_order, is_favorite, is_archived, provider_metadata, created_at, updated_at)
-            VALUES (@id, @external_id, @integration_id, @name, @description, @color, @icon, @parent_id,
-                    @sort_order, @is_favorite, @is_archived, @provider_metadata, @created_at, @updated_at)
+            INSERT INTO projects (id, external_id, space_id, integration_id, provider_connection_id, name, description, color, icon, parent_id,
+                                  sort_order, is_favorite, is_archived, status, provider_metadata, created_at, updated_at)
+            VALUES (@id, @external_id, @space_id, @integration_id, @provider_connection_id, @name, @description, @color, @icon, @parent_id,
+                    @sort_order, @is_favorite, @is_archived, @status, @provider_metadata, @created_at, @updated_at)
             ON CONFLICT(id) DO UPDATE SET
                 external_id = excluded.external_id,
+                space_id = excluded.space_id,
                 integration_id = excluded.integration_id,
+                provider_connection_id = excluded.provider_connection_id,
                 name = excluded.name,
                 description = excluded.description,
                 color = excluded.color,
@@ -259,6 +763,7 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
                 sort_order = excluded.sort_order,
                 is_favorite = excluded.is_favorite,
                 is_archived = excluded.is_archived,
+                status = excluded.status,
                 provider_metadata = excluded.provider_metadata,
                 updated_at = excluded.updated_at
             """;
@@ -296,7 +801,7 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
 
         var taskCommand = connection.CreateCommand();
         taskCommand.CommandText = moveTasksToInbox
-            ? "UPDATE tasks SET project_id = NULL, updated_at = @updated_at WHERE project_id = @project_id"
+            ? "UPDATE tasks SET project_id = NULL, workflow_status = CASE WHEN completion_state = 'open' THEN 'inbox' ELSE workflow_status END, updated_at = @updated_at WHERE project_id = @project_id"
             : "DELETE FROM tasks WHERE project_id = @project_id";
         taskCommand.Parameters.AddWithValue("@project_id", projectId);
         if (moveTasksToInbox)
@@ -399,6 +904,7 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
     public async Task UpdateIntegrationSyncAsync(string id, DateTimeOffset lastSyncAt, string? syncToken, CancellationToken cancellationToken = default)
     {
         await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         var command = connection.CreateCommand();
         command.CommandText = """
             UPDATE integrations
@@ -410,6 +916,19 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         command.Parameters.AddWithValue("@last_sync_at", ToDbDate(lastSyncAt));
         command.Parameters.AddWithValue("@sync_token", (object?)syncToken ?? DBNull.Value);
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+
+        var connectionCommand = connection.CreateCommand();
+        connectionCommand.CommandText = """
+            UPDATE provider_connections
+            SET last_sync_at = @last_sync_at,
+                updated_at = @last_sync_at
+            WHERE integration_id = @integration_id
+            """;
+        connectionCommand.Parameters.AddWithValue("@integration_id", id);
+        connectionCommand.Parameters.AddWithValue("@last_sync_at", ToDbDate(lastSyncAt));
+        await connectionCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
     }
 
     private async Task SetCompletionStateAsync(string taskId, bool completed, CancellationToken cancellationToken)
@@ -419,13 +938,13 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         var command = connection.CreateCommand();
         command.CommandText = """
             UPDATE tasks
-            SET status = @status,
+            SET completion_state = @completion_state,
                 completed_at = @completed_at,
                 updated_at = @updated_at
             WHERE id = @id
             """;
         command.Parameters.AddWithValue("@id", taskId);
-        command.Parameters.AddWithValue("@status", completed ? "completed" : "none");
+        command.Parameters.AddWithValue("@completion_state", completed ? "completed" : "open");
         command.Parameters.AddWithValue("@completed_at", completed ? ToDbDate(now) : DBNull.Value);
         command.Parameters.AddWithValue("@updated_at", ToDbDate(now));
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
@@ -445,6 +964,193 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         command.Parameters.AddWithValue("@configured", configured.HasValue ? (configured.Value ? 1 : 0) : DBNull.Value);
         command.Parameters.AddWithValue("@active", active.HasValue ? (active.Value ? 1 : 0) : DBNull.Value);
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+
+        if (configured.HasValue)
+        {
+            var connectionCommand = connection.CreateCommand();
+            connectionCommand.CommandText = """
+                UPDATE provider_connections
+                SET status = @status,
+                    updated_at = @updated_at
+                WHERE integration_id = @integration_id
+                """;
+            connectionCommand.Parameters.AddWithValue("@integration_id", id);
+            connectionCommand.Parameters.AddWithValue("@status", configured.Value ? "connected" : "disconnected");
+            connectionCommand.Parameters.AddWithValue("@updated_at", ToDbDate(DateTimeOffset.UtcNow));
+            await connectionCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+    }
+
+    private static async Task<ProviderSourceItem?> ReadProviderSourceItemByIdAsync(SqliteConnection connection, string id, CancellationToken cancellationToken)
+    {
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT id, integration_id, provider_connection_id, external_id, provider_task_id, title, description,
+                   source_project_id, source_project_name, suggested_space_id, priority, completion_state,
+                   planned_on, planned_at, deadline_on, deadline_at, source_url,
+                   snapshot_json, adoption_state, adopted_task_id, first_seen_at, last_seen_at, updated_at
+            FROM provider_source_items
+            WHERE id = @id
+            """;
+        command.Parameters.AddWithValue("@id", id);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        return await reader.ReadAsync(cancellationToken).ConfigureAwait(false) ? ReadProviderSourceItem(reader) : null;
+    }
+
+    private static async Task<ProviderSourceItem?> ReadProviderSourceItemByExternalAsync(SqliteConnection connection, string providerConnectionId, string externalId, CancellationToken cancellationToken)
+    {
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT id, integration_id, provider_connection_id, external_id, provider_task_id, title, description,
+                   source_project_id, source_project_name, suggested_space_id, priority, completion_state,
+                   planned_on, planned_at, deadline_on, deadline_at, source_url,
+                   snapshot_json, adoption_state, adopted_task_id, first_seen_at, last_seen_at, updated_at
+            FROM provider_source_items
+            WHERE provider_connection_id = @provider_connection_id AND external_id = @external_id
+            """;
+        command.Parameters.AddWithValue("@provider_connection_id", providerConnectionId);
+        command.Parameters.AddWithValue("@external_id", externalId);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        return await reader.ReadAsync(cancellationToken).ConfigureAwait(false) ? ReadProviderSourceItem(reader) : null;
+    }
+
+    private static async Task UpsertProviderSourceItemCoreAsync(SqliteConnection connection, ProviderSourceItem source, CancellationToken cancellationToken)
+    {
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO provider_source_items (id, integration_id, provider_connection_id, external_id, provider_task_id, title, description,
+                                               source_project_id, source_project_name, suggested_space_id, priority, completion_state,
+                                               planned_on, planned_at, deadline_on, deadline_at,
+                                               source_url, snapshot_json, adoption_state, adopted_task_id, first_seen_at, last_seen_at, updated_at)
+            VALUES (@id, @integration_id, @provider_connection_id, @external_id, @provider_task_id, @title, @description,
+                    @source_project_id, @source_project_name, @suggested_space_id, @priority, @completion_state,
+                    @planned_on, @planned_at, @deadline_on, @deadline_at,
+                    @source_url, @snapshot_json, @adoption_state, @adopted_task_id, @first_seen_at, @last_seen_at, @updated_at)
+            ON CONFLICT(provider_connection_id, external_id) DO UPDATE SET
+                provider_task_id = excluded.provider_task_id,
+                title = excluded.title,
+                description = excluded.description,
+                source_project_id = excluded.source_project_id,
+                source_project_name = excluded.source_project_name,
+                suggested_space_id = excluded.suggested_space_id,
+                priority = excluded.priority,
+                completion_state = excluded.completion_state,
+                planned_on = excluded.planned_on,
+                planned_at = excluded.planned_at,
+                deadline_on = excluded.deadline_on,
+                deadline_at = excluded.deadline_at,
+                source_url = excluded.source_url,
+                snapshot_json = excluded.snapshot_json,
+                adoption_state = excluded.adoption_state,
+                adopted_task_id = excluded.adopted_task_id,
+                last_seen_at = excluded.last_seen_at,
+                updated_at = excluded.updated_at
+            """;
+        command.Parameters.AddWithValue("@id", source.Id);
+        command.Parameters.AddWithValue("@integration_id", source.IntegrationId);
+        command.Parameters.AddWithValue("@provider_connection_id", source.ProviderConnectionId);
+        command.Parameters.AddWithValue("@external_id", source.ExternalId);
+        command.Parameters.AddWithValue("@provider_task_id", source.ProviderTaskId);
+        command.Parameters.AddWithValue("@title", source.Title);
+        command.Parameters.AddWithValue("@description", ToDbValue(source.Description));
+        command.Parameters.AddWithValue("@source_project_id", ToDbValue(source.SourceProjectId));
+        command.Parameters.AddWithValue("@source_project_name", ToDbValue(source.SourceProjectName));
+        command.Parameters.AddWithValue("@suggested_space_id", ToDbValue(source.SuggestedSpaceId));
+        command.Parameters.AddWithValue("@priority", source.Priority);
+        command.Parameters.AddWithValue("@completion_state", source.CompletionState.ToStorageValue());
+        command.Parameters.AddWithValue("@planned_on", ToDbValue(source.PlannedOn));
+        command.Parameters.AddWithValue("@planned_at", ToDbValue(source.PlannedAt));
+        command.Parameters.AddWithValue("@deadline_on", ToDbValue(source.DeadlineOn));
+        command.Parameters.AddWithValue("@deadline_at", ToDbValue(source.DeadlineAt));
+        command.Parameters.AddWithValue("@source_url", ToDbValue(source.SourceUrl));
+        command.Parameters.AddWithValue("@snapshot_json", ToDbValue(source.SnapshotJson));
+        command.Parameters.AddWithValue("@adoption_state", source.AdoptionState);
+        command.Parameters.AddWithValue("@adopted_task_id", ToDbValue(source.AdoptedTaskId));
+        command.Parameters.AddWithValue("@first_seen_at", ToDbDate(source.FirstSeenAt));
+        command.Parameters.AddWithValue("@last_seen_at", ToDbDate(source.LastSeenAt));
+        command.Parameters.AddWithValue("@updated_at", ToDbValue(source.UpdatedAt));
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task RefreshAdoptedTaskFromSourceAsync(SqliteConnection connection, ProviderSourceItem source, CancellationToken cancellationToken)
+    {
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE tasks
+            SET title = @title,
+                description = @description,
+                completion_state = @completion_state,
+                source_provider_task_id = @source_provider_task_id,
+                source_url = @source_url,
+                source_metadata = @source_metadata,
+                updated_at = @updated_at,
+                completed_at = CASE
+                    WHEN @completion_state = 'completed' THEN COALESCE(completed_at, @updated_at)
+                    ELSE NULL
+                END
+            WHERE id = @task_id
+            """;
+        command.Parameters.AddWithValue("@task_id", source.AdoptedTaskId);
+        command.Parameters.AddWithValue("@title", source.Title);
+        command.Parameters.AddWithValue("@description", ToDbValue(source.Description));
+        command.Parameters.AddWithValue("@completion_state", source.CompletionState.ToStorageValue());
+        command.Parameters.AddWithValue("@source_provider_task_id", source.ProviderTaskId);
+        command.Parameters.AddWithValue("@source_url", ToDbValue(source.SourceUrl));
+        command.Parameters.AddWithValue("@source_metadata", BuildSourceMetadataJson(source));
+        command.Parameters.AddWithValue("@updated_at", ToDbDate(DateTimeOffset.UtcNow));
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private static ProviderSourceItem ReadProviderSourceItem(IDataRecord reader) => new()
+    {
+        Id = reader.GetString(0),
+        IntegrationId = reader.GetString(1),
+        ProviderConnectionId = reader.GetString(2),
+        ExternalId = reader.GetString(3),
+        ProviderTaskId = reader.GetString(4),
+        Title = reader.GetString(5),
+        Description = GetNullableString(reader, 6),
+        SourceProjectId = GetNullableString(reader, 7),
+        SourceProjectName = GetNullableString(reader, 8),
+        SuggestedSpaceId = GetNullableString(reader, 9),
+        Priority = reader.GetInt32(10),
+        CompletionState = TaskStatusExtensions.CompletionFromStorageValue(reader.GetString(11)),
+        PlannedOn = ReadDateOnly(reader, 12),
+        PlannedAt = ReadDate(reader, 13),
+        DeadlineOn = ReadDateOnly(reader, 14),
+        DeadlineAt = ReadDate(reader, 15),
+        SourceUrl = GetNullableString(reader, 16),
+        SnapshotJson = GetNullableString(reader, 17),
+        AdoptionState = reader.GetString(18),
+        AdoptedTaskId = GetNullableString(reader, 19),
+        FirstSeenAt = ReadDate(reader, 20) ?? DateTimeOffset.UtcNow,
+        LastSeenAt = ReadDate(reader, 21) ?? DateTimeOffset.UtcNow,
+        UpdatedAt = ReadDate(reader, 22),
+    };
+
+    private static string BuildProviderSourceItemId(string providerConnectionId, string externalId) =>
+        $"source_{ToStableId(providerConnectionId)}_{ToStableId(externalId)}";
+
+    private static string ToStableId(string value) =>
+        Convert.ToHexString(System.Text.Encoding.UTF8.GetBytes(value)).ToLowerInvariant();
+
+    private static string BuildSourceMetadataJson(ProviderSourceItem source)
+    {
+        return JsonSerializer.Serialize(new
+        {
+            source = new
+            {
+                source.IntegrationId,
+                source.ProviderConnectionId,
+                source.ExternalId,
+                source.ProviderTaskId,
+                source.SourceProjectId,
+                source.SourceProjectName,
+                source.SourceUrl,
+                synced_at = DateTimeOffset.UtcNow,
+            },
+        });
     }
 
     private async Task<IReadOnlyList<TaskItem>> ReadTasksAsync(SqliteConnection connection, CancellationToken cancellationToken)
@@ -452,10 +1158,17 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         var labelsByTask = await ReadLabelsByTaskAsync(connection, cancellationToken).ConfigureAwait(false);
         var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT id, external_id, integration_id, title, description, project_id, parent_id,
-                   priority, status, due_date, due_time, notes, provider_metadata,
-                   created_at, updated_at, completed_at
-            FROM tasks
+            SELECT t.id, t.external_id, t.space_id, t.integration_id, t.title, t.description, t.project_id, t.parent_id,
+                   t.priority, t.source_integration_id, t.source_connection_id, t.source_external_id, t.source_provider_task_id,
+                   t.source_url, t.completion_state, t.workflow_status, t.planned_on, t.planned_at,
+                   t.deadline_on, t.deadline_at, t.scheduled_start, t.scheduled_end, t.duration_minutes, t.recurrence_rule,
+                   t.notes, t.provider_metadata, t.source_metadata, t.local_metadata,
+                   t.created_at, t.updated_at, t.completed_at, t.provider_connection_id, psi.source_project_name,
+                   psi.priority, psi.planned_on, psi.planned_at, psi.deadline_on, psi.deadline_at
+            FROM tasks t
+            LEFT JOIN provider_source_items psi
+              ON psi.provider_connection_id = t.source_connection_id
+             AND psi.external_id = t.source_external_id
             """;
 
         var tasks = new List<TaskItem>();
@@ -467,20 +1180,42 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
             {
                 Id = id,
                 ExternalId = GetNullableString(reader, 1),
-                IntegrationId = reader.GetString(2),
-                Title = reader.GetString(3),
-                Description = GetNullableString(reader, 4),
-                ProjectId = GetNullableString(reader, 5),
-                ParentId = GetNullableString(reader, 6),
-                Priority = reader.GetInt32(7),
-                Status = TaskStatusExtensions.FromStorageValue(reader.GetString(8)),
-                DueDate = ReadDate(reader, 9),
-                DueTime = GetNullableString(reader, 10),
-                Notes = GetNullableString(reader, 11),
-                ProviderMetadataJson = GetNullableString(reader, 12),
-                CreatedAt = ReadDate(reader, 13) ?? DateTimeOffset.UtcNow,
-                UpdatedAt = ReadDate(reader, 14),
-                CompletedAt = ReadDate(reader, 15),
+                SpaceId = reader.GetString(2),
+                IntegrationId = reader.GetString(3),
+                Title = reader.GetString(4),
+                Description = GetNullableString(reader, 5),
+                ProjectId = GetNullableString(reader, 6),
+                ParentId = GetNullableString(reader, 7),
+                Priority = reader.GetInt32(8),
+                SourceIntegrationId = GetNullableString(reader, 9),
+                SourceConnectionId = GetNullableString(reader, 10),
+                SourceExternalId = GetNullableString(reader, 11),
+                SourceProviderTaskId = GetNullableString(reader, 12),
+                SourceUrl = GetNullableString(reader, 13),
+                CompletionState = TaskStatusExtensions.CompletionFromStorageValue(reader.GetString(14)),
+                WorkflowStatus = TaskStatusExtensions.WorkflowFromStorageValue(reader.GetString(15)),
+                PlannedOn = ReadDateOnly(reader, 16),
+                PlannedAt = ReadDate(reader, 17),
+                DeadlineOn = ReadDateOnly(reader, 18),
+                DeadlineAt = ReadDate(reader, 19),
+                ScheduledStart = ReadDate(reader, 20),
+                ScheduledEnd = ReadDate(reader, 21),
+                DurationMinutes = reader.IsDBNull(22) ? null : reader.GetInt32(22),
+                RecurrenceRule = GetNullableString(reader, 23),
+                Notes = GetNullableString(reader, 24),
+                ProviderMetadataJson = GetNullableString(reader, 25),
+                SourceMetadataJson = GetNullableString(reader, 26),
+                LocalMetadataJson = GetNullableString(reader, 27),
+                CreatedAt = ReadDate(reader, 28) ?? DateTimeOffset.UtcNow,
+                UpdatedAt = ReadDate(reader, 29),
+                CompletedAt = ReadDate(reader, 30),
+                ProviderConnectionId = GetNullableString(reader, 31),
+                SourceProjectName = GetNullableString(reader, 32),
+                SourcePriority = reader.IsDBNull(33) ? null : reader.GetInt32(33),
+                SourcePlannedOn = ReadDateOnly(reader, 34),
+                SourcePlannedAt = ReadDate(reader, 35),
+                SourceDeadlineOn = ReadDateOnly(reader, 36),
+                SourceDeadlineAt = ReadDate(reader, 37),
                 Labels = labelsByTask.GetValueOrDefault(id, []),
             });
         }
@@ -492,7 +1227,7 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
     {
         var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT tl.task_id, l.id, l.external_id, l.integration_id, l.name, l.color, l.description,
+            SELECT tl.task_id, l.id, l.external_id, l.integration_id, l.provider_connection_id, l.name, l.color, l.description,
                    l.sort_order, l.is_favorite, l.provider_metadata, l.created_at
             FROM task_labels tl
             INNER JOIN labels l ON l.id = tl.label_id
@@ -515,13 +1250,14 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
                 Id = reader.GetString(1),
                 ExternalId = GetNullableString(reader, 2),
                 IntegrationId = reader.GetString(3),
-                Name = reader.GetString(4),
-                Color = reader.GetString(5),
-                Description = GetNullableString(reader, 6),
-                SortOrder = reader.GetInt32(7),
-                IsFavorite = reader.GetInt32(8) != 0,
-                ProviderMetadataJson = GetNullableString(reader, 9),
-                CreatedAt = ReadDate(reader, 10) ?? DateTimeOffset.UtcNow,
+                ProviderConnectionId = GetNullableString(reader, 4),
+                Name = reader.GetString(5),
+                Color = reader.GetString(6),
+                Description = GetNullableString(reader, 7),
+                SortOrder = reader.GetInt32(8),
+                IsFavorite = reader.GetInt32(9) != 0,
+                ProviderMetadataJson = GetNullableString(reader, 10),
+                CreatedAt = ReadDate(reader, 11) ?? DateTimeOffset.UtcNow,
             });
         }
 
@@ -532,41 +1268,79 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
     {
         var command = connection.CreateCommand();
         command.CommandText = """
-            INSERT INTO tasks (id, external_id, integration_id, title, description, project_id, parent_id,
-                               priority, status, due_date, due_time, notes, provider_metadata,
+            INSERT INTO tasks (id, external_id, space_id, integration_id, provider_connection_id, title, description, project_id, parent_id,
+                               priority, source_integration_id, source_connection_id, source_external_id, source_provider_task_id,
+                               source_url, completion_state, workflow_status, planned_on, planned_at, deadline_on, deadline_at,
+                               scheduled_start, scheduled_end, duration_minutes, recurrence_rule,
+                               notes, provider_metadata, source_metadata, local_metadata,
                                created_at, updated_at, completed_at)
-            VALUES (@id, @external_id, @integration_id, @title, @description, @project_id, @parent_id,
-                    @priority, @status, @due_date, @due_time, @notes, @provider_metadata,
+            VALUES (@id, @external_id, @space_id, @integration_id, @provider_connection_id, @title, @description, @project_id, @parent_id,
+                    @priority, @source_integration_id, @source_connection_id, @source_external_id, @source_provider_task_id,
+                    @source_url, @completion_state, @workflow_status, @planned_on, @planned_at, @deadline_on, @deadline_at,
+                    @scheduled_start, @scheduled_end, @duration_minutes, @recurrence_rule,
+                    @notes, @provider_metadata, @source_metadata, @local_metadata,
                     @created_at, @updated_at, @completed_at)
             ON CONFLICT(id) DO UPDATE SET
                 external_id = excluded.external_id,
+                space_id = excluded.space_id,
                 integration_id = excluded.integration_id,
+                provider_connection_id = excluded.provider_connection_id,
                 title = excluded.title,
                 description = excluded.description,
                 project_id = excluded.project_id,
                 parent_id = excluded.parent_id,
                 priority = excluded.priority,
-                status = excluded.status,
-                due_date = excluded.due_date,
-                due_time = excluded.due_time,
+                source_integration_id = excluded.source_integration_id,
+                source_connection_id = excluded.source_connection_id,
+                source_external_id = excluded.source_external_id,
+                source_provider_task_id = excluded.source_provider_task_id,
+                source_url = excluded.source_url,
+                completion_state = excluded.completion_state,
+                workflow_status = excluded.workflow_status,
+                planned_on = excluded.planned_on,
+                planned_at = excluded.planned_at,
+                deadline_on = excluded.deadline_on,
+                deadline_at = excluded.deadline_at,
+                scheduled_start = excluded.scheduled_start,
+                scheduled_end = excluded.scheduled_end,
+                duration_minutes = excluded.duration_minutes,
+                recurrence_rule = excluded.recurrence_rule,
                 notes = excluded.notes,
                 provider_metadata = excluded.provider_metadata,
+                source_metadata = excluded.source_metadata,
+                local_metadata = excluded.local_metadata,
                 updated_at = excluded.updated_at,
                 completed_at = excluded.completed_at
             """;
         command.Parameters.AddWithValue("@id", task.Id);
         command.Parameters.AddWithValue("@external_id", ToDbValue(task.ExternalId));
+        command.Parameters.AddWithValue("@space_id", task.SpaceId);
         command.Parameters.AddWithValue("@integration_id", task.IntegrationId);
+        command.Parameters.AddWithValue("@provider_connection_id", ToDbValue(task.ProviderConnectionId));
         command.Parameters.AddWithValue("@title", task.Title);
         command.Parameters.AddWithValue("@description", ToDbValue(task.Description));
         command.Parameters.AddWithValue("@project_id", ToDbValue(task.ProjectId));
         command.Parameters.AddWithValue("@parent_id", ToDbValue(task.ParentId));
         command.Parameters.AddWithValue("@priority", task.Priority);
-        command.Parameters.AddWithValue("@status", task.Status.ToStorageValue());
-        command.Parameters.AddWithValue("@due_date", ToDbValue(task.DueDate));
-        command.Parameters.AddWithValue("@due_time", ToDbValue(task.DueTime));
+        command.Parameters.AddWithValue("@source_integration_id", ToDbValue(task.SourceIntegrationId));
+        command.Parameters.AddWithValue("@source_connection_id", ToDbValue(task.SourceConnectionId));
+        command.Parameters.AddWithValue("@source_external_id", ToDbValue(task.SourceExternalId));
+        command.Parameters.AddWithValue("@source_provider_task_id", ToDbValue(task.SourceProviderTaskId));
+        command.Parameters.AddWithValue("@source_url", ToDbValue(task.SourceUrl));
+        command.Parameters.AddWithValue("@completion_state", task.CompletionState.ToStorageValue());
+        command.Parameters.AddWithValue("@workflow_status", task.WorkflowStatus.ToStorageValue());
+        command.Parameters.AddWithValue("@planned_on", ToDbValue(task.PlannedOn));
+        command.Parameters.AddWithValue("@planned_at", ToDbValue(task.PlannedAt));
+        command.Parameters.AddWithValue("@deadline_on", ToDbValue(task.DeadlineOn));
+        command.Parameters.AddWithValue("@deadline_at", ToDbValue(task.DeadlineAt));
+        command.Parameters.AddWithValue("@scheduled_start", ToDbValue(task.ScheduledStart));
+        command.Parameters.AddWithValue("@scheduled_end", ToDbValue(task.ScheduledEnd));
+        command.Parameters.AddWithValue("@duration_minutes", task.DurationMinutes is null ? DBNull.Value : task.DurationMinutes.Value);
+        command.Parameters.AddWithValue("@recurrence_rule", ToDbValue(task.RecurrenceRule));
         command.Parameters.AddWithValue("@notes", ToDbValue(task.Notes));
         command.Parameters.AddWithValue("@provider_metadata", ToDbValue(task.ProviderMetadataJson));
+        command.Parameters.AddWithValue("@source_metadata", ToDbValue(task.SourceMetadataJson));
+        command.Parameters.AddWithValue("@local_metadata", ToDbValue(task.LocalMetadataJson));
         command.Parameters.AddWithValue("@created_at", ToDbDate(task.CreatedAt));
         command.Parameters.AddWithValue("@updated_at", ToDbValue(task.UpdatedAt));
         command.Parameters.AddWithValue("@completed_at", ToDbValue(task.CompletedAt));
@@ -616,13 +1390,14 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
     {
         var command = connection.CreateCommand();
         command.CommandText = """
-            INSERT INTO labels (id, external_id, integration_id, name, color, description, sort_order,
+            INSERT INTO labels (id, external_id, integration_id, provider_connection_id, name, color, description, sort_order,
                                 is_favorite, provider_metadata, created_at)
-            VALUES (@id, @external_id, @integration_id, @name, @color, @description, @sort_order,
+            VALUES (@id, @external_id, @integration_id, @provider_connection_id, @name, @color, @description, @sort_order,
                     @is_favorite, @provider_metadata, @created_at)
             ON CONFLICT(id) DO UPDATE SET
                 external_id = excluded.external_id,
                 integration_id = excluded.integration_id,
+                provider_connection_id = excluded.provider_connection_id,
                 name = excluded.name,
                 color = excluded.color,
                 description = excluded.description,
@@ -633,6 +1408,7 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         command.Parameters.AddWithValue("@id", label.Id);
         command.Parameters.AddWithValue("@external_id", ToDbValue(label.ExternalId));
         command.Parameters.AddWithValue("@integration_id", label.IntegrationId);
+        command.Parameters.AddWithValue("@provider_connection_id", ToDbValue(label.ProviderConnectionId));
         command.Parameters.AddWithValue("@name", label.Name);
         command.Parameters.AddWithValue("@color", label.Color);
         command.Parameters.AddWithValue("@description", ToDbValue(label.Description));
@@ -647,7 +1423,9 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
     {
         command.Parameters.AddWithValue("@id", project.Id);
         command.Parameters.AddWithValue("@external_id", ToDbValue(project.ExternalId));
+        command.Parameters.AddWithValue("@space_id", project.SpaceId);
         command.Parameters.AddWithValue("@integration_id", project.IntegrationId);
+        command.Parameters.AddWithValue("@provider_connection_id", ToDbValue(project.ProviderConnectionId));
         command.Parameters.AddWithValue("@name", project.Name);
         command.Parameters.AddWithValue("@description", ToDbValue(project.Description));
         command.Parameters.AddWithValue("@color", project.Color);
@@ -655,28 +1433,53 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         command.Parameters.AddWithValue("@parent_id", ToDbValue(project.ParentId));
         command.Parameters.AddWithValue("@sort_order", project.SortOrder);
         command.Parameters.AddWithValue("@is_favorite", project.IsFavorite ? 1 : 0);
-        command.Parameters.AddWithValue("@is_archived", project.IsArchived ? 1 : 0);
+        var status = project.EffectiveStatus;
+        command.Parameters.AddWithValue("@is_archived", status == ProjectLifecycleStates.Archived ? 1 : 0);
+        command.Parameters.AddWithValue("@status", status);
         command.Parameters.AddWithValue("@provider_metadata", ToDbValue(project.ProviderMetadataJson));
         command.Parameters.AddWithValue("@created_at", ToDbDate(project.CreatedAt));
         command.Parameters.AddWithValue("@updated_at", ToDbValue(project.UpdatedAt));
     }
 
-    private static ProjectItem ReadProject(IDataRecord reader) => new()
+    private static ProjectItem ReadProject(IDataRecord reader)
+    {
+        var legacyArchived = reader.GetInt32(12) != 0;
+        var status = legacyArchived
+            ? ProjectLifecycleStates.Archived
+            : ProjectLifecycleStates.Normalize(GetNullableString(reader, 13));
+
+        return new ProjectItem
+        {
+            Id = reader.GetString(0),
+            ExternalId = GetNullableString(reader, 1),
+            SpaceId = reader.GetString(2),
+            IntegrationId = reader.GetString(3),
+            ProviderConnectionId = GetNullableString(reader, 4),
+            Name = reader.GetString(5),
+            Description = GetNullableString(reader, 6),
+            Color = GetNullableString(reader, 7) ?? "#808080",
+            Icon = GetNullableString(reader, 8),
+            ParentId = GetNullableString(reader, 9),
+            SortOrder = reader.GetInt32(10),
+            IsFavorite = reader.GetInt32(11) != 0,
+            IsArchived = status == ProjectLifecycleStates.Archived,
+            Status = status,
+            ProviderMetadataJson = GetNullableString(reader, 14),
+            CreatedAt = ReadDate(reader, 15) ?? DateTimeOffset.UtcNow,
+            UpdatedAt = ReadDate(reader, 16),
+        };
+    }
+
+    private static SpaceItem ReadSpace(IDataRecord reader) => new()
     {
         Id = reader.GetString(0),
-        ExternalId = GetNullableString(reader, 1),
-        IntegrationId = reader.GetString(2),
-        Name = reader.GetString(3),
-        Description = GetNullableString(reader, 4),
-        Color = GetNullableString(reader, 5) ?? "#808080",
-        Icon = GetNullableString(reader, 6),
-        ParentId = GetNullableString(reader, 7),
-        SortOrder = reader.GetInt32(8),
-        IsFavorite = reader.GetInt32(9) != 0,
-        IsArchived = reader.GetInt32(10) != 0,
-        ProviderMetadataJson = GetNullableString(reader, 11),
-        CreatedAt = ReadDate(reader, 12) ?? DateTimeOffset.UtcNow,
-        UpdatedAt = ReadDate(reader, 13),
+        Name = reader.GetString(1),
+        Color = GetNullableString(reader, 2) ?? "#808080",
+        Icon = GetNullableString(reader, 3),
+        SortOrder = reader.GetInt32(4),
+        IsArchived = reader.GetInt32(5) != 0,
+        CreatedAt = ReadDate(reader, 6) ?? DateTimeOffset.UtcNow,
+        UpdatedAt = ReadDate(reader, 7),
     };
 
     private static LabelItem ReadLabel(IDataRecord reader) => new()
@@ -684,13 +1487,14 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         Id = reader.GetString(0),
         ExternalId = GetNullableString(reader, 1),
         IntegrationId = reader.GetString(2),
-        Name = reader.GetString(3),
-        Color = GetNullableString(reader, 4) ?? "#808080",
-        Description = GetNullableString(reader, 5),
-        SortOrder = reader.GetInt32(6),
-        IsFavorite = reader.GetInt32(7) != 0,
-        ProviderMetadataJson = GetNullableString(reader, 8),
-        CreatedAt = ReadDate(reader, 9) ?? DateTimeOffset.UtcNow,
+        ProviderConnectionId = GetNullableString(reader, 3),
+        Name = reader.GetString(4),
+        Color = GetNullableString(reader, 5) ?? "#808080",
+        Description = GetNullableString(reader, 6),
+        SortOrder = reader.GetInt32(7),
+        IsFavorite = reader.GetInt32(8) != 0,
+        ProviderMetadataJson = GetNullableString(reader, 9),
+        CreatedAt = ReadDate(reader, 10) ?? DateTimeOffset.UtcNow,
     };
 
     private async Task<SqliteConnection> OpenConnectionAsync(CancellationToken cancellationToken)
@@ -717,6 +1521,7 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         command.CommandText = SchemaSql;
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         await EnsurePendingCompletionsTableAsync(connection, cancellationToken).ConfigureAwait(false);
+        await ExecutePragmaAsync(connection, "PRAGMA user_version = 3", cancellationToken).ConfigureAwait(false);
     }
 
     private static async Task EnsureLegacySchemaCompatibilityAsync(SqliteConnection connection, CancellationToken cancellationToken)
@@ -725,14 +1530,65 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         try
         {
             await EnsureIntegrationsCompatibilityAsync(connection, cancellationToken).ConfigureAwait(false);
+            await EnsureSpacesCompatibilityAsync(connection, cancellationToken).ConfigureAwait(false);
             await EnsureProjectsCompatibilityAsync(connection, cancellationToken).ConfigureAwait(false);
             await EnsureTasksCompatibilityAsync(connection, cancellationToken).ConfigureAwait(false);
+            await EnsureProviderSourceItemsCompatibilityAsync(connection, cancellationToken).ConfigureAwait(false);
             await EnsureLabelsCompatibilityAsync(connection, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
             await ExecutePragmaAsync(connection, "PRAGMA foreign_keys = ON", cancellationToken).ConfigureAwait(false);
         }
+    }
+
+    private static async Task EnsureProviderSourceItemsCompatibilityAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        if (!await TableExistsAsync(connection, "provider_source_items", cancellationToken).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        await AddColumnIfMissingAsync(connection, "provider_source_items", "suggested_space_id", "TEXT", cancellationToken).ConfigureAwait(false);
+        await AddColumnIfMissingAsync(connection, "provider_source_items", "planned_on", "TEXT", cancellationToken).ConfigureAwait(false);
+        await AddColumnIfMissingAsync(connection, "provider_source_items", "planned_at", "INTEGER", cancellationToken).ConfigureAwait(false);
+        await AddColumnIfMissingAsync(connection, "provider_source_items", "deadline_on", "TEXT", cancellationToken).ConfigureAwait(false);
+        await AddColumnIfMissingAsync(connection, "provider_source_items", "deadline_at", "INTEGER", cancellationToken).ConfigureAwait(false);
+        await AddColumnIfMissingAsync(connection, "provider_source_items", "due_date", "INTEGER", cancellationToken).ConfigureAwait(false);
+        await AddColumnIfMissingAsync(connection, "provider_source_items", "due_time", "TEXT", cancellationToken).ConfigureAwait(false);
+
+        await ExecuteNonQueryAsync(connection, """
+            UPDATE provider_source_items
+            SET planned_on = COALESCE(
+                    planned_on,
+                    CASE WHEN due_date IS NOT NULL THEN date(due_date, 'unixepoch', 'localtime') END
+                ),
+                planned_at = COALESCE(
+                    planned_at,
+                    CASE
+                        WHEN due_date IS NOT NULL
+                             AND (due_time IS NOT NULL OR strftime('%H:%M', due_date, 'unixepoch', 'localtime') != '00:00')
+                        THEN due_date
+                    END
+                )
+            WHERE planned_on IS NULL OR planned_at IS NULL
+            """, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task EnsureSpacesCompatibilityAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        await ExecuteNonQueryAsync(connection, """
+            CREATE TABLE IF NOT EXISTS spaces (
+              id TEXT PRIMARY KEY NOT NULL,
+              name TEXT NOT NULL,
+              color TEXT DEFAULT '#808080',
+              icon TEXT,
+              sort_order INTEGER NOT NULL DEFAULT 0,
+              is_archived INTEGER NOT NULL DEFAULT 0,
+              created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+              updated_at INTEGER
+            )
+            """, cancellationToken).ConfigureAwait(false);
     }
 
     private static async Task EnsureIntegrationsCompatibilityAsync(SqliteConnection connection, CancellationToken cancellationToken)
@@ -774,7 +1630,9 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         }
 
         await AddColumnIfMissingAsync(connection, "projects", "external_id", "TEXT", cancellationToken).ConfigureAwait(false);
+        await AddColumnIfMissingAsync(connection, "projects", "space_id", $"TEXT NOT NULL DEFAULT '{SpaceIds.Default}'", cancellationToken).ConfigureAwait(false);
         await AddColumnIfMissingAsync(connection, "projects", "integration_id", "TEXT DEFAULT 'openza_tasks'", cancellationToken).ConfigureAwait(false);
+        await AddColumnIfMissingAsync(connection, "projects", "provider_connection_id", "TEXT", cancellationToken).ConfigureAwait(false);
         await AddColumnIfMissingAsync(connection, "projects", "description", "TEXT", cancellationToken).ConfigureAwait(false);
         await AddColumnIfMissingAsync(connection, "projects", "color", "TEXT DEFAULT '#808080'", cancellationToken).ConfigureAwait(false);
         await AddColumnIfMissingAsync(connection, "projects", "icon", "TEXT", cancellationToken).ConfigureAwait(false);
@@ -782,6 +1640,7 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         await AddColumnIfMissingAsync(connection, "projects", "sort_order", "INTEGER NOT NULL DEFAULT 0", cancellationToken).ConfigureAwait(false);
         await AddColumnIfMissingAsync(connection, "projects", "is_favorite", "INTEGER NOT NULL DEFAULT 0", cancellationToken).ConfigureAwait(false);
         await AddColumnIfMissingAsync(connection, "projects", "is_archived", "INTEGER NOT NULL DEFAULT 0", cancellationToken).ConfigureAwait(false);
+        await AddColumnIfMissingAsync(connection, "projects", "status", "TEXT NOT NULL DEFAULT 'active'", cancellationToken).ConfigureAwait(false);
         await AddColumnIfMissingAsync(connection, "projects", "provider_metadata", "TEXT", cancellationToken).ConfigureAwait(false);
         await AddColumnIfMissingAsync(connection, "projects", "created_at", "INTEGER", cancellationToken).ConfigureAwait(false);
         await AddColumnIfMissingAsync(connection, "projects", "updated_at", "INTEGER", cancellationToken).ConfigureAwait(false);
@@ -794,11 +1653,13 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
 
         await ExecuteNonQueryAsync(connection, """
             UPDATE projects
-            SET integration_id = COALESCE(NULLIF(integration_id, ''), 'openza_tasks'),
+            SET space_id = COALESCE(NULLIF(space_id, ''), 'space_default'),
+                integration_id = COALESCE(NULLIF(integration_id, ''), 'openza_tasks'),
                 color = COALESCE(color, '#808080'),
                 sort_order = COALESCE(sort_order, 0),
                 is_favorite = COALESCE(is_favorite, 0),
                 is_archived = COALESCE(is_archived, 0),
+                status = CASE WHEN COALESCE(is_archived, 0) = 1 THEN 'archived' ELSE COALESCE(NULLIF(status, ''), 'active') END,
                 created_at = COALESCE(created_at, strftime('%s', 'now'))
             """, cancellationToken).ConfigureAwait(false);
     }
@@ -810,20 +1671,65 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
             return;
         }
 
+        var initialColumns = await GetColumnNamesAsync(connection, "tasks", cancellationToken).ConfigureAwait(false);
+        var hasLegacyStatusColumn = initialColumns.Contains("status");
+
         await AddColumnIfMissingAsync(connection, "tasks", "external_id", "TEXT", cancellationToken).ConfigureAwait(false);
+        await AddColumnIfMissingAsync(connection, "tasks", "space_id", $"TEXT NOT NULL DEFAULT '{SpaceIds.Default}'", cancellationToken).ConfigureAwait(false);
         await AddColumnIfMissingAsync(connection, "tasks", "integration_id", "TEXT DEFAULT 'openza_tasks'", cancellationToken).ConfigureAwait(false);
         await AddColumnIfMissingAsync(connection, "tasks", "description", "TEXT", cancellationToken).ConfigureAwait(false);
         await AddColumnIfMissingAsync(connection, "tasks", "project_id", "TEXT", cancellationToken).ConfigureAwait(false);
         await AddColumnIfMissingAsync(connection, "tasks", "parent_id", "TEXT", cancellationToken).ConfigureAwait(false);
         await AddColumnIfMissingAsync(connection, "tasks", "priority", "INTEGER NOT NULL DEFAULT 2", cancellationToken).ConfigureAwait(false);
-        await AddColumnIfMissingAsync(connection, "tasks", "status", "TEXT DEFAULT 'none'", cancellationToken).ConfigureAwait(false);
+        await AddColumnIfMissingAsync(connection, "tasks", "source_integration_id", "TEXT", cancellationToken).ConfigureAwait(false);
+        await AddColumnIfMissingAsync(connection, "tasks", "source_connection_id", "TEXT", cancellationToken).ConfigureAwait(false);
+        await AddColumnIfMissingAsync(connection, "tasks", "source_external_id", "TEXT", cancellationToken).ConfigureAwait(false);
+        await AddColumnIfMissingAsync(connection, "tasks", "source_provider_task_id", "TEXT", cancellationToken).ConfigureAwait(false);
+        await AddColumnIfMissingAsync(connection, "tasks", "source_url", "TEXT", cancellationToken).ConfigureAwait(false);
+        if (hasLegacyStatusColumn)
+        {
+            await AddColumnIfMissingAsync(connection, "tasks", "status", "TEXT DEFAULT 'none'", cancellationToken).ConfigureAwait(false);
+        }
+        await AddColumnIfMissingAsync(connection, "tasks", "completion_state", "TEXT NOT NULL DEFAULT 'open'", cancellationToken).ConfigureAwait(false);
+        await AddColumnIfMissingAsync(connection, "tasks", "workflow_status", "TEXT NOT NULL DEFAULT 'none'", cancellationToken).ConfigureAwait(false);
+        await AddColumnIfMissingAsync(connection, "tasks", "planned_on", "TEXT", cancellationToken).ConfigureAwait(false);
+        await AddColumnIfMissingAsync(connection, "tasks", "planned_at", "INTEGER", cancellationToken).ConfigureAwait(false);
+        await AddColumnIfMissingAsync(connection, "tasks", "deadline_on", "TEXT", cancellationToken).ConfigureAwait(false);
+        await AddColumnIfMissingAsync(connection, "tasks", "deadline_at", "INTEGER", cancellationToken).ConfigureAwait(false);
         await AddColumnIfMissingAsync(connection, "tasks", "due_date", "INTEGER", cancellationToken).ConfigureAwait(false);
         await AddColumnIfMissingAsync(connection, "tasks", "due_time", "TEXT", cancellationToken).ConfigureAwait(false);
+        await AddColumnIfMissingAsync(connection, "tasks", "planned_date", "INTEGER", cancellationToken).ConfigureAwait(false);
+        await AddColumnIfMissingAsync(connection, "tasks", "scheduled_start", "INTEGER", cancellationToken).ConfigureAwait(false);
+        await AddColumnIfMissingAsync(connection, "tasks", "scheduled_end", "INTEGER", cancellationToken).ConfigureAwait(false);
+        await AddColumnIfMissingAsync(connection, "tasks", "duration_minutes", "INTEGER", cancellationToken).ConfigureAwait(false);
+        await AddColumnIfMissingAsync(connection, "tasks", "recurrence_rule", "TEXT", cancellationToken).ConfigureAwait(false);
         await AddColumnIfMissingAsync(connection, "tasks", "notes", "TEXT", cancellationToken).ConfigureAwait(false);
         await AddColumnIfMissingAsync(connection, "tasks", "provider_metadata", "TEXT", cancellationToken).ConfigureAwait(false);
+        await AddColumnIfMissingAsync(connection, "tasks", "source_metadata", "TEXT", cancellationToken).ConfigureAwait(false);
+        await AddColumnIfMissingAsync(connection, "tasks", "local_metadata", "TEXT", cancellationToken).ConfigureAwait(false);
+        await AddColumnIfMissingAsync(connection, "tasks", "provider_connection_id", "TEXT", cancellationToken).ConfigureAwait(false);
         await AddColumnIfMissingAsync(connection, "tasks", "created_at", "INTEGER", cancellationToken).ConfigureAwait(false);
         await AddColumnIfMissingAsync(connection, "tasks", "updated_at", "INTEGER", cancellationToken).ConfigureAwait(false);
         await AddColumnIfMissingAsync(connection, "tasks", "completed_at", "INTEGER", cancellationToken).ConfigureAwait(false);
+
+        await ExecuteNonQueryAsync(connection, """
+            UPDATE tasks
+            SET planned_on = COALESCE(
+                    planned_on,
+                    CASE WHEN due_date IS NOT NULL THEN date(due_date, 'unixepoch', 'localtime') END,
+                    CASE WHEN planned_date IS NOT NULL THEN date(planned_date, 'unixepoch', 'localtime') END,
+                    CASE WHEN scheduled_start IS NOT NULL THEN date(scheduled_start, 'unixepoch', 'localtime') END
+                ),
+                planned_at = COALESCE(
+                    planned_at,
+                    CASE
+                        WHEN due_date IS NOT NULL
+                             AND (due_time IS NOT NULL OR strftime('%H:%M', due_date, 'unixepoch', 'localtime') != '00:00')
+                        THEN due_date
+                    END
+                )
+            WHERE planned_on IS NULL OR planned_at IS NULL
+            """, cancellationToken).ConfigureAwait(false);
 
         var columns = await GetColumnNamesAsync(connection, "tasks", cancellationToken).ConfigureAwait(false);
         if (columns.Contains("integrations"))
@@ -831,23 +1737,64 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
             await ExecuteNonQueryAsync(connection, "UPDATE tasks SET provider_metadata = integrations WHERE provider_metadata IS NULL", cancellationToken).ConfigureAwait(false);
         }
 
-        await ExecuteNonQueryAsync(connection, """
-            UPDATE tasks
-            SET integration_id = COALESCE(NULLIF(integration_id, ''), 'openza_tasks'),
-                priority = COALESCE(priority, 2),
-                status = COALESCE(NULLIF(status, ''), 'none'),
-                created_at = COALESCE(created_at, strftime('%s', 'now'))
-            """, cancellationToken).ConfigureAwait(false);
+        if (hasLegacyStatusColumn)
+        {
+            await ExecuteNonQueryAsync(connection, """
+                UPDATE tasks
+                SET space_id = COALESCE(NULLIF(space_id, ''), 'space_default'),
+                    integration_id = COALESCE(NULLIF(integration_id, ''), 'openza_tasks'),
+                    priority = COALESCE(priority, 2),
+                    status = COALESCE(NULLIF(status, ''), 'none'),
+                    completion_state = CASE
+                        WHEN status IN ('completed', 'done') THEN 'completed'
+                        WHEN status IN ('cancelled', 'canceled') THEN 'cancelled'
+                        ELSE COALESCE(NULLIF(completion_state, ''), 'open')
+                    END,
+                    workflow_status = CASE
+                        WHEN status = 'next' THEN 'next'
+                        WHEN status = 'waiting' THEN 'waiting'
+                        WHEN status = 'someday' THEN 'someday'
+                        WHEN status IN ('pending', 'active', 'in_progress', 'inProgress', 'none') THEN 'inbox'
+                        ELSE COALESCE(NULLIF(workflow_status, ''), 'none')
+                    END,
+                    created_at = COALESCE(created_at, strftime('%s', 'now'))
+                """, cancellationToken).ConfigureAwait(false);
 
-        await ExecuteNonQueryAsync(connection, """
-            UPDATE tasks
-            SET status = CASE
-                    WHEN status IN ('pending', 'active', 'in_progress', 'inProgress') THEN 'none'
-                    WHEN status = 'done' THEN 'completed'
-                    ELSE status
-                END,
-                project_id = NULLIF(project_id, 'proj_inbox')
-            """, cancellationToken).ConfigureAwait(false);
+            await ExecuteNonQueryAsync(connection, """
+                UPDATE tasks
+                SET status = CASE
+                        WHEN status IN ('pending', 'active', 'in_progress', 'inProgress') THEN 'none'
+                        WHEN status = 'done' THEN 'completed'
+                        ELSE status
+                    END,
+                    completion_state = CASE
+                        WHEN status = 'completed' THEN 'completed'
+                        WHEN status = 'cancelled' THEN 'cancelled'
+                        ELSE completion_state
+                    END,
+                    workflow_status = CASE
+                        WHEN status = 'next' THEN 'next'
+                        WHEN status = 'waiting' THEN 'waiting'
+                        WHEN status = 'someday' THEN 'someday'
+                        WHEN status = 'none' AND workflow_status = 'none' THEN 'inbox'
+                        ELSE workflow_status
+                    END,
+                    project_id = NULLIF(project_id, 'proj_inbox')
+                """, cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            await ExecuteNonQueryAsync(connection, """
+                UPDATE tasks
+                SET space_id = COALESCE(NULLIF(space_id, ''), 'space_default'),
+                    integration_id = COALESCE(NULLIF(integration_id, ''), 'openza_tasks'),
+                    priority = COALESCE(priority, 2),
+                    completion_state = COALESCE(NULLIF(completion_state, ''), 'open'),
+                    workflow_status = COALESCE(NULLIF(workflow_status, ''), 'none'),
+                    project_id = NULLIF(project_id, 'proj_inbox'),
+                    created_at = COALESCE(created_at, strftime('%s', 'now'))
+                """, cancellationToken).ConfigureAwait(false);
+        }
 
         if (await TableExistsAsync(connection, "projects", cancellationToken).ConfigureAwait(false))
         {
@@ -864,6 +1811,7 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
 
         await AddColumnIfMissingAsync(connection, "labels", "external_id", "TEXT", cancellationToken).ConfigureAwait(false);
         await AddColumnIfMissingAsync(connection, "labels", "integration_id", "TEXT DEFAULT 'openza_tasks'", cancellationToken).ConfigureAwait(false);
+        await AddColumnIfMissingAsync(connection, "labels", "provider_connection_id", "TEXT", cancellationToken).ConfigureAwait(false);
         await AddColumnIfMissingAsync(connection, "labels", "color", "TEXT DEFAULT '#808080'", cancellationToken).ConfigureAwait(false);
         await AddColumnIfMissingAsync(connection, "labels", "description", "TEXT", cancellationToken).ConfigureAwait(false);
         await AddColumnIfMissingAsync(connection, "labels", "sort_order", "INTEGER NOT NULL DEFAULT 0", cancellationToken).ConfigureAwait(false);
@@ -907,6 +1855,39 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         return count > 0;
     }
 
+    private static async Task<string?> ResolveProviderSourceSpaceIdAsync(
+        SqliteConnection connection,
+        string? existingSpaceId,
+        string? incomingSpaceId,
+        CancellationToken cancellationToken)
+    {
+        if (await SpaceExistsAsync(connection, existingSpaceId, cancellationToken).ConfigureAwait(false))
+        {
+            return existingSpaceId;
+        }
+
+        if (await SpaceExistsAsync(connection, incomingSpaceId, cancellationToken).ConfigureAwait(false))
+        {
+            return incomingSpaceId;
+        }
+
+        return null;
+    }
+
+    private static async Task<bool> SpaceExistsAsync(SqliteConnection connection, string? spaceId, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(spaceId))
+        {
+            return false;
+        }
+
+        var command = connection.CreateCommand();
+        command.CommandText = "SELECT COUNT(*) FROM spaces WHERE id = @id";
+        command.Parameters.AddWithValue("@id", spaceId);
+        var count = (long)(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) ?? 0L);
+        return count > 0;
+    }
+
     private static async Task<HashSet<string>> GetColumnNamesAsync(SqliteConnection connection, string tableName, CancellationToken cancellationToken)
     {
         var command = connection.CreateCommand();
@@ -926,23 +1907,24 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
     {
         var command = connection.CreateCommand();
         command.CommandText = """
+            INSERT OR IGNORE INTO workspaces (id, name, created_at)
+            VALUES ('default', 'My workspace', strftime('%s', 'now'));
+
+            INSERT OR IGNORE INTO spaces (id, name, color, icon, sort_order, is_archived, created_at)
+            SELECT 'space_default', 'My space', '#808080', 'Folder', 0, 0, strftime('%s', 'now')
+            WHERE NOT EXISTS (SELECT 1 FROM spaces);
+
             INSERT OR IGNORE INTO integrations (id, name, display_name, color, icon, logo_path, is_active, is_configured, created_at)
             VALUES
               ('openza_tasks', 'openza_tasks', 'Openza Tasks', '#6366f1', 'database', NULL, 1, 1, strftime('%s', 'now')),
               ('todoist', 'todoist', 'Todoist', '#E44332', 'check-circle', 'assets/logos/todoist.svg', 0, 0, strftime('%s', 'now')),
               ('msToDo', 'msToDo', 'Microsoft To Do', '#00A4EF', 'layout-grid', 'assets/logos/microsoft.svg', 0, 0, strftime('%s', 'now'));
 
-            INSERT OR IGNORE INTO projects (id, integration_id, name, description, color, icon, created_at)
+            INSERT OR IGNORE INTO provider_connections (id, workspace_id, integration_id, display_name, status, created_at)
             VALUES
-              ('proj_work', 'openza_tasks', 'Work', 'Work-related tasks', '#3b82f6', 'briefcase', strftime('%s', 'now')),
-              ('proj_personal', 'openza_tasks', 'Personal', 'Personal tasks and goals', '#10b981', 'user', strftime('%s', 'now'));
-
-            INSERT OR IGNORE INTO labels (id, integration_id, name, color, created_at)
-            VALUES
-              ('label_urgent', 'openza_tasks', 'urgent', '#ef4444', strftime('%s', 'now')),
-              ('label_important', 'openza_tasks', 'important', '#f59e0b', strftime('%s', 'now')),
-              ('label_learning', 'openza_tasks', 'learning', '#3b82f6', strftime('%s', 'now')),
-              ('label_review', 'openza_tasks', 'review', '#8b5cf6', strftime('%s', 'now'));
+              ('local_default', 'default', 'openza_tasks', 'Openza Tasks', 'connected', strftime('%s', 'now')),
+              ('todoist_default', 'default', 'todoist', 'Todoist', 'disconnected', strftime('%s', 'now')),
+              ('mstodo_default', 'default', 'msToDo', 'Microsoft To Do', 'disconnected', strftime('%s', 'now'));
             """;
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
@@ -990,6 +1972,8 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
 
     private static object ToDbValue(string? value) => string.IsNullOrEmpty(value) ? DBNull.Value : value;
 
+    private static object ToDbValue(DateOnly? value) => value is null ? DBNull.Value : TaskDateValues.ToStorageValue(value.Value)!;
+
     private static object ToDbValue(DateTimeOffset? value) => value is null ? DBNull.Value : ToDbDate(value.Value);
 
     private static long ToDbDate(DateTimeOffset value) => value.ToUnixTimeSeconds();
@@ -1007,6 +1991,9 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
             : DateTimeOffset.FromUnixTimeSeconds(value);
     }
 
+    private static DateOnly? ReadDateOnly(IDataRecord reader, int ordinal) =>
+        reader.IsDBNull(ordinal) ? null : TaskDateValues.FromStorageValue(reader.GetString(ordinal));
+
     private const string SchemaSql = """
         CREATE TABLE IF NOT EXISTS integrations (
           id TEXT PRIMARY KEY NOT NULL,
@@ -1023,10 +2010,42 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
           created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
         );
 
+        CREATE TABLE IF NOT EXISTS workspaces (
+          id TEXT PRIMARY KEY NOT NULL,
+          name TEXT NOT NULL,
+          created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS spaces (
+          id TEXT PRIMARY KEY NOT NULL,
+          name TEXT NOT NULL,
+          color TEXT DEFAULT '#808080',
+          icon TEXT,
+          sort_order INTEGER NOT NULL DEFAULT 0,
+          is_archived INTEGER NOT NULL DEFAULT 0,
+          created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+          updated_at INTEGER
+        );
+
+        CREATE TABLE IF NOT EXISTS provider_connections (
+          id TEXT PRIMARY KEY NOT NULL,
+          workspace_id TEXT NOT NULL DEFAULT 'default' REFERENCES workspaces(id),
+          integration_id TEXT NOT NULL REFERENCES integrations(id),
+          display_name TEXT NOT NULL,
+          account_key TEXT,
+          status TEXT NOT NULL DEFAULT 'disconnected',
+          settings TEXT,
+          last_sync_at INTEGER,
+          created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+          updated_at INTEGER
+        );
+
         CREATE TABLE IF NOT EXISTS projects (
           id TEXT PRIMARY KEY NOT NULL,
           external_id TEXT,
+          space_id TEXT NOT NULL DEFAULT 'space_default' REFERENCES spaces(id),
           integration_id TEXT NOT NULL DEFAULT 'openza_tasks' REFERENCES integrations(id),
+          provider_connection_id TEXT REFERENCES provider_connections(id),
           name TEXT NOT NULL,
           description TEXT,
           color TEXT DEFAULT '#808080',
@@ -1035,6 +2054,7 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
           sort_order INTEGER NOT NULL DEFAULT 0,
           is_favorite INTEGER NOT NULL DEFAULT 0,
           is_archived INTEGER NOT NULL DEFAULT 0,
+          status TEXT NOT NULL DEFAULT 'active',
           provider_metadata TEXT,
           created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
           updated_at INTEGER
@@ -1043,26 +2063,70 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         CREATE TABLE IF NOT EXISTS tasks (
           id TEXT PRIMARY KEY NOT NULL,
           external_id TEXT,
+          space_id TEXT NOT NULL DEFAULT 'space_default' REFERENCES spaces(id),
           integration_id TEXT NOT NULL DEFAULT 'openza_tasks' REFERENCES integrations(id),
+          provider_connection_id TEXT REFERENCES provider_connections(id),
           title TEXT NOT NULL,
           description TEXT,
           project_id TEXT REFERENCES projects(id),
           parent_id TEXT,
           priority INTEGER NOT NULL DEFAULT 2,
-          status TEXT NOT NULL DEFAULT 'none',
-          due_date INTEGER,
-          due_time TEXT,
+          source_integration_id TEXT REFERENCES integrations(id),
+          source_connection_id TEXT REFERENCES provider_connections(id),
+          source_external_id TEXT,
+          source_provider_task_id TEXT,
+          source_url TEXT,
+          completion_state TEXT NOT NULL DEFAULT 'open',
+          workflow_status TEXT NOT NULL DEFAULT 'none',
+          planned_on TEXT,
+          planned_at INTEGER,
+          deadline_on TEXT,
+          deadline_at INTEGER,
+          scheduled_start INTEGER,
+          scheduled_end INTEGER,
+          duration_minutes INTEGER,
+          recurrence_rule TEXT,
           notes TEXT,
           provider_metadata TEXT,
+          source_metadata TEXT,
+          local_metadata TEXT,
           created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
           updated_at INTEGER,
           completed_at INTEGER
+        );
+
+        CREATE TABLE IF NOT EXISTS provider_source_items (
+          id TEXT PRIMARY KEY NOT NULL,
+          integration_id TEXT NOT NULL REFERENCES integrations(id),
+          provider_connection_id TEXT NOT NULL REFERENCES provider_connections(id),
+          external_id TEXT NOT NULL,
+          provider_task_id TEXT NOT NULL,
+          title TEXT NOT NULL,
+          description TEXT,
+          source_project_id TEXT,
+          source_project_name TEXT,
+          suggested_space_id TEXT REFERENCES spaces(id),
+          priority INTEGER NOT NULL DEFAULT 2,
+          completion_state TEXT NOT NULL DEFAULT 'open',
+          planned_on TEXT,
+          planned_at INTEGER,
+          deadline_on TEXT,
+          deadline_at INTEGER,
+          source_url TEXT,
+          snapshot_json TEXT,
+          adoption_state TEXT NOT NULL DEFAULT 'not_adopted',
+          adopted_task_id TEXT REFERENCES tasks(id),
+          first_seen_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+          last_seen_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+          updated_at INTEGER,
+          UNIQUE(provider_connection_id, external_id)
         );
 
         CREATE TABLE IF NOT EXISTS labels (
           id TEXT PRIMARY KEY NOT NULL,
           external_id TEXT,
           integration_id TEXT NOT NULL DEFAULT 'openza_tasks' REFERENCES integrations(id),
+          provider_connection_id TEXT REFERENCES provider_connections(id),
           name TEXT NOT NULL,
           color TEXT DEFAULT '#808080',
           description TEXT,
@@ -1100,11 +2164,95 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
           created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
         );
 
+        CREATE TABLE IF NOT EXISTS sync_routes (
+          id TEXT PRIMARY KEY NOT NULL,
+          workspace_id TEXT NOT NULL DEFAULT 'default' REFERENCES workspaces(id),
+          name TEXT NOT NULL,
+          source_connection_id TEXT REFERENCES provider_connections(id),
+          target_connection_id TEXT REFERENCES provider_connections(id),
+          mode TEXT NOT NULL DEFAULT 'one_way',
+          visibility TEXT NOT NULL DEFAULT 'optional',
+          schedule TEXT,
+          is_enabled INTEGER NOT NULL DEFAULT 0,
+          settings TEXT,
+          created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+          updated_at INTEGER
+        );
+
+        CREATE TABLE IF NOT EXISTS sync_route_mappings (
+          id TEXT PRIMARY KEY NOT NULL,
+          route_id TEXT NOT NULL REFERENCES sync_routes(id) ON DELETE CASCADE,
+          source_field TEXT NOT NULL,
+          target_field TEXT NOT NULL,
+          policy TEXT NOT NULL DEFAULT 'source_wins',
+          transform TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS sync_item_links (
+          id TEXT PRIMARY KEY NOT NULL,
+          route_id TEXT NOT NULL REFERENCES sync_routes(id) ON DELETE CASCADE,
+          source_connection_id TEXT REFERENCES provider_connections(id),
+          source_external_id TEXT NOT NULL,
+          local_task_id TEXT REFERENCES tasks(id),
+          target_connection_id TEXT REFERENCES provider_connections(id),
+          target_external_id TEXT,
+          target_kind TEXT NOT NULL DEFAULT 'task',
+          state TEXT NOT NULL DEFAULT 'active',
+          created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+          updated_at INTEGER
+        );
+
+        CREATE TABLE IF NOT EXISTS sync_field_state (
+          id TEXT PRIMARY KEY NOT NULL,
+          item_link_id TEXT NOT NULL REFERENCES sync_item_links(id) ON DELETE CASCADE,
+          field_key TEXT NOT NULL,
+          source_hash TEXT,
+          target_hash TEXT,
+          last_written_hash TEXT,
+          authority_policy TEXT NOT NULL DEFAULT 'source_wins',
+          conflict_state TEXT NOT NULL DEFAULT 'none',
+          updated_at INTEGER
+        );
+
+        CREATE TABLE IF NOT EXISTS sync_operations (
+          id TEXT PRIMARY KEY NOT NULL,
+          route_id TEXT REFERENCES sync_routes(id) ON DELETE CASCADE,
+          connection_id TEXT REFERENCES provider_connections(id),
+          item_link_id TEXT REFERENCES sync_item_links(id),
+          operation_type TEXT NOT NULL,
+          payload TEXT,
+          status TEXT NOT NULL DEFAULT 'pending',
+          retry_count INTEGER NOT NULL DEFAULT 0,
+          last_error TEXT,
+          created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+          updated_at INTEGER
+        );
+
+        CREATE TABLE IF NOT EXISTS sync_runs (
+          id TEXT PRIMARY KEY NOT NULL,
+          route_id TEXT REFERENCES sync_routes(id) ON DELETE SET NULL,
+          connection_id TEXT REFERENCES provider_connections(id),
+          started_at INTEGER NOT NULL,
+          finished_at INTEGER,
+          status TEXT NOT NULL,
+          summary TEXT,
+          error TEXT
+        );
+
         CREATE INDEX IF NOT EXISTS idx_tasks_integration_id ON tasks(integration_id);
+        CREATE INDEX IF NOT EXISTS idx_tasks_provider_connection_id ON tasks(provider_connection_id);
+        CREATE INDEX IF NOT EXISTS idx_tasks_source ON tasks(source_connection_id, source_external_id);
         CREATE INDEX IF NOT EXISTS idx_tasks_project_id ON tasks(project_id);
-        CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
-        CREATE INDEX IF NOT EXISTS idx_tasks_due_date ON tasks(due_date);
+        CREATE INDEX IF NOT EXISTS idx_tasks_completion_state ON tasks(completion_state);
+        CREATE INDEX IF NOT EXISTS idx_tasks_workflow_status ON tasks(workflow_status);
+        CREATE INDEX IF NOT EXISTS idx_tasks_planned_on ON tasks(planned_on);
+        CREATE INDEX IF NOT EXISTS idx_tasks_planned_at ON tasks(planned_at);
+        CREATE INDEX IF NOT EXISTS idx_tasks_deadline_on ON tasks(deadline_on);
+        CREATE INDEX IF NOT EXISTS idx_tasks_deadline_at ON tasks(deadline_at);
+        CREATE INDEX IF NOT EXISTS idx_tasks_scheduled_start ON tasks(scheduled_start);
         CREATE INDEX IF NOT EXISTS idx_projects_integration_id ON projects(integration_id);
         CREATE INDEX IF NOT EXISTS idx_labels_integration_id ON labels(integration_id);
+        CREATE INDEX IF NOT EXISTS idx_provider_source_items_connection ON provider_source_items(provider_connection_id, adoption_state);
+        CREATE INDEX IF NOT EXISTS idx_sync_item_links_route_source ON sync_item_links(route_id, source_external_id);
         """;
 }

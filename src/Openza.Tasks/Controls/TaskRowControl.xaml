@@ -6,15 +6,15 @@
     <Border
         x:Name="RowSurface"
         Margin="0"
-        Padding="14,10"
-        CornerRadius="6"
+        Padding="10,9"
+        CornerRadius="4"
         BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
         BorderThickness="0,0,0,1"
         Background="Transparent"
         PointerEntered="OnPointerEntered"
         PointerExited="OnPointerExited">
         <Grid
-            MinHeight="50"
+            MinHeight="54"
             ColumnDefinitions="36,*,Auto"
             ColumnSpacing="12">
             <CheckBox
@@ -28,29 +28,59 @@
                 AutomationProperties.Name="{Binding CompletionAutomationName}" />
 
             <StackPanel Grid.Column="1" Spacing="5">
-                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                    <TextBlock
-                        Text="{Binding Title}"
-                        FontSize="14"
-                        FontWeight="SemiBold"
-                        MaxLines="1"
-                        TextTrimming="CharacterEllipsis" />
+                <TextBlock
+                    Text="{Binding Title}"
+                    FontSize="14"
+                    FontWeight="SemiBold"
+                    MaxLines="3"
+                    TextWrapping="WrapWholeWords"
+                    TextTrimming="CharacterEllipsis" />
+                <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="6">
+                    <ItemsControl ItemsSource="{Binding MetadataItems}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <StackPanel Orientation="Horizontal" />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:TaskMetadataPartViewModel">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <TextBlock
+                                        Text="&#x2022;"
+                                        Visibility="{Binding SeparatorVisibility}"
+                                        Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
+                                    <TextBlock
+                                        Text="{Binding Text}"
+                                        MaxLines="1"
+                                        TextTrimming="CharacterEllipsis"
+                                        Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
                     <Border
                         Grid.Column="1"
                         Padding="7,2"
                         CornerRadius="10"
                         Background="{StaticResource OpenzaQuietSurfaceBrush}"
-                        Visibility="{Binding StatusVisibility}">
+                        Visibility="{Binding PriorityCueVisibility}"
+                        VerticalAlignment="Top">
+                        <TextBlock
+                            Text="{Binding PriorityCueText}"
+                            Style="{StaticResource OpenzaCaptionTextBlockStyle}" />
+                    </Border>
+                    <Border
+                        Grid.Column="2"
+                        Padding="7,2"
+                        CornerRadius="10"
+                        Background="{StaticResource OpenzaQuietSurfaceBrush}"
+                        Visibility="{Binding StatusVisibility}"
+                        VerticalAlignment="Top">
                         <TextBlock
                             Text="{Binding StatusText}"
                             Style="{StaticResource OpenzaCaptionTextBlockStyle}" />
                     </Border>
                 </Grid>
-                <TextBlock
-                    Text="{Binding MetadataText}"
-                    MaxLines="1"
-                    TextTrimming="CharacterEllipsis"
-                    Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
                 <TextBlock
                     Text="{Binding SecondaryText}"
                     Visibility="{Binding SecondaryTextVisibility}"

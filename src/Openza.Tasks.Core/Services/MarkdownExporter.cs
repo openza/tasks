@@ -39,7 +39,7 @@ public static class MarkdownExporter
             buffer.AppendLine($"### {Escape(projectName)}");
             buffer.AppendLine();
 
-            foreach (var task in group.OrderBy(t => t.IsCompleted).ThenBy(t => t.Priority).ThenBy(t => t.DueDate))
+            foreach (var task in group.OrderBy(t => t.IsCompleted).ThenBy(t => t.Priority).ThenBy(t => t.PlannedMoment ?? t.DeadlineMoment))
             {
                 WriteTask(buffer, task);
             }
@@ -83,9 +83,14 @@ public static class MarkdownExporter
             });
         }
 
-        if (task.DueDate is not null)
+        if (task.PlannedOn is not null)
         {
-            metadata.Add($"Due: {task.DueDate:yyyy-MM-dd}");
+            metadata.Add($"Date: {task.PlannedOn:yyyy-MM-dd}");
+        }
+
+        if (task.DeadlineOn is not null)
+        {
+            metadata.Add($"Deadline: {task.DeadlineOn:yyyy-MM-dd}");
         }
 
         var labelTags = string.Join(' ', task.Labels.Select(l => $"@{l.Name.Replace(' ', '_')}"));

@@ -33,10 +33,11 @@ public sealed partial class AppShell
             await _store.UpsertTaskAsync(new TaskItem
             {
                 Id = $"local_{Guid.NewGuid():N}",
+                SpaceId = _currentSpaceId,
                 IntegrationId = IntegrationIds.Local,
                 Title = imported.Title,
                 ProjectId = null,
-                Status = imported.IsCompleted ? TaskItemStatus.Completed : TaskItemStatus.None,
+                Status = imported.IsCompleted ? TaskItemStatus.Completed : TaskItemStatus.Inbox,
                 CompletedAt = imported.IsCompleted ? DateTimeOffset.UtcNow : null,
                 CreatedAt = DateTimeOffset.UtcNow,
             }).ConfigureAwait(true);
@@ -58,8 +59,8 @@ public sealed partial class AppShell
             return;
         }
 
-        var tasks = await _store.GetTasksAsync(new TaskQuery()).ConfigureAwait(true);
-        var projects = await _store.GetProjectsAsync(includeArchived: true).ConfigureAwait(true);
+        var tasks = await _store.GetTasksAsync(new TaskQuery { SpaceId = _currentSpaceId }).ConfigureAwait(true);
+        var projects = await _store.GetProjectsAsync(_currentSpaceId, includeArchived: true).ConfigureAwait(true);
         var labels = await _store.GetLabelsAsync().ConfigureAwait(true);
         await FileIO.WriteTextAsync(file, MarkdownExporter.Export(tasks, projects, labels));
         ShowInfo("Export complete", file.Path, InfoBarSeverity.Success);
@@ -67,6 +68,32 @@ public sealed partial class AppShell
 
     private async void OnSyncClicked(object sender, RoutedEventArgs e)
     {
+        await RunSyncAsync(showNoIntegrations: true, showCompletionInfo: true).ConfigureAwait(true);
+    }
+
+    private async Task RunAutomaticSyncAsync()
+    {
+        if (!_settings.Settings.AutoSyncEnabled)
+        {
+            return;
+        }
+
+        await RunSyncAsync(showNoIntegrations: false, showCompletionInfo: false).ConfigureAwait(true);
+    }
+
+    private async Task RunSyncAsync(bool showNoIntegrations, bool showCompletionInfo)
+    {
+        if (_syncInProgress)
+        {
+            if (showCompletionInfo)
+            {
+                ShowInfo("Sync already running", "Openza is already refreshing connected apps.", InfoBarSeverity.Informational);
+            }
+
+            return;
+        }
+
+        _syncInProgress = true;
         SyncPage.SetSyncRunning(true);
         try
         {
@@ -88,29 +115,42 @@ public sealed partial class AppShell
             {
                 await RefreshTasksAsync().ConfigureAwait(true);
             }
+            await RefreshSourceItemsAsync().ConfigureAwait(true);
 
             if (summaries.Count == 0)
             {
-                ShowInfo("No providers connected", "Connect Todoist or Microsoft To Do in Settings.", InfoBarSeverity.Warning);
-                SyncPage.SetLastSyncMessage("No providers are connected.");
+                if (showNoIntegrations)
+                {
+                    ShowInfo("No integrations connected", "Connect Todoist or Microsoft To Do in Settings.", InfoBarSeverity.Warning);
+                }
+
+                SyncPage.SetLastSyncMessage("No integrations are connected.");
                 return;
             }
 
             var failures = summaries.Where(s => !s.Success).ToList();
             var summaryText = string.Join("  ", summaries.Select(s => $"{SourceName(s.Provider)}: +{s.TasksAdded}, updated {s.TasksUpdated}, completions {s.CompletionsSynced}{(s.Success ? string.Empty : $" ({s.Error})")}"));
             SyncPage.SetLastSyncMessage($"{(failures.Count == 0 ? "Last sync completed" : "Last sync needs attention")}: {summaryText}");
-            ShowInfo(
-                failures.Count == 0 ? "Sync complete" : "Sync needs attention",
-                summaryText,
-                failures.Count == 0 ? InfoBarSeverity.Success : InfoBarSeverity.Error);
+            if (showCompletionInfo)
+            {
+                ShowInfo(
+                    failures.Count == 0 ? "Sync complete" : "Sync needs attention",
+                    summaryText,
+                    failures.Count == 0 ? InfoBarSeverity.Success : InfoBarSeverity.Error);
+            }
         }
         catch (Exception exception)
         {
             SyncPage.SetLastSyncMessage($"Sync failed: {exception.Message}");
-            ShowInfo("Sync failed", exception.Message, InfoBarSeverity.Error);
+            AppLog.Write(exception);
+            if (showCompletionInfo)
+            {
+                ShowInfo("Sync failed", exception.Message, InfoBarSeverity.Error);
+            }
         }
         finally
         {
+            _syncInProgress = false;
             SyncPage.SetSyncRunning(false);
         }
     }
@@ -127,7 +167,8 @@ public sealed partial class AppShell
         await _store.SetIntegrationConfiguredAsync(IntegrationIds.Todoist, true).ConfigureAwait(true);
         SettingsPage.ClearTodoistToken();
         await RefreshSettingsStateAsync().ConfigureAwait(true);
-        ShowInfo("Todoist connected", "Run Sync to import tasks.", InfoBarSeverity.Success);
+        ShowInfo("Todoist connected", _settings.Settings.AutoSyncEnabled ? "Openza will sync Todoist automatically." : "Use Sync to import tasks.", InfoBarSeverity.Success);
+        await RunAutomaticSyncAsync().ConfigureAwait(true);
     }
 
     private async void OnConnectMicrosoftClicked(object sender, RoutedEventArgs e)
@@ -144,12 +185,16 @@ public sealed partial class AppShell
         {
             _settings.Settings.MicrosoftToDoClientId = clientId;
             _settings.Settings.MicrosoftToDoTenantId = tenantId;
-            await _settings.SaveAsync().ConfigureAwait(false);
+            await _settings.SaveAsync().ConfigureAwait(true);
 
             var result = await _microsoftAuth.SignInAsync(clientId, tenantId).ConfigureAwait(true);
             await _store.SetIntegrationConfiguredAsync(IntegrationIds.MicrosoftToDo, true).ConfigureAwait(true);
             await RefreshSettingsStateAsync().ConfigureAwait(true);
-            ShowInfo("Microsoft To Do connected", string.IsNullOrWhiteSpace(result.Username) ? "Run Sync to import tasks." : $"{result.Username} connected. Run Sync to import tasks.", InfoBarSeverity.Success);
+            var message = string.IsNullOrWhiteSpace(result.Username)
+                ? "Microsoft To Do connected."
+                : $"{result.Username} connected.";
+            ShowInfo("Microsoft To Do connected", _settings.Settings.AutoSyncEnabled ? $"{message} Openza will sync automatically." : $"{message} Use Sync to import tasks.", InfoBarSeverity.Success);
+            await RunAutomaticSyncAsync().ConfigureAwait(true);
         }
         catch (Exception exception)
         {
@@ -265,8 +310,56 @@ public sealed partial class AppShell
 
     private async void OnAutoBackupToggled(object sender, RoutedEventArgs e)
     {
+        if (_suppressSettingsEvents)
+        {
+            return;
+        }
+
         _settings.Settings.AutoBackupEnabled = SettingsPage.AutoBackupEnabled;
-        await _settings.SaveAsync().ConfigureAwait(false);
+        await _settings.SaveAsync().ConfigureAwait(true);
+    }
+
+    private async void OnAutoSyncToggled(object sender, RoutedEventArgs e)
+    {
+        if (_suppressSettingsEvents)
+        {
+            return;
+        }
+
+        _settings.Settings.AutoSyncEnabled = SettingsPage.AutoSyncEnabled;
+        await _settings.SaveAsync().ConfigureAwait(true);
+        StartAutoSyncTimer();
+        if (_settings.Settings.AutoSyncEnabled)
+        {
+            await RunAutomaticSyncAsync().ConfigureAwait(true);
+            ShowInfo("Automatic sync on", "Connected apps refresh while Openza Tasks is running.", InfoBarSeverity.Success);
+        }
+        else
+        {
+            ShowInfo("Automatic sync off", "Use Sync when you want to refresh connected apps.", InfoBarSeverity.Informational);
+        }
+    }
+
+    private void StartAutoSyncTimer()
+    {
+        _autoSyncTimer?.Stop();
+        _autoSyncTimer = null;
+
+        if (!_settings.Settings.AutoSyncEnabled)
+        {
+            return;
+        }
+
+        var intervalMinutes = Math.Clamp(
+            _settings.Settings.AutoSyncIntervalMinutes <= 0 ? DefaultAutoSyncIntervalMinutes : _settings.Settings.AutoSyncIntervalMinutes,
+            1,
+            60);
+        _autoSyncTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromMinutes(intervalMinutes),
+        };
+        _autoSyncTimer.Tick += async (_, _) => await RunAutomaticSyncAsync().ConfigureAwait(true);
+        _autoSyncTimer.Start();
     }
 
     private async Task RestoreBackupPathAsync(string path)
@@ -309,6 +402,7 @@ public sealed partial class AppShell
         SyncPage.SetProviderStatus(todoistConnected, microsoftConnected);
         SettingsPage.SetMicrosoftConfig(GetMicrosoftClientId(), GetMicrosoftTenantId());
         await RefreshBackupListAsync().ConfigureAwait(true);
+        await RefreshSourceItemsAsync().ConfigureAwait(true);
     }
 
     private Task RefreshBackupListAsync()
@@ -328,11 +422,118 @@ public sealed partial class AppShell
         {
             await _backupService.CreateBackupAsync().ConfigureAwait(true);
             _settings.Settings.LastAutoBackupAt = DateTimeOffset.Now;
-            await _settings.SaveAsync().ConfigureAwait(false);
+            await _settings.SaveAsync().ConfigureAwait(true);
         }
         catch (Exception exception)
         {
             AppLog.Write(exception);
         }
+    }
+
+    private async void OnAddSourceClicked(object? sender, string sourceItemId)
+    {
+        var task = await AddSourceItemToOpenzaAsync(sourceItemId).ConfigureAwait(true);
+        if (task is null)
+        {
+            ShowInfo("Cannot add task", "The connected-app task is no longer available.", InfoBarSeverity.Warning);
+            await RefreshSourceItemsAsync().ConfigureAwait(true);
+            return;
+        }
+
+        await RefreshAfterAddingSourceItemsAsync().ConfigureAwait(true);
+        ShowInfo("Added to Inbox", task.Title, InfoBarSeverity.Success);
+    }
+
+    private async void OnAddAllConnectedTasksClicked(object sender, RoutedEventArgs e)
+    {
+        var items = await _store.GetProviderSourceItemsAsync(spaceId: _currentSpaceId, includeAdopted: false).ConfigureAwait(true);
+        if (items.Count == 0)
+        {
+            ShowInfo("Nothing to add", "No connected-app tasks are waiting.", InfoBarSeverity.Informational);
+            return;
+        }
+
+        var added = 0;
+        foreach (var item in items)
+        {
+            if (await AddSourceItemToOpenzaAsync(item.Id).ConfigureAwait(true) is not null)
+            {
+                added++;
+            }
+        }
+
+        await RefreshAfterAddingSourceItemsAsync().ConfigureAwait(true);
+        ShowInfo("Tasks added", $"{added} task{(added == 1 ? string.Empty : "s")} added to Inbox.", InfoBarSeverity.Success);
+    }
+
+    private async void OnSkipSourceClicked(object? sender, string sourceItemId)
+    {
+        if (!await _store.SkipProviderSourceItemAsync(sourceItemId).ConfigureAwait(true))
+        {
+            ShowInfo("Cannot skip task", "The connected-app task is no longer available.", InfoBarSeverity.Warning);
+            await RefreshSourceItemsAsync().ConfigureAwait(true);
+            return;
+        }
+
+        await RefreshSourceItemsAsync().ConfigureAwait(true);
+        ShowInfo("Skipped", "The task was hidden from Inbox intake. Todoist was not changed.", InfoBarSeverity.Informational);
+    }
+
+    private async void OnUnskipSourceClicked(object? sender, string sourceItemId)
+    {
+        if (!await _store.UnskipProviderSourceItemAsync(sourceItemId).ConfigureAwait(true))
+        {
+            ShowInfo("Cannot restore task", "The skipped task is no longer available.", InfoBarSeverity.Warning);
+            await RefreshSourceItemsAsync().ConfigureAwait(true);
+            return;
+        }
+
+        await RefreshSourceItemsAsync().ConfigureAwait(true);
+        ShowInfo("Restored to intake", "The task is visible in Inbox intake again.", InfoBarSeverity.Informational);
+    }
+
+    private async void OnShowSkippedConnectedTasksChanged(object sender, RoutedEventArgs e)
+    {
+        await RefreshSourceItemsAsync().ConfigureAwait(true);
+    }
+
+    private void OnReviewConnectedTasksClicked(object sender, RoutedEventArgs e)
+    {
+        _selectedTaskId = null;
+        TasksPage.ClearTaskSelection();
+    }
+
+    private async Task RefreshSourceItemsAsync()
+    {
+        var allItems = await _store.GetProviderSourceItemsAsync(spaceId: _currentSpaceId, includeAdopted: false, includeIgnored: true).ConfigureAwait(true);
+        ApplySourceItems(allItems);
+    }
+
+    private void ApplySourceItems(IReadOnlyList<ProviderSourceItem> items)
+    {
+        var waitingItems = items.Where(item => !item.IsSkipped).ToList();
+        var skippedItems = items.Where(item => item.IsSkipped).ToList();
+        var displayItems = TasksPage.ShowSkippedConnectedTasks || waitingItems.Count == 0
+            ? items
+            : waitingItems;
+        SyncPage.SetSourceItems(waitingItems);
+        TasksPage.SetConnectedTasks(
+            displayItems,
+            string.Equals(_currentView, "inbox", StringComparison.Ordinal),
+            waitingItems.Count,
+            skippedItems.Count);
+    }
+
+    private async Task<TaskItem?> AddSourceItemToOpenzaAsync(string sourceItemId)
+    {
+        return await _store.AdoptProviderSourceItemAsync(sourceItemId, _currentSpaceId).ConfigureAwait(true);
+    }
+
+    private async Task RefreshAfterAddingSourceItemsAsync()
+    {
+        await LoadProjectsAsync().ConfigureAwait(true);
+        await LoadLabelsAsync().ConfigureAwait(true);
+        await RefreshTasksAsync().ConfigureAwait(true);
+        await RefreshSourceItemsAsync().ConfigureAwait(true);
     }
 }

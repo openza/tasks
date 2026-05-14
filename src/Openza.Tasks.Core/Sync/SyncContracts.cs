@@ -5,6 +5,13 @@ namespace Openza.Tasks.Core.Sync;
 public interface ISyncProvider
 {
     string IntegrationId { get; }
+    string ProviderConnectionId => IntegrationId switch
+    {
+        IntegrationIds.Local => "local_default",
+        IntegrationIds.Todoist => "todoist_default",
+        IntegrationIds.MicrosoftToDo => "mstodo_default",
+        _ => IntegrationId,
+    };
     Task<ProviderSnapshot> FetchSnapshotAsync(CancellationToken cancellationToken = default);
     Task CompleteTaskAsync(PendingCompletion completion, CancellationToken cancellationToken = default);
 }

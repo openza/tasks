@@ -6,10 +6,11 @@ using Openza.Tasks.Core.Models;
 
 namespace Openza.Tasks.Core.Sync;
 
-public sealed class MicrosoftToDoProvider(HttpClient httpClient, string accessToken) : ISyncProvider
+public sealed class MicrosoftToDoProvider(HttpClient httpClient, string accessToken, string providerConnectionId = "mstodo_default") : ISyncProvider
 {
     private const string BaseUrl = "https://graph.microsoft.com/v1.0";
     public string IntegrationId => IntegrationIds.MicrosoftToDo;
+    public string ProviderConnectionId => providerConnectionId;
 
     public async Task<ProviderSnapshot> FetchSnapshotAsync(CancellationToken cancellationToken = default)
     {
@@ -58,6 +59,7 @@ public sealed class MicrosoftToDoProvider(HttpClient httpClient, string accessTo
                 Id = $"mstodo_{id}",
                 ExternalId = id,
                 IntegrationId = IntegrationIds.MicrosoftToDo,
+                ProviderConnectionId = providerConnectionId,
                 Name = GetString(list, "displayName") ?? "Microsoft To Do",
                 Color = wellKnown == "flaggedEmails" ? "#ef4444" : "#3b82f6",
                 IsFavorite = GetBool(list, "isOwner"),
@@ -87,6 +89,7 @@ public sealed class MicrosoftToDoProvider(HttpClient httpClient, string accessTo
                         Id = BuildCategoryId(name),
                         ExternalId = name,
                         IntegrationId = IntegrationIds.MicrosoftToDo,
+                        ProviderConnectionId = providerConnectionId,
                         Name = name,
                         Color = OutlookCategoryColorToHex(GetString(category, "color")),
                         ProviderMetadataJson = category.GetRawText(),
@@ -111,7 +114,7 @@ public sealed class MicrosoftToDoProvider(HttpClient httpClient, string accessTo
             using var document = await SendJsonAsync(request, cancellationToken).ConfigureAwait(false);
             if (document.RootElement.TryGetProperty("value", out var value))
             {
-                tasks.AddRange(value.EnumerateArray().Select(task => MapTask(task, listId, categories)));
+                tasks.AddRange(value.EnumerateArray().Select(task => MapTask(task, listId, categories, providerConnectionId)));
             }
 
             nextPath = document.RootElement.TryGetProperty("@odata.nextLink", out var next)
@@ -122,7 +125,7 @@ public sealed class MicrosoftToDoProvider(HttpClient httpClient, string accessTo
         return tasks;
     }
 
-    private static TaskItem MapTask(JsonElement task, string listId, IReadOnlyDictionary<string, LabelItem> categories)
+    private static TaskItem MapTask(JsonElement task, string listId, IReadOnlyDictionary<string, LabelItem> categories, string providerConnectionId)
     {
         var id = GetString(task, "id") ?? Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture);
         var due = ParseGraphDate(task, "dueDateTime");
@@ -132,6 +135,7 @@ public sealed class MicrosoftToDoProvider(HttpClient httpClient, string accessTo
             Id = $"mstodo_{id}",
             ExternalId = id,
             IntegrationId = IntegrationIds.MicrosoftToDo,
+            ProviderConnectionId = providerConnectionId,
             Title = GetString(task, "title") ?? string.Empty,
             Description = TryGetNestedString(task, "body", "content"),
             ProjectId = $"mstodo_{listId}",
@@ -146,11 +150,11 @@ public sealed class MicrosoftToDoProvider(HttpClient httpClient, string accessTo
                 "completed" => TaskItemStatus.Completed,
                 _ => TaskItemStatus.None,
             },
-            DueDate = due,
-            DueTime = due is { Hour: > 0 } ? due.Value.ToString("HH:mm", CultureInfo.InvariantCulture) : null,
+            DeadlineOn = TaskDateValues.FromDateTimeOffset(due),
+            DeadlineAt = HasSpecificTime(due) ? due : null,
             CreatedAt = ParseDate(GetString(task, "createdDateTime")) ?? DateTimeOffset.UtcNow,
             CompletedAt = ParseGraphDate(task, "completedDateTime"),
-            Labels = MapCategories(task, categories),
+            Labels = MapCategories(task, categories, providerConnectionId),
             ProviderMetadataJson = JsonSerializer.Serialize(new
             {
                 msToDo = new { id, listId, synced_at = DateTimeOffset.UtcNow },
@@ -207,7 +211,10 @@ public sealed class MicrosoftToDoProvider(HttpClient httpClient, string accessTo
     private static DateTimeOffset? ParseDate(string? value) =>
         DateTimeOffset.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var parsed) ? parsed : null;
 
-    private static IReadOnlyList<LabelItem> MapCategories(JsonElement task, IReadOnlyDictionary<string, LabelItem> categories)
+    private static bool HasSpecificTime(DateTimeOffset? value) =>
+        value is not null && (value.Value.Hour != 0 || value.Value.Minute != 0 || value.Value.Second != 0);
+
+    private static IReadOnlyList<LabelItem> MapCategories(JsonElement task, IReadOnlyDictionary<string, LabelItem> categories, string providerConnectionId)
     {
         if (!task.TryGetProperty("categories", out var value) || value.ValueKind != JsonValueKind.Array)
         {
@@ -224,6 +231,7 @@ public sealed class MicrosoftToDoProvider(HttpClient httpClient, string accessTo
                     Id = BuildCategoryId(name!),
                     ExternalId = name,
                     IntegrationId = IntegrationIds.MicrosoftToDo,
+                    ProviderConnectionId = providerConnectionId,
                     Name = name!,
                     Color = "#0078D4",
                     CreatedAt = DateTimeOffset.UtcNow,

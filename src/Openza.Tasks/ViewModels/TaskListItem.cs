@@ -17,14 +17,8 @@ public sealed class TaskListItem(TaskItem task, ProjectItem? project)
         _ => "Low",
     };
     public string StatusText => Task.Status.ToStorageValue().Replace('_', ' ');
-    public string DueText => Task.DueDate is null ? "No due date" : $"Due {Task.DueDate:MMM d}";
-    public string SourceText => Task.IntegrationId switch
-    {
-        IntegrationIds.Todoist => "Todoist",
-        IntegrationIds.MicrosoftToDo => "Microsoft To Do",
-        IntegrationIds.Obsidian => "Obsidian",
-        _ => "Openza Tasks",
-    };
+    public string DateText => Task.PlannedMoment is null ? "No date" : $"{Task.PlannedMoment:MMM d}";
+    public string SourceText => IntegrationIds.DisplayName(Task.IntegrationId);
     public string CompletionGlyph => Task.IsCompleted ? "\uE73D" : "\uE739";
     public string LabelText => Task.Labels.Count == 0 ? string.Empty : string.Join(", ", Task.Labels.Select(l => l.Name));
 }

@@ -6,9 +6,9 @@ public sealed class QuickAddViewModel
 {
     public string Title { get; init; } = string.Empty;
     public string? ProjectId { get; init; }
-    public TaskItemStatus Status { get; init; } = TaskItemStatus.None;
+    public TaskItemStatus Status { get; init; } = TaskItemStatus.Inbox;
     public int Priority { get; init; } = 3;
-    public DateTimeOffset? DueDate { get; init; }
+    public DateOnly? PlannedOn { get; init; }
     public string LabelsText { get; init; } = string.Empty;
     public bool OpenAfterCreate { get; init; }
 

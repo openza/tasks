@@ -5,11 +5,12 @@ using Openza.Tasks.Core.Models;
 
 namespace Openza.Tasks.Core.Sync;
 
-public sealed class TodoistProvider(HttpClient httpClient, string accessToken) : ISyncProvider
+public sealed class TodoistProvider(HttpClient httpClient, string accessToken, string providerConnectionId = "todoist_default") : ISyncProvider
 {
     private const string BaseUrl = "https://api.todoist.com/api/v1";
     private const int PageSize = 200;
     public string IntegrationId => IntegrationIds.Todoist;
+    public string ProviderConnectionId => providerConnectionId;
 
     public async Task<ProviderSnapshot> FetchSnapshotAsync(CancellationToken cancellationToken = default)
     {
@@ -17,8 +18,8 @@ public sealed class TodoistProvider(HttpClient httpClient, string accessToken) :
         using var projectsJson = await SendPagedJsonAsync("/projects", cancellationToken).ConfigureAwait(false);
         using var labelsJson = await SendPagedJsonAsync("/labels", cancellationToken).ConfigureAwait(false);
 
-        var projects = MapProjects(projectsJson.RootElement);
-        var labels = MapLabels(labelsJson.RootElement);
+        var projects = MapProjects(projectsJson.RootElement, providerConnectionId);
+        var labels = MapLabels(labelsJson.RootElement, providerConnectionId);
         var projectNames = projects.Where(p => p.ExternalId is not null).ToDictionary(p => p.ExternalId!, p => p.Name, StringComparer.Ordinal);
         var tasks = MapTasks(tasksJson.RootElement, projectNames);
 
@@ -109,13 +110,14 @@ public sealed class TodoistProvider(HttpClient httpClient, string accessToken) :
         return string.IsNullOrWhiteSpace(nextCursor) ? null : nextCursor;
     }
 
-    private static IReadOnlyList<ProjectItem> MapProjects(JsonElement root)
+    private static IReadOnlyList<ProjectItem> MapProjects(JsonElement root, string providerConnectionId)
     {
         return root.EnumerateArray().Select(project => new ProjectItem
         {
             Id = $"todoist_{GetString(project, "id")}",
             ExternalId = GetString(project, "id"),
             IntegrationId = IntegrationIds.Todoist,
+            ProviderConnectionId = providerConnectionId,
             Name = GetString(project, "name") ?? "Todoist project",
             Color = TodoistColorToHex(GetString(project, "color")),
             ParentId = PrefixOrNull("todoist_", GetString(project, "parent_id")),
@@ -127,7 +129,7 @@ public sealed class TodoistProvider(HttpClient httpClient, string accessToken) :
         }).ToList();
     }
 
-    private static IReadOnlyList<LabelItem> MapLabels(JsonElement root)
+    private static IReadOnlyList<LabelItem> MapLabels(JsonElement root, string providerConnectionId)
     {
         return root.EnumerateArray().Select(label =>
         {
@@ -137,6 +139,7 @@ public sealed class TodoistProvider(HttpClient httpClient, string accessToken) :
                 Id = $"todoist_label_{name}",
                 ExternalId = GetString(label, "id"),
                 IntegrationId = IntegrationIds.Todoist,
+                ProviderConnectionId = providerConnectionId,
                 Name = name,
                 Color = TodoistColorToHex(GetString(label, "color")),
                 SortOrder = GetInt(label, "order"),
@@ -146,34 +149,38 @@ public sealed class TodoistProvider(HttpClient httpClient, string accessToken) :
         }).ToList();
     }
 
-    private static IReadOnlyList<TaskItem> MapTasks(JsonElement root, IReadOnlyDictionary<string, string> projectNames)
+    private IReadOnlyList<TaskItem> MapTasks(JsonElement root, IReadOnlyDictionary<string, string> projectNames)
     {
         return root.EnumerateArray().Select(task =>
         {
             var id = GetString(task, "id") ?? Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture);
-            var dueDate = ParseTodoistDue(task);
+            var plannedAt = ParseTodoistDue(task);
+            var deadlineAt = ParseTodoistDeadline(task);
             return new TaskItem
             {
                 Id = $"todoist_{id}",
                 ExternalId = id,
                 IntegrationId = IntegrationIds.Todoist,
+                ProviderConnectionId = providerConnectionId,
                 Title = GetString(task, "content") ?? string.Empty,
                 Description = GetString(task, "description"),
                 ProjectId = PrefixOrNull("todoist_", GetString(task, "project_id")),
                 ParentId = PrefixOrNull("todoist_", GetString(task, "parent_id")),
                 Priority = 5 - Math.Clamp(GetInt(task, "priority", defaultValue: 1), 1, 4),
                 Status = GetBool(task, "is_completed") || GetBool(task, "checked") ? TaskItemStatus.Completed : TaskItemStatus.None,
-                DueDate = dueDate,
-                DueTime = dueDate is { Hour: > 0 } ? dueDate.Value.ToString("HH:mm", CultureInfo.InvariantCulture) : null,
+                PlannedOn = TaskDateValues.FromDateTimeOffset(plannedAt),
+                PlannedAt = HasSpecificTime(plannedAt) ? plannedAt : null,
+                DeadlineOn = TaskDateValues.FromDateTimeOffset(deadlineAt),
+                DeadlineAt = HasSpecificTime(deadlineAt) ? deadlineAt : null,
                 CreatedAt = ParseDate(GetString(task, "created_at")) ?? ParseDate(GetString(task, "added_at")) ?? DateTimeOffset.UtcNow,
                 CompletedAt = ParseDate(GetString(task, "completed_at")),
-                Labels = MapTaskLabels(task),
+                Labels = MapTaskLabels(task, providerConnectionId),
                 ProviderMetadataJson = BuildTodoistMetadata(task, projectNames),
             };
         }).ToList();
     }
 
-    private static IReadOnlyList<LabelItem> MapTaskLabels(JsonElement task)
+    private static IReadOnlyList<LabelItem> MapTaskLabels(JsonElement task, string providerConnectionId)
     {
         if (!task.TryGetProperty("labels", out var labels) || labels.ValueKind != JsonValueKind.Array)
         {
@@ -188,6 +195,7 @@ public sealed class TodoistProvider(HttpClient httpClient, string accessToken) :
                 Id = $"todoist_label_{name}",
                 ExternalId = name,
                 IntegrationId = IntegrationIds.Todoist,
+                ProviderConnectionId = providerConnectionId,
                 Name = name,
                 CreatedAt = DateTimeOffset.UtcNow,
             };
@@ -214,6 +222,19 @@ public sealed class TodoistProvider(HttpClient httpClient, string accessToken) :
 
         return ParseDate(GetString(due, "datetime")) ?? ParseDate(GetString(due, "date"));
     }
+
+    private static DateTimeOffset? ParseTodoistDeadline(JsonElement task)
+    {
+        if (!task.TryGetProperty("deadline", out var deadline) || deadline.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
+        {
+            return null;
+        }
+
+        return ParseDate(GetString(deadline, "datetime")) ?? ParseDate(GetString(deadline, "date"));
+    }
+
+    private static bool HasSpecificTime(DateTimeOffset? value) =>
+        value is not null && (value.Value.Hour != 0 || value.Value.Minute != 0 || value.Value.Second != 0);
 
     private static string? PrefixOrNull(string prefix, string? value) => string.IsNullOrWhiteSpace(value) ? null : $"{prefix}{value}";
 

@@ -5,13 +5,21 @@
     <StackPanel
         HorizontalAlignment="Center"
         VerticalAlignment="Center"
+        MaxWidth="360"
         Spacing="8">
-        <FontIcon Glyph="&#xE73E;" FontSize="44" />
-        <TextBlock Text="{x:Bind Title, Mode=OneWay}" Style="{ThemeResource SubtitleTextBlockStyle}" TextAlignment="Center" />
+        <FontIcon
+            Glyph="&#xE73E;"
+            FontSize="36"
+            Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+        <TextBlock
+            Text="{x:Bind Title, Mode=OneWay}"
+            Style="{ThemeResource SubtitleTextBlockStyle}"
+            TextAlignment="Center" />
         <TextBlock
             Text="{x:Bind Message, Mode=OneWay}"
-            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-            TextAlignment="Center" />
+            Style="{StaticResource OpenzaMetadataTextBlockStyle}"
+            TextAlignment="Center"
+            TextWrapping="Wrap" />
         <Button
             Margin="0,8,0,0"
             HorizontalAlignment="Center"

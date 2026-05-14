@@ -8,10 +8,13 @@
     <CornerRadius x:Key="OpenzaRowCornerRadius">8</CornerRadius>
 
     <SolidColorBrush x:Key="OpenzaAccentBrush" Color="#2563EB" />
+    <SolidColorBrush x:Key="OpenzaOnAccentBrush" Color="#FFFFFFFF" />
     <SolidColorBrush x:Key="OpenzaQuietBorderBrush" Color="#1F000000" />
     <SolidColorBrush x:Key="OpenzaQuietSurfaceBrush" Color="#08000000" />
     <SolidColorBrush x:Key="OpenzaQuietHoverBrush" Color="#0F000000" />
+    <SolidColorBrush x:Key="OpenzaNavQuietBadgeBrush" Color="#14000000" />
     <SolidColorBrush x:Key="OpenzaDangerBrush" Color="#B42318" />
+    <SolidColorBrush x:Key="OpenzaOnDangerBrush" Color="#FFFFFFFF" />
 
     <Style x:Key="OpenzaSectionHeaderTextBlockStyle" TargetType="TextBlock" BasedOn="{StaticResource BodyStrongTextBlockStyle}">
         <Setter Property="Margin" Value="0,20,0,6" />
@@ -45,6 +48,16 @@
         <Setter Property="Padding" Value="0" />
         <Setter Property="MinWidth" Value="34" />
         <Setter Property="MinHeight" Value="34" />
+    </Style>
+
+    <Style x:Key="OpenzaNavInfoBadgeStyle" TargetType="InfoBadge">
+        <Setter Property="Background" Value="{StaticResource OpenzaNavQuietBadgeBrush}" />
+        <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
+    </Style>
+
+    <Style x:Key="OpenzaNavDangerInfoBadgeStyle" TargetType="InfoBadge" BasedOn="{StaticResource OpenzaNavInfoBadgeStyle}">
+        <Setter Property="Background" Value="{StaticResource OpenzaDangerBrush}" />
+        <Setter Property="Foreground" Value="{StaticResource OpenzaOnDangerBrush}" />
     </Style>
 
 </ResourceDictionary>

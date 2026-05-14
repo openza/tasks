@@ -6,6 +6,14 @@ public static class IntegrationIds
     public const string Todoist = "todoist";
     public const string MicrosoftToDo = "msToDo";
     public const string Obsidian = "obsidian";
+
+    public static string DisplayName(string integrationId) => integrationId switch
+    {
+        Todoist => "Todoist",
+        MicrosoftToDo => "Microsoft To Do",
+        Obsidian => "Obsidian",
+        _ => "Openza Tasks",
+    };
 }
 
 public sealed record IntegrationInfo

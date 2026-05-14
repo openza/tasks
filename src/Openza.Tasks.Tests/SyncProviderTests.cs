@@ -8,7 +8,7 @@ namespace Openza.Tasks.Tests;
 public sealed class SyncProviderTests
 {
     [Fact]
-    public async Task TodoistProvider_maps_project_labels_due_date_and_completion_endpoint()
+    public async Task TodoistProvider_maps_project_labels_date_and_completion_endpoint()
     {
         var handler = new FakeHttpMessageHandler(request => request.RequestUri?.PathAndQuery switch
         {
@@ -63,6 +63,7 @@ public sealed class SyncProviderTests
         var task = Assert.Single(snapshot.Tasks);
         Assert.Equal("todoist_project1", task.ProjectId);
         Assert.Equal("todoist_parent1", task.ParentId);
+        Assert.Equal(TaskItemStatus.None, task.Status);
         Assert.Equal(1, task.Priority);
         Assert.Equal("release", Assert.Single(task.Labels).Name);
         Assert.Contains(handler.Requests, request => request.Method == HttpMethod.Get && request.Uri.PathAndQuery == "/api/v1/tasks?limit=200");
@@ -124,6 +125,7 @@ public sealed class SyncProviderTests
         Assert.Equal("mstodo_list1", project.Id);
         var task = Assert.Single(snapshot.Tasks);
         Assert.Equal("mstodo_list1", task.ProjectId);
+        Assert.Equal(TaskItemStatus.None, task.Status);
         Assert.Equal(1, task.Priority);
         Assert.Equal("Release", Assert.Single(task.Labels).Name);
         var completionRequest = Assert.Single(handler.Requests, request => request.Method == HttpMethod.Patch);

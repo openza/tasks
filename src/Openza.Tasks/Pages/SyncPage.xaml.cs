@@ -1,5 +1,6 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Openza.Tasks.Core.Models;
 
 namespace Openza.Tasks.Pages;
 
@@ -7,6 +8,7 @@ public sealed partial class SyncPage : UserControl
 {
     public event RoutedEventHandler? RunSyncClicked;
     public event RoutedEventHandler? OpenSettingsClicked;
+    public event RoutedEventHandler? OpenInboxClicked;
 
     public SyncPage()
     {
@@ -34,7 +36,16 @@ public sealed partial class SyncPage : UserControl
         SyncProgress.Visibility = isRunning ? Visibility.Visible : Visibility.Collapsed;
     }
 
+    public void SetSourceItems(IReadOnlyList<ProviderSourceItem> items)
+    {
+        SourceItemsEmptyText.Text = items.Count == 0
+            ? "No connected-app tasks waiting."
+            : $"{items.Count} connected-app task{(items.Count == 1 ? string.Empty : "s")} waiting in Inbox intake.";
+    }
+
     private void OnRunSyncClicked(object sender, RoutedEventArgs e) => RunSyncClicked?.Invoke(sender, e);
 
     private void OnOpenSettingsClicked(object sender, RoutedEventArgs e) => OpenSettingsClicked?.Invoke(sender, e);
+
+    private void OnOpenInboxClicked(object sender, RoutedEventArgs e) => OpenInboxClicked?.Invoke(sender, e);
 }

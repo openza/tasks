@@ -15,6 +15,7 @@ public sealed partial class ProjectsPaneControl : UserControl
         new PropertyMetadata(null));
 
     public event TypedEventHandler<AutoSuggestBox, AutoSuggestBoxTextChangedEventArgs>? SearchTextChanged;
+    public event TypedEventHandler<ProjectsPaneControl, string>? ProjectFilterChanged;
     public event TypedEventHandler<ProjectsPaneControl, string?>? ProjectSelected;
     public event RoutedEventHandler? AddProjectClicked;
     public event TypedEventHandler<ProjectsPaneControl, string>? EditProjectClicked;
@@ -33,12 +34,17 @@ public sealed partial class ProjectsPaneControl : UserControl
 
     public string SearchText => ProjectSearchBox.Text?.Trim() ?? string.Empty;
 
+    public string ProjectFilter => (ProjectFilterBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "all";
+
     public void FocusSearch() => ProjectSearchBox.Focus(FocusState.Programmatic);
 
     private void OnProjectSearchTextChanged(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args) =>
         SearchTextChanged?.Invoke(sender, args);
 
     private void OnAddProjectClicked(object sender, RoutedEventArgs e) => AddProjectClicked?.Invoke(sender, e);
+
+    private void OnProjectFilterChanged(object sender, SelectionChangedEventArgs e) =>
+        ProjectFilterChanged?.Invoke(this, ProjectFilter);
 
     private void OnProjectButtonClicked(object sender, RoutedEventArgs e)
     {

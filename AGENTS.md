@@ -23,6 +23,12 @@ Also follow the shared Openza guidance in `../AGENTS.md`. Keep this file limited
 - Keep sync provider code in `Openza.Tasks.Core`; keep UI code out of provider adapters and repositories.
 - For syncable tasks, update only local-enhancement fields unless the sync engine explicitly owns the provider field.
 
+## Product Principles
+- Keep Openza Tasks flexible, not opinionated. The app may expose factual fields, counts, labels, statuses, dates, sources, and filters, but it should not interpret those facts for the user with judgmental workflow labels such as "needs action".
+- Prefer user-defined labels, filters, and saved views over hardcoded concepts such as context, area, energy, person, or review ritual.
+- Do not add a separate methodology-specific page or signal when the same outcome can be achieved through transparent data, project selection, labels, filters, and custom views.
+- Treat Spaces as user-owned visibility scopes, not provider-specific concepts. Do not hardcode Work/Personal or any user's routing logic in app code; put one-off routing in explicit import/setup scripts or future user-configurable rules.
+
 ## Testing Guidelines
 - Prefer unit tests for repositories, migration, backup/restore, import/export, provider mappers, and sync jobs.
 - Run the app project build after XAML changes; library tests alone are not enough.

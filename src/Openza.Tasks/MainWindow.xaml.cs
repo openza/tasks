@@ -1,3 +1,4 @@
+using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
 using Openza.Tasks.Core.Credentials;
@@ -27,9 +28,14 @@ public sealed partial class MainWindow : Window
         _settings = settings;
 
         InitializeComponent();
+#if DEBUG
+        Title = "Openza Tasks Dev";
+#else
         Title = "Openza Tasks";
+#endif
         TryEnableMica();
         AppWindow.Resize(new Windows.Graphics.SizeInt32((int)_settings.Settings.WindowWidth, (int)_settings.Settings.WindowHeight));
+        RestoreWindowState();
         Closed += OnClosed;
 
         _shell = new AppShell(this, store, syncEngine, credentials, backupService, settings, microsoftAuth, migration);
@@ -41,9 +47,26 @@ public sealed partial class MainWindow : Window
     private async void OnClosed(object sender, WindowEventArgs args)
     {
         _settings.Settings.LastView = _shell.CurrentView;
-        _settings.Settings.WindowWidth = AppWindow.Size.Width;
-        _settings.Settings.WindowHeight = AppWindow.Size.Height;
+        var isMaximized = AppWindow.Presenter is OverlappedPresenter { State: OverlappedPresenterState.Maximized };
+        _settings.Settings.WindowIsMaximized = isMaximized;
+        if (!isMaximized)
+        {
+            _settings.Settings.WindowWidth = AppWindow.Size.Width;
+            _settings.Settings.WindowHeight = AppWindow.Size.Height;
+        }
+
         await _settings.SaveAsync().ConfigureAwait(false);
+    }
+
+    private void RestoreWindowState()
+    {
+        if (!_settings.Settings.WindowIsMaximized ||
+            AppWindow.Presenter is not OverlappedPresenter presenter)
+        {
+            return;
+        }
+
+        presenter.Maximize();
     }
 
     private void TryEnableMica()

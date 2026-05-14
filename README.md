@@ -11,7 +11,7 @@ Openza Tasks is a Windows-native task manager for people who want fast local tas
 - **Provider sync** - optional Todoist and Microsoft To Do reconnect/sync
 - **Focused task layout** - navigation, projects, task list, and details in one productive surface
 - **Markdown import/export** - import GFM checkboxes and export tasks grouped by project
-- **Automatic migration** - imports the legacy Flutter SQLite database when present
+- **Clean V3 database** - Store V1 starts fresh with planner-ready local data
 
 ## Download
 
@@ -62,6 +62,8 @@ src/
 ```
 
 The sync engine is C# in `Openza.Tasks.Core`. The previous Rust FFI engine is not shipped with the WinUI app.
+
+See [docs/architecture.md](docs/architecture.md) for the V3 task model, provider wrapper pattern, and future sync-route design.
 
 For Microsoft To Do source builds, provide a public Azure app registration client ID via `OPENZA_TASKS_MSTODO_CLIENT_ID`, the Settings page, or `-p:MicrosoftToDoClientId=...` during build. The Azure app registration must allow public client flows and include the WAM redirect URI `ms-appx-web://microsoft.aad.brokerplugin/{client_id}`. Do not commit client secrets.
 

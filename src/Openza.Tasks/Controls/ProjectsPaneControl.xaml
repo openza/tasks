@@ -8,7 +8,7 @@
         BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
         BorderThickness="0,0,1,0"
         Background="{ThemeResource LayerFillColorDefaultBrush}"
-        RowDefinitions="Auto,Auto,*"
+        RowDefinitions="Auto,Auto,Auto,*"
         RowSpacing="12">
         <Grid ColumnDefinitions="*,Auto">
             <StackPanel Spacing="2">
@@ -36,7 +36,22 @@
             QueryIcon="Find"
             TextChanged="OnProjectSearchTextChanged" />
 
-        <ScrollViewer Grid.Row="2" HorizontalScrollBarVisibility="Disabled">
+        <ComboBox
+            x:Name="ProjectFilterBox"
+            Grid.Row="2"
+            HorizontalAlignment="Stretch"
+            SelectionChanged="OnProjectFilterChanged">
+            <ComboBoxItem Content="All projects" Tag="all" IsSelected="True" />
+            <ComboBoxItem Content="Active" Tag="active" />
+            <ComboBoxItem Content="Completed" Tag="completed" />
+            <ComboBoxItem Content="Archived" Tag="archived" />
+        </ComboBox>
+
+        <ScrollViewer
+            Grid.Row="3"
+            Padding="0,0,8,0"
+            HorizontalScrollBarVisibility="Disabled"
+            VerticalScrollBarVisibility="Hidden">
             <ItemsControl
                 x:Name="ProjectGroupsList"
                 ItemsSource="{x:Bind ProjectGroups, Mode=OneWay}">
@@ -51,6 +66,7 @@
                                 Background="Transparent"
                                 BorderBrush="Transparent"
                                 BorderThickness="0"
+                                Visibility="{x:Bind HeaderVisibility}"
                                 Tag="{x:Bind Id}"
                                 Click="OnProjectGroupHeaderClicked">
                                 <Grid ColumnDefinitions="18,*,Auto,18" ColumnSpacing="8">
@@ -84,16 +100,23 @@
                                         <Button
                                             HorizontalAlignment="Stretch"
                                             HorizontalContentAlignment="Stretch"
-                                            MinHeight="36"
+                                            MinHeight="42"
                                             Margin="0,1"
-                                            Padding="8,7"
+                                            Padding="3,6"
                                             Background="Transparent"
                                             BorderBrush="Transparent"
                                             BorderThickness="0"
+                                            CornerRadius="6"
                                             Tag="{x:Bind Id}"
                                             Click="OnProjectButtonClicked"
                                             ToolTipService.ToolTip="{x:Bind Name}"
                                             AutomationProperties.Name="{x:Bind AccessibilityName}">
+                                            <Button.Resources>
+                                                <SolidColorBrush x:Key="ButtonBackgroundPointerOver" Color="#14000000" />
+                                                <SolidColorBrush x:Key="ButtonBackgroundPressed" Color="#22000000" />
+                                                <SolidColorBrush x:Key="ButtonBorderBrushPointerOver" Color="#26000000" />
+                                                <SolidColorBrush x:Key="ButtonBorderBrushPressed" Color="#33000000" />
+                                            </Button.Resources>
                                             <Button.ContextFlyout>
                                                 <MenuFlyout>
                                                     <MenuFlyoutItem
@@ -108,25 +131,33 @@
                                                         Click="OnDeleteProjectClicked" />
                                                 </MenuFlyout>
                                             </Button.ContextFlyout>
-                                            <Grid ColumnDefinitions="4,18,*,Auto" ColumnSpacing="8">
+                                            <Grid ColumnDefinitions="16,*,Auto" ColumnSpacing="7">
                                                 <Border
-                                                    Width="4"
+                                                    Width="3"
                                                     CornerRadius="2"
+                                                    HorizontalAlignment="Left"
+                                                    Margin="-3,4,0,4"
                                                     Background="{StaticResource OpenzaAccentBrush}"
                                                     Opacity="{x:Bind IsSelectedOpacity}" />
                                                 <FontIcon
-                                                    Grid.Column="1"
                                                     Glyph="{x:Bind Glyph}"
                                                     FontSize="13"
                                                     Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                                <Grid
+                                                    Grid.Column="1"
+                                                    VerticalAlignment="Center">
+                                                    <TextBlock
+                                                        Text="{x:Bind Name}"
+                                                        MaxLines="2"
+                                                        TextWrapping="WrapWholeWords"
+                                                        TextTrimming="CharacterEllipsis"
+                                                        FontWeight="{x:Bind NameWeight}" />
+                                                </Grid>
                                                 <TextBlock
                                                     Grid.Column="2"
-                                                    Text="{x:Bind Name}"
-                                                    TextTrimming="CharacterEllipsis"
-                                                    FontWeight="{x:Bind NameWeight}" />
-                                                <TextBlock
-                                                    Grid.Column="3"
                                                     Margin="8,0,0,0"
+                                                    VerticalAlignment="Center"
+                                                    HorizontalAlignment="Right"
                                                     Text="{x:Bind CountText}"
                                                     Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
                                             </Grid>
