@@ -9,7 +9,7 @@ public sealed class TaskGroupViewModel
     public string Title { get; set; } = string.Empty;
     public string SortKey { get; set; } = string.Empty;
     public ObservableCollection<TaskListItemViewModel> Tasks { get; } = [];
-    public int Count => Tasks.Count;
+    public int Count => Tasks.Count(task => !task.IsSubtask);
     public string CountText => Count == 1 ? "1 task" : $"{Count} tasks";
 
     public static IReadOnlyList<TaskGroupViewModel> Build(IEnumerable<TaskListItemViewModel> tasks, TaskGroupMode mode)
@@ -20,8 +20,30 @@ public sealed class TaskGroupViewModel
         }
 
         var groups = new Dictionary<string, TaskGroupViewModel>(StringComparer.Ordinal);
+        var groupsByTaskId = new Dictionary<string, IReadOnlyList<TaskGroupViewModel>>(StringComparer.Ordinal);
         foreach (var task in tasks)
         {
+            var targetGroups = task.IsSubtask &&
+                !string.IsNullOrWhiteSpace(task.Task.ParentId) &&
+                groupsByTaskId.TryGetValue(task.Task.ParentId, out var parentGroups)
+                    ? parentGroups
+                    : GetOrCreateGroups(task);
+
+            groupsByTaskId[task.Id] = targetGroups;
+            foreach (var group in targetGroups)
+            {
+                group.Tasks.Add(task);
+            }
+        }
+
+        return groups.Values
+            .OrderBy(group => group.SortKey, StringComparer.Ordinal)
+            .ThenBy(group => group.Title, StringComparer.CurrentCultureIgnoreCase)
+            .ToList();
+
+        IReadOnlyList<TaskGroupViewModel> GetOrCreateGroups(TaskListItemViewModel task)
+        {
+            var taskGroups = new List<TaskGroupViewModel>();
             foreach (var assignment in TaskGroupBuilder.GetAssignments(task.Task, task.Project, mode))
             {
                 if (!groups.TryGetValue(assignment.Key, out var group))
@@ -35,13 +57,10 @@ public sealed class TaskGroupViewModel
                     groups.Add(assignment.Key, group);
                 }
 
-                group.Tasks.Add(task);
+                taskGroups.Add(group);
             }
-        }
 
-        return groups.Values
-            .OrderBy(group => group.SortKey, StringComparer.Ordinal)
-            .ThenBy(group => group.Title, StringComparer.CurrentCultureIgnoreCase)
-            .ToList();
+            return taskGroups;
+        }
     }
 }

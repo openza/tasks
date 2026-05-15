@@ -11,6 +11,7 @@ public sealed record ProviderSourceItem
     public string? Description { get; init; }
     public string? SourceProjectId { get; init; }
     public string? SourceProjectName { get; init; }
+    public string? ParentExternalId { get; init; }
     public string? SuggestedSpaceId { get; init; }
     public int Priority { get; init; } = 2;
     public TaskCompletionState CompletionState { get; init; } = TaskCompletionState.Open;
@@ -45,6 +46,11 @@ public sealed record ProviderSourceItem
 
     private IEnumerable<string> IntakeMetadataParts()
     {
+        if (!string.IsNullOrWhiteSpace(ParentExternalId))
+        {
+            yield return "Subtask";
+        }
+
         if (!string.IsNullOrWhiteSpace(SourceProjectName))
         {
             yield return SourceProjectName;

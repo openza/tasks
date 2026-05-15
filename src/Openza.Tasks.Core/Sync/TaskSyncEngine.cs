@@ -108,6 +108,7 @@ public sealed class TaskSyncEngine(ITaskStore store, ConflictPolicy? conflictPol
             Description = task.Description,
             SourceProjectId = task.ProjectId,
             SourceProjectName = sourceProjectName,
+            ParentExternalId = BuildParentExternalId(task),
             SuggestedSpaceId = task.SpaceId,
             Priority = task.Priority,
             CompletionState = task.CompletionState,
@@ -158,6 +159,25 @@ public sealed class TaskSyncEngine(ITaskStore store, ConflictPolicy? conflictPol
         return task.IntegrationId == IntegrationIds.Todoist && !string.IsNullOrWhiteSpace(task.ExternalId)
             ? $"https://todoist.com/showTask?id={Uri.EscapeDataString(task.ExternalId)}"
             : null;
+    }
+
+    private static string? BuildParentExternalId(TaskItem task)
+    {
+        if (string.IsNullOrWhiteSpace(task.ParentId))
+        {
+            return null;
+        }
+
+        var prefix = task.IntegrationId switch
+        {
+            IntegrationIds.Todoist => "todoist_",
+            IntegrationIds.MicrosoftToDo => "mstodo_",
+            _ => string.Empty,
+        };
+
+        return !string.IsNullOrWhiteSpace(prefix) && task.ParentId.StartsWith(prefix, StringComparison.Ordinal)
+            ? task.ParentId[prefix.Length..]
+            : task.ParentId;
     }
 
     private static IEnumerable<TaskItem> SortParentsFirst(IEnumerable<TaskItem> tasks)

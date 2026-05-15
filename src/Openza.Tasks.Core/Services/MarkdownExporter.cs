@@ -112,9 +112,9 @@ public static class MarkdownExporter
 
         buffer.AppendLine();
 
-        if (!string.IsNullOrWhiteSpace(task.Description))
+        if (!string.IsNullOrWhiteSpace(task.Notes))
         {
-            buffer.AppendLine($"  - _{Escape(task.Description)}_");
+            buffer.AppendLine($"  - _{Escape(task.Notes)}_");
         }
     }
 

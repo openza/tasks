@@ -1,8 +1,11 @@
 using System.Collections.ObjectModel;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using Openza.Tasks.Core.Models;
 using Openza.Tasks.ViewModels;
+using Windows.Foundation;
+using Windows.System;
 
 namespace Openza.Tasks.Controls;
 
@@ -16,26 +19,34 @@ public sealed partial class TaskDetailsPaneControl : UserControl
     };
 
     private bool _loading = true;
+    private bool _suppressLabelTextChanged;
     private string _originalSnapshot = string.Empty;
     private TaskItem? _loadedTask;
     private List<ProjectItem> _projectOptions = [];
     private List<LabelItem> _availableLabels = [];
+    private readonly ObservableCollection<string> _labelResults = [];
     private readonly ObservableCollection<LabelItem> _selectedLabels = [];
+    private readonly ObservableCollection<TaskListItemViewModel> _subtasks = [];
+    private readonly ObservableCollection<ProjectItem> _filteredProjectOptions = [];
+    private ProjectItem? _selectedProject;
 
     public event RoutedEventHandler? SaveTaskClicked;
     public event RoutedEventHandler? ToggleCompleteClicked;
+    public event RoutedEventHandler? SubtaskToggleCompleteClicked;
+    public event TypedEventHandler<TaskDetailsPaneControl, string>? CreateProjectRequested;
     public event RoutedEventHandler? DeleteTaskClicked;
     public event RoutedEventHandler? CancelEditClicked;
 
     public TaskDetailsPaneControl()
     {
         InitializeComponent();
+        SubtasksList.ItemsSource = _subtasks;
+        ProjectResultsList.ItemsSource = _filteredProjectOptions;
+        LabelResultsList.ItemsSource = _labelResults;
         ClearForNewTask(null, 3);
     }
 
     public string TitleText => TitleEditor.Text.Trim();
-
-    public string DescriptionText => DescriptionEditor.Text;
 
     public string NotesText => NotesEditor.Text;
 
@@ -45,10 +56,7 @@ public sealed partial class TaskDetailsPaneControl : UserControl
 
     public DateOnly? SelectedDeadlineOn => TaskDateValues.FromDateTimeOffset(DeadlineDateEditor.Date);
 
-    public ProjectItem? SelectedProject =>
-        ProjectEditor?.SelectedItem is ProjectItem project && !string.IsNullOrWhiteSpace(project.Id)
-            ? project
-            : null;
+    public ProjectItem? SelectedProject => string.IsNullOrWhiteSpace(_selectedProject?.Id) ? null : _selectedProject;
 
     public TaskItemStatus SelectedStatus =>
         (WorkflowEditor?.SelectedItem as ComboBoxItem)?.Tag?.ToString() switch
@@ -70,27 +78,27 @@ public sealed partial class TaskDetailsPaneControl : UserControl
 
     public void SetProjects(IEnumerable<ProjectItem> projects)
     {
-        var selectedProjectId = ProjectEditor?.SelectedItem is ProjectItem selectedProject
-            ? selectedProject.Id
-            : string.Empty;
+        var selectedProjectId = _selectedProject?.Id ?? string.Empty;
         _projectOptions = [InboxProject, .. projects];
-        if (ProjectEditor is null)
-        {
-            return;
-        }
+        SetSelectedProject(_projectOptions.FirstOrDefault(project =>
+            string.Equals(project.Id, selectedProjectId, StringComparison.Ordinal)) ?? InboxProject);
+        RefreshProjectResults();
+    }
 
-        ProjectEditor.ItemsSource = _projectOptions;
-        ProjectEditor.SelectedItem = _projectOptions.FirstOrDefault(project =>
-            string.Equals(project.Id, selectedProjectId, StringComparison.Ordinal)) ?? InboxProject;
+    public void SelectProject(ProjectItem? project)
+    {
+        SetSelectedProject(_projectOptions.FirstOrDefault(option =>
+            string.Equals(option.Id, project?.Id ?? string.Empty, StringComparison.Ordinal)) ?? InboxProject);
+        OnProjectSelectionChanged();
     }
 
     public void SetLabels(IEnumerable<LabelItem> labels)
     {
         _availableLabels = labels.OrderBy(label => label.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
-        RefreshLabelSuggestions();
+        RefreshLabelResults();
     }
 
-    public void LoadTask(TaskItem task, ProjectItem? project)
+    public void LoadTask(TaskItem task, ProjectItem? project, IEnumerable<TaskListItemViewModel>? subtasks = null)
     {
         _loading = true;
         _loadedTask = task;
@@ -102,7 +110,6 @@ public sealed partial class TaskDetailsPaneControl : UserControl
         SetProviderPresentation(editor, task, project);
 
         TitleEditor.Text = task.Title;
-        DescriptionEditor.Text = task.Description ?? string.Empty;
         NotesEditor.Text = task.Notes ?? string.Empty;
         SetSelectedLabels(task.Labels);
         DateEditor.Date = TaskDateValues.ToLocalDateTime(task.PlannedOn);
@@ -111,6 +118,7 @@ public sealed partial class TaskDetailsPaneControl : UserControl
         SelectStatus(task.Status);
         SelectPriority(task.Priority);
         SetProviderFieldEditability(editor.CanEditProviderFields);
+        SetSubtasks(subtasks ?? []);
 
         CompleteButton.IsEnabled = true;
         var isLinkedProviderTask = task.IsProviderTask || task.HasProviderSource;
@@ -119,6 +127,7 @@ public sealed partial class TaskDetailsPaneControl : UserControl
         SaveButton.Content = "Save";
         _originalSnapshot = CurrentSnapshot();
         _loading = false;
+        ResetScrollPosition();
     }
 
     public void ClearForNewTask(ProjectItem? defaultProject, int defaultPriority, TaskItemStatus defaultStatus = TaskItemStatus.Inbox)
@@ -131,9 +140,10 @@ public sealed partial class TaskDetailsPaneControl : UserControl
         SourceText.Text = HeaderContextText("Openza Tasks", defaultProject);
         SetProviderPresentation(new TaskEditorViewModel(), null, defaultProject);
         TitleEditor.Text = string.Empty;
-        DescriptionEditor.Text = string.Empty;
         NotesEditor.Text = string.Empty;
         SetSelectedLabels([]);
+        SetSubtasks([]);
+        SubtasksSection.Visibility = Visibility.Collapsed;
         DateEditor.Date = null;
         DeadlineDateEditor.Date = null;
         SelectProject(defaultProject);
@@ -146,6 +156,7 @@ public sealed partial class TaskDetailsPaneControl : UserControl
         SaveButton.Content = "Create task";
         _originalSnapshot = CurrentSnapshot();
         _loading = false;
+        ResetScrollPosition();
     }
 
     public void ResetDirtyState() => _originalSnapshot = CurrentSnapshot();
@@ -153,7 +164,6 @@ public sealed partial class TaskDetailsPaneControl : UserControl
     private void SetProviderFieldEditability(bool canEditProviderContent)
     {
         TitleEditor.IsReadOnly = !canEditProviderContent;
-        DescriptionEditor.IsReadOnly = !canEditProviderContent;
         EditableTaskSection.Visibility = canEditProviderContent ? Visibility.Visible : Visibility.Collapsed;
         ProviderTaskSection.Visibility = canEditProviderContent ? Visibility.Collapsed : Visibility.Visible;
         DateEditor.Visibility = Visibility.Visible;
@@ -163,13 +173,26 @@ public sealed partial class TaskDetailsPaneControl : UserControl
         OrganizeHeader.Text = "Organize";
     }
 
+    private void SetSubtasks(IEnumerable<TaskListItemViewModel> subtasks)
+    {
+        _subtasks.Clear();
+        foreach (var subtask in subtasks)
+        {
+            _subtasks.Add(subtask);
+        }
+
+        var canShowSubtasks = _loadedTask is not null && string.IsNullOrWhiteSpace(_loadedTask.ParentId) && _subtasks.Count > 0;
+        SubtasksSection.Visibility = canShowSubtasks ? Visibility.Visible : Visibility.Collapsed;
+    }
+
     private void SetProviderPresentation(TaskEditorViewModel editor, TaskItem? task, ProjectItem? project)
     {
         if (!editor.IsProviderOwned || task is null)
         {
             ProviderTitleText.Text = string.Empty;
-            ProviderDescriptionText.Text = string.Empty;
-            ProviderDescriptionText.Visibility = Visibility.Collapsed;
+            SourceDescriptionText.Text = string.Empty;
+            SourceDescriptionHintText.Text = string.Empty;
+            SourceDescriptionSection.Visibility = Visibility.Collapsed;
             ProviderProjectText.Text = string.Empty;
             ProviderDateText.Text = string.Empty;
             ProviderDeadlineText.Text = string.Empty;
@@ -179,8 +202,9 @@ public sealed partial class TaskDetailsPaneControl : UserControl
         }
 
         ProviderTitleText.Text = task.Title;
-        ProviderDescriptionText.Text = task.Description ?? string.Empty;
-        ProviderDescriptionText.Visibility = string.IsNullOrWhiteSpace(task.Description) ? Visibility.Collapsed : Visibility.Visible;
+        SourceDescriptionText.Text = task.SourceDescription ?? string.Empty;
+        SourceDescriptionHintText.Text = $"From {editor.SourceText}";
+        SourceDescriptionSection.Visibility = string.IsNullOrWhiteSpace(task.SourceDescription) ? Visibility.Collapsed : Visibility.Visible;
         ProviderProjectText.Text = task.SourceProjectName ?? project?.Name ?? "Inbox";
         ProviderDateText.Text = FormatDate(task.SourcePlannedMoment ?? task.PlannedMoment);
         ProviderDeadlineText.Text = FormatDate(task.SourceDeadlineMoment ?? task.DeadlineMoment);
@@ -188,10 +212,11 @@ public sealed partial class TaskDetailsPaneControl : UserControl
         ProviderSourceText.Text = editor.SourceText;
     }
 
-    private void SelectProject(ProjectItem? project)
+    private void SetSelectedProject(ProjectItem? project)
     {
-        ProjectEditor.SelectedItem = _projectOptions.FirstOrDefault(option =>
-            string.Equals(option.Id, project?.Id ?? string.Empty, StringComparison.Ordinal)) ?? InboxProject;
+        _selectedProject = project ?? InboxProject;
+        ProjectPickerText.Text = string.IsNullOrWhiteSpace(_selectedProject.Name) ? "Inbox" : _selectedProject.Name;
+        SourceText.Text = HeaderContextText(CurrentSourceText(), SelectedProject);
     }
 
     private void SelectStatus(TaskItemStatus status)
@@ -281,7 +306,6 @@ public sealed partial class TaskDetailsPaneControl : UserControl
     private string CurrentSnapshot() =>
         string.Join('\u001f',
             TitleEditor.Text,
-            DescriptionEditor.Text,
             NotesEditor.Text,
             LabelsText,
             DateEditor.Date?.ToString("O", System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty,
@@ -300,18 +324,18 @@ public sealed partial class TaskDetailsPaneControl : UserControl
 
     private void OnWorkflowSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (_loading || ProjectEditor is null)
+        if (_loading)
         {
             return;
         }
 
         if (SelectedStatus == TaskItemStatus.Inbox && SelectedProject is not null)
         {
-            ProjectEditor.SelectedItem = InboxProject;
+            SetSelectedProject(InboxProject);
         }
     }
 
-    private void OnProjectSelectionChanged(object sender, SelectionChangedEventArgs e)
+    private void OnProjectSelectionChanged()
     {
         if (_loading || WorkflowEditor is null)
         {
@@ -326,6 +350,123 @@ public sealed partial class TaskDetailsPaneControl : UserControl
         SourceText.Text = HeaderContextText(CurrentSourceText(), SelectedProject);
     }
 
+    private void OnProjectPickerClicked(object sender, RoutedEventArgs e)
+    {
+        ProjectSearchBox.Text = string.Empty;
+        RefreshProjectResults();
+        ProjectSearchBox.DispatcherQueue.TryEnqueue(() => ProjectSearchBox.Focus(FocusState.Programmatic));
+    }
+
+    private void OnProjectSearchTextChanged(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args)
+    {
+        if (args.Reason == AutoSuggestionBoxTextChangeReason.UserInput)
+        {
+            RefreshProjectResults(sender.Text);
+        }
+    }
+
+    private void OnProjectSearchSubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
+    {
+        var query = args.QueryText.Trim();
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            return;
+        }
+
+        var match = FindProject(query) ?? FilterProjects(query).FirstOrDefault(project => !string.IsNullOrWhiteSpace(project.Id));
+        if (match is not null)
+        {
+            ChooseProject(match);
+            return;
+        }
+
+        RequestProjectCreation(query);
+    }
+
+    private void OnProjectSearchKeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (e.Key == VirtualKey.Escape)
+        {
+            ProjectPickerFlyout.Hide();
+            e.Handled = true;
+        }
+    }
+
+    private void OnProjectResultClicked(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is not string id)
+        {
+            return;
+        }
+
+        var project = _projectOptions.FirstOrDefault(option => string.Equals(option.Id, id, StringComparison.Ordinal));
+        if (project is not null)
+        {
+            ChooseProject(project);
+        }
+    }
+
+    private void OnCreateProjectClicked(object sender, RoutedEventArgs e)
+    {
+        RequestProjectCreation(ProjectSearchBox.Text.Trim());
+    }
+
+    private void ChooseProject(ProjectItem project)
+    {
+        SetSelectedProject(project);
+        ProjectPickerFlyout.Hide();
+        ProjectSearchBox.Text = string.Empty;
+        RefreshProjectResults();
+        OnProjectSelectionChanged();
+    }
+
+    private void RequestProjectCreation(string name)
+    {
+        var projectName = name.Trim();
+        if (string.IsNullOrWhiteSpace(projectName))
+        {
+            return;
+        }
+
+        var existing = FindProject(projectName);
+        if (existing is not null)
+        {
+            ChooseProject(existing);
+            return;
+        }
+
+        ProjectPickerFlyout.Hide();
+        CreateProjectRequested?.Invoke(this, projectName);
+    }
+
+    private ProjectItem? FindProject(string name) =>
+        _projectOptions.FirstOrDefault(project =>
+            string.Equals(project.Name, name.Trim(), StringComparison.CurrentCultureIgnoreCase));
+
+    private IEnumerable<ProjectItem> FilterProjects(string search)
+    {
+        var query = search.Trim();
+        return _projectOptions
+            .Where(project => string.IsNullOrWhiteSpace(query) || project.Name.Contains(query, StringComparison.CurrentCultureIgnoreCase))
+            .OrderBy(project => string.IsNullOrWhiteSpace(project.Id) ? 0 : 1)
+            .ThenBy(project => project.Name, StringComparer.CurrentCultureIgnoreCase)
+            .Take(30);
+    }
+
+    private void RefreshProjectResults(string search = "")
+    {
+        _filteredProjectOptions.Clear();
+        foreach (var project in FilterProjects(search))
+        {
+            _filteredProjectOptions.Add(project);
+        }
+
+        var trimmed = search.Trim();
+        var canCreate = !string.IsNullOrWhiteSpace(trimmed) && FindProject(trimmed) is null;
+        CreateProjectButton.Visibility = canCreate ? Visibility.Visible : Visibility.Collapsed;
+        CreateProjectButton.Content = canCreate ? $"Create project \"{trimmed}\"" : "Create project";
+    }
+
     private void OnSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
     }
@@ -334,44 +475,39 @@ public sealed partial class TaskDetailsPaneControl : UserControl
     {
     }
 
-    private void OnLabelTextChanged(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args)
+    private void OnLabelPickerClicked(object sender, RoutedEventArgs e)
     {
-        if (args.Reason != AutoSuggestionBoxTextChangeReason.UserInput)
+        ClearLabelSearch();
+        RefreshLabelResults();
+        LabelSearchBox.DispatcherQueue.TryEnqueue(() => LabelSearchBox.Focus(FocusState.Programmatic));
+    }
+
+    private void OnLabelSearchTextChanged(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args)
+    {
+        if (_suppressLabelTextChanged || args.Reason != AutoSuggestionBoxTextChangeReason.UserInput)
         {
             return;
         }
 
-        RefreshLabelSuggestions(sender.Text, includeAllWhenEmpty: false);
+        RefreshLabelResults(sender.Text);
     }
 
-    private void OnLabelEditorGotFocus(object sender, RoutedEventArgs e)
+    private void OnLabelSearchSubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
     {
-        RefreshLabelSuggestions(LabelEditor.Text, includeAllWhenEmpty: true);
+        var labelName = args.ChosenSuggestion is string suggestion
+            ? LabelNameFromSuggestion(suggestion)
+            : args.QueryText;
+        SelectLabelAndResetPicker(labelName, closeFlyout: true);
     }
 
-    private void OnLabelSubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
+    private void OnLabelResultSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (args.ChosenSuggestion is string labelName)
-        {
-            AddSelectedLabel(GetOrCreateLabel(labelName));
-        }
-        else if (!string.IsNullOrWhiteSpace(args.QueryText))
-        {
-            AddSelectedLabel(GetOrCreateLabel(args.QueryText));
-        }
-
-        ClearLabelInputAfterSelection(sender);
-    }
-
-    private void OnLabelSuggestionChosen(AutoSuggestBox sender, AutoSuggestBoxSuggestionChosenEventArgs args)
-    {
-        if (args.SelectedItem is not string labelName)
+        if (LabelResultsList.SelectedItem is not string labelName)
         {
             return;
         }
 
-        AddSelectedLabel(GetOrCreateLabel(labelName));
-        ClearLabelInputAfterSelection(sender);
+        SelectLabelAndResetPicker(LabelNameFromSuggestion(labelName), closeFlyout: true);
     }
 
     private void OnRemoveLabelClicked(object sender, RoutedEventArgs e)
@@ -386,7 +522,7 @@ public sealed partial class TaskDetailsPaneControl : UserControl
         {
             _selectedLabels.Remove(label);
             SyncLabelsText();
-            RefreshLabelSuggestions(LabelEditor.Text, includeAllWhenEmpty: true);
+            RefreshLabelResults(LabelSearchBox.Text);
         }
     }
 
@@ -400,7 +536,8 @@ public sealed partial class TaskDetailsPaneControl : UserControl
 
         SelectedLabelsList.ItemsSource = _selectedLabels;
         SyncLabelsText();
-        RefreshLabelSuggestions(LabelEditor.Text, includeAllWhenEmpty: true);
+        ClearLabelSearch();
+        RefreshLabelResults();
     }
 
     private void AddSelectedLabel(LabelItem label)
@@ -412,7 +549,7 @@ public sealed partial class TaskDetailsPaneControl : UserControl
 
         _selectedLabels.Add(label);
         SyncLabelsText();
-        ClearLabelSuggestions();
+        RefreshLabelResults(LabelSearchBox.Text);
     }
 
     private LabelItem GetOrCreateLabel(string name)
@@ -434,42 +571,81 @@ public sealed partial class TaskDetailsPaneControl : UserControl
         LabelsEditor.Text = LabelsText;
     }
 
-    private void RefreshLabelSuggestions(string search = "", bool includeAllWhenEmpty = false)
+    private void RefreshLabelResults(string search = "")
     {
-        if (string.IsNullOrWhiteSpace(search) && !includeAllWhenEmpty)
-        {
-            ClearLabelSuggestions();
-            return;
-        }
-
+        _labelResults.Clear();
         var selectedNames = _selectedLabels.Select(label => label.Name).ToHashSet(StringComparer.CurrentCultureIgnoreCase);
-        LabelEditor.ItemsSource = _availableLabels
+        var trimmed = search.Trim();
+        var labels = _availableLabels
             .Where(label => !selectedNames.Contains(label.Name))
             .Where(label => string.IsNullOrWhiteSpace(search) || label.Name.Contains(search, StringComparison.CurrentCultureIgnoreCase))
             .Select(label => label.Name)
-            .Take(8)
+            .Take(20)
             .ToList();
-    }
 
-    private void ClearLabelSuggestions()
-    {
-        LabelEditor.ItemsSource = Array.Empty<string>();
-    }
-
-    private void ClearLabelInputAfterSelection(AutoSuggestBox sender)
-    {
-        ClearLabelSuggestions();
-        sender.DispatcherQueue.TryEnqueue(() =>
+        if (!string.IsNullOrWhiteSpace(trimmed) &&
+            !selectedNames.Contains(trimmed) &&
+            _availableLabels.All(label => !string.Equals(label.Name, trimmed, StringComparison.CurrentCultureIgnoreCase)))
         {
-            sender.Text = string.Empty;
-            ClearLabelSuggestions();
-            sender.Focus(FocusState.Programmatic);
-        });
+            labels.Insert(0, CreateLabelSuggestion(trimmed));
+        }
+
+        foreach (var label in labels)
+        {
+            _labelResults.Add(label);
+        }
+    }
+
+    private void ClearLabelSearch()
+    {
+        _suppressLabelTextChanged = true;
+        LabelSearchBox.Text = string.Empty;
+        _suppressLabelTextChanged = false;
+        LabelResultsList.SelectedItem = null;
+    }
+
+    private void SelectLabelAndResetPicker(string labelName, bool closeFlyout)
+    {
+        if (string.IsNullOrWhiteSpace(labelName))
+        {
+            return;
+        }
+
+        AddSelectedLabel(GetOrCreateLabel(labelName));
+        ClearLabelSearch();
+        RefreshLabelResults();
+        if (closeFlyout)
+        {
+            LabelPickerFlyout.Hide();
+        }
+        else
+        {
+            LabelSearchBox.DispatcherQueue.TryEnqueue(() => LabelSearchBox.Focus(FocusState.Programmatic));
+        }
+    }
+
+    private static string CreateLabelSuggestion(string labelName) => $"Create \"{labelName}\"";
+
+    private static string LabelNameFromSuggestion(string suggestion)
+    {
+        const string prefix = "Create \"";
+        return suggestion.StartsWith(prefix, StringComparison.Ordinal) && suggestion.EndsWith('"')
+            ? suggestion[prefix.Length..^1]
+            : suggestion;
+    }
+
+    private void ResetScrollPosition()
+    {
+        DetailsScrollViewer.ChangeView(null, 0, null, disableAnimation: true);
+        DispatcherQueue.TryEnqueue(() =>
+            DetailsScrollViewer.ChangeView(null, 0, null, disableAnimation: true));
     }
 
     private void OnSaveTaskClicked(object sender, RoutedEventArgs e) => SaveTaskClicked?.Invoke(sender, e);
 
     private void OnToggleCompleteClicked(object sender, RoutedEventArgs e) => ToggleCompleteClicked?.Invoke(sender, e);
+
+    private void OnSubtaskToggleCompleteClicked(object sender, RoutedEventArgs e) => SubtaskToggleCompleteClicked?.Invoke(sender, e);
 
     private void OnDeleteTaskClicked(object sender, RoutedEventArgs e) => DeleteTaskClicked?.Invoke(sender, e);
 

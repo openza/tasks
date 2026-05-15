@@ -8,7 +8,9 @@ public sealed class TaskListItem(TaskItem task, ProjectItem? project)
     public string Id => Task.Id;
     public string Title => Task.Title;
     public string ProjectName => project?.Name ?? "No project";
-    public string Description => string.IsNullOrWhiteSpace(Task.Description) ? string.Empty : Task.Description;
+    public string Description => !string.IsNullOrWhiteSpace(Task.Notes)
+        ? Task.Notes
+        : Task.SourceDescription ?? string.Empty;
     public string PriorityText => Task.Priority switch
     {
         1 => "High",

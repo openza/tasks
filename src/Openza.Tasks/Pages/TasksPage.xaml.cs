@@ -45,10 +45,11 @@ public sealed partial class TasksPage : UserControl
     public event TypedEventHandler<TasksPage, string>? DeleteProjectClicked;
     public event TypedEventHandler<TasksPage, TaskListItemViewModel>? TaskSelected;
     public event RoutedEventHandler? ToggleCompleteClicked;
-    public event RoutedEventHandler? CopyTaskIdClicked;
     public event RoutedEventHandler? DeleteTaskClicked;
     public event RoutedEventHandler? SaveTaskClicked;
     public event RoutedEventHandler? DetailsToggleCompleteClicked;
+    public event RoutedEventHandler? DetailsSubtaskToggleCompleteClicked;
+    public event TypedEventHandler<TasksPage, string>? DetailsCreateProjectRequested;
     public event RoutedEventHandler? DetailsDeleteTaskClicked;
     public event RoutedEventHandler? DetailsCancelEditClicked;
     public event RoutedEventHandler? QuickAddClicked;
@@ -341,6 +342,14 @@ public sealed partial class TasksPage : UserControl
         projectOptions.AddRange(_projectOptions);
         var selectedLabels = new List<LabelItem>();
         var titleBox = new TextBox { Header = "Task", PlaceholderText = "What needs doing?" };
+        var notesBox = new TextBox
+        {
+            Header = "Notes",
+            PlaceholderText = "",
+            AcceptsReturn = true,
+            MinHeight = 72,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
         var projectBox = new ComboBox
         {
             Header = "Project",
@@ -498,6 +507,7 @@ public sealed partial class TasksPage : UserControl
 
         var stack = new StackPanel { Spacing = 14, MinWidth = 460 };
         stack.Children.Add(titleBox);
+        stack.Children.Add(notesBox);
         stack.Children.Add(detailsGrid);
         stack.Children.Add(labelBox);
         stack.Children.Add(labelChips);
@@ -524,6 +534,7 @@ public sealed partial class TasksPage : UserControl
         return new QuickAddViewModel
         {
             Title = titleBox.Text.Trim(),
+            Notes = notesBox.Text.Trim(),
             ProjectId = string.IsNullOrWhiteSpace((projectBox.SelectedItem as ProjectItem)?.Id) ? null : (projectBox.SelectedItem as ProjectItem)?.Id,
             Status = StatusFromTag((workflowBox.SelectedItem as ComboBoxItem)?.Tag?.ToString()),
             Priority = int.TryParse((priorityBox.SelectedItem as ComboBoxItem)?.Tag?.ToString(), out var priority) ? priority : 3,
@@ -618,6 +629,13 @@ public sealed partial class TasksPage : UserControl
 
         DetailsHost.Visibility = _detailsOpen ? Visibility.Visible : Visibility.Collapsed;
         IntakeDrawerHost.Visibility = _intakeOpen ? Visibility.Visible : Visibility.Collapsed;
+        if (_detailsOpen && !showProjectsPane)
+        {
+            var detailWidth = Math.Min(width - 420, Math.Max(560, width * 0.56));
+            DetailsColumn.Width = new GridLength(Math.Max(440, detailWidth));
+            return;
+        }
+
         DetailsColumn.Width = width < 1280 ? new GridLength(380) : new GridLength(440);
     }
 
@@ -781,13 +799,15 @@ public sealed partial class TasksPage : UserControl
 
     private void OnToggleCompleteClicked(object sender, RoutedEventArgs e) => ToggleCompleteClicked?.Invoke(sender, e);
 
-    private void OnCopyTaskIdClicked(object sender, RoutedEventArgs e) => CopyTaskIdClicked?.Invoke(sender, e);
-
     private void OnDeleteTaskClicked(object sender, RoutedEventArgs e) => DeleteTaskClicked?.Invoke(sender, e);
 
     private void OnSaveTaskClicked(object sender, RoutedEventArgs e) => SaveTaskClicked?.Invoke(sender, e);
 
     private void OnDetailsToggleCompleteClicked(object sender, RoutedEventArgs e) => DetailsToggleCompleteClicked?.Invoke(sender, e);
+
+    private void OnDetailsSubtaskToggleCompleteClicked(object sender, RoutedEventArgs e) => DetailsSubtaskToggleCompleteClicked?.Invoke(sender, e);
+
+    private void OnDetailsCreateProjectRequested(TaskDetailsPaneControl sender, string name) => DetailsCreateProjectRequested?.Invoke(this, name);
 
     private void OnDetailsDeleteTaskClicked(object sender, RoutedEventArgs e) => DetailsDeleteTaskClicked?.Invoke(sender, e);
 
@@ -1268,6 +1288,7 @@ public sealed partial class TasksPage : UserControl
                 string.Equals(item.SourceProjectName, listFilter, StringComparison.CurrentCultureIgnoreCase))
             .Where(item => string.IsNullOrWhiteSpace(searchText) ||
                 item.Title.Contains(searchText, StringComparison.CurrentCultureIgnoreCase) ||
+                (item.Description?.Contains(searchText, StringComparison.CurrentCultureIgnoreCase) ?? false) ||
                 (item.SourceProjectName?.Contains(searchText, StringComparison.CurrentCultureIgnoreCase) ?? false) ||
                 item.SourceName.Contains(searchText, StringComparison.CurrentCultureIgnoreCase))
             .ToList();

@@ -196,6 +196,38 @@ public sealed partial class AppShell
         }
     }
 
+    private async void OnDetailsCreateProjectRequested(TasksPage sender, string name)
+    {
+        var projectName = name.Trim();
+        if (string.IsNullOrWhiteSpace(projectName))
+        {
+            return;
+        }
+
+        var existing = _allProjects.FirstOrDefault(project =>
+            project.IntegrationId == IntegrationIds.Local &&
+            string.Equals(project.Name, projectName, StringComparison.CurrentCultureIgnoreCase));
+        if (existing is not null)
+        {
+            TasksPage.DetailsPanel.SelectProject(existing);
+            return;
+        }
+
+        var project = new ProjectItem
+        {
+            Id = $"proj_{Guid.NewGuid():N}",
+            SpaceId = _currentSpaceId,
+            Name = projectName,
+            IntegrationId = IntegrationIds.Local,
+            CreatedAt = DateTimeOffset.UtcNow,
+        };
+
+        await _store.UpsertProjectAsync(project).ConfigureAwait(true);
+        await LoadProjectsAsync().ConfigureAwait(true);
+        TasksPage.DetailsPanel.SelectProject(project);
+        ShowInfo("Project created", project.Name, InfoBarSeverity.Success);
+    }
+
     private async void OnEditProjectClicked(TasksPage sender, string id)
     {
         _pendingProjectActionId = id;

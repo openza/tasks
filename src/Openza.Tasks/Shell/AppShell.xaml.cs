@@ -71,6 +71,7 @@ public sealed partial class AppShell : UserControl
         _settings = settings;
         _microsoftAuth = microsoftAuth;
         InitializeComponent();
+        ShellNav.ItemInvoked += OnNavigationItemInvoked;
         AddKeyboardShortcuts();
         _uiReady = true;
         UpdatePageWorkspaceWidths();
@@ -200,6 +201,18 @@ public sealed partial class AppShell : UserControl
         {
             await RefreshTasksAsync().ConfigureAwait(true);
         }
+    }
+
+    private void OnNavigationItemInvoked(NavigationView sender, NavigationViewItemInvokedEventArgs args)
+    {
+        if (args.InvokedItemContainer is not NavigationViewItem { Tag: "add-task" })
+        {
+            return;
+        }
+
+        var targetView = IsTaskView(_currentView) ? _currentView : "inbox";
+        SelectNavigationSilently(targetView);
+        OnQuickAddClicked(sender, new RoutedEventArgs());
     }
 
     private IEnumerable<NavigationViewItem> GetNavigationItems() =>
@@ -599,6 +612,7 @@ public sealed partial class AppShell : UserControl
         StatusInfo.Title = title;
         StatusInfo.Message = message;
         StatusInfo.Severity = severity;
+        ApplyStatusInfoVisuals(severity);
         StatusInfo.IsOpen = true;
 
         if (severity is not (InfoBarSeverity.Success or InfoBarSeverity.Informational))
@@ -616,6 +630,28 @@ public sealed partial class AppShell : UserControl
             StatusInfo.IsOpen = false;
         };
         _statusInfoTimer.Start();
+    }
+
+    private void ApplyStatusInfoVisuals(InfoBarSeverity severity)
+    {
+        var brushKey = severity switch
+        {
+            InfoBarSeverity.Success => "OpenzaToastSuccessBrush",
+            InfoBarSeverity.Warning => "OpenzaToastWarningBrush",
+            InfoBarSeverity.Error => "OpenzaToastErrorBrush",
+            _ => "OpenzaToastInfoBrush",
+        };
+
+        if (Application.Current.Resources[brushKey] is Brush background)
+        {
+            StatusInfo.Background = background;
+            StatusInfo.BorderBrush = background;
+        }
+
+        if (Application.Current.Resources["OpenzaToastForegroundBrush"] is Brush foreground)
+        {
+            StatusInfo.Foreground = foreground;
+        }
     }
 
     private static string? EmptyToNull(string text) => string.IsNullOrWhiteSpace(text) ? null : text.Trim();

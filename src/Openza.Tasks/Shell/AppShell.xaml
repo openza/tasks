@@ -149,14 +149,8 @@
                 </NavigationViewItem>
             </NavigationView.FooterMenuItems>
 
-            <Grid RowDefinitions="Auto,*">
-                <InfoBar
-                    x:Name="StatusInfo"
-                    IsOpen="False"
-                    IsClosable="True"
-                    Margin="20,12,20,0" />
-
-                <Grid Grid.Row="1">
+            <Grid>
+                <Grid>
                     <pages:TasksPage
                         x:Name="TasksPage"
                         SearchTextChanged="OnSearchTextChanged"
@@ -174,10 +168,11 @@
                         DeleteProjectClicked="OnDeleteProjectClicked"
                         TaskSelected="OnTaskSelected"
                         ToggleCompleteClicked="OnToggleCompleteClicked"
-                        CopyTaskIdClicked="OnCopyTaskIdClicked"
                         DeleteTaskClicked="OnDeleteTaskClicked"
                         SaveTaskClicked="OnSaveTaskClicked"
                         DetailsToggleCompleteClicked="OnDetailsToggleCompleteClicked"
+                        DetailsSubtaskToggleCompleteClicked="OnToggleCompleteClicked"
+                        DetailsCreateProjectRequested="OnDetailsCreateProjectRequested"
                         DetailsDeleteTaskClicked="OnDetailsDeleteTaskClicked"
                         DetailsCancelEditClicked="OnDetailsCancelEditClicked"
                         QuickAddClicked="OnQuickAddClicked"
@@ -233,6 +228,17 @@
                             OpenInboxClicked="OnOpenInboxFromSyncClicked" />
                     </ScrollViewer>
                 </Grid>
+
+                <InfoBar
+                    x:Name="StatusInfo"
+                    HorizontalAlignment="Right"
+                    VerticalAlignment="Top"
+                    MaxWidth="520"
+                    MinWidth="320"
+                    Margin="20,16,20,0"
+                    IsOpen="False"
+                    IsClosable="True"
+                    AutomationProperties.Name="Application status" />
             </Grid>
         </NavigationView>
     </Grid>

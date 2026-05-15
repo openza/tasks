@@ -7,6 +7,8 @@ namespace Openza.Tasks.Core.Data;
 
 public sealed class SqliteTaskStore(string databasePath) : ITaskStore
 {
+    private sealed record ParentTaskContext(string Id, string SpaceId, string? ProjectId, TaskWorkflowStatus WorkflowStatus);
+
     public string DatabasePath { get; } = databasePath;
 
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
@@ -54,6 +56,11 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
             filtered = filtered.Where(t => t.ProjectId == query.ProjectId);
         }
 
+        if (!string.IsNullOrWhiteSpace(query.ParentId))
+        {
+            filtered = filtered.Where(t => t.ParentId == query.ParentId);
+        }
+
         if (!string.IsNullOrWhiteSpace(query.LabelId))
         {
             filtered = filtered.Where(t => t.Labels.Any(label => label.Id == query.LabelId));
@@ -69,8 +76,8 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
             var search = query.SearchText.Trim();
             filtered = filtered.Where(t =>
                 Contains(t.Title, search) ||
-                Contains(t.Description, search) ||
-                Contains(t.Notes, search));
+                Contains(t.Notes, search) ||
+                Contains(t.SourceDescription, search));
         }
 
         filtered = query.SortMode switch
@@ -82,7 +89,62 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
             _ => filtered.OrderBy(t => t.IsCompleted).ThenBy(t => t.Priority).ThenBy(t => RelevantDate(t, query.DateScope) is null).ThenBy(t => RelevantDate(t, query.DateScope)).ThenByDescending(t => t.CreatedAt),
         };
 
-        return filtered.ToList();
+        var sorted = filtered.ToList();
+        return query.IncludeSubtasks || !string.IsNullOrWhiteSpace(query.ParentId)
+            ? sorted
+            : ArrangeWithSubtasks(tasks, sorted, query);
+    }
+
+    private static IReadOnlyList<TaskItem> ArrangeWithSubtasks(
+        IReadOnlyList<TaskItem> allTasks,
+        IReadOnlyList<TaskItem> matchedTasks,
+        TaskQuery query)
+    {
+        var byId = allTasks.ToDictionary(task => task.Id, StringComparer.Ordinal);
+        var childrenByParent = allTasks
+            .Where(task => !string.IsNullOrWhiteSpace(task.ParentId))
+            .Where(task => task.IntegrationId == IntegrationIds.Local)
+            .Where(task => string.IsNullOrWhiteSpace(query.SpaceId) || task.SpaceId == query.SpaceId)
+            .GroupBy(task => task.ParentId!, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.OrderBy(task => task.IsCompleted).ThenBy(task => task.Priority).ThenBy(task => task.CreatedAt).ToList(), StringComparer.Ordinal);
+        var matchedIds = matchedTasks.Select(task => task.Id).ToHashSet(StringComparer.Ordinal);
+        var added = new HashSet<string>(StringComparer.Ordinal);
+        var result = new List<TaskItem>();
+
+        foreach (var task in matchedTasks)
+        {
+            if (!string.IsNullOrWhiteSpace(task.ParentId) && byId.TryGetValue(task.ParentId, out var parent))
+            {
+                AddTask(parent, includeAllChildren: false);
+                continue;
+            }
+
+            AddTask(task, includeAllChildren: true);
+        }
+
+        return result;
+
+        void AddTask(TaskItem task, bool includeAllChildren)
+        {
+            if (!added.Add(task.Id))
+            {
+                return;
+            }
+
+            result.Add(task);
+            if (!childrenByParent.TryGetValue(task.Id, out var children))
+            {
+                return;
+            }
+
+            foreach (var child in children)
+            {
+                if (includeAllChildren || matchedIds.Contains(child.Id))
+                {
+                    AddTask(child, includeAllChildren: true);
+                }
+            }
+        }
     }
 
     private static bool HasRelevantDate(TaskItem task, TaskDateScope scope)
@@ -176,6 +238,7 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
             FROM tasks
             WHERE integration_id = 'openza_tasks'
               AND (@space_id IS NULL OR space_id = @space_id)
+              AND parent_id IS NULL
             """;
         command.Parameters.AddWithValue("@space_id", ToDbValue(spaceId));
         command.Parameters.AddWithValue("@today_date", TaskDateValues.ToStorageValue(todayDate));
@@ -218,6 +281,7 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
             FROM tasks
             WHERE integration_id = 'openza_tasks' AND completion_state = 'open' AND project_id IS NOT NULL
               AND (@space_id IS NULL OR space_id = @space_id)
+              AND parent_id IS NULL
             GROUP BY project_id
             """;
         byProjectCommand.Parameters.AddWithValue("@space_id", ToDbValue(spaceId));
@@ -447,7 +511,7 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         var command = connection.CreateCommand();
         command.CommandText = """
             SELECT id, integration_id, provider_connection_id, external_id, provider_task_id, title, description,
-                   source_project_id, source_project_name, suggested_space_id, priority, completion_state,
+                   source_project_id, source_project_name, parent_external_id, suggested_space_id, priority, completion_state,
                    planned_on, planned_at, deadline_on, deadline_at, source_url,
                    recurrence_rule, snapshot_json, adoption_state, adopted_task_id, first_seen_at, last_seen_at, updated_at
             FROM provider_source_items
@@ -494,10 +558,12 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         };
 
         await UpsertProviderSourceItemCoreAsync(connection, source, cancellationToken).ConfigureAwait(false);
-        if (ShouldBypassInbox(source) && source.AdoptionState == ProviderSourceAdoptionStates.NotAdopted)
+        var parentContext = await ResolveAdoptedParentTaskContextAsync(connection, source, cancellationToken).ConfigureAwait(false);
+        if (source.AdoptionState == ProviderSourceAdoptionStates.NotAdopted &&
+            (parentContext is not null || (string.IsNullOrWhiteSpace(source.ParentExternalId) && ShouldBypassInbox(source))))
         {
             var now = DateTimeOffset.UtcNow;
-            var task = CreateTaskFromSource(source, source.SuggestedSpaceId ?? SpaceIds.Default, now);
+            var task = CreateTaskFromSource(source, parentContext?.SpaceId ?? source.SuggestedSpaceId ?? SpaceIds.Default, now, parentContext);
             await UpsertTaskCoreAsync(connection, task, cancellationToken).ConfigureAwait(false);
             await SetTaskLabelsCoreAsync(connection, task.Id, task.Labels, cancellationToken).ConfigureAwait(false);
 
@@ -511,7 +577,7 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         }
         else if (source.AdoptionState == ProviderSourceAdoptionStates.Adopted && !string.IsNullOrWhiteSpace(source.AdoptedTaskId))
         {
-            await RefreshAdoptedTaskFromSourceAsync(connection, source, cancellationToken).ConfigureAwait(false);
+            await RefreshAdoptedTaskFromSourceAsync(connection, source, parentContext, cancellationToken).ConfigureAwait(false);
         }
 
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
@@ -539,7 +605,9 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         }
 
         var now = DateTimeOffset.UtcNow;
-        var task = CreateTaskFromSource(source, string.IsNullOrWhiteSpace(spaceId) ? source.SuggestedSpaceId ?? SpaceIds.Default : spaceId, now);
+        var parentContext = await ResolveAdoptedParentTaskContextAsync(connection, source, cancellationToken).ConfigureAwait(false);
+        var targetSpaceId = parentContext?.SpaceId ?? (string.IsNullOrWhiteSpace(spaceId) ? source.SuggestedSpaceId ?? SpaceIds.Default : spaceId);
+        var task = CreateTaskFromSource(source, targetSpaceId, now, parentContext);
 
         await UpsertTaskCoreAsync(connection, task, cancellationToken).ConfigureAwait(false);
         await SetTaskLabelsCoreAsync(connection, task.Id, task.Labels, cancellationToken).ConfigureAwait(false);
@@ -555,16 +623,18 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         return task;
     }
 
-    private static TaskItem CreateTaskFromSource(ProviderSourceItem source, string spaceId, DateTimeOffset now) => new()
+    private static TaskItem CreateTaskFromSource(ProviderSourceItem source, string spaceId, DateTimeOffset now, ParentTaskContext? parent = null) => new()
     {
         Id = $"local_{Guid.NewGuid():N}",
         SpaceId = spaceId,
         IntegrationId = IntegrationIds.Local,
         Title = source.Title,
-        Description = source.Description,
+        SourceDescription = source.Description,
+        ProjectId = parent?.ProjectId,
+        ParentId = parent?.Id,
         Priority = source.Priority,
         CompletionState = source.CompletionState,
-        WorkflowStatus = InitialWorkflowStatusFor(source),
+        WorkflowStatus = parent?.WorkflowStatus ?? InitialWorkflowStatusFor(source),
         PlannedOn = source.PlannedOn,
         PlannedAt = source.PlannedAt,
         DeadlineOn = source.DeadlineOn,
@@ -597,6 +667,40 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
             source.PlannedAt is not null ||
             source.DeadlineOn is not null ||
             source.DeadlineAt is not null);
+
+    private static async Task<ParentTaskContext?> ResolveAdoptedParentTaskContextAsync(SqliteConnection connection, ProviderSourceItem source, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(source.ParentExternalId))
+        {
+            return null;
+        }
+
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT t.id, t.space_id, t.project_id, t.workflow_status
+            FROM provider_source_items parent_source
+            INNER JOIN tasks t ON t.id = parent_source.adopted_task_id
+            WHERE parent_source.provider_connection_id = @provider_connection_id
+              AND parent_source.external_id = @parent_external_id
+              AND parent_source.adopted_task_id IS NOT NULL
+              AND (parent_source.parent_external_id IS NULL OR TRIM(parent_source.parent_external_id) = '')
+              AND (t.parent_id IS NULL OR TRIM(t.parent_id) = '')
+            LIMIT 1
+            """;
+        command.Parameters.AddWithValue("@provider_connection_id", source.ProviderConnectionId);
+        command.Parameters.AddWithValue("@parent_external_id", source.ParentExternalId);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            return null;
+        }
+
+        return new ParentTaskContext(
+            reader.GetString(0),
+            reader.GetString(1),
+            GetNullableString(reader, 2),
+            TaskStatusExtensions.WorkflowFromStorageValue(reader.GetString(3)));
+    }
 
     public async Task<bool> SkipProviderSourceItemAsync(string sourceItemId, CancellationToken cancellationToken = default)
     {
@@ -1022,7 +1126,7 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         var command = connection.CreateCommand();
         command.CommandText = """
             SELECT id, integration_id, provider_connection_id, external_id, provider_task_id, title, description,
-                   source_project_id, source_project_name, suggested_space_id, priority, completion_state,
+                   source_project_id, source_project_name, parent_external_id, suggested_space_id, priority, completion_state,
                    planned_on, planned_at, deadline_on, deadline_at, source_url,
                    recurrence_rule, snapshot_json, adoption_state, adopted_task_id, first_seen_at, last_seen_at, updated_at
             FROM provider_source_items
@@ -1038,7 +1142,7 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         var command = connection.CreateCommand();
         command.CommandText = """
             SELECT id, integration_id, provider_connection_id, external_id, provider_task_id, title, description,
-                   source_project_id, source_project_name, suggested_space_id, priority, completion_state,
+                   source_project_id, source_project_name, parent_external_id, suggested_space_id, priority, completion_state,
                    planned_on, planned_at, deadline_on, deadline_at, source_url,
                    recurrence_rule, snapshot_json, adoption_state, adopted_task_id, first_seen_at, last_seen_at, updated_at
             FROM provider_source_items
@@ -1055,11 +1159,11 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         var command = connection.CreateCommand();
         command.CommandText = """
             INSERT INTO provider_source_items (id, integration_id, provider_connection_id, external_id, provider_task_id, title, description,
-                                               source_project_id, source_project_name, suggested_space_id, priority, completion_state,
+                                               source_project_id, source_project_name, parent_external_id, suggested_space_id, priority, completion_state,
                                                planned_on, planned_at, deadline_on, deadline_at,
                                                source_url, recurrence_rule, snapshot_json, adoption_state, adopted_task_id, first_seen_at, last_seen_at, updated_at)
             VALUES (@id, @integration_id, @provider_connection_id, @external_id, @provider_task_id, @title, @description,
-                    @source_project_id, @source_project_name, @suggested_space_id, @priority, @completion_state,
+                    @source_project_id, @source_project_name, @parent_external_id, @suggested_space_id, @priority, @completion_state,
                     @planned_on, @planned_at, @deadline_on, @deadline_at,
                     @source_url, @recurrence_rule, @snapshot_json, @adoption_state, @adopted_task_id, @first_seen_at, @last_seen_at, @updated_at)
             ON CONFLICT(provider_connection_id, external_id) DO UPDATE SET
@@ -1068,6 +1172,7 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
                 description = excluded.description,
                 source_project_id = excluded.source_project_id,
                 source_project_name = excluded.source_project_name,
+                parent_external_id = excluded.parent_external_id,
                 suggested_space_id = excluded.suggested_space_id,
                 priority = excluded.priority,
                 completion_state = excluded.completion_state,
@@ -1092,6 +1197,7 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         command.Parameters.AddWithValue("@description", ToDbValue(source.Description));
         command.Parameters.AddWithValue("@source_project_id", ToDbValue(source.SourceProjectId));
         command.Parameters.AddWithValue("@source_project_name", ToDbValue(source.SourceProjectName));
+        command.Parameters.AddWithValue("@parent_external_id", ToDbValue(source.ParentExternalId));
         command.Parameters.AddWithValue("@suggested_space_id", ToDbValue(source.SuggestedSpaceId));
         command.Parameters.AddWithValue("@priority", source.Priority);
         command.Parameters.AddWithValue("@completion_state", source.CompletionState.ToStorageValue());
@@ -1110,13 +1216,33 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    private static async Task RefreshAdoptedTaskFromSourceAsync(SqliteConnection connection, ProviderSourceItem source, CancellationToken cancellationToken)
+    private static async Task RefreshAdoptedTaskFromSourceAsync(SqliteConnection connection, ProviderSourceItem source, ParentTaskContext? parent, CancellationToken cancellationToken)
     {
         var command = connection.CreateCommand();
         command.CommandText = """
             UPDATE tasks
             SET title = @title,
-                description = @description,
+                source_description = @source_description,
+                space_id = CASE
+                    WHEN @parent_id IS NOT NULL AND TRIM(@parent_id) != '' THEN @parent_space_id
+                    ELSE space_id
+                END,
+                project_id = CASE
+                    WHEN @parent_id IS NOT NULL
+                         AND TRIM(@parent_id) != ''
+                         AND (project_id IS NULL OR TRIM(project_id) = '')
+                    THEN @parent_project_id
+                    ELSE project_id
+                END,
+                parent_id = COALESCE(@parent_id, parent_id),
+                workflow_status = CASE
+                    WHEN @parent_id IS NOT NULL
+                         AND TRIM(@parent_id) != ''
+                         AND workflow_status = 'inbox'
+                         AND (project_id IS NULL OR TRIM(project_id) = '')
+                    THEN @parent_workflow_status
+                    ELSE workflow_status
+                END,
                 completion_state = @completion_state,
                 source_provider_task_id = @source_provider_task_id,
                 source_url = @source_url,
@@ -1150,7 +1276,11 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
             """;
         command.Parameters.AddWithValue("@task_id", source.AdoptedTaskId);
         command.Parameters.AddWithValue("@title", source.Title);
-        command.Parameters.AddWithValue("@description", ToDbValue(source.Description));
+        command.Parameters.AddWithValue("@source_description", ToDbValue(source.Description));
+        command.Parameters.AddWithValue("@parent_id", ToDbValue(parent?.Id));
+        command.Parameters.AddWithValue("@parent_space_id", ToDbValue(parent?.SpaceId));
+        command.Parameters.AddWithValue("@parent_project_id", ToDbValue(parent?.ProjectId));
+        command.Parameters.AddWithValue("@parent_workflow_status", ToDbValue(parent?.WorkflowStatus.ToStorageValue()));
         command.Parameters.AddWithValue("@completion_state", source.CompletionState.ToStorageValue());
         command.Parameters.AddWithValue("@source_provider_task_id", source.ProviderTaskId);
         command.Parameters.AddWithValue("@source_url", ToDbValue(source.SourceUrl));
@@ -1175,21 +1305,22 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         Description = GetNullableString(reader, 6),
         SourceProjectId = GetNullableString(reader, 7),
         SourceProjectName = GetNullableString(reader, 8),
-        SuggestedSpaceId = GetNullableString(reader, 9),
-        Priority = reader.GetInt32(10),
-        CompletionState = TaskStatusExtensions.CompletionFromStorageValue(reader.GetString(11)),
-        PlannedOn = ReadDateOnly(reader, 12),
-        PlannedAt = ReadDate(reader, 13),
-        DeadlineOn = ReadDateOnly(reader, 14),
-        DeadlineAt = ReadDate(reader, 15),
-        SourceUrl = GetNullableString(reader, 16),
-        RecurrenceRule = GetNullableString(reader, 17),
-        SnapshotJson = GetNullableString(reader, 18),
-        AdoptionState = reader.GetString(19),
-        AdoptedTaskId = GetNullableString(reader, 20),
-        FirstSeenAt = ReadDate(reader, 21) ?? DateTimeOffset.UtcNow,
-        LastSeenAt = ReadDate(reader, 22) ?? DateTimeOffset.UtcNow,
-        UpdatedAt = ReadDate(reader, 23),
+        ParentExternalId = GetNullableString(reader, 9),
+        SuggestedSpaceId = GetNullableString(reader, 10),
+        Priority = reader.GetInt32(11),
+        CompletionState = TaskStatusExtensions.CompletionFromStorageValue(reader.GetString(12)),
+        PlannedOn = ReadDateOnly(reader, 13),
+        PlannedAt = ReadDate(reader, 14),
+        DeadlineOn = ReadDateOnly(reader, 15),
+        DeadlineAt = ReadDate(reader, 16),
+        SourceUrl = GetNullableString(reader, 17),
+        RecurrenceRule = GetNullableString(reader, 18),
+        SnapshotJson = GetNullableString(reader, 19),
+        AdoptionState = reader.GetString(20),
+        AdoptedTaskId = GetNullableString(reader, 21),
+        FirstSeenAt = ReadDate(reader, 22) ?? DateTimeOffset.UtcNow,
+        LastSeenAt = ReadDate(reader, 23) ?? DateTimeOffset.UtcNow,
+        UpdatedAt = ReadDate(reader, 24),
     };
 
     private static string BuildProviderSourceItemId(string providerConnectionId, string externalId) =>
@@ -1210,6 +1341,7 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
                 source.ProviderTaskId,
                 source.SourceProjectId,
                 source.SourceProjectName,
+                source.ParentExternalId,
                 source.SourceUrl,
                 source.RecurrenceRule,
                 synced_at = DateTimeOffset.UtcNow,
@@ -1222,7 +1354,7 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         var labelsByTask = await ReadLabelsByTaskAsync(connection, cancellationToken).ConfigureAwait(false);
         var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT t.id, t.external_id, t.space_id, t.integration_id, t.title, t.description, t.project_id, t.parent_id,
+            SELECT t.id, t.external_id, t.space_id, t.integration_id, t.title, t.description, t.source_description, t.project_id, t.parent_id,
                    t.priority, t.source_integration_id, t.source_connection_id, t.source_external_id, t.source_provider_task_id,
                    t.source_url, t.completion_state, t.workflow_status, t.planned_on, t.planned_at,
                    t.deadline_on, t.deadline_at, t.scheduled_start, t.scheduled_end, t.duration_minutes, t.recurrence_rule,
@@ -1248,38 +1380,39 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
                 IntegrationId = reader.GetString(3),
                 Title = reader.GetString(4),
                 Description = GetNullableString(reader, 5),
-                ProjectId = GetNullableString(reader, 6),
-                ParentId = GetNullableString(reader, 7),
-                Priority = reader.GetInt32(8),
-                SourceIntegrationId = GetNullableString(reader, 9),
-                SourceConnectionId = GetNullableString(reader, 10),
-                SourceExternalId = GetNullableString(reader, 11),
-                SourceProviderTaskId = GetNullableString(reader, 12),
-                SourceUrl = GetNullableString(reader, 13),
-                CompletionState = TaskStatusExtensions.CompletionFromStorageValue(reader.GetString(14)),
-                WorkflowStatus = TaskStatusExtensions.WorkflowFromStorageValue(reader.GetString(15)),
-                PlannedOn = ReadDateOnly(reader, 16),
-                PlannedAt = ReadDate(reader, 17),
-                DeadlineOn = ReadDateOnly(reader, 18),
-                DeadlineAt = ReadDate(reader, 19),
-                ScheduledStart = ReadDate(reader, 20),
-                ScheduledEnd = ReadDate(reader, 21),
-                DurationMinutes = reader.IsDBNull(22) ? null : reader.GetInt32(22),
-                RecurrenceRule = GetNullableString(reader, 23),
-                Notes = GetNullableString(reader, 24),
-                ProviderMetadataJson = GetNullableString(reader, 25),
-                SourceMetadataJson = GetNullableString(reader, 26),
-                LocalMetadataJson = GetNullableString(reader, 27),
-                CreatedAt = ReadDate(reader, 28) ?? DateTimeOffset.UtcNow,
-                UpdatedAt = ReadDate(reader, 29),
-                CompletedAt = ReadDate(reader, 30),
-                ProviderConnectionId = GetNullableString(reader, 31),
-                SourceProjectName = GetNullableString(reader, 32),
-                SourcePriority = reader.IsDBNull(33) ? null : reader.GetInt32(33),
-                SourcePlannedOn = ReadDateOnly(reader, 34),
-                SourcePlannedAt = ReadDate(reader, 35),
-                SourceDeadlineOn = ReadDateOnly(reader, 36),
-                SourceDeadlineAt = ReadDate(reader, 37),
+                SourceDescription = GetNullableString(reader, 6),
+                ProjectId = GetNullableString(reader, 7),
+                ParentId = GetNullableString(reader, 8),
+                Priority = reader.GetInt32(9),
+                SourceIntegrationId = GetNullableString(reader, 10),
+                SourceConnectionId = GetNullableString(reader, 11),
+                SourceExternalId = GetNullableString(reader, 12),
+                SourceProviderTaskId = GetNullableString(reader, 13),
+                SourceUrl = GetNullableString(reader, 14),
+                CompletionState = TaskStatusExtensions.CompletionFromStorageValue(reader.GetString(15)),
+                WorkflowStatus = TaskStatusExtensions.WorkflowFromStorageValue(reader.GetString(16)),
+                PlannedOn = ReadDateOnly(reader, 17),
+                PlannedAt = ReadDate(reader, 18),
+                DeadlineOn = ReadDateOnly(reader, 19),
+                DeadlineAt = ReadDate(reader, 20),
+                ScheduledStart = ReadDate(reader, 21),
+                ScheduledEnd = ReadDate(reader, 22),
+                DurationMinutes = reader.IsDBNull(23) ? null : reader.GetInt32(23),
+                RecurrenceRule = GetNullableString(reader, 24),
+                Notes = GetNullableString(reader, 25),
+                ProviderMetadataJson = GetNullableString(reader, 26),
+                SourceMetadataJson = GetNullableString(reader, 27),
+                LocalMetadataJson = GetNullableString(reader, 28),
+                CreatedAt = ReadDate(reader, 29) ?? DateTimeOffset.UtcNow,
+                UpdatedAt = ReadDate(reader, 30),
+                CompletedAt = ReadDate(reader, 31),
+                ProviderConnectionId = GetNullableString(reader, 32),
+                SourceProjectName = GetNullableString(reader, 33),
+                SourcePriority = reader.IsDBNull(34) ? null : reader.GetInt32(34),
+                SourcePlannedOn = ReadDateOnly(reader, 35),
+                SourcePlannedAt = ReadDate(reader, 36),
+                SourceDeadlineOn = ReadDateOnly(reader, 37),
+                SourceDeadlineAt = ReadDate(reader, 38),
                 Labels = labelsByTask.GetValueOrDefault(id, []),
             });
         }
@@ -1332,13 +1465,13 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
     {
         var command = connection.CreateCommand();
         command.CommandText = """
-            INSERT INTO tasks (id, external_id, space_id, integration_id, provider_connection_id, title, description, project_id, parent_id,
+            INSERT INTO tasks (id, external_id, space_id, integration_id, provider_connection_id, title, description, source_description, project_id, parent_id,
                                priority, source_integration_id, source_connection_id, source_external_id, source_provider_task_id,
                                source_url, completion_state, workflow_status, planned_on, planned_at, deadline_on, deadline_at,
                                scheduled_start, scheduled_end, duration_minutes, recurrence_rule,
                                notes, provider_metadata, source_metadata, local_metadata,
                                created_at, updated_at, completed_at)
-            VALUES (@id, @external_id, @space_id, @integration_id, @provider_connection_id, @title, @description, @project_id, @parent_id,
+            VALUES (@id, @external_id, @space_id, @integration_id, @provider_connection_id, @title, @description, @source_description, @project_id, @parent_id,
                     @priority, @source_integration_id, @source_connection_id, @source_external_id, @source_provider_task_id,
                     @source_url, @completion_state, @workflow_status, @planned_on, @planned_at, @deadline_on, @deadline_at,
                     @scheduled_start, @scheduled_end, @duration_minutes, @recurrence_rule,
@@ -1351,6 +1484,7 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
                 provider_connection_id = excluded.provider_connection_id,
                 title = excluded.title,
                 description = excluded.description,
+                source_description = excluded.source_description,
                 project_id = excluded.project_id,
                 parent_id = excluded.parent_id,
                 priority = excluded.priority,
@@ -1382,7 +1516,8 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         command.Parameters.AddWithValue("@integration_id", task.IntegrationId);
         command.Parameters.AddWithValue("@provider_connection_id", ToDbValue(task.ProviderConnectionId));
         command.Parameters.AddWithValue("@title", task.Title);
-        command.Parameters.AddWithValue("@description", ToDbValue(task.Description));
+        command.Parameters.AddWithValue("@description", DBNull.Value);
+        command.Parameters.AddWithValue("@source_description", ToDbValue(task.SourceDescription));
         command.Parameters.AddWithValue("@project_id", ToDbValue(task.ProjectId));
         command.Parameters.AddWithValue("@parent_id", ToDbValue(task.ParentId));
         command.Parameters.AddWithValue("@priority", task.Priority);
@@ -1614,6 +1749,7 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         }
 
         await AddColumnIfMissingAsync(connection, "provider_source_items", "suggested_space_id", "TEXT", cancellationToken).ConfigureAwait(false);
+        await AddColumnIfMissingAsync(connection, "provider_source_items", "parent_external_id", "TEXT", cancellationToken).ConfigureAwait(false);
         await AddColumnIfMissingAsync(connection, "provider_source_items", "planned_on", "TEXT", cancellationToken).ConfigureAwait(false);
         await AddColumnIfMissingAsync(connection, "provider_source_items", "planned_at", "INTEGER", cancellationToken).ConfigureAwait(false);
         await AddColumnIfMissingAsync(connection, "provider_source_items", "deadline_on", "TEXT", cancellationToken).ConfigureAwait(false);
@@ -1637,6 +1773,160 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
                     END
                 )
             WHERE planned_on IS NULL OR planned_at IS NULL
+            """, cancellationToken).ConfigureAwait(false);
+
+        await BackfillProviderParentExternalIdsAsync(connection, cancellationToken).ConfigureAwait(false);
+        await RelinkAdoptedProviderSubtasksAsync(connection, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task BackfillProviderParentExternalIdsAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        var select = connection.CreateCommand();
+        select.CommandText = """
+            SELECT id, snapshot_json
+            FROM provider_source_items
+            WHERE (parent_external_id IS NULL OR TRIM(parent_external_id) = '')
+              AND snapshot_json LIKE '%parentId%'
+            """;
+
+        var updates = new List<(string Id, string ParentExternalId)>();
+        await using (var reader = await select.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+        {
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                var parentExternalId = ExtractParentExternalIdFromSnapshot(GetNullableString(reader, 1));
+                if (!string.IsNullOrWhiteSpace(parentExternalId))
+                {
+                    updates.Add((reader.GetString(0), parentExternalId));
+                }
+            }
+        }
+
+        foreach (var update in updates)
+        {
+            var command = connection.CreateCommand();
+            command.CommandText = "UPDATE provider_source_items SET parent_external_id = @parent_external_id WHERE id = @id";
+            command.Parameters.AddWithValue("@id", update.Id);
+            command.Parameters.AddWithValue("@parent_external_id", update.ParentExternalId);
+            await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private static string? ExtractParentExternalIdFromSnapshot(string? snapshotJson)
+    {
+        if (string.IsNullOrWhiteSpace(snapshotJson))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(snapshotJson);
+            if (document.RootElement.TryGetProperty("sourceTask", out var sourceTask) &&
+                sourceTask.TryGetProperty("parentId", out var parentId) &&
+                parentId.ValueKind != JsonValueKind.Null)
+            {
+                return parentId.ToString();
+            }
+        }
+        catch (JsonException)
+        {
+        }
+
+        return null;
+    }
+
+    private static async Task RelinkAdoptedProviderSubtasksAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        await ExecuteNonQueryAsync(connection, """
+            UPDATE tasks
+            SET parent_id = (
+                    SELECT parent_source.adopted_task_id
+                    FROM provider_source_items child_source
+                    INNER JOIN provider_source_items parent_source
+                      ON parent_source.provider_connection_id = child_source.provider_connection_id
+                     AND parent_source.external_id = child_source.parent_external_id
+                    INNER JOIN tasks parent_task
+                      ON parent_task.id = parent_source.adopted_task_id
+                    WHERE child_source.adopted_task_id = tasks.id
+                      AND child_source.parent_external_id IS NOT NULL
+                      AND parent_source.adopted_task_id IS NOT NULL
+                      AND parent_source.adopted_task_id != tasks.id
+                      AND (parent_source.parent_external_id IS NULL OR TRIM(parent_source.parent_external_id) = '')
+                      AND (parent_task.parent_id IS NULL OR TRIM(parent_task.parent_id) = '')
+                    LIMIT 1
+                ),
+                space_id = COALESCE((
+                    SELECT parent_task.space_id
+                    FROM provider_source_items child_source
+                    INNER JOIN provider_source_items parent_source
+                      ON parent_source.provider_connection_id = child_source.provider_connection_id
+                     AND parent_source.external_id = child_source.parent_external_id
+                    INNER JOIN tasks parent_task
+                      ON parent_task.id = parent_source.adopted_task_id
+                    WHERE child_source.adopted_task_id = tasks.id
+                      AND child_source.parent_external_id IS NOT NULL
+                      AND parent_source.adopted_task_id IS NOT NULL
+                      AND parent_source.adopted_task_id != tasks.id
+                      AND (parent_source.parent_external_id IS NULL OR TRIM(parent_source.parent_external_id) = '')
+                      AND (parent_task.parent_id IS NULL OR TRIM(parent_task.parent_id) = '')
+                    LIMIT 1
+                ), space_id),
+                project_id = (
+                    SELECT parent_task.project_id
+                    FROM provider_source_items child_source
+                    INNER JOIN provider_source_items parent_source
+                      ON parent_source.provider_connection_id = child_source.provider_connection_id
+                     AND parent_source.external_id = child_source.parent_external_id
+                    INNER JOIN tasks parent_task
+                      ON parent_task.id = parent_source.adopted_task_id
+                    WHERE child_source.adopted_task_id = tasks.id
+                      AND child_source.parent_external_id IS NOT NULL
+                      AND parent_source.adopted_task_id IS NOT NULL
+                      AND parent_source.adopted_task_id != tasks.id
+                      AND (parent_source.parent_external_id IS NULL OR TRIM(parent_source.parent_external_id) = '')
+                      AND (parent_task.parent_id IS NULL OR TRIM(parent_task.parent_id) = '')
+                    LIMIT 1
+                ),
+                workflow_status = CASE
+                    WHEN workflow_status = 'inbox'
+                         AND (project_id IS NULL OR TRIM(project_id) = '')
+                    THEN COALESCE((
+                        SELECT parent_task.workflow_status
+                        FROM provider_source_items child_source
+                        INNER JOIN provider_source_items parent_source
+                          ON parent_source.provider_connection_id = child_source.provider_connection_id
+                         AND parent_source.external_id = child_source.parent_external_id
+                        INNER JOIN tasks parent_task
+                          ON parent_task.id = parent_source.adopted_task_id
+                        WHERE child_source.adopted_task_id = tasks.id
+                          AND child_source.parent_external_id IS NOT NULL
+                          AND parent_source.adopted_task_id IS NOT NULL
+                          AND parent_source.adopted_task_id != tasks.id
+                          AND (parent_source.parent_external_id IS NULL OR TRIM(parent_source.parent_external_id) = '')
+                          AND (parent_task.parent_id IS NULL OR TRIM(parent_task.parent_id) = '')
+                        LIMIT 1
+                    ), workflow_status)
+                    ELSE workflow_status
+                END,
+                updated_at = strftime('%s', 'now')
+            WHERE integration_id = 'openza_tasks'
+              AND (parent_id IS NULL OR TRIM(parent_id) = '')
+              AND EXISTS (
+                    SELECT 1
+                    FROM provider_source_items child_source
+                    INNER JOIN provider_source_items parent_source
+                      ON parent_source.provider_connection_id = child_source.provider_connection_id
+                     AND parent_source.external_id = child_source.parent_external_id
+                    INNER JOIN tasks parent_task
+                      ON parent_task.id = parent_source.adopted_task_id
+                    WHERE child_source.adopted_task_id = tasks.id
+                      AND child_source.parent_external_id IS NOT NULL
+                      AND parent_source.adopted_task_id IS NOT NULL
+                      AND parent_source.adopted_task_id != tasks.id
+                      AND (parent_source.parent_external_id IS NULL OR TRIM(parent_source.parent_external_id) = '')
+                      AND (parent_task.parent_id IS NULL OR TRIM(parent_task.parent_id) = '')
+                )
             """, cancellationToken).ConfigureAwait(false);
     }
 
@@ -1743,6 +2033,7 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         await AddColumnIfMissingAsync(connection, "tasks", "space_id", $"TEXT NOT NULL DEFAULT '{SpaceIds.Default}'", cancellationToken).ConfigureAwait(false);
         await AddColumnIfMissingAsync(connection, "tasks", "integration_id", "TEXT DEFAULT 'openza_tasks'", cancellationToken).ConfigureAwait(false);
         await AddColumnIfMissingAsync(connection, "tasks", "description", "TEXT", cancellationToken).ConfigureAwait(false);
+        await AddColumnIfMissingAsync(connection, "tasks", "source_description", "TEXT", cancellationToken).ConfigureAwait(false);
         await AddColumnIfMissingAsync(connection, "tasks", "project_id", "TEXT", cancellationToken).ConfigureAwait(false);
         await AddColumnIfMissingAsync(connection, "tasks", "parent_id", "TEXT", cancellationToken).ConfigureAwait(false);
         await AddColumnIfMissingAsync(connection, "tasks", "priority", "INTEGER NOT NULL DEFAULT 2", cancellationToken).ConfigureAwait(false);
@@ -1776,6 +2067,30 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         await AddColumnIfMissingAsync(connection, "tasks", "created_at", "INTEGER", cancellationToken).ConfigureAwait(false);
         await AddColumnIfMissingAsync(connection, "tasks", "updated_at", "INTEGER", cancellationToken).ConfigureAwait(false);
         await AddColumnIfMissingAsync(connection, "tasks", "completed_at", "INTEGER", cancellationToken).ConfigureAwait(false);
+
+        await ExecuteNonQueryAsync(connection, """
+            UPDATE tasks
+            SET source_description = description,
+                description = NULL
+            WHERE description IS NOT NULL
+              AND TRIM(description) != ''
+              AND (source_description IS NULL OR TRIM(source_description) = '')
+              AND source_integration_id IS NOT NULL
+              AND TRIM(source_integration_id) != ''
+              AND source_external_id IS NOT NULL
+              AND TRIM(source_external_id) != ''
+            """, cancellationToken).ConfigureAwait(false);
+
+        await ExecuteNonQueryAsync(connection, """
+            UPDATE tasks
+            SET notes = CASE
+                    WHEN notes IS NULL OR TRIM(notes) = '' THEN description
+                    ELSE notes || char(10) || char(10) || '---' || char(10) || description
+                END,
+                description = NULL
+            WHERE description IS NOT NULL
+              AND TRIM(description) != ''
+            """, cancellationToken).ConfigureAwait(false);
 
         await ExecuteNonQueryAsync(connection, """
             UPDATE tasks
@@ -2150,6 +2465,7 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
           provider_connection_id TEXT REFERENCES provider_connections(id),
           title TEXT NOT NULL,
           description TEXT,
+          source_description TEXT,
           project_id TEXT REFERENCES projects(id),
           parent_id TEXT,
           priority INTEGER NOT NULL DEFAULT 2,
@@ -2187,6 +2503,7 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
           description TEXT,
           source_project_id TEXT,
           source_project_name TEXT,
+          parent_external_id TEXT,
           suggested_space_id TEXT REFERENCES spaces(id),
           priority INTEGER NOT NULL DEFAULT 2,
           completion_state TEXT NOT NULL DEFAULT 'open',
@@ -2325,6 +2642,7 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         CREATE INDEX IF NOT EXISTS idx_tasks_integration_id ON tasks(integration_id);
         CREATE INDEX IF NOT EXISTS idx_tasks_provider_connection_id ON tasks(provider_connection_id);
         CREATE INDEX IF NOT EXISTS idx_tasks_source ON tasks(source_connection_id, source_external_id);
+        CREATE INDEX IF NOT EXISTS idx_tasks_parent_id ON tasks(parent_id);
         CREATE INDEX IF NOT EXISTS idx_tasks_project_id ON tasks(project_id);
         CREATE INDEX IF NOT EXISTS idx_tasks_completion_state ON tasks(completion_state);
         CREATE INDEX IF NOT EXISTS idx_tasks_workflow_status ON tasks(workflow_status);
@@ -2336,6 +2654,7 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         CREATE INDEX IF NOT EXISTS idx_projects_integration_id ON projects(integration_id);
         CREATE INDEX IF NOT EXISTS idx_labels_integration_id ON labels(integration_id);
         CREATE INDEX IF NOT EXISTS idx_provider_source_items_connection ON provider_source_items(provider_connection_id, adoption_state);
+        CREATE INDEX IF NOT EXISTS idx_provider_source_items_parent ON provider_source_items(provider_connection_id, parent_external_id);
         CREATE INDEX IF NOT EXISTS idx_sync_item_links_route_source ON sync_item_links(route_id, source_external_id);
         """;
 }

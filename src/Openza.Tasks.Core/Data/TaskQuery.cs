@@ -6,6 +6,7 @@ public sealed record TaskQuery
 {
     public string? SpaceId { get; init; }
     public string? ProjectId { get; init; }
+    public string? ParentId { get; init; }
     public string? LabelId { get; init; }
     public string? SearchText { get; init; }
     public TaskItemStatus? Status { get; init; }
@@ -14,6 +15,7 @@ public sealed record TaskQuery
     public TaskRepeatScope RepeatScope { get; init; } = TaskRepeatScope.Include;
     public int? Priority { get; init; }
     public TaskSortMode SortMode { get; init; } = TaskSortMode.PriorityThenDate;
+    public bool IncludeSubtasks { get; init; }
 }
 
 public enum TaskListKind

@@ -15,6 +15,11 @@
     <SolidColorBrush x:Key="OpenzaNavQuietBadgeBrush" Color="#14000000" />
     <SolidColorBrush x:Key="OpenzaDangerBrush" Color="#B42318" />
     <SolidColorBrush x:Key="OpenzaOnDangerBrush" Color="#FFFFFFFF" />
+    <SolidColorBrush x:Key="OpenzaToastInfoBrush" Color="#334155" />
+    <SolidColorBrush x:Key="OpenzaToastWarningBrush" Color="#92400E" />
+    <SolidColorBrush x:Key="OpenzaToastErrorBrush" Color="#991B1B" />
+    <SolidColorBrush x:Key="OpenzaToastSuccessBrush" Color="#166534" />
+    <SolidColorBrush x:Key="OpenzaToastForegroundBrush" Color="#FFFFFFFF" />
 
     <Style x:Key="OpenzaSectionHeaderTextBlockStyle" TargetType="TextBlock" BasedOn="{StaticResource BodyStrongTextBlockStyle}">
         <Setter Property="Margin" Value="0,20,0,6" />

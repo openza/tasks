@@ -14,7 +14,6 @@
         <DataTemplate x:Key="TaskRowTemplate" x:DataType="vm:TaskListItemViewModel">
             <controls:TaskRowControl
                 ToggleCompleteClicked="OnToggleCompleteClicked"
-                CopyTaskIdClicked="OnCopyTaskIdClicked"
                 DeleteTaskClicked="OnDeleteTaskClicked" />
         </DataTemplate>
         <DataTemplate x:Key="TaskGroupHeaderTemplate" x:DataType="vm:TaskGroupViewModel">
@@ -405,6 +404,8 @@
                 x:Name="TaskDetailsPanel"
                 SaveTaskClicked="OnSaveTaskClicked"
                 ToggleCompleteClicked="OnDetailsToggleCompleteClicked"
+                SubtaskToggleCompleteClicked="OnDetailsSubtaskToggleCompleteClicked"
+                CreateProjectRequested="OnDetailsCreateProjectRequested"
                 DeleteTaskClicked="OnDetailsDeleteTaskClicked"
                 CancelEditClicked="OnDetailsCancelEditClicked" />
         </Border>
@@ -499,6 +500,12 @@
                                             MaxLines="1"
                                             TextTrimming="CharacterEllipsis" />
                                     </StackPanel>
+                                    <TextBlock
+                                        Text="{Binding Description}"
+                                        Style="{StaticResource OpenzaMetadataTextBlockStyle}"
+                                        MaxLines="2"
+                                        TextWrapping="WrapWholeWords"
+                                        TextTrimming="CharacterEllipsis" />
                                 </StackPanel>
                                 <StackPanel
                                     Grid.Column="1"

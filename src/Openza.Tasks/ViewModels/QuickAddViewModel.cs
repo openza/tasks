@@ -5,6 +5,7 @@ namespace Openza.Tasks.ViewModels;
 public sealed class QuickAddViewModel
 {
     public string Title { get; init; } = string.Empty;
+    public string Notes { get; init; } = string.Empty;
     public string? ProjectId { get; init; }
     public TaskItemStatus Status { get; init; } = TaskItemStatus.Inbox;
     public int Priority { get; init; } = 3;

@@ -47,6 +47,7 @@ public sealed class SqliteTaskStoreTests : IDisposable
         Assert.Equal(1L, await ExecuteScalarAsync(connection, "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'sync_routes'"));
         Assert.Equal(1L, await ExecuteScalarAsync(connection, "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'sync_field_state'"));
         Assert.Equal(1L, await ExecuteScalarAsync(connection, "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'sync_operations'"));
+        Assert.Equal(1L, await ExecuteScalarAsync(connection, "SELECT COUNT(*) FROM pragma_table_info('tasks') WHERE name = 'source_description'"));
         Assert.Equal("'none'", await ExecuteScalarTextAsync(connection, "SELECT dflt_value FROM pragma_table_info('tasks') WHERE name = 'workflow_status'"));
         Assert.Equal("'active'", await ExecuteScalarTextAsync(connection, "SELECT dflt_value FROM pragma_table_info('projects') WHERE name = 'status'"));
     }
@@ -132,6 +133,7 @@ public sealed class SqliteTaskStoreTests : IDisposable
         {
             Id = "task_planner",
             Title = "Plan the day",
+            Notes = "Local task notes",
             CompletionState = TaskCompletionState.Open,
             WorkflowStatus = TaskWorkflowStatus.Waiting,
             PlannedOn = DateOnly.FromDateTime(planned.LocalDateTime),
@@ -148,6 +150,9 @@ public sealed class SqliteTaskStoreTests : IDisposable
         var task = await store.GetTaskAsync("task_planner");
 
         Assert.NotNull(task);
+        Assert.Null(task.Description);
+        Assert.Null(task.SourceDescription);
+        Assert.Equal("Local task notes", task.Notes);
         Assert.Equal(TaskCompletionState.Open, task.CompletionState);
         Assert.Equal(TaskWorkflowStatus.Waiting, task.WorkflowStatus);
         Assert.Equal(TaskItemStatus.Waiting, task.Status);
@@ -334,6 +339,7 @@ public sealed class SqliteTaskStoreTests : IDisposable
             ExternalId = "remote_1",
             ProviderTaskId = "remote_1",
             Title = "Clarify provider task",
+            Description = "Remote task description",
             SourceProjectName = "Todoist Inbox",
             CompletionState = TaskCompletionState.Open,
         });
@@ -347,8 +353,59 @@ public sealed class SqliteTaskStoreTests : IDisposable
         Assert.Equal(IntegrationIds.Local, task.IntegrationId);
         Assert.Equal(TaskItemStatus.Inbox, task.Status);
         Assert.Null(task.ProjectId);
+        Assert.Null(task.Description);
+        Assert.Equal("Remote task description", task.SourceDescription);
         Assert.Equal(IntegrationIds.Todoist, task.SourceIntegrationId);
         Assert.Equal("Todoist Inbox", task.SourceProjectName);
+    }
+
+    [Fact]
+    public async Task ProviderSource_refresh_updates_source_description_without_overwriting_openza_notes()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        var localLabel = new LabelItem
+        {
+            Id = "label_local",
+            IntegrationId = IntegrationIds.Local,
+            Name = "local",
+        };
+        await store.UpsertProviderSourceItemAsync(new ProviderSourceItem
+        {
+            Id = "source_todoist_description",
+            IntegrationId = IntegrationIds.Todoist,
+            ProviderConnectionId = "todoist_default",
+            ExternalId = "remote_description",
+            ProviderTaskId = "remote_description",
+            Title = "Provider task",
+            Description = "Remote description v1",
+        });
+        var adopted = await store.AdoptProviderSourceItemAsync("source_todoist_description");
+        Assert.NotNull(adopted);
+        await store.UpsertTaskAsync(adopted with
+        {
+            Notes = "Openza notes",
+            Labels = [localLabel],
+        });
+
+        await store.UpsertProviderSourceItemAsync(new ProviderSourceItem
+        {
+            Id = "source_todoist_description",
+            IntegrationId = IntegrationIds.Todoist,
+            ProviderConnectionId = "todoist_default",
+            ExternalId = "remote_description",
+            ProviderTaskId = "remote_description",
+            Title = "Provider task updated",
+            Description = "Remote description v2",
+        });
+
+        var task = await store.GetTaskAsync(adopted.Id);
+
+        Assert.NotNull(task);
+        Assert.Null(task.Description);
+        Assert.Equal("Remote description v2", task.SourceDescription);
+        Assert.Equal("Openza notes", task.Notes);
+        Assert.Equal("local", Assert.Single(task.Labels).Name);
     }
 
     [Fact]
@@ -413,6 +470,292 @@ public sealed class SqliteTaskStoreTests : IDisposable
         Assert.Equal(source.AdoptedTaskId, task.Id);
         Assert.Equal(TaskWorkflowStatus.None, task.WorkflowStatus);
         Assert.Equal("every 6th", task.RecurrenceRule);
+    }
+
+    [Fact]
+    public async Task UpsertProviderSourceItem_stores_provider_parent_reference()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+
+        await store.UpsertProviderSourceItemAsync(new ProviderSourceItem
+        {
+            Id = "source_child",
+            IntegrationId = IntegrationIds.Todoist,
+            ProviderConnectionId = "todoist_default",
+            ExternalId = "remote_child",
+            ProviderTaskId = "remote_child",
+            ParentExternalId = "remote_parent",
+            Title = "Child source task",
+        });
+
+        var source = Assert.Single(await store.GetProviderSourceItemsAsync(IntegrationIds.Todoist, includeAdopted: true));
+
+        Assert.Equal("remote_parent", source.ParentExternalId);
+    }
+
+    [Fact]
+    public async Task UpsertProviderSourceItem_links_child_source_under_adopted_parent()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        await store.UpsertProviderSourceItemAsync(new ProviderSourceItem
+        {
+            Id = "source_parent",
+            IntegrationId = IntegrationIds.Todoist,
+            ProviderConnectionId = "todoist_default",
+            ExternalId = "remote_parent",
+            ProviderTaskId = "remote_parent",
+            Title = "Parent task",
+        });
+        var parent = await store.AdoptProviderSourceItemAsync("source_parent");
+
+        await store.UpsertProviderSourceItemAsync(new ProviderSourceItem
+        {
+            Id = "source_child",
+            IntegrationId = IntegrationIds.Todoist,
+            ProviderConnectionId = "todoist_default",
+            ExternalId = "remote_child",
+            ProviderTaskId = "remote_child",
+            ParentExternalId = "remote_parent",
+            Title = "Child task",
+        });
+
+        Assert.NotNull(parent);
+        var childSource = Assert.Single(
+            await store.GetProviderSourceItemsAsync(IntegrationIds.Todoist, includeAdopted: true),
+            source => source.ExternalId == "remote_child");
+        var child = await store.GetTaskAsync(childSource.AdoptedTaskId!);
+        var visibleTasks = await store.GetTasksAsync(new TaskQuery { Kind = TaskListKind.All });
+
+        Assert.Equal(ProviderSourceAdoptionStates.Adopted, childSource.AdoptionState);
+        Assert.NotNull(child);
+        Assert.Equal(parent.Id, child.ParentId);
+        Assert.Equal(new[] { parent.Id, child.Id }, visibleTasks.Select(task => task.Id).ToArray());
+    }
+
+    [Fact]
+    public async Task UpsertProviderSourceItem_does_not_nest_subtasks_under_subtasks()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        await store.UpsertProviderSourceItemAsync(new ProviderSourceItem
+        {
+            Id = "source_parent",
+            IntegrationId = IntegrationIds.Todoist,
+            ProviderConnectionId = "todoist_default",
+            ExternalId = "remote_parent",
+            ProviderTaskId = "remote_parent",
+            Title = "Parent task",
+        });
+        var parent = await store.AdoptProviderSourceItemAsync("source_parent");
+        await store.UpsertProviderSourceItemAsync(new ProviderSourceItem
+        {
+            Id = "source_child",
+            IntegrationId = IntegrationIds.Todoist,
+            ProviderConnectionId = "todoist_default",
+            ExternalId = "remote_child",
+            ProviderTaskId = "remote_child",
+            ParentExternalId = "remote_parent",
+            Title = "Child task",
+        });
+        var childSource = Assert.Single(
+            await store.GetProviderSourceItemsAsync(IntegrationIds.Todoist, includeAdopted: true),
+            source => source.ExternalId == "remote_child");
+        var child = await store.GetTaskAsync(childSource.AdoptedTaskId!);
+
+        await store.UpsertProviderSourceItemAsync(new ProviderSourceItem
+        {
+            Id = "source_grandchild",
+            IntegrationId = IntegrationIds.Todoist,
+            ProviderConnectionId = "todoist_default",
+            ExternalId = "remote_grandchild",
+            ProviderTaskId = "remote_grandchild",
+            ParentExternalId = "remote_child",
+            Title = "Grandchild stays in intake",
+        });
+
+        Assert.NotNull(parent);
+        Assert.NotNull(child);
+        Assert.Equal(parent.Id, child.ParentId);
+        var grandchildSource = Assert.Single(
+            await store.GetProviderSourceItemsAsync(IntegrationIds.Todoist, includeAdopted: true),
+            source => source.ExternalId == "remote_grandchild");
+        var visibleTasks = await store.GetTasksAsync(new TaskQuery { Kind = TaskListKind.All });
+
+        Assert.Equal(ProviderSourceAdoptionStates.NotAdopted, grandchildSource.AdoptionState);
+        Assert.Null(grandchildSource.AdoptedTaskId);
+        Assert.Equal(new[] { parent.Id, child.Id }, visibleTasks.Select(task => task.Id).ToArray());
+    }
+
+    [Fact]
+    public async Task Initialize_relinks_existing_imported_subtasks_from_source_snapshot()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        await store.UpsertProviderSourceItemAsync(new ProviderSourceItem
+        {
+            Id = "source_parent",
+            IntegrationId = IntegrationIds.Todoist,
+            ProviderConnectionId = "todoist_default",
+            ExternalId = "remote_parent",
+            ProviderTaskId = "remote_parent",
+            Title = "Parent task",
+        });
+        var parent = await store.AdoptProviderSourceItemAsync("source_parent");
+        await store.UpsertProviderSourceItemAsync(new ProviderSourceItem
+        {
+            Id = "source_child",
+            IntegrationId = IntegrationIds.Todoist,
+            ProviderConnectionId = "todoist_default",
+            ExternalId = "remote_child",
+            ProviderTaskId = "remote_child",
+            Title = "Existing child",
+            SnapshotJson = """{"sourceTask":{"parentId":"remote_parent"}}""",
+        });
+        var child = await store.AdoptProviderSourceItemAsync("source_child");
+        Assert.NotNull(parent);
+        Assert.NotNull(child);
+        Assert.Null(child.ParentId);
+
+        await store.InitializeAsync();
+
+        var relinked = await store.GetTaskAsync(child.Id);
+        var childSource = Assert.Single(
+            await store.GetProviderSourceItemsAsync(IntegrationIds.Todoist, includeAdopted: true),
+            source => source.ExternalId == "remote_child");
+        Assert.NotNull(relinked);
+        Assert.Equal(parent.Id, relinked.ParentId);
+        Assert.Equal("remote_parent", childSource.ParentExternalId);
+    }
+
+    [Fact]
+    public async Task Initialize_relinked_subtasks_inherit_parent_workflow_context()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        await store.UpsertProviderSourceItemAsync(new ProviderSourceItem
+        {
+            Id = "source_parent",
+            IntegrationId = IntegrationIds.Todoist,
+            ProviderConnectionId = "todoist_default",
+            ExternalId = "remote_parent",
+            ProviderTaskId = "remote_parent",
+            Title = "Recurring parent",
+            PlannedOn = new DateOnly(2026, 5, 15),
+            RecurrenceRule = "every day",
+        });
+        var parent = await store.AdoptProviderSourceItemAsync("source_parent");
+        await store.UpsertProviderSourceItemAsync(new ProviderSourceItem
+        {
+            Id = "source_child",
+            IntegrationId = IntegrationIds.Todoist,
+            ProviderConnectionId = "todoist_default",
+            ExternalId = "remote_child",
+            ProviderTaskId = "remote_child",
+            Title = "Existing child",
+            SnapshotJson = """{"sourceTask":{"parentId":"remote_parent"}}""",
+        });
+        var child = await store.AdoptProviderSourceItemAsync("source_child");
+        Assert.NotNull(parent);
+        Assert.NotNull(child);
+        Assert.Equal(TaskWorkflowStatus.None, parent.WorkflowStatus);
+        Assert.Equal(TaskWorkflowStatus.Inbox, child.WorkflowStatus);
+
+        await store.InitializeAsync();
+
+        var relinked = await store.GetTaskAsync(child.Id);
+        var inbox = await store.GetTasksAsync(new TaskQuery { Kind = TaskListKind.Inbox });
+
+        Assert.NotNull(relinked);
+        Assert.Equal(parent.Id, relinked.ParentId);
+        Assert.Equal(parent.SpaceId, relinked.SpaceId);
+        Assert.Equal(parent.ProjectId, relinked.ProjectId);
+        Assert.Equal(TaskWorkflowStatus.None, relinked.WorkflowStatus);
+        Assert.Empty(inbox);
+    }
+
+    [Fact]
+    public async Task Initialize_does_not_relink_existing_task_under_an_existing_subtask()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        await store.UpsertProviderSourceItemAsync(new ProviderSourceItem
+        {
+            Id = "source_parent",
+            IntegrationId = IntegrationIds.Todoist,
+            ProviderConnectionId = "todoist_default",
+            ExternalId = "remote_parent",
+            ProviderTaskId = "remote_parent",
+            Title = "Parent task",
+        });
+        var parent = await store.AdoptProviderSourceItemAsync("source_parent");
+        await store.UpsertProviderSourceItemAsync(new ProviderSourceItem
+        {
+            Id = "source_child",
+            IntegrationId = IntegrationIds.Todoist,
+            ProviderConnectionId = "todoist_default",
+            ExternalId = "remote_child",
+            ProviderTaskId = "remote_child",
+            Title = "Existing child",
+            SnapshotJson = """{"sourceTask":{"parentId":"remote_parent"}}""",
+        });
+        var child = await store.AdoptProviderSourceItemAsync("source_child");
+        Assert.NotNull(parent);
+        Assert.NotNull(child);
+
+        await store.InitializeAsync();
+        child = await store.GetTaskAsync(child.Id);
+        Assert.NotNull(child);
+        Assert.Equal(parent.Id, child.ParentId);
+
+        await store.UpsertProviderSourceItemAsync(new ProviderSourceItem
+        {
+            Id = "source_grandchild",
+            IntegrationId = IntegrationIds.Todoist,
+            ProviderConnectionId = "todoist_default",
+            ExternalId = "remote_grandchild",
+            ProviderTaskId = "remote_grandchild",
+            Title = "Existing grandchild",
+            SnapshotJson = """{"sourceTask":{"parentId":"remote_child"}}""",
+        });
+        var grandchild = await store.AdoptProviderSourceItemAsync("source_grandchild");
+        Assert.NotNull(grandchild);
+        Assert.Null(grandchild.ParentId);
+
+        await store.InitializeAsync();
+
+        var unchangedGrandchild = await store.GetTaskAsync(grandchild.Id);
+        Assert.NotNull(unchangedGrandchild);
+        Assert.Null(unchangedGrandchild.ParentId);
+    }
+
+    [Fact]
+    public async Task Task_counts_exclude_nested_subtasks()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        await store.UpsertTaskAsync(new TaskItem
+        {
+            Id = "task_parent",
+            Title = "Parent",
+            Status = TaskItemStatus.Next,
+        });
+        await store.UpsertTaskAsync(new TaskItem
+        {
+            Id = "task_child",
+            Title = "Child",
+            ParentId = "task_parent",
+            Status = TaskItemStatus.Next,
+        });
+
+        var counts = await store.GetTaskCountsAsync();
+        var tasks = await store.GetTasksAsync(new TaskQuery { Kind = TaskListKind.All });
+
+        Assert.Equal(1, counts.NextActions);
+        Assert.Equal(1, counts.Open);
+        Assert.Equal(1, counts.All);
+        Assert.Equal(new[] { "task_parent", "task_child" }, tasks.Select(task => task.Id).ToArray());
     }
 
     [Fact]
@@ -832,6 +1175,96 @@ public sealed class SqliteTaskStoreTests : IDisposable
         Assert.Equal("Legacy local task", task.Title);
         Assert.Equal(TaskItemStatus.Inbox, task.Status);
         Assert.Equal(IntegrationIds.Local, task.IntegrationId);
+    }
+
+    [Fact]
+    public async Task Initialize_moves_provider_linked_description_to_source_description()
+    {
+        Directory.CreateDirectory(_directory);
+        var databasePath = Path.Combine(_directory, "provider-linked-description.db");
+        await using (var connection = new SqliteConnection(new SqliteConnectionStringBuilder
+        {
+            DataSource = databasePath,
+            Mode = SqliteOpenMode.ReadWriteCreate,
+            Pooling = false,
+        }.ToString()))
+        {
+            await connection.OpenAsync();
+            var command = connection.CreateCommand();
+            command.CommandText = """
+                CREATE TABLE tasks (
+                  id TEXT PRIMARY KEY NOT NULL,
+                  title TEXT NOT NULL,
+                  description TEXT,
+                  source_integration_id TEXT,
+                  source_external_id TEXT,
+                  created_at INTEGER NOT NULL
+                );
+
+                INSERT INTO tasks (id, title, description, source_integration_id, source_external_id, created_at)
+                VALUES ('task_provider_description', 'Provider task', 'Remote provider description', 'todoist', 'remote_1', 1710000000);
+                """;
+            await command.ExecuteNonQueryAsync();
+        }
+
+        var store = new SqliteTaskStore(databasePath);
+        await store.InitializeAsync();
+
+        var task = await store.GetTaskAsync("task_provider_description");
+
+        Assert.NotNull(task);
+        Assert.Null(task.Description);
+        Assert.Equal("Remote provider description", task.SourceDescription);
+        Assert.Equal(IntegrationIds.Todoist, task.SourceIntegrationId);
+        Assert.Equal("remote_1", task.SourceExternalId);
+    }
+
+    [Fact]
+    public async Task Initialize_moves_local_description_to_notes()
+    {
+        Directory.CreateDirectory(_directory);
+        var databasePath = Path.Combine(_directory, "local-description.db");
+        await using (var connection = new SqliteConnection(new SqliteConnectionStringBuilder
+        {
+            DataSource = databasePath,
+            Mode = SqliteOpenMode.ReadWriteCreate,
+            Pooling = false,
+        }.ToString()))
+        {
+            await connection.OpenAsync();
+            var command = connection.CreateCommand();
+            command.CommandText = """
+                CREATE TABLE tasks (
+                  id TEXT PRIMARY KEY NOT NULL,
+                  title TEXT NOT NULL,
+                  description TEXT,
+                  notes TEXT,
+                  created_at INTEGER NOT NULL
+                );
+
+                INSERT INTO tasks (id, title, description, notes, created_at)
+                VALUES
+                  ('task_description_only', 'Description only', 'Old description', NULL, 1710000000),
+                  ('task_description_and_notes', 'Description and notes', 'Old description', 'Existing notes', 1710000001);
+                """;
+            await command.ExecuteNonQueryAsync();
+        }
+
+        var store = new SqliteTaskStore(databasePath);
+        await store.InitializeAsync();
+
+        var descriptionOnly = await store.GetTaskAsync("task_description_only");
+        var descriptionAndNotes = await store.GetTaskAsync("task_description_and_notes");
+
+        Assert.NotNull(descriptionOnly);
+        Assert.Null(descriptionOnly.Description);
+        Assert.Equal("Old description", descriptionOnly.Notes);
+        Assert.Null(descriptionOnly.SourceDescription);
+
+        Assert.NotNull(descriptionAndNotes);
+        Assert.Null(descriptionAndNotes.Description);
+        Assert.Equal("Existing notes\n\n---\nOld description", descriptionAndNotes.Notes);
+        Assert.Null(descriptionAndNotes.SourceDescription);
     }
 
     private SqliteTaskStore CreateStore()

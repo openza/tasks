@@ -14,12 +14,21 @@
         PointerEntered="OnPointerEntered"
         PointerExited="OnPointerExited">
         <Grid
-            MinHeight="54"
-            ColumnDefinitions="36,*,Auto"
+            MinHeight="{Binding RowMinHeight}"
+            ColumnDefinitions="Auto,36,*,Auto"
             ColumnSpacing="12">
+            <Grid Width="{Binding IndentWidth}">
+                <Border
+                    Width="1"
+                    HorizontalAlignment="Center"
+                    Background="{ThemeResource DividerStrokeColorDefaultBrush}"
+                    Visibility="{Binding SubtaskGuideVisibility}" />
+            </Grid>
             <CheckBox
-                Width="24"
-                Height="24"
+                x:Name="CompleteCheckBox"
+                Grid.Column="1"
+                Width="{Binding CheckboxSize}"
+                Height="{Binding CheckboxSize}"
                 Padding="0"
                 VerticalAlignment="Top"
                 IsChecked="{Binding Task.IsCompleted, Mode=OneWay}"
@@ -27,16 +36,19 @@
                 Click="OnToggleCompleteClicked"
                 AutomationProperties.Name="{Binding CompletionAutomationName}" />
 
-            <StackPanel Grid.Column="1" Spacing="5">
+            <StackPanel Grid.Column="2" Spacing="5">
                 <TextBlock
                     Text="{Binding Title}"
                     FontSize="14"
-                    FontWeight="SemiBold"
+                    FontWeight="{Binding TitleWeight}"
+                    Opacity="{Binding TitleOpacity}"
                     MaxLines="3"
                     TextWrapping="WrapWholeWords"
                     TextTrimming="CharacterEllipsis" />
                 <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="6">
-                    <ItemsControl ItemsSource="{Binding MetadataItems}">
+                    <ItemsControl
+                        ItemsSource="{Binding MetadataItems}"
+                        Opacity="{Binding MetadataOpacity}">
                         <ItemsControl.ItemsPanel>
                             <ItemsPanelTemplate>
                                 <StackPanel Orientation="Horizontal" />
@@ -84,28 +96,21 @@
                 <TextBlock
                     Text="{Binding SecondaryText}"
                     Visibility="{Binding SecondaryTextVisibility}"
-                    MaxLines="1"
+                    MaxLines="2"
+                    TextWrapping="WrapWholeWords"
                     TextTrimming="CharacterEllipsis"
                     Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
             </StackPanel>
 
             <StackPanel
                 x:Name="ActionsBar"
-                Grid.Column="2"
+                Grid.Column="3"
                 Orientation="Horizontal"
                 Spacing="4"
                 Opacity="0"
                 GotFocus="OnActionsGotFocus"
                 LostFocus="OnActionsLostFocus"
                 VerticalAlignment="Center">
-                <Button
-                    Style="{StaticResource OpenzaIconOnlyButtonStyle}"
-                    Tag="{Binding Id}"
-                    Click="OnCopyTaskIdClicked"
-                    ToolTipService.ToolTip="Copy task ID"
-                    AutomationProperties.Name="Copy task ID">
-                    <FontIcon Glyph="&#xE8C8;" FontSize="14" />
-                </Button>
                 <Button
                     Style="{StaticResource OpenzaIconOnlyButtonStyle}"
                     Tag="{Binding Id}"

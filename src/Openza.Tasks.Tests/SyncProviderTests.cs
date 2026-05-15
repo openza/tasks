@@ -61,6 +61,7 @@ public sealed class SyncProviderTests
         });
 
         var task = Assert.Single(snapshot.Tasks);
+        Assert.Equal("WinUI migration", task.Description);
         Assert.Equal("todoist_project1", task.ProjectId);
         Assert.Equal("todoist_parent1", task.ParentId);
         Assert.Equal(TaskItemStatus.None, task.Status);
@@ -126,6 +127,7 @@ public sealed class SyncProviderTests
         var project = Assert.Single(snapshot.Projects);
         Assert.Equal("mstodo_list1", project.Id);
         var task = Assert.Single(snapshot.Tasks);
+        Assert.Equal("Store readiness", task.Description);
         Assert.Equal("mstodo_list1", task.ProjectId);
         Assert.Equal(TaskItemStatus.None, task.Status);
         Assert.Equal(1, task.Priority);

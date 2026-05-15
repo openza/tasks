@@ -45,7 +45,8 @@ Last updated: 2026-05-14
 ### 3. Task Details Pane
 
 - [x] Add a completion-circle/title-led header.
-- [x] Keep description and notes as the main editable content.
+- [x] Keep Notes as the only editable Openza-owned long text field.
+- [x] Show provider Source description separately and read-only.
 - [x] Keep organize fields grouped: Status, Project, Date, Deadline, Priority, Labels.
 - [x] Put source/provider fields in a separate quiet section.
 - [x] Keep Save primary and Cancel secondary.

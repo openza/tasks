@@ -1,10 +1,11 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
+using Openza.Tasks.Controls;
 using Openza.Tasks.Core.Data;
 using Openza.Tasks.Core.Models;
 using Openza.Tasks.Pages;
 using Openza.Tasks.ViewModels;
-using Windows.ApplicationModel.DataTransfer;
 
 namespace Openza.Tasks.Shell;
 
@@ -52,15 +53,25 @@ public sealed partial class AppShell
         };
 
         var tasks = await _store.GetTasksAsync(query).ConfigureAwait(true);
+        var allSpaceTasks = await _store.GetTasksAsync(new TaskQuery
+        {
+            SpaceId = _currentSpaceId,
+            Kind = TaskListKind.All,
+            IncludeSubtasks = true,
+        }).ConfigureAwait(true);
+        var subtaskProgress = BuildSubtaskProgress(allSpaceTasks);
         var taskItems = tasks
             .Select(task =>
             {
                 projects.TryGetValue(task.ProjectId ?? string.Empty, out var project);
+                var isSubtask = !string.IsNullOrWhiteSpace(task.ParentId);
                 return new TaskListItemViewModel(
-                task,
-                project,
-                _currentView,
-                selectedProject is not null);
+                    task,
+                    project,
+                    _currentView,
+                    selectedProject is not null,
+                    isSubtask ? 1 : 0,
+                    !isSubtask && subtaskProgress.TryGetValue(task.Id, out var progress) ? progress : string.Empty);
             })
             .ToList();
 
@@ -90,7 +101,7 @@ public sealed partial class AppShell
             "tasks" => "Tasks",
             _ => "Next Actions",
         };
-        var taskCount = TasksPage.ViewModel.Tasks.Count;
+        var taskCount = taskItems.Count(task => !task.IsSubtask);
         var subtitle = $"{taskCount} task{(taskCount == 1 ? string.Empty : "s")}";
         if (selectedProject is not null)
         {
@@ -213,7 +224,22 @@ public sealed partial class AppShell
         }
 
         _selectedTaskId = task.Id;
-        TasksPage.DetailsPanel.LoadTask(task, GetProject(task.ProjectId));
+        var projects = _allProjects.ToDictionary(p => p.Id, StringComparer.Ordinal);
+        var childTasks = await _store.GetTasksAsync(new TaskQuery
+        {
+            SpaceId = task.SpaceId,
+            ParentId = task.Id,
+            Kind = TaskListKind.All,
+            IncludeSubtasks = true,
+        }).ConfigureAwait(true);
+        var childItems = childTasks
+            .Select(child =>
+            {
+                projects.TryGetValue(child.ProjectId ?? string.Empty, out var childProject);
+                return new TaskListItemViewModel(child, childProject, _currentView, GetSelectedProject() is not null, 1);
+            })
+            .ToList();
+        TasksPage.DetailsPanel.LoadTask(task, GetProject(task.ProjectId), childItems);
         TasksPage.SelectTask(task.Id);
         TasksPage.ShowDetailsPane();
     }
@@ -232,6 +258,7 @@ public sealed partial class AppShell
             SpaceId = _currentSpaceId,
             IntegrationId = IntegrationIds.Local,
             Title = quickAdd.Title,
+            Notes = EmptyToNull(quickAdd.Notes),
             ProjectId = quickAdd.ProjectId,
             Priority = quickAdd.Priority,
             PlannedOn = quickAdd.PlannedOn,
@@ -304,8 +331,8 @@ public sealed partial class AppShell
                 SpaceId = existing?.SpaceId ?? _currentSpaceId,
                 IntegrationId = integrationId,
                 Title = title,
-                Description = EmptyToNull(TasksPage.DetailsPanel.DescriptionText),
                 ProjectId = TasksPage.DetailsPanel.SelectedProject?.Id,
+                ParentId = existing?.ParentId,
                 Priority = TasksPage.DetailsPanel.SelectedPriority,
                 Status = existing?.IsCompleted == true ? existing.Status : TasksPage.DetailsPanel.SelectedStatus,
                 PlannedOn = TasksPage.DetailsPanel.SelectedPlannedOn,
@@ -330,6 +357,22 @@ public sealed partial class AppShell
     private static DateTimeOffset? PreserveExactTime(DateOnly? selectedDate, DateOnly? existingDate, DateTimeOffset? existingDateTime) =>
         selectedDate == existingDate ? existingDateTime : null;
 
+    private static Dictionary<string, string> BuildSubtaskProgress(IReadOnlyList<TaskItem> tasks)
+    {
+        return tasks
+            .Where(task => !string.IsNullOrWhiteSpace(task.ParentId))
+            .GroupBy(task => task.ParentId!, StringComparer.Ordinal)
+            .ToDictionary(
+                group => group.Key,
+                group =>
+                {
+                    var total = group.Count();
+                    var completed = group.Count(task => task.IsCompleted);
+                    return $"{completed}/{total} subtasks";
+                },
+                StringComparer.Ordinal);
+    }
+
     private async void OnToggleCompleteClicked(object sender, RoutedEventArgs e)
     {
         if ((sender as FrameworkElement)?.Tag is not string id)
@@ -337,7 +380,15 @@ public sealed partial class AppShell
             return;
         }
 
-        await ToggleTaskCompletionAsync(id).ConfigureAwait(true);
+        var showFeedback = true;
+        if (TryFindTaskRow(sender as DependencyObject, out var row) &&
+            row is not null &&
+            row.DataContext is TaskListItemViewModel { IsCompleted: false })
+        {
+            showFeedback = false;
+        }
+
+        await ToggleTaskCompletionAsync(id, showFeedback).ConfigureAwait(true);
     }
 
     private async void OnDetailsToggleCompleteClicked(object sender, RoutedEventArgs e)
@@ -347,10 +398,10 @@ public sealed partial class AppShell
             return;
         }
 
-        await ToggleTaskCompletionAsync(_selectedTaskId).ConfigureAwait(true);
+        await ToggleTaskCompletionAsync(_selectedTaskId, showFeedback: true).ConfigureAwait(true);
     }
 
-    private async Task ToggleTaskCompletionAsync(string id)
+    private async Task ToggleTaskCompletionAsync(string id, bool showFeedback)
     {
         var task = await _store.GetTaskAsync(id).ConfigureAwait(true);
         if (task is null)
@@ -389,6 +440,31 @@ public sealed partial class AppShell
         {
             await LoadTaskDetailsAsync(id).ConfigureAwait(true);
         }
+
+        if (showFeedback)
+        {
+            ShowInfo(
+                completed ? "Task completed" : "Task reopened",
+                task.Title,
+                completed ? InfoBarSeverity.Success : InfoBarSeverity.Informational);
+        }
+    }
+
+    private static bool TryFindTaskRow(DependencyObject? element, out TaskRowControl? row)
+    {
+        while (element is not null)
+        {
+            if (element is TaskRowControl found)
+            {
+                row = found;
+                return true;
+            }
+
+            element = VisualTreeHelper.GetParent(element);
+        }
+
+        row = null;
+        return false;
     }
 
     private async void OnDeleteTaskClicked(object sender, RoutedEventArgs e)
@@ -444,19 +520,6 @@ public sealed partial class AppShell
 
         await LoadProjectsAsync().ConfigureAwait(true);
         await RefreshTasksAsync().ConfigureAwait(true);
-    }
-
-    private void OnCopyTaskIdClicked(object sender, RoutedEventArgs e)
-    {
-        if ((sender as FrameworkElement)?.Tag is not string id)
-        {
-            return;
-        }
-
-        var package = new DataPackage();
-        package.SetText(id);
-        Clipboard.SetContent(package);
-        ShowInfo("Copied", id, InfoBarSeverity.Informational);
     }
 
     private async void OnDetailsCancelEditClicked(object sender, RoutedEventArgs e)

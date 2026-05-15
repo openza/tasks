@@ -58,6 +58,25 @@ public sealed class TaskSyncEngineTests : IDisposable
     }
 
     [Fact]
+    public async Task Sync_stores_provider_parent_reference_for_subtasks()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        var provider = new FakeProvider
+        {
+            IncludeChildTask = true,
+        };
+        var engine = new TaskSyncEngine(store);
+
+        var result = await engine.SyncAsync(provider);
+
+        var sources = await store.GetProviderSourceItemsAsync(IntegrationIds.Todoist, includeAdopted: true);
+        var childSource = Assert.Single(sources, source => source.ExternalId == "remote_child");
+        Assert.True(result.Success);
+        Assert.Equal("remote_1", childSource.ParentExternalId);
+    }
+
+    [Fact]
     public async Task Sync_refreshes_adopted_wrapper_provider_fields_without_overwriting_openza_fields()
     {
         var store = CreateStore();
@@ -68,7 +87,7 @@ public sealed class TaskSyncEngineTests : IDisposable
             IntegrationId = IntegrationIds.Local,
             Name = "Local project",
         });
-        var provider = new FakeProvider { Title = "Remote task" };
+        var provider = new FakeProvider { Title = "Remote task", Description = "Remote description" };
         var engine = new TaskSyncEngine(store);
 
         var firstSync = await engine.SyncAsync(provider);
@@ -95,6 +114,7 @@ public sealed class TaskSyncEngineTests : IDisposable
         });
 
         provider.Title = "Remote task updated";
+        provider.Description = "Remote description updated";
         var result = await engine.SyncAsync(provider);
 
         var task = await store.GetTaskAsync(adopted.Id);
@@ -102,6 +122,8 @@ public sealed class TaskSyncEngineTests : IDisposable
         Assert.Equal(1, result.TasksUpdated);
         Assert.NotNull(task);
         Assert.Equal("Remote task updated", task.Title);
+        Assert.Null(task.Description);
+        Assert.Equal("Remote description updated", task.SourceDescription);
         Assert.Equal("proj_local", task.ProjectId);
         Assert.Equal(1, task.Priority);
         Assert.Equal(TaskItemStatus.Waiting, task.Status);
@@ -202,22 +224,41 @@ public sealed class TaskSyncEngineTests : IDisposable
     {
         public string IntegrationId => IntegrationIds.Todoist;
         public string Title { get; set; } = "Remote task";
+        public string? Description { get; set; }
         public DateOnly? PlannedOn { get; set; }
         public string? RecurrenceRule { get; set; }
+        public bool IncludeChildTask { get; set; }
         public int CompletedCalls { get; private set; }
 
         public Task<ProviderSnapshot> FetchSnapshotAsync(CancellationToken cancellationToken = default)
         {
-            return Task.FromResult(new ProviderSnapshot(
-                [new TaskItem
+            List<TaskItem> tasks =
+            [
+                new TaskItem
                 {
                     Id = "todoist_remote_1",
                     ExternalId = "remote_1",
                     IntegrationId = IntegrationIds.Todoist,
                     Title = Title,
+                    Description = Description,
                     PlannedOn = PlannedOn,
                     RecurrenceRule = RecurrenceRule,
-                }],
+                },
+            ];
+            if (IncludeChildTask)
+            {
+                tasks.Add(new TaskItem
+                {
+                    Id = "todoist_remote_child",
+                    ExternalId = "remote_child",
+                    IntegrationId = IntegrationIds.Todoist,
+                    Title = "Remote child",
+                    ParentId = "todoist_remote_1",
+                });
+            }
+
+            return Task.FromResult(new ProviderSnapshot(
+                tasks,
                 [],
                 []));
         }
