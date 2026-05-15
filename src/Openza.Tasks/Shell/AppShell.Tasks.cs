@@ -26,6 +26,8 @@ public sealed partial class AppShell
             return;
         }
 
+        var selectedTaskBeforeRefresh = _selectedTaskId;
+        var viewportBeforeRefresh = TasksPage.CaptureTaskListViewport();
         var projects = _allProjects.ToDictionary(p => p.Id, StringComparer.Ordinal);
         var selectedProject = _currentView == "tasks" ? GetSelectedProject() : null;
         var query = new TaskQuery
@@ -87,6 +89,11 @@ public sealed partial class AppShell
         else if (_selectedTaskId is not null)
         {
             TasksPage.SelectTask(_selectedTaskId);
+        }
+
+        if (_selectedTaskId is not null && string.Equals(_selectedTaskId, selectedTaskBeforeRefresh, StringComparison.Ordinal))
+        {
+            TasksPage.RestoreTaskListViewport(viewportBeforeRefresh, _selectedTaskId);
         }
 
         var title = selectedProject?.Name ?? _currentView switch
@@ -542,7 +549,6 @@ public sealed partial class AppShell
 
     private TaskItemStatus DefaultStatusForCurrentView() => _currentView switch
     {
-        "tasks" when _selectedProjectId is not null => TaskItemStatus.None,
         "next" => TaskItemStatus.Next,
         "waiting" => TaskItemStatus.Waiting,
         "someday" => TaskItemStatus.Someday,

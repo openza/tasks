@@ -658,7 +658,7 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
             return TaskWorkflowStatus.None;
         }
 
-        return ShouldBypassInbox(source) ? TaskWorkflowStatus.None : TaskWorkflowStatus.Inbox;
+        return ShouldBypassInbox(source) ? TaskWorkflowStatus.Someday : TaskWorkflowStatus.Inbox;
     }
 
     private static bool ShouldBypassInbox(ProviderSourceItem source) =>
@@ -2183,7 +2183,7 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
 
         await ExecuteNonQueryAsync(connection, """
             UPDATE tasks
-            SET workflow_status = 'none',
+            SET workflow_status = 'someday',
                 updated_at = COALESCE(updated_at, strftime('%s', 'now'))
             WHERE completion_state = 'open'
               AND workflow_status = 'inbox'

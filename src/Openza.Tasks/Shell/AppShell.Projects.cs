@@ -141,7 +141,7 @@ public sealed partial class AppShell
         _selectedTaskId = null;
         TasksPage.HideDetailsPane();
         TasksPage.ClearTaskSelection();
-        TasksPage.DetailsPanel.ClearForNewTask(GetProject(_selectedProjectId), 3, TaskItemStatus.None);
+        TasksPage.DetailsPanel.ClearForNewTask(GetProject(_selectedProjectId), 3, TaskItemStatus.Inbox);
         await RefreshProjectListAsync().ConfigureAwait(true);
         await RefreshTasksAsync().ConfigureAwait(true);
     }

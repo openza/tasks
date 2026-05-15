@@ -34,8 +34,8 @@ public static class TaskGroupBuilder
 
     private static TaskGroupAssignment ProjectGroup(TaskItem task, ProjectItem? project)
     {
-        var projectName = project?.Name ?? task.SourceProjectName ?? "Inbox";
-        var key = project?.Id ?? task.ProjectId ?? task.SourceProjectName ?? "inbox";
+        var projectName = project?.Name ?? task.SourceProjectName ?? "No project";
+        var key = project?.Id ?? task.ProjectId ?? task.SourceProjectName ?? "no-project";
         return new TaskGroupAssignment($"project:{key}", projectName, $"1:{projectName.ToUpperInvariant()}");
     }
 
@@ -49,7 +49,7 @@ public static class TaskGroupBuilder
             TaskItemStatus.Someday => new TaskGroupAssignment("status:someday", "Someday", "4"),
             TaskItemStatus.Completed => new TaskGroupAssignment("status:completed", "Completed", "8"),
             TaskItemStatus.Cancelled => new TaskGroupAssignment("status:cancelled", "Cancelled", "9"),
-            _ => new TaskGroupAssignment("status:open", "Open", "5"),
+            _ => new TaskGroupAssignment("status:inbox", "Inbox", "1"),
         };
     }
 

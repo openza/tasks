@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
 using Openza.Tasks.Controls;
 using Openza.Tasks.Core.Data;
 using Openza.Tasks.Core.Models;
@@ -11,6 +12,8 @@ namespace Openza.Tasks.Pages;
 
 public sealed partial class TasksPage : UserControl
 {
+    public readonly record struct TaskListViewportState(bool IsGrouped, double? VerticalOffset);
+
     private List<ProjectItem> _projectOptions = [];
     private IReadOnlyList<ProviderSourceItem> _connectedTasks = [];
     private int _waitingConnectedTaskCount;
@@ -322,6 +325,45 @@ public sealed partial class TasksPage : UserControl
         _suppressTaskSelection = false;
     }
 
+    public TaskListViewportState CaptureTaskListViewport()
+    {
+        var list = ActiveTaskList();
+        var scrollViewer = FindDescendant<ScrollViewer>(list);
+        return new TaskListViewportState(ViewModel.IsGrouped, scrollViewer?.VerticalOffset);
+    }
+
+    public void RestoreTaskListViewport(TaskListViewportState state, string? selectedTaskId)
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            var list = ActiveTaskList();
+            if (list is null)
+            {
+                return;
+            }
+
+            var scrollViewer = FindDescendant<ScrollViewer>(list);
+            if (scrollViewer is not null &&
+                state.VerticalOffset is { } offset &&
+                state.IsGrouped == ViewModel.IsGrouped)
+            {
+                scrollViewer.ChangeView(null, offset, null, disableAnimation: true);
+            }
+
+            if (!string.IsNullOrWhiteSpace(selectedTaskId))
+            {
+                var selectedItem = ViewModel.Tasks.FirstOrDefault(task => task.Id == selectedTaskId);
+                if (selectedItem is not null)
+                {
+                    _suppressTaskSelection = true;
+                    list.SelectedItem = selectedItem;
+                    _suppressTaskSelection = false;
+                    list.ScrollIntoView(selectedItem, ScrollIntoViewAlignment.Default);
+                }
+            }
+        });
+    }
+
     public void ClearTaskSelection()
     {
         _suppressTaskSelection = true;
@@ -330,12 +372,42 @@ public sealed partial class TasksPage : UserControl
         _suppressTaskSelection = false;
     }
 
+    private ListView? ActiveTaskList() =>
+        ViewModel.IsGrouped ? GroupedTaskList : TaskList;
+
+    private static T? FindDescendant<T>(DependencyObject? root)
+        where T : DependencyObject
+    {
+        if (root is null)
+        {
+            return null;
+        }
+
+        var childCount = VisualTreeHelper.GetChildrenCount(root);
+        for (var i = 0; i < childCount; i++)
+        {
+            var child = VisualTreeHelper.GetChild(root, i);
+            if (child is T match)
+            {
+                return match;
+            }
+
+            var descendant = FindDescendant<T>(child);
+            if (descendant is not null)
+            {
+                return descendant;
+            }
+        }
+
+        return null;
+    }
+
     public async Task<QuickAddViewModel?> ShowQuickAddAsync(ProjectItem? defaultProject, TaskItemStatus defaultStatus, DateTimeOffset? defaultDate = null)
     {
         var inboxProject = new ProjectItem
         {
             Id = string.Empty,
-            Name = "Inbox",
+            Name = "No project",
             IntegrationId = IntegrationIds.Local,
         };
         var projectOptions = new List<ProjectItem> { inboxProject };
@@ -361,10 +433,9 @@ public sealed partial class TasksPage : UserControl
         };
         var workflowBox = new ComboBox { Header = "Status", HorizontalAlignment = HorizontalAlignment.Stretch };
         workflowBox.Items.Add(new ComboBoxItem { Content = "Inbox", Tag = "inbox", IsSelected = defaultStatus == TaskItemStatus.Inbox });
-        workflowBox.Items.Add(new ComboBoxItem { Content = "Open", Tag = "none", IsSelected = defaultStatus == TaskItemStatus.None });
         workflowBox.Items.Add(new ComboBoxItem { Content = "Next", Tag = "next", IsSelected = defaultStatus == TaskItemStatus.Next });
         workflowBox.Items.Add(new ComboBoxItem { Content = "Waiting For", Tag = "waiting", IsSelected = defaultStatus == TaskItemStatus.Waiting });
-        workflowBox.Items.Add(new ComboBoxItem { Content = "Someday/Maybe", Tag = "someday", IsSelected = defaultStatus == TaskItemStatus.Someday });
+        workflowBox.Items.Add(new ComboBoxItem { Content = "Someday", Tag = "someday", IsSelected = defaultStatus == TaskItemStatus.Someday });
         var priorityBox = new ComboBox { Header = "Priority", HorizontalAlignment = HorizontalAlignment.Stretch };
         priorityBox.Items.Add(new ComboBoxItem { Content = "Urgent", Tag = "1" });
         priorityBox.Items.Add(new ComboBoxItem { Content = "High", Tag = "2" });
@@ -549,7 +620,6 @@ public sealed partial class TasksPage : UserControl
         "next" => TaskItemStatus.Next,
         "waiting" => TaskItemStatus.Waiting,
         "someday" => TaskItemStatus.Someday,
-        "none" => TaskItemStatus.None,
         _ => TaskItemStatus.Inbox,
     };
 

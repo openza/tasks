@@ -168,7 +168,7 @@ public sealed class SqliteTaskStoreTests : IDisposable
     }
 
     [Fact]
-    public void TaskItem_defaults_to_open_without_workflow_status()
+    public void TaskItem_defaults_to_open_inbox_workflow_status()
     {
         var task = new TaskItem
         {
@@ -177,8 +177,8 @@ public sealed class SqliteTaskStoreTests : IDisposable
         };
 
         Assert.Equal(TaskCompletionState.Open, task.CompletionState);
-        Assert.Equal(TaskWorkflowStatus.None, task.WorkflowStatus);
-        Assert.Equal(TaskItemStatus.None, task.Status);
+        Assert.Equal(TaskWorkflowStatus.Inbox, task.WorkflowStatus);
+        Assert.Equal(TaskItemStatus.Inbox, task.Status);
     }
 
     [Fact]
@@ -283,7 +283,7 @@ public sealed class SqliteTaskStoreTests : IDisposable
     }
 
     [Fact]
-    public async Task Inbox_shows_unlisted_tasks_without_project()
+    public async Task Inbox_shows_capture_tasks_without_project_only()
     {
         var store = CreateStore();
         await store.InitializeAsync();
@@ -309,7 +309,7 @@ public sealed class SqliteTaskStoreTests : IDisposable
         await store.UpsertTaskAsync(new TaskItem
         {
             Id = "task_project_inbox",
-            Title = "Project inbox should not pollute capture inbox",
+            Title = "Project inbox should still need clarification",
             ProjectId = "proj_work",
             Status = TaskItemStatus.Inbox,
         });
@@ -322,8 +322,7 @@ public sealed class SqliteTaskStoreTests : IDisposable
 
         var tasks = await store.GetTasksAsync(new TaskQuery { Kind = TaskListKind.Inbox });
 
-        var task = Assert.Single(tasks);
-        Assert.Equal("task_inbox", task.Id);
+        Assert.Equal(new[] { "task_inbox" }, tasks.Select(task => task.Id).ToArray());
     }
 
     [Fact]
@@ -409,7 +408,7 @@ public sealed class SqliteTaskStoreTests : IDisposable
     }
 
     [Fact]
-    public async Task AdoptProviderSourceItem_adds_recurring_dated_source_task_without_inbox_workflow()
+    public async Task AdoptProviderSourceItem_adds_recurring_dated_source_task_to_someday()
     {
         var store = CreateStore();
         await store.InitializeAsync();
@@ -435,14 +434,14 @@ public sealed class SqliteTaskStoreTests : IDisposable
         Assert.Empty(inbox);
         var task = Assert.Single(all);
         Assert.Equal(added.Id, task.Id);
-        Assert.Equal(TaskWorkflowStatus.None, task.WorkflowStatus);
+        Assert.Equal(TaskWorkflowStatus.Someday, task.WorkflowStatus);
         Assert.Equal(TaskCompletionState.Open, task.CompletionState);
         Assert.Equal(new DateOnly(2026, 6, 6), task.PlannedOn);
         Assert.Equal("every 6th", task.RecurrenceRule);
     }
 
     [Fact]
-    public async Task UpsertProviderSourceItem_auto_adds_recurring_dated_source_task_outside_inbox()
+    public async Task UpsertProviderSourceItem_auto_adds_recurring_dated_source_task_to_someday()
     {
         var store = CreateStore();
         await store.InitializeAsync();
@@ -468,7 +467,7 @@ public sealed class SqliteTaskStoreTests : IDisposable
         Assert.Empty(inbox);
         var task = Assert.Single(all);
         Assert.Equal(source.AdoptedTaskId, task.Id);
-        Assert.Equal(TaskWorkflowStatus.None, task.WorkflowStatus);
+        Assert.Equal(TaskWorkflowStatus.Someday, task.WorkflowStatus);
         Assert.Equal("every 6th", task.RecurrenceRule);
     }
 
@@ -659,7 +658,7 @@ public sealed class SqliteTaskStoreTests : IDisposable
         var child = await store.AdoptProviderSourceItemAsync("source_child");
         Assert.NotNull(parent);
         Assert.NotNull(child);
-        Assert.Equal(TaskWorkflowStatus.None, parent.WorkflowStatus);
+        Assert.Equal(TaskWorkflowStatus.Someday, parent.WorkflowStatus);
         Assert.Equal(TaskWorkflowStatus.Inbox, child.WorkflowStatus);
 
         await store.InitializeAsync();
@@ -671,7 +670,7 @@ public sealed class SqliteTaskStoreTests : IDisposable
         Assert.Equal(parent.Id, relinked.ParentId);
         Assert.Equal(parent.SpaceId, relinked.SpaceId);
         Assert.Equal(parent.ProjectId, relinked.ProjectId);
-        Assert.Equal(TaskWorkflowStatus.None, relinked.WorkflowStatus);
+        Assert.Equal(TaskWorkflowStatus.Someday, relinked.WorkflowStatus);
         Assert.Empty(inbox);
     }
 
@@ -759,7 +758,7 @@ public sealed class SqliteTaskStoreTests : IDisposable
     }
 
     [Fact]
-    public async Task Initialize_moves_existing_recurring_dated_inbox_tasks_out_of_inbox()
+    public async Task Initialize_moves_existing_recurring_dated_inbox_tasks_to_someday()
     {
         var store = CreateStore();
         await store.InitializeAsync();
@@ -778,7 +777,7 @@ public sealed class SqliteTaskStoreTests : IDisposable
         var all = await store.GetTasksAsync(new TaskQuery { Kind = TaskListKind.All });
 
         Assert.Empty(inbox);
-        Assert.Equal(TaskWorkflowStatus.None, Assert.Single(all).WorkflowStatus);
+        Assert.Equal(TaskWorkflowStatus.Someday, Assert.Single(all).WorkflowStatus);
     }
 
     [Fact]

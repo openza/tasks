@@ -133,10 +133,9 @@
                             HorizontalAlignment="Stretch"
                             SelectionChanged="OnWorkflowSelectionChanged">
                             <ComboBoxItem Content="Inbox" Tag="inbox" IsSelected="True" />
-                            <ComboBoxItem Content="Open" Tag="none" />
                             <ComboBoxItem Content="Next" Tag="next" />
                             <ComboBoxItem Content="Waiting For" Tag="waiting" />
-                            <ComboBoxItem Content="Someday/Maybe" Tag="someday" />
+                            <ComboBoxItem Content="Someday" Tag="someday" />
                         </ComboBox>
                         <StackPanel
                             x:Name="ProjectEditor"
@@ -209,7 +208,7 @@
                                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
                                     <TextBlock
                                         x:Name="ProjectPickerText"
-                                        Text="Inbox"
+                                        Text="No project"
                                         MaxLines="1"
                                         TextTrimming="CharacterEllipsis"
                                         VerticalAlignment="Center" />

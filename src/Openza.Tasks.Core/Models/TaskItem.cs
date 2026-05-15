@@ -3,7 +3,7 @@ namespace Openza.Tasks.Core.Models;
 public sealed record TaskItem
 {
     private TaskCompletionState _completionState = TaskCompletionState.Open;
-    private TaskWorkflowStatus _workflowStatus = TaskWorkflowStatus.None;
+    private TaskWorkflowStatus _workflowStatus = TaskWorkflowStatus.Inbox;
 
     public string Id { get; init; } = string.Empty;
     public string? ExternalId { get; init; }

@@ -14,7 +14,7 @@ public sealed partial class TaskDetailsPaneControl : UserControl
     private static readonly ProjectItem InboxProject = new()
     {
         Id = string.Empty,
-        Name = "Inbox",
+        Name = "No project",
         IntegrationId = IntegrationIds.Local,
     };
 
@@ -62,11 +62,10 @@ public sealed partial class TaskDetailsPaneControl : UserControl
         (WorkflowEditor?.SelectedItem as ComboBoxItem)?.Tag?.ToString() switch
         {
             "inbox" => TaskItemStatus.Inbox,
-            "none" => TaskItemStatus.None,
             "next" => TaskItemStatus.Next,
             "waiting" => TaskItemStatus.Waiting,
             "someday" => TaskItemStatus.Someday,
-            _ => TaskItemStatus.None,
+            _ => TaskItemStatus.Inbox,
         };
 
     public int SelectedPriority =>
@@ -205,7 +204,7 @@ public sealed partial class TaskDetailsPaneControl : UserControl
         SourceDescriptionText.Text = task.SourceDescription ?? string.Empty;
         SourceDescriptionHintText.Text = $"From {editor.SourceText}";
         SourceDescriptionSection.Visibility = string.IsNullOrWhiteSpace(task.SourceDescription) ? Visibility.Collapsed : Visibility.Visible;
-        ProviderProjectText.Text = task.SourceProjectName ?? project?.Name ?? "Inbox";
+        ProviderProjectText.Text = task.SourceProjectName ?? project?.Name ?? "No project";
         ProviderDateText.Text = FormatDate(task.SourcePlannedMoment ?? task.PlannedMoment);
         ProviderDeadlineText.Text = FormatDate(task.SourceDeadlineMoment ?? task.DeadlineMoment);
         ProviderPriorityText.Text = FormatPriority(task.SourcePriority ?? task.Priority);
@@ -215,7 +214,7 @@ public sealed partial class TaskDetailsPaneControl : UserControl
     private void SetSelectedProject(ProjectItem? project)
     {
         _selectedProject = project ?? InboxProject;
-        ProjectPickerText.Text = string.IsNullOrWhiteSpace(_selectedProject.Name) ? "Inbox" : _selectedProject.Name;
+        ProjectPickerText.Text = string.IsNullOrWhiteSpace(_selectedProject.Name) ? "No project" : _selectedProject.Name;
         SourceText.Text = HeaderContextText(CurrentSourceText(), SelectedProject);
     }
 
@@ -224,11 +223,10 @@ public sealed partial class TaskDetailsPaneControl : UserControl
         var tag = status switch
         {
             TaskItemStatus.Inbox => "inbox",
-            TaskItemStatus.None => "none",
             TaskItemStatus.Next => "next",
             TaskItemStatus.Waiting => "waiting",
             TaskItemStatus.Someday => "someday",
-            _ => "none",
+            _ => "inbox",
         };
 
         foreach (var item in WorkflowEditor.Items.OfType<ComboBoxItem>())
@@ -289,8 +287,7 @@ public sealed partial class TaskDetailsPaneControl : UserControl
 
     private static string HeaderContextText(string source, ProjectItem? project)
     {
-        var projectName = string.IsNullOrWhiteSpace(project?.Name) ? "Inbox" : project.Name;
-        return $"{projectName} · {source}";
+        return string.IsNullOrWhiteSpace(project?.Name) ? source : $"{project.Name} · {source}";
     }
 
     private string CurrentSourceText()
@@ -329,10 +326,6 @@ public sealed partial class TaskDetailsPaneControl : UserControl
             return;
         }
 
-        if (SelectedStatus == TaskItemStatus.Inbox && SelectedProject is not null)
-        {
-            SetSelectedProject(InboxProject);
-        }
     }
 
     private void OnProjectSelectionChanged()
@@ -340,11 +333,6 @@ public sealed partial class TaskDetailsPaneControl : UserControl
         if (_loading || WorkflowEditor is null)
         {
             return;
-        }
-
-        if (SelectedProject is not null && SelectedStatus == TaskItemStatus.Inbox)
-        {
-            SelectStatus(TaskItemStatus.None);
         }
 
         SourceText.Text = HeaderContextText(CurrentSourceText(), SelectedProject);

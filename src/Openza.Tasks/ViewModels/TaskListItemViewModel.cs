@@ -19,7 +19,7 @@ public sealed class TaskListItemViewModel(TaskItem task, ProjectItem? project, s
     public string Notes => Task.Notes ?? string.Empty;
     public string SourceDescription => Task.SourceDescription ?? string.Empty;
     public string DisplayNotes => !string.IsNullOrWhiteSpace(Notes) ? Notes : SourceDescription;
-    public string ProjectName => Project?.Name ?? "Inbox";
+    public string ProjectName => Project?.Name ?? string.Empty;
     public string SourceText => SourceName(Task.SourceIntegrationId ?? Task.IntegrationId);
     public string PriorityText => Task.Priority switch
     {
