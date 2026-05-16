@@ -1247,10 +1247,6 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
                 source_provider_task_id = @source_provider_task_id,
                 source_url = @source_url,
                 source_metadata = @source_metadata,
-                recurrence_rule = CASE
-                    WHEN @recurrence_rule IS NOT NULL AND TRIM(@recurrence_rule) != '' THEN @recurrence_rule
-                    ELSE recurrence_rule
-                END,
                 planned_on = CASE
                     WHEN @recurrence_rule IS NOT NULL AND TRIM(@recurrence_rule) != '' THEN @planned_on
                     ELSE planned_on
@@ -1266,6 +1262,10 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
                 deadline_at = CASE
                     WHEN @recurrence_rule IS NOT NULL AND TRIM(@recurrence_rule) != '' THEN @deadline_at
                     ELSE deadline_at
+                END,
+                recurrence_rule = CASE
+                    WHEN @recurrence_rule IS NOT NULL AND TRIM(@recurrence_rule) != '' THEN @recurrence_rule
+                    ELSE recurrence_rule
                 END,
                 updated_at = @updated_at,
                 completed_at = CASE
@@ -1285,11 +1285,11 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         command.Parameters.AddWithValue("@source_provider_task_id", source.ProviderTaskId);
         command.Parameters.AddWithValue("@source_url", ToDbValue(source.SourceUrl));
         command.Parameters.AddWithValue("@source_metadata", BuildSourceMetadataJson(source));
-        command.Parameters.AddWithValue("@recurrence_rule", ToDbValue(source.RecurrenceRule));
         command.Parameters.AddWithValue("@planned_on", ToDbValue(source.PlannedOn));
         command.Parameters.AddWithValue("@planned_at", ToDbValue(source.PlannedAt));
         command.Parameters.AddWithValue("@deadline_on", ToDbValue(source.DeadlineOn));
         command.Parameters.AddWithValue("@deadline_at", ToDbValue(source.DeadlineAt));
+        command.Parameters.AddWithValue("@recurrence_rule", ToDbValue(source.RecurrenceRule));
         command.Parameters.AddWithValue("@updated_at", ToDbDate(DateTimeOffset.UtcNow));
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }

@@ -62,18 +62,20 @@ public sealed partial class AppShell
             IncludeSubtasks = true,
         }).ConfigureAwait(true);
         var subtaskProgress = BuildSubtaskProgress(allSpaceTasks);
+        var matchingSubtasks = BuildMatchingSubtaskText(tasks, query.SearchText);
         var taskItems = tasks
+            .Where(task => string.IsNullOrWhiteSpace(task.ParentId))
             .Select(task =>
             {
                 projects.TryGetValue(task.ProjectId ?? string.Empty, out var project);
-                var isSubtask = !string.IsNullOrWhiteSpace(task.ParentId);
                 return new TaskListItemViewModel(
                     task,
                     project,
                     _currentView,
                     selectedProject is not null,
-                    isSubtask ? 1 : 0,
-                    !isSubtask && subtaskProgress.TryGetValue(task.Id, out var progress) ? progress : string.Empty);
+                    0,
+                    subtaskProgress.TryGetValue(task.Id, out var progress) ? progress : string.Empty,
+                    matchingSubtasks.TryGetValue(task.Id, out var matchingSubtask) ? matchingSubtask : string.Empty);
             })
             .ToList();
 
@@ -205,7 +207,7 @@ public sealed partial class AppShell
 
     private async void OnTaskSelected(TasksPage sender, TaskListItemViewModel item)
     {
-        if (!await ConfirmDiscardTaskEditsAsync().ConfigureAwait(true))
+        if (!await SavePendingTaskDetailsAsync().ConfigureAwait(true))
         {
             if (_selectedTaskId is null)
             {
@@ -304,32 +306,124 @@ public sealed partial class AppShell
         TasksPage.SetGetStartedVisible(false);
     }
 
-    private async void OnSaveTaskClicked(object sender, RoutedEventArgs e)
+    private readonly record struct TaskDetailsDraft(
+        string Snapshot,
+        string Title,
+        string Notes,
+        string LabelsText,
+        DateOnly? PlannedOn,
+        DateOnly? DeadlineOn,
+        string? ProjectId,
+        TaskItemStatus Status,
+        int Priority);
+
+    private TaskDetailsDraft CaptureTaskDetailsDraft()
     {
-        var title = TasksPage.DetailsPanel.TitleText;
-        TaskItem? existing = _selectedTaskId is null ? null : await _store.GetTaskAsync(_selectedTaskId).ConfigureAwait(true);
-        if (existing is null && title.Length == 0)
+        var panel = TasksPage.DetailsPanel;
+        return new TaskDetailsDraft(
+            panel.Snapshot,
+            panel.TitleText,
+            panel.NotesText,
+            panel.LabelsText,
+            panel.SelectedPlannedOn,
+            panel.SelectedDeadlineOn,
+            panel.SelectedProject?.Id,
+            panel.SelectedStatus,
+            panel.SelectedPriority);
+    }
+
+    private async void OnDetailsAutoSaveRequested(object sender, RoutedEventArgs e)
+    {
+        await SaveTaskDetailsIfNeededAsync(showFeedback: false).ConfigureAwait(true);
+    }
+
+    private async Task<bool> SaveTaskDetailsIfNeededAsync(bool showFeedback)
+    {
+        if (_taskDetailsAutoSaveTask is { IsCompleted: false } currentSave)
         {
-            ShowInfo("Title required", "Add a task title before saving.", InfoBarSeverity.Warning);
-            return;
+            _taskDetailsAutoSaveQueued = TasksPage.IsDetailsPaneOpen && TasksPage.DetailsPanel.HasUnsavedChanges;
+            return await currentSave.ConfigureAwait(true);
+        }
+
+        if (!TasksPage.IsDetailsPaneOpen || !TasksPage.DetailsPanel.HasUnsavedChanges)
+        {
+            return true;
+        }
+
+        _taskDetailsAutoSaveTask = SaveTaskDetailsLoopAsync(showFeedback);
+        try
+        {
+            return await _taskDetailsAutoSaveTask.ConfigureAwait(true);
+        }
+        finally
+        {
+            _taskDetailsAutoSaveTask = null;
+        }
+    }
+
+    private async Task<bool> SaveTaskDetailsLoopAsync(bool showFeedback)
+    {
+        do
+        {
+            _taskDetailsAutoSaveQueued = false;
+            if (!TasksPage.IsDetailsPaneOpen || !TasksPage.DetailsPanel.HasUnsavedChanges)
+            {
+                return true;
+            }
+
+            try
+            {
+                if (!await SaveTaskDetailsAsync(showFeedback).ConfigureAwait(true))
+                {
+                    return false;
+                }
+            }
+            catch (Exception exception)
+            {
+                TasksPage.DetailsPanel.SetAutoSaveState("Could not save");
+                ShowInfo("Could not save task", exception.Message, InfoBarSeverity.Error);
+                return false;
+            }
+
+            showFeedback = false;
+        }
+        while (_taskDetailsAutoSaveQueued || TasksPage.DetailsPanel.HasUnsavedChanges);
+
+        return true;
+    }
+
+    private async Task<bool> SaveTaskDetailsAsync(bool showFeedback)
+    {
+        var draft = CaptureTaskDetailsDraft();
+        TaskItem? existing = _selectedTaskId is null ? null : await _store.GetTaskAsync(_selectedTaskId).ConfigureAwait(true);
+        if (existing is null && draft.Title.Length == 0)
+        {
+            TasksPage.DetailsPanel.SetAutoSaveState("Add a title to save");
+            if (showFeedback)
+            {
+                ShowInfo("Title required", "Add a task title before saving.", InfoBarSeverity.Warning);
+            }
+
+            return false;
         }
 
         var integrationId = existing?.IntegrationId ?? IntegrationIds.Local;
         var isLinkedProviderTask = existing?.HasProviderSource == true || existing?.IsProviderTask == true;
         var labelsIntegration = isLinkedProviderTask ? IntegrationIds.Local : integrationId;
-        var task = isLinkedProviderTask && existing is not null
+        var task = existing is not null
             ? existing with
             {
-                Status = existing.IsCompleted ? existing.Status : TasksPage.DetailsPanel.SelectedStatus,
-                ProjectId = TasksPage.DetailsPanel.SelectedProject?.Id,
-                Priority = TasksPage.DetailsPanel.SelectedPriority,
-                PlannedOn = TasksPage.DetailsPanel.SelectedPlannedOn,
-                PlannedAt = PreserveExactTime(TasksPage.DetailsPanel.SelectedPlannedOn, existing.PlannedOn, existing.PlannedAt),
-                DeadlineOn = TasksPage.DetailsPanel.SelectedDeadlineOn,
-                DeadlineAt = PreserveExactTime(TasksPage.DetailsPanel.SelectedDeadlineOn, existing.DeadlineOn, existing.DeadlineAt),
-                Notes = EmptyToNull(TasksPage.DetailsPanel.NotesText),
+                Title = isLinkedProviderTask ? existing.Title : draft.Title,
+                Status = existing.IsCompleted ? existing.Status : draft.Status,
+                ProjectId = draft.ProjectId,
+                Priority = draft.Priority,
+                PlannedOn = draft.PlannedOn,
+                PlannedAt = PreserveExactTime(draft.PlannedOn, existing.PlannedOn, existing.PlannedAt),
+                DeadlineOn = draft.DeadlineOn,
+                DeadlineAt = PreserveExactTime(draft.DeadlineOn, existing.DeadlineOn, existing.DeadlineAt),
+                Notes = EmptyToNull(draft.Notes),
                 UpdatedAt = DateTimeOffset.UtcNow,
-                Labels = BuildLabels(TasksPage.DetailsPanel.LabelsText, labelsIntegration),
+                Labels = BuildLabels(draft.LabelsText, labelsIntegration),
             }
             : new TaskItem
             {
@@ -337,32 +431,43 @@ public sealed partial class AppShell
                 ExternalId = existing?.ExternalId,
                 SpaceId = existing?.SpaceId ?? _currentSpaceId,
                 IntegrationId = integrationId,
-                Title = title,
-                ProjectId = TasksPage.DetailsPanel.SelectedProject?.Id,
+                Title = draft.Title,
+                ProjectId = draft.ProjectId,
                 ParentId = existing?.ParentId,
-                Priority = TasksPage.DetailsPanel.SelectedPriority,
-                Status = existing?.IsCompleted == true ? existing.Status : TasksPage.DetailsPanel.SelectedStatus,
-                PlannedOn = TasksPage.DetailsPanel.SelectedPlannedOn,
-                DeadlineOn = TasksPage.DetailsPanel.SelectedDeadlineOn,
-                Notes = EmptyToNull(TasksPage.DetailsPanel.NotesText),
+                Priority = draft.Priority,
+                Status = existing?.IsCompleted == true ? existing.Status : draft.Status,
+                PlannedOn = draft.PlannedOn,
+                DeadlineOn = draft.DeadlineOn,
+                Notes = EmptyToNull(draft.Notes),
                 ProviderMetadataJson = existing?.ProviderMetadataJson,
                 CreatedAt = existing?.CreatedAt ?? DateTimeOffset.UtcNow,
                 UpdatedAt = DateTimeOffset.UtcNow,
                 CompletedAt = existing?.CompletedAt,
-                Labels = BuildLabels(TasksPage.DetailsPanel.LabelsText, labelsIntegration),
+                Labels = BuildLabels(draft.LabelsText, labelsIntegration),
             };
 
+        TasksPage.DetailsPanel.SetAutoSaveState("Saving...");
         await _store.UpsertTaskAsync(task).ConfigureAwait(true);
         _selectedTaskId = task.Id;
-        TasksPage.DetailsPanel.ResetDirtyState();
+        if (!TasksPage.DetailsPanel.MarkSaved(draft.Snapshot))
+        {
+            _taskDetailsAutoSaveQueued = true;
+        }
+
         await LoadLabelsAsync().ConfigureAwait(true);
         await LoadProjectsAsync().ConfigureAwait(true);
         await RefreshTasksAsync().ConfigureAwait(true);
-        ShowInfo("Task saved", task.Title, InfoBarSeverity.Success);
+        TasksPage.DetailsPanel.SetAutoSaveState("Saved", autoDismiss: true);
+        if (showFeedback)
+        {
+            ShowInfo("Task saved", task.Title, InfoBarSeverity.Success);
+        }
+
+        return true;
     }
 
     private static DateTimeOffset? PreserveExactTime(DateOnly? selectedDate, DateOnly? existingDate, DateTimeOffset? existingDateTime) =>
-        selectedDate == existingDate ? existingDateTime : null;
+        selectedDate == TaskDateValues.PreferredDate(existingDate, existingDateTime) ? existingDateTime : null;
 
     private static Dictionary<string, string> BuildSubtaskProgress(IReadOnlyList<TaskItem> tasks)
     {
@@ -376,6 +481,39 @@ public sealed partial class AppShell
                     var total = group.Count();
                     var completed = group.Count(task => task.IsCompleted);
                     return $"{completed}/{total} subtasks";
+                },
+                StringComparer.Ordinal);
+    }
+
+    private static Dictionary<string, string> BuildMatchingSubtaskText(IReadOnlyList<TaskItem> visibleTasks, string? searchText)
+    {
+        if (string.IsNullOrWhiteSpace(searchText))
+        {
+            return [];
+        }
+
+        return visibleTasks
+            .Where(task => !string.IsNullOrWhiteSpace(task.ParentId))
+            .GroupBy(task => task.ParentId!, StringComparer.Ordinal)
+            .ToDictionary(
+                group => group.Key,
+                group =>
+                {
+                    var matches = group
+                        .Select(task => task.Title)
+                        .Where(title => !string.IsNullOrWhiteSpace(title))
+                        .Distinct(StringComparer.CurrentCultureIgnoreCase)
+                        .Take(2)
+                        .ToList();
+                    if (matches.Count == 0)
+                    {
+                        return string.Empty;
+                    }
+
+                    var remaining = Math.Max(0, group.Count() - matches.Count);
+                    var suffix = remaining > 0 ? $" +{remaining}" : string.Empty;
+                    var prefix = matches.Count == 1 && remaining == 0 ? "Matching subtask" : "Matching subtasks";
+                    return $"{prefix}: {string.Join(", ", matches)}{suffix}";
                 },
                 StringComparer.Ordinal);
     }
@@ -531,7 +669,7 @@ public sealed partial class AppShell
 
     private async void OnDetailsCancelEditClicked(object sender, RoutedEventArgs e)
     {
-        if (!await ConfirmDiscardTaskEditsAsync().ConfigureAwait(true))
+        if (!await SavePendingTaskDetailsAsync().ConfigureAwait(true))
         {
             return;
         }
@@ -560,23 +698,15 @@ public sealed partial class AppShell
             ? DateTimeOffset.Now.Date
             : null;
 
-    private async Task<bool> ConfirmDiscardTaskEditsAsync()
+    private async Task<bool> SavePendingTaskDetailsAsync()
     {
-        if (!TasksPage.IsDetailsPaneOpen || !TasksPage.DetailsPanel.HasUnsavedChanges)
+        if (!TasksPage.IsDetailsPaneOpen)
         {
             return true;
         }
 
-        var dialog = new ContentDialog
-        {
-            Title = "Discard unsaved changes?",
-            Content = "The selected task has unsaved changes.",
-            PrimaryButtonText = "Discard",
-            CloseButtonText = "Keep editing",
-            XamlRoot = XamlRoot,
-        };
-
-        return await dialog.ShowAsync() == ContentDialogResult.Primary;
+        TasksPage.DetailsPanel.StopPendingAutoSave();
+        return await SaveTaskDetailsIfNeededAsync(showFeedback: false).ConfigureAwait(true);
     }
 
     private IReadOnlyList<LabelItem> BuildLabels(string labelText, string integrationId)

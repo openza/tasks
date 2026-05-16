@@ -49,7 +49,7 @@ public sealed partial class TasksPage : UserControl
     public event TypedEventHandler<TasksPage, TaskListItemViewModel>? TaskSelected;
     public event RoutedEventHandler? ToggleCompleteClicked;
     public event RoutedEventHandler? DeleteTaskClicked;
-    public event RoutedEventHandler? SaveTaskClicked;
+    public event RoutedEventHandler? DetailsAutoSaveRequested;
     public event RoutedEventHandler? DetailsToggleCompleteClicked;
     public event RoutedEventHandler? DetailsSubtaskToggleCompleteClicked;
     public event TypedEventHandler<TasksPage, string>? DetailsCreateProjectRequested;
@@ -871,7 +871,7 @@ public sealed partial class TasksPage : UserControl
 
     private void OnDeleteTaskClicked(object sender, RoutedEventArgs e) => DeleteTaskClicked?.Invoke(sender, e);
 
-    private void OnSaveTaskClicked(object sender, RoutedEventArgs e) => SaveTaskClicked?.Invoke(sender, e);
+    private void OnDetailsAutoSaveRequested(object sender, RoutedEventArgs e) => DetailsAutoSaveRequested?.Invoke(sender, e);
 
     private void OnDetailsToggleCompleteClicked(object sender, RoutedEventArgs e) => DetailsToggleCompleteClicked?.Invoke(sender, e);
 

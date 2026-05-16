@@ -3,7 +3,7 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:pages="using:Openza.Tasks.Pages">
-    <Grid Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+    <Grid Background="{ThemeResource OpenzaAppCanvasBrush}">
         <NavigationView
             x:Name="ShellNav"
             PaneDisplayMode="Left"
@@ -14,9 +14,13 @@
             IsSettingsVisible="False"
             SelectionChanged="OnNavigationSelectionChanged">
             <NavigationView.Resources>
-                <SolidColorBrush x:Key="NavigationViewItemBackgroundSelected" Color="#1A2563EB" />
-                <SolidColorBrush x:Key="NavigationViewItemBackgroundSelectedPointerOver" Color="#242563EB" />
-                <SolidColorBrush x:Key="NavigationViewItemBackgroundPressed" Color="#2E2563EB" />
+                <StaticResource x:Key="NavigationViewItemBackgroundSelected" ResourceKey="OpenzaNavSelectedBrush" />
+                <StaticResource x:Key="NavigationViewItemBackgroundSelectedPointerOver" ResourceKey="OpenzaNavSelectedHoverBrush" />
+                <StaticResource x:Key="NavigationViewItemBackgroundPressed" ResourceKey="OpenzaNavSelectedPressedBrush" />
+                <StaticResource x:Key="NavigationViewItemForegroundSelected" ResourceKey="OpenzaTextPrimaryBrush" />
+                <StaticResource x:Key="NavigationViewItemForegroundSelectedPointerOver" ResourceKey="OpenzaTextPrimaryBrush" />
+                <StaticResource x:Key="NavigationViewItemIconForegroundSelected" ResourceKey="OpenzaTextPrimaryBrush" />
+                <StaticResource x:Key="NavigationViewItemIconForegroundSelectedPointerOver" ResourceKey="OpenzaTextPrimaryBrush" />
             </NavigationView.Resources>
             <NavigationView.PaneHeader>
                 <ComboBox
@@ -32,8 +36,8 @@
                 <NavigationViewItem
                     x:Name="AddTaskNavItem"
                     Margin="6,4,6,6"
-                    Background="{StaticResource OpenzaAccentBrush}"
-                    Foreground="{StaticResource OpenzaOnAccentBrush}"
+                    Background="{ThemeResource OpenzaAccentBrush}"
+                    Foreground="{ThemeResource OpenzaOnAccentBrush}"
                     SelectsOnInvoked="False"
                     Tag="add-task"
                     PointerEntered="OnAddTaskPointerEntered"
@@ -42,24 +46,24 @@
                     PointerReleased="OnAddTaskPointerEntered"
                     ToolTipService.ToolTip="Add task">
                     <NavigationViewItem.Resources>
-                        <SolidColorBrush x:Key="NavigationViewItemBackground" Color="#2563EB" />
-                        <SolidColorBrush x:Key="NavigationViewItemBackgroundPointerOver" Color="#1D4ED8" />
-                        <SolidColorBrush x:Key="NavigationViewItemBackgroundPressed" Color="#1E40AF" />
-                        <SolidColorBrush x:Key="NavigationViewItemForeground" Color="#FFFFFFFF" />
-                        <SolidColorBrush x:Key="NavigationViewItemForegroundPointerOver" Color="#FFFFFFFF" />
-                        <SolidColorBrush x:Key="NavigationViewItemForegroundPressed" Color="#FFFFFFFF" />
-                        <SolidColorBrush x:Key="NavigationViewItemIconForeground" Color="#FFFFFFFF" />
-                        <SolidColorBrush x:Key="NavigationViewItemIconForegroundPointerOver" Color="#FFFFFFFF" />
-                        <SolidColorBrush x:Key="NavigationViewItemIconForegroundPressed" Color="#FFFFFFFF" />
+                        <StaticResource x:Key="NavigationViewItemBackground" ResourceKey="OpenzaAccentBrush" />
+                        <StaticResource x:Key="NavigationViewItemBackgroundPointerOver" ResourceKey="OpenzaAccentHoverBrush" />
+                        <StaticResource x:Key="NavigationViewItemBackgroundPressed" ResourceKey="OpenzaAccentPressedBrush" />
+                        <StaticResource x:Key="NavigationViewItemForeground" ResourceKey="OpenzaOnAccentBrush" />
+                        <StaticResource x:Key="NavigationViewItemForegroundPointerOver" ResourceKey="OpenzaOnAccentBrush" />
+                        <StaticResource x:Key="NavigationViewItemForegroundPressed" ResourceKey="OpenzaOnAccentBrush" />
+                        <StaticResource x:Key="NavigationViewItemIconForeground" ResourceKey="OpenzaOnAccentBrush" />
+                        <StaticResource x:Key="NavigationViewItemIconForegroundPointerOver" ResourceKey="OpenzaOnAccentBrush" />
+                        <StaticResource x:Key="NavigationViewItemIconForegroundPressed" ResourceKey="OpenzaOnAccentBrush" />
                     </NavigationViewItem.Resources>
                     <NavigationViewItem.Content>
                         <TextBlock
                             Text="Add task"
                             FontWeight="SemiBold"
-                            Foreground="{StaticResource OpenzaOnAccentBrush}" />
+                            Foreground="{ThemeResource OpenzaOnAccentBrush}" />
                     </NavigationViewItem.Content>
                     <NavigationViewItem.Icon>
-                        <FontIcon Glyph="&#xE710;" Foreground="{StaticResource OpenzaOnAccentBrush}" />
+                        <FontIcon Glyph="&#xE710;" Foreground="{ThemeResource OpenzaOnAccentBrush}" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
                 <NavigationViewItemSeparator />
@@ -169,7 +173,7 @@
                         TaskSelected="OnTaskSelected"
                         ToggleCompleteClicked="OnToggleCompleteClicked"
                         DeleteTaskClicked="OnDeleteTaskClicked"
-                        SaveTaskClicked="OnSaveTaskClicked"
+                        DetailsAutoSaveRequested="OnDetailsAutoSaveRequested"
                         DetailsToggleCompleteClicked="OnDetailsToggleCompleteClicked"
                         DetailsSubtaskToggleCompleteClicked="OnToggleCompleteClicked"
                         DetailsCreateProjectRequested="OnDetailsCreateProjectRequested"

@@ -34,7 +34,7 @@
     </UserControl.Resources>
     <Grid
         x:Name="WorkbenchRoot"
-        Background="{ThemeResource ApplicationPageBackgroundThemeBrush}"
+        Background="{ThemeResource OpenzaAppCanvasBrush}"
         ColumnSpacing="0"
         SizeChanged="OnWorkbenchSizeChanged">
         <Grid.ColumnDefinitions>
@@ -323,8 +323,8 @@
                 Grid.Row="2"
                 Margin="0,0,0,16"
                 Padding="18"
-                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                Background="{ThemeResource OpenzaElevatedSurfaceBrush}"
+                BorderBrush="{ThemeResource OpenzaBorderBrush}"
                 BorderThickness="1"
                 CornerRadius="8"
                 Visibility="Collapsed">
@@ -346,7 +346,7 @@
                         <FontIcon Glyph="&#xE711;" FontSize="12" />
                     </Button>
                     <StackPanel Grid.Row="1" Grid.ColumnSpan="2" Orientation="Horizontal" Spacing="8">
-                        <Button Content="Add task" Style="{StaticResource AccentButtonStyle}" Click="OnQuickAddClicked" />
+                        <Button Content="Add task" Style="{StaticResource OpenzaAccentButtonStyle}" Click="OnQuickAddClicked" />
                         <Button Content="Connect integrations" Click="OnConnectProvidersClicked" />
                         <Button Content="Explore sync routes" Click="OnExploreSyncClicked" />
                     </StackPanel>
@@ -360,6 +360,13 @@
                     ItemTemplate="{StaticResource TaskRowTemplate}"
                     SelectionChanged="OnTaskSelectionChanged"
                     Visibility="{x:Bind ViewModel.UngroupedListVisibility, Mode=OneWay}">
+                    <ListView.Resources>
+                        <StaticResource x:Key="ListViewItemBackgroundPointerOver" ResourceKey="OpenzaRowHoverBrush" />
+                        <StaticResource x:Key="ListViewItemBackgroundSelected" ResourceKey="OpenzaRowSelectedBrush" />
+                        <StaticResource x:Key="ListViewItemBackgroundSelectedPointerOver" ResourceKey="OpenzaRowSelectedBrush" />
+                        <StaticResource x:Key="ListViewItemBackgroundPressed" ResourceKey="OpenzaRowSelectedBrush" />
+                        <StaticResource x:Key="ListViewItemForegroundSelected" ResourceKey="OpenzaTextPrimaryBrush" />
+                    </ListView.Resources>
                     <ListView.ItemContainerStyle>
                         <Style TargetType="ListViewItem">
                             <Setter Property="Padding" Value="0" />
@@ -374,6 +381,13 @@
                     ItemTemplate="{StaticResource TaskRowTemplate}"
                     SelectionChanged="OnTaskSelectionChanged"
                     Visibility="{x:Bind ViewModel.GroupedListVisibility, Mode=OneWay}">
+                    <ListView.Resources>
+                        <StaticResource x:Key="ListViewItemBackgroundPointerOver" ResourceKey="OpenzaRowHoverBrush" />
+                        <StaticResource x:Key="ListViewItemBackgroundSelected" ResourceKey="OpenzaRowSelectedBrush" />
+                        <StaticResource x:Key="ListViewItemBackgroundSelectedPointerOver" ResourceKey="OpenzaRowSelectedBrush" />
+                        <StaticResource x:Key="ListViewItemBackgroundPressed" ResourceKey="OpenzaRowSelectedBrush" />
+                        <StaticResource x:Key="ListViewItemForegroundSelected" ResourceKey="OpenzaTextPrimaryBrush" />
+                    </ListView.Resources>
                     <ListView.GroupStyle>
                         <GroupStyle HeaderTemplate="{StaticResource TaskGroupHeaderTemplate}" />
                     </ListView.GroupStyle>
@@ -398,11 +412,11 @@
             x:Name="DetailsHost"
             Grid.Column="2"
             Visibility="Collapsed"
-            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+            BorderBrush="{ThemeResource OpenzaBorderBrush}"
             BorderThickness="1,0,0,0">
             <controls:TaskDetailsPaneControl
                 x:Name="TaskDetailsPanel"
-                SaveTaskClicked="OnSaveTaskClicked"
+                AutoSaveRequested="OnDetailsAutoSaveRequested"
                 ToggleCompleteClicked="OnDetailsToggleCompleteClicked"
                 SubtaskToggleCompleteClicked="OnDetailsSubtaskToggleCompleteClicked"
                 CreateProjectRequested="OnDetailsCreateProjectRequested"
@@ -414,8 +428,8 @@
             x:Name="IntakeDrawerHost"
             Grid.Column="2"
             Visibility="Collapsed"
-            Background="{ThemeResource ApplicationPageBackgroundThemeBrush}"
-            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+            Background="{ThemeResource OpenzaDetailPaneBackgroundBrush}"
+            BorderBrush="{ThemeResource OpenzaBorderBrush}"
             BorderThickness="1,0,0,0">
             <Grid RowDefinitions="Auto,*,Auto">
                 <Grid Padding="24,26,18,18" ColumnDefinitions="*,Auto" ColumnSpacing="12">
@@ -489,7 +503,7 @@
                                         <Border
                                             Padding="7,1"
                                             CornerRadius="8"
-                                            Background="{StaticResource OpenzaQuietSurfaceBrush}">
+                                            Background="{ThemeResource OpenzaChipBackgroundBrush}">
                                             <TextBlock
                                                 Text="{Binding SourceName}"
                                                 Style="{StaticResource OpenzaCaptionTextBlockStyle}" />
@@ -515,7 +529,6 @@
                                     <Button
                                         Content="{Binding IntakeActionText}"
                                         Tag="{Binding Id}"
-                                        Style="{StaticResource AccentButtonStyle}"
                                         Click="OnPrimaryConnectedTaskActionClicked" />
                                     <Button
                                         Content="{Binding SecondaryIntakeActionText}"
@@ -532,12 +545,12 @@
                 <Border
                     Grid.Row="2"
                     Padding="24,14"
-                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    BorderBrush="{ThemeResource OpenzaBorderBrush}"
                     BorderThickness="0,1,0,0">
                     <Button
                         x:Name="AddAllConnectedTasksDrawerButton"
                         Content="Add all to Inbox"
-                        Style="{StaticResource AccentButtonStyle}"
+                        Style="{StaticResource OpenzaAccentButtonStyle}"
                         HorizontalAlignment="Right"
                         Click="OnAddAllConnectedTasksClicked" />
                 </Border>

@@ -53,13 +53,13 @@ public sealed partial class TaskRowControl : UserControl
     private void OnPointerEntered(object sender, PointerRoutedEventArgs e)
     {
         ActionsBar.Opacity = 1;
-        RowSurface.Background = (Brush)Application.Current.Resources["OpenzaQuietHoverBrush"];
+        RowSurface.Background = ResourceBrush("OpenzaRowHoverBrush");
     }
 
     private void OnPointerExited(object sender, PointerRoutedEventArgs e)
     {
         ActionsBar.Opacity = ActionsBar.FocusState == FocusState.Unfocused ? 0 : 1;
-        RowSurface.Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+        RowSurface.Background = ResourceBrush("OpenzaRowBackgroundBrush");
     }
 
     private void OnActionsGotFocus(object sender, RoutedEventArgs e)
@@ -124,6 +124,8 @@ public sealed partial class TaskRowControl : UserControl
     {
         RowSurface.Opacity = 1;
         _completionTransform.X = 0;
-        RowSurface.Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+        RowSurface.Background = ResourceBrush("OpenzaRowBackgroundBrush");
     }
+
+    private static Brush ResourceBrush(string key) => (Brush)Application.Current.Resources[key];
 }

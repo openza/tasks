@@ -4,41 +4,68 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:models="using:Openza.Tasks.Core.Models"
     xmlns:vm="using:Openza.Tasks.ViewModels">
-    <Grid RowDefinitions="Auto,*,Auto" Background="{ThemeResource LayerFillColorDefaultBrush}">
-        <Grid Padding="20,18" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="0,0,0,1">
-                <CheckBox
-                    x:Name="HeaderCompleteBox"
-                    Width="26"
-                    Height="26"
-                    MinWidth="0"
+    <UserControl.Resources>
+        <Style x:Key="DetailPropertyButtonStyle" TargetType="Button">
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="MinHeight" Value="56" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+        </Style>
+    </UserControl.Resources>
+
+    <Grid RowDefinitions="Auto,*,Auto" Background="{ThemeResource OpenzaDetailPaneBackgroundBrush}">
+        <Grid
+            Padding="20,18"
+            ColumnDefinitions="Auto,*,Auto"
+            ColumnSpacing="12"
+            BorderBrush="{ThemeResource OpenzaBorderBrush}"
+            BorderThickness="0,0,0,1">
+            <CheckBox
+                x:Name="HeaderCompleteBox"
+                Width="26"
+                Height="26"
+                MinWidth="0"
+                MinHeight="0"
+                Padding="0"
+                Margin="0,2,0,0"
+                VerticalAlignment="Top"
+                Click="OnToggleCompleteClicked"
+                ToolTipService.ToolTip="Complete task"
+                AutomationProperties.Name="Complete task" />
+            <StackPanel
+                Grid.Column="1"
+                Spacing="2"
+                HorizontalAlignment="Stretch"
+                VerticalAlignment="Top">
+                <TextBox
+                    x:Name="TitleEditor"
+                    PlaceholderText="Task title"
                     MinHeight="0"
                     Padding="0"
-                    Margin="0,2,0,0"
-                    VerticalAlignment="Top"
-                    Click="OnToggleCompleteClicked"
-                    ToolTipService.ToolTip="Complete task"
-                    AutomationProperties.Name="Complete task" />
-                <StackPanel
-                    Grid.Column="1"
-                    MaxWidth="360"
-                    Spacing="2"
+                    Background="Transparent"
+                    BorderBrush="Transparent"
+                    BorderThickness="0"
+                    TextWrapping="Wrap"
+                    MaxHeight="88"
+                    HorizontalAlignment="Stretch"
+                    FontSize="20"
+                    FontWeight="SemiBold"
+                    TextChanged="OnEditorChanged" />
+                <TextBlock
+                    x:Name="SourceText"
+                    TextAlignment="Left"
                     HorizontalAlignment="Left"
-                    VerticalAlignment="Top">
-                    <TextBlock
-                        x:Name="HeaderTitleText"
-                        Text="Task details"
-                        FontSize="20"
-                        FontWeight="SemiBold"
-                        MaxLines="3"
-                        TextWrapping="WrapWholeWords"
-                        TextAlignment="Left"
-                        HorizontalAlignment="Left" />
-                    <TextBlock
-                        x:Name="SourceText"
-                        TextAlignment="Left"
-                        HorizontalAlignment="Left"
-                        Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
-                </StackPanel>
+                    Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
+                <TextBlock
+                    x:Name="AutoSaveStateText"
+                    Visibility="Collapsed"
+                    TextAlignment="Left"
+                    HorizontalAlignment="Left"
+                    Style="{StaticResource OpenzaCaptionTextBlockStyle}" />
+            </StackPanel>
             <Button
                 Grid.Column="2"
                 Width="36"
@@ -56,211 +83,301 @@
             Grid.Row="1"
             Padding="22,18,22,18"
             HorizontalScrollBarVisibility="Disabled">
-            <StackPanel Spacing="14">
-                <StackPanel x:Name="EditableTaskSection" Spacing="10">
-                    <TextBlock Text="Task" Style="{StaticResource OpenzaFormSectionHeaderTextBlockStyle}" />
-                    <TextBox
-                        x:Name="TitleEditor"
-                        Header="Title"
-                        PlaceholderText="Task title"
-                        HorizontalAlignment="Stretch"
-                        TextChanged="OnEditorChanged" />
-                </StackPanel>
+            <StackPanel Spacing="18">
+                <StackPanel x:Name="OrganizeSection" Spacing="8">
+                    <TextBlock Text="Organize" Style="{StaticResource OpenzaFormSectionHeaderTextBlockStyle}" />
 
-                <StackPanel x:Name="SourceDescriptionSection" Spacing="8" Visibility="Collapsed">
-                    <TextBlock Text="Source description" Style="{StaticResource OpenzaFormSectionHeaderTextBlockStyle}" />
+                    <ComboBox
+                        x:Name="WorkflowEditor"
+                        Visibility="Collapsed"
+                        SelectionChanged="OnWorkflowSelectionChanged">
+                        <ComboBoxItem Content="Inbox" Tag="inbox" IsSelected="True" />
+                        <ComboBoxItem Content="Next" Tag="next" />
+                        <ComboBoxItem Content="Waiting For" Tag="waiting" />
+                        <ComboBoxItem Content="Someday" Tag="someday" />
+                    </ComboBox>
+                    <CalendarDatePicker
+                        x:Name="DateEditor"
+                        Visibility="Collapsed"
+                        DateChanged="OnTaskDateChanged" />
+                    <CalendarDatePicker
+                        x:Name="DeadlineDateEditor"
+                        Visibility="Collapsed"
+                        DateChanged="OnTaskDateChanged" />
+                    <ComboBox
+                        x:Name="PriorityEditor"
+                        Visibility="Collapsed"
+                        SelectionChanged="OnSelectionChanged">
+                        <ComboBoxItem Content="Urgent" Tag="1" />
+                        <ComboBoxItem Content="High" Tag="2" />
+                        <ComboBoxItem Content="Normal" Tag="3" />
+                        <ComboBoxItem Content="Low" Tag="4" />
+                    </ComboBox>
+
+                    <Grid
+                        x:Name="OrganizeFieldsGrid"
+                        ColumnDefinitions="*,*"
+                        RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto"
+                        ColumnSpacing="40"
+                        SizeChanged="OnOrganizeFieldsSizeChanged">
                     <Border
-                        Padding="12"
-                        CornerRadius="6"
-                        Background="{ThemeResource LayerFillColorAltBrush}"
-                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                        BorderThickness="1">
-                        <StackPanel Spacing="6">
-                            <TextBlock
-                                x:Name="SourceDescriptionText"
-                                TextWrapping="WrapWholeWords" />
-                            <TextBlock
-                                x:Name="SourceDescriptionHintText"
-                                Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
-                        </StackPanel>
+                        x:Name="StatusFieldCell"
+                        Grid.Row="0"
+                        Grid.Column="0"
+                        BorderBrush="{ThemeResource OpenzaSeparatorBrush}"
+                        BorderThickness="0,0,0,1">
+                        <Button
+                            x:Name="StatusPropertyButton"
+                            AutomationProperties.Name="Change status"
+                            Style="{StaticResource DetailPropertyButtonStyle}">
+                            <Button.Flyout>
+                                <MenuFlyout Placement="Bottom">
+                                    <MenuFlyoutItem Text="Inbox" Tag="inbox" Click="OnWorkflowMenuItemClicked" />
+                                    <MenuFlyoutItem Text="Next" Tag="next" Click="OnWorkflowMenuItemClicked" />
+                                    <MenuFlyoutItem Text="Waiting For" Tag="waiting" Click="OnWorkflowMenuItemClicked" />
+                                    <MenuFlyoutItem Text="Someday" Tag="someday" Click="OnWorkflowMenuItemClicked" />
+                                </MenuFlyout>
+                            </Button.Flyout>
+                            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+                                <FontIcon Glyph="&#xE8FD;" FontSize="15" Foreground="{ThemeResource OpenzaTextTertiaryBrush}" />
+                                <StackPanel Grid.Column="1" Spacing="2">
+                                    <TextBlock Text="Status" Style="{StaticResource OpenzaCaptionTextBlockStyle}" />
+                                    <TextBlock x:Name="StatusValueText" Text="Inbox" MaxLines="1" TextTrimming="CharacterEllipsis" />
+                                </StackPanel>
+                                <FontIcon Grid.Column="2" Glyph="&#xE70D;" FontSize="12" Foreground="{ThemeResource OpenzaTextTertiaryBrush}" />
+                            </Grid>
+                        </Button>
                     </Border>
-                </StackPanel>
 
-                <StackPanel x:Name="SubtasksSection" Spacing="10" Visibility="Collapsed">
-                    <TextBlock Text="Subtasks" Style="{StaticResource OpenzaFormSectionHeaderTextBlockStyle}" />
-                    <ItemsControl x:Name="SubtasksList">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate x:DataType="vm:TaskListItemViewModel">
-                                <Grid
-                                    MinHeight="42"
-                                    Padding="0,4"
-                                    ColumnDefinitions="Auto,*,Auto"
-                                    ColumnSpacing="10">
-                                    <CheckBox
-                                        Width="24"
-                                        Height="24"
-                                        Padding="0"
-                                        VerticalAlignment="Top"
-                                        IsChecked="{Binding Task.IsCompleted, Mode=OneWay}"
-                                        Tag="{Binding Id}"
-                                        Click="OnSubtaskToggleCompleteClicked"
-                                        AutomationProperties.Name="{Binding CompletionAutomationName}" />
-                                    <StackPanel Grid.Column="1" Spacing="2">
-                                        <TextBlock
-                                            Text="{Binding Title}"
-                                            FontWeight="SemiBold"
-                                            MaxLines="2"
-                                            TextWrapping="WrapWholeWords"
-                                            TextTrimming="CharacterEllipsis" />
-                                        <TextBlock
-                                            Text="{Binding MetadataText}"
-                                            MaxLines="1"
-                                            TextTrimming="CharacterEllipsis"
-                                            Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
+                    <Border
+                        x:Name="ProjectEditor"
+                        Grid.Row="0"
+                        Grid.Column="1"
+                        BorderBrush="{ThemeResource OpenzaSeparatorBrush}"
+                        BorderThickness="0,0,0,1">
+                        <Button
+                            x:Name="ProjectPickerButton"
+                            Click="OnProjectPickerClicked"
+                            AutomationProperties.Name="Choose project"
+                            Style="{StaticResource DetailPropertyButtonStyle}">
+                            <Button.Flyout>
+                                <Flyout x:Name="ProjectPickerFlyout" Placement="Bottom">
+                                    <StackPanel Width="360" Spacing="10">
+                                        <AutoSuggestBox
+                                            x:Name="ProjectSearchBox"
+                                            PlaceholderText="Find or create project"
+                                            QueryIcon="Find"
+                                            TextChanged="OnProjectSearchTextChanged"
+                                            QuerySubmitted="OnProjectSearchSubmitted"
+                                            KeyDown="OnProjectSearchKeyDown" />
+                                        <ListView
+                                            x:Name="ProjectResultsList"
+                                            MaxHeight="260"
+                                            SelectionMode="None">
+                                            <ListView.ItemContainerStyle>
+                                                <Style TargetType="ListViewItem">
+                                                    <Setter Property="Padding" Value="0" />
+                                                    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                                </Style>
+                                            </ListView.ItemContainerStyle>
+                                            <ListView.ItemTemplate>
+                                                <DataTemplate x:DataType="models:ProjectItem">
+                                                    <Button
+                                                        HorizontalAlignment="Stretch"
+                                                        HorizontalContentAlignment="Stretch"
+                                                        Padding="10,8"
+                                                        Background="Transparent"
+                                                        BorderBrush="Transparent"
+                                                        BorderThickness="0"
+                                                        Tag="{x:Bind Id}"
+                                                        Click="OnProjectResultClicked"
+                                                        AutomationProperties.Name="{x:Bind Name}">
+                                                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
+                                                            <FontIcon
+                                                                Glyph="&#xE8B7;"
+                                                                FontSize="13"
+                                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                                            <TextBlock
+                                                                Grid.Column="1"
+                                                                Text="{x:Bind Name}"
+                                                                MaxLines="2"
+                                                                TextWrapping="WrapWholeWords"
+                                                                TextTrimming="CharacterEllipsis" />
+                                                        </Grid>
+                                                    </Button>
+                                                </DataTemplate>
+                                            </ListView.ItemTemplate>
+                                        </ListView>
+                                        <Button
+                                            x:Name="CreateProjectButton"
+                                            HorizontalAlignment="Stretch"
+                                            HorizontalContentAlignment="Left"
+                                            Click="OnCreateProjectClicked" />
                                     </StackPanel>
-                                </Grid>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                </StackPanel>
-
-                <StackPanel Spacing="10">
-                    <TextBlock x:Name="OrganizeHeader" Text="Organize" Style="{StaticResource OpenzaFormSectionHeaderTextBlockStyle}" />
-                    <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="10">
-                        <ComboBox
-                            x:Name="WorkflowEditor"
-                            Header="Status"
-                            HorizontalAlignment="Stretch"
-                            SelectionChanged="OnWorkflowSelectionChanged">
-                            <ComboBoxItem Content="Inbox" Tag="inbox" IsSelected="True" />
-                            <ComboBoxItem Content="Next" Tag="next" />
-                            <ComboBoxItem Content="Waiting For" Tag="waiting" />
-                            <ComboBoxItem Content="Someday" Tag="someday" />
-                        </ComboBox>
-                        <StackPanel
-                            x:Name="ProjectEditor"
-                            Grid.Column="1"
-                            Spacing="4">
-                            <TextBlock Text="Project" />
-                            <Button
-                                x:Name="ProjectPickerButton"
-                                HorizontalAlignment="Stretch"
-                                HorizontalContentAlignment="Stretch"
-                                MinHeight="40"
-                                Click="OnProjectPickerClicked"
-                                AutomationProperties.Name="Choose project">
-                                <Button.Flyout>
-                                    <Flyout x:Name="ProjectPickerFlyout" Placement="Bottom">
-                                        <StackPanel Width="360" Spacing="10">
-                                            <AutoSuggestBox
-                                                x:Name="ProjectSearchBox"
-                                                PlaceholderText="Find or create project"
-                                                QueryIcon="Find"
-                                                TextChanged="OnProjectSearchTextChanged"
-                                                QuerySubmitted="OnProjectSearchSubmitted"
-                                                KeyDown="OnProjectSearchKeyDown" />
-                                            <ListView
-                                                x:Name="ProjectResultsList"
-                                                MaxHeight="260"
-                                                SelectionMode="None">
-                                                <ListView.ItemContainerStyle>
-                                                    <Style TargetType="ListViewItem">
-                                                        <Setter Property="Padding" Value="0" />
-                                                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-                                                    </Style>
-                                                </ListView.ItemContainerStyle>
-                                                <ListView.ItemTemplate>
-                                                    <DataTemplate x:DataType="models:ProjectItem">
-                                                        <Button
-                                                            HorizontalAlignment="Stretch"
-                                                            HorizontalContentAlignment="Stretch"
-                                                            Padding="10,8"
-                                                            Background="Transparent"
-                                                            BorderBrush="Transparent"
-                                                            BorderThickness="0"
-                                                            Tag="{x:Bind Id}"
-                                                            Click="OnProjectResultClicked"
-                                                            AutomationProperties.Name="{x:Bind Name}">
-                                                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
-                                                                <FontIcon
-                                                                    Glyph="&#xE8B7;"
-                                                                    FontSize="13"
-                                                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                                                <TextBlock
-                                                                    Grid.Column="1"
-                                                                    Text="{x:Bind Name}"
-                                                                    MaxLines="2"
-                                                                    TextWrapping="WrapWholeWords"
-                                                                    TextTrimming="CharacterEllipsis" />
-                                                            </Grid>
-                                                        </Button>
-                                                    </DataTemplate>
-                                                </ListView.ItemTemplate>
-                                            </ListView>
-                                            <Button
-                                                x:Name="CreateProjectButton"
-                                                HorizontalAlignment="Stretch"
-                                                HorizontalContentAlignment="Left"
-                                                Click="OnCreateProjectClicked" />
-                                        </StackPanel>
-                                    </Flyout>
-                                </Button.Flyout>
-                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                </Flyout>
+                            </Button.Flyout>
+                            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+                                <FontIcon Glyph="&#xE8B7;" FontSize="15" Foreground="{ThemeResource OpenzaTextTertiaryBrush}" />
+                                <StackPanel Grid.Column="1" Spacing="2">
+                                    <TextBlock Text="Project" Style="{StaticResource OpenzaCaptionTextBlockStyle}" />
                                     <TextBlock
                                         x:Name="ProjectPickerText"
                                         Text="No project"
-                                        MaxLines="1"
-                                        TextTrimming="CharacterEllipsis"
-                                        VerticalAlignment="Center" />
-                                    <FontIcon
-                                        Grid.Column="1"
-                                        Glyph="&#xE70D;"
-                                        FontSize="12"
-                                        VerticalAlignment="Center"
-                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                </Grid>
-                            </Button>
-                        </StackPanel>
-                        <CalendarDatePicker
-                            x:Name="DateEditor"
-                            Grid.Row="1"
-                            Header="Date"
-                            PlaceholderText="Add date"
-                            HorizontalAlignment="Stretch"
-                            DateChanged="OnTaskDateChanged" />
-                        <CalendarDatePicker
-                            x:Name="DeadlineDateEditor"
-                            Grid.Row="1"
-                            Grid.Column="1"
-                            Header="Deadline"
-                            PlaceholderText="Add deadline"
-                            HorizontalAlignment="Stretch"
-                            DateChanged="OnTaskDateChanged" />
-                        <ComboBox
-                            x:Name="PriorityEditor"
-                            Grid.Row="2"
-                            Header="Priority"
-                            HorizontalAlignment="Stretch"
-                            SelectionChanged="OnSelectionChanged">
-                            <ComboBoxItem Content="Urgent" Tag="1" />
-                            <ComboBoxItem Content="High" Tag="2" />
-                            <ComboBoxItem Content="Normal" Tag="3" />
-                            <ComboBoxItem Content="Low" Tag="4" />
-                        </ComboBox>
-                        <StackPanel
-                            Grid.Row="3"
-                            Grid.ColumnSpan="2"
-                            Spacing="6">
-                            <TextBlock Text="Labels" />
+                                        MaxLines="2"
+                                        TextWrapping="WrapWholeWords"
+                                        TextTrimming="CharacterEllipsis" />
+                                </StackPanel>
+                                <FontIcon Grid.Column="2" Glyph="&#xE70D;" FontSize="12" Foreground="{ThemeResource OpenzaTextTertiaryBrush}" />
+                            </Grid>
+                        </Button>
+                    </Border>
+
+                    <Border
+                        x:Name="DateFieldCell"
+                        Grid.Row="1"
+                        Grid.Column="0"
+                        BorderBrush="{ThemeResource OpenzaSeparatorBrush}"
+                        BorderThickness="0,0,0,1">
+                        <Button
+                            x:Name="DatePropertyButton"
+                            AutomationProperties.Name="Change date"
+                            Style="{StaticResource DetailPropertyButtonStyle}">
+                            <Button.Flyout>
+                                <Flyout Placement="Bottom">
+                                    <StackPanel Width="320" Spacing="8">
+                                        <CalendarView
+                                            x:Name="DateCalendarView"
+                                            SelectionMode="Single"
+                                            SelectedDatesChanged="OnDateCalendarSelectedDatesChanged" />
+                                        <Button
+                                            Content="Clear date"
+                                            HorizontalAlignment="Stretch"
+                                            Click="OnClearDateClicked" />
+                                    </StackPanel>
+                                </Flyout>
+                            </Button.Flyout>
+                            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+                                <FontIcon Glyph="&#xE787;" FontSize="15" Foreground="{ThemeResource OpenzaTextTertiaryBrush}" />
+                                <StackPanel Grid.Column="1" Spacing="2">
+                                    <TextBlock Text="Date" Style="{StaticResource OpenzaCaptionTextBlockStyle}" />
+                                    <TextBlock x:Name="DateValueText" Text="Add date" MaxLines="1" TextTrimming="CharacterEllipsis" />
+                                </StackPanel>
+                                <FontIcon Grid.Column="2" Glyph="&#xE710;" FontSize="12" Foreground="{ThemeResource OpenzaTextTertiaryBrush}" />
+                            </Grid>
+                        </Button>
+                    </Border>
+
+                    <Border
+                        x:Name="DeadlineFieldCell"
+                        Grid.Row="1"
+                        Grid.Column="1"
+                        BorderBrush="{ThemeResource OpenzaSeparatorBrush}"
+                        BorderThickness="0,0,0,1">
+                        <Button
+                            x:Name="DeadlinePropertyButton"
+                            AutomationProperties.Name="Change deadline"
+                            Style="{StaticResource DetailPropertyButtonStyle}">
+                            <Button.Flyout>
+                                <Flyout Placement="Bottom">
+                                    <StackPanel Width="320" Spacing="8">
+                                        <CalendarView
+                                            x:Name="DeadlineCalendarView"
+                                            SelectionMode="Single"
+                                            SelectedDatesChanged="OnDeadlineCalendarSelectedDatesChanged" />
+                                        <Button
+                                            Content="Clear deadline"
+                                            HorizontalAlignment="Stretch"
+                                            Click="OnClearDeadlineClicked" />
+                                    </StackPanel>
+                                </Flyout>
+                            </Button.Flyout>
+                            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+                                <FontIcon Glyph="&#xEB90;" FontSize="15" Foreground="{ThemeResource OpenzaTextTertiaryBrush}" />
+                                <StackPanel Grid.Column="1" Spacing="2">
+                                    <TextBlock Text="Deadline" Style="{StaticResource OpenzaCaptionTextBlockStyle}" />
+                                    <TextBlock x:Name="DeadlineValueText" Text="Add deadline" MaxLines="1" TextTrimming="CharacterEllipsis" />
+                                </StackPanel>
+                                <FontIcon Grid.Column="2" Glyph="&#xE710;" FontSize="12" Foreground="{ThemeResource OpenzaTextTertiaryBrush}" />
+                            </Grid>
+                        </Button>
+                    </Border>
+
+                    <Border
+                        x:Name="PriorityFieldCell"
+                        Grid.Row="2"
+                        Grid.Column="0"
+                        BorderBrush="{ThemeResource OpenzaSeparatorBrush}"
+                        BorderThickness="0,0,0,1">
+                        <Button
+                            x:Name="PriorityPropertyButton"
+                            AutomationProperties.Name="Change priority"
+                            Style="{StaticResource DetailPropertyButtonStyle}">
+                            <Button.Flyout>
+                                <MenuFlyout Placement="Bottom">
+                                    <MenuFlyoutItem Text="Urgent" Tag="1" Click="OnPriorityMenuItemClicked" />
+                                    <MenuFlyoutItem Text="High" Tag="2" Click="OnPriorityMenuItemClicked" />
+                                    <MenuFlyoutItem Text="Normal" Tag="3" Click="OnPriorityMenuItemClicked" />
+                                    <MenuFlyoutItem Text="Low" Tag="4" Click="OnPriorityMenuItemClicked" />
+                                </MenuFlyout>
+                            </Button.Flyout>
+                            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+                                <FontIcon Glyph="&#xE7C1;" FontSize="15" Foreground="{ThemeResource OpenzaTextTertiaryBrush}" />
+                                <StackPanel Grid.Column="1" Spacing="2">
+                                    <TextBlock Text="Priority" Style="{StaticResource OpenzaCaptionTextBlockStyle}" />
+                                    <TextBlock x:Name="PriorityValueText" Text="Normal" MaxLines="1" TextTrimming="CharacterEllipsis" />
+                                </StackPanel>
+                                <FontIcon Grid.Column="2" Glyph="&#xE70D;" FontSize="12" Foreground="{ThemeResource OpenzaTextTertiaryBrush}" />
+                            </Grid>
+                        </Button>
+                    </Border>
+
+                    <Border
+                        x:Name="LabelFieldCell"
+                        Grid.Row="3"
+                        Grid.Column="0"
+                        Grid.ColumnSpan="2"
+                        BorderBrush="{ThemeResource OpenzaSeparatorBrush}"
+                        BorderThickness="0,0,0,1">
+                        <Grid
+                            MinHeight="56"
+                            Padding="0,8"
+                            ColumnDefinitions="Auto,*,Auto"
+                            ColumnSpacing="12">
+                            <FontIcon
+                                Glyph="&#xE8EC;"
+                                FontSize="15"
+                                Foreground="{ThemeResource OpenzaTextTertiaryBrush}" />
+                            <StackPanel Grid.Column="1" Spacing="6">
+                                <TextBlock Text="Labels" Style="{StaticResource OpenzaCaptionTextBlockStyle}" />
+                                <TextBlock
+                                    x:Name="LabelsEmptyText"
+                                    Text="No labels"
+                                    Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
+                                <ScrollViewer
+                                    x:Name="SelectedLabelsScrollViewer"
+                                    MaxHeight="112"
+                                    HorizontalScrollBarVisibility="Disabled"
+                                    VerticalScrollBarVisibility="Auto"
+                                    HorizontalScrollMode="Disabled"
+                                    VerticalScrollMode="Auto"
+                                    SizeChanged="OnSelectedLabelsSizeChanged">
+                                    <StackPanel
+                                        x:Name="SelectedLabelsPanel"
+                                        Spacing="4" />
+                                </ScrollViewer>
+                            </StackPanel>
                             <Button
                                 x:Name="LabelPickerButton"
-                                Padding="12,8"
-                                HorizontalAlignment="Stretch"
-                                HorizontalContentAlignment="Stretch"
+                                Grid.Column="2"
+                                Width="36"
+                                Height="36"
+                                MinWidth="0"
+                                Padding="0"
                                 Click="OnLabelPickerClicked"
+                                ToolTipService.ToolTip="Add label"
                                 AutomationProperties.Name="Add label">
                                 <Button.Flyout>
-                                    <Flyout x:Name="LabelPickerFlyout" Placement="BottomEdgeAlignedLeft">
+                                    <Flyout x:Name="LabelPickerFlyout" Placement="BottomEdgeAlignedRight">
                                         <Grid
                                             Width="380"
                                             MaxHeight="500"
@@ -303,64 +420,116 @@
                                         </Grid>
                                     </Flyout>
                                 </Button.Flyout>
-                                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
-                                    <FontIcon
-                                        Glyph="&#xE8EC;"
-                                        FontSize="14"
-                                        VerticalAlignment="Center"
-                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                    <TextBlock
-                                        Grid.Column="1"
-                                        Text="Add label"
-                                        VerticalAlignment="Center"
-                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                    <FontIcon
-                                        Grid.Column="2"
-                                        Glyph="&#xE710;"
-                                        FontSize="14"
-                                        VerticalAlignment="Center" />
-                                </Grid>
+                                <FontIcon
+                                    Glyph="&#xE710;"
+                                    FontSize="12"
+                                    Foreground="{ThemeResource OpenzaTextTertiaryBrush}" />
                             </Button>
-                        </StackPanel>
+                        </Grid>
+                    </Border>
                     </Grid>
-                    <ScrollViewer
-                        MaxHeight="36"
-                        HorizontalScrollBarVisibility="Hidden"
-                        VerticalScrollBarVisibility="Disabled"
-                        HorizontalScrollMode="Enabled"
-                        VerticalScrollMode="Disabled">
-                        <ItemsControl x:Name="SelectedLabelsList">
-                            <ItemsControl.ItemsPanel>
-                                <ItemsPanelTemplate>
-                                    <StackPanel Orientation="Horizontal" />
-                                </ItemsPanelTemplate>
-                            </ItemsControl.ItemsPanel>
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate>
-                                    <Button
-                                        Margin="0,0,6,6"
-                                        Padding="10,4"
-                                        Click="OnRemoveLabelClicked"
-                                        Tag="{Binding Id}">
-                                        <StackPanel Orientation="Horizontal" Spacing="6">
-                                            <TextBlock Text="{Binding Name}" />
-                                            <FontIcon Glyph="&#xE711;" FontSize="10" />
-                                        </StackPanel>
-                                    </Button>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-                    </ScrollViewer>
                 </StackPanel>
 
-                <TextBox
-                    x:Name="NotesEditor"
-                    Header="Notes"
-                    PlaceholderText=""
-                    AcceptsReturn="True"
-                    MinHeight="112"
-                    HorizontalAlignment="Stretch"
-                    TextChanged="OnEditorChanged" />
+                <Border
+                    x:Name="SourceDateMismatchNotice"
+                    Visibility="Collapsed"
+                    Padding="12"
+                    CornerRadius="6"
+                    Background="{ThemeResource OpenzaSurfaceAltBrush}"
+                    BorderBrush="{ThemeResource OpenzaBorderBrush}"
+                    BorderThickness="1">
+                    <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="10">
+                        <FontIcon
+                            Glyph="&#xE946;"
+                            FontSize="15"
+                            Foreground="{ThemeResource OpenzaTextTertiaryBrush}" />
+                        <StackPanel Grid.Column="1" Spacing="2">
+                            <TextBlock
+                                x:Name="SourceDateMismatchTitleText"
+                                FontWeight="SemiBold" />
+                            <TextBlock
+                                x:Name="SourceDateMismatchBodyText"
+                                TextWrapping="WrapWholeWords"
+                                Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
+                        </StackPanel>
+                        <Button
+                            x:Name="UseSourceDateButton"
+                            Grid.Column="2"
+                            Click="OnUseSourceDateClicked" />
+                        <Button
+                            Grid.Column="3"
+                            Content="Keep Openza date"
+                            Click="OnKeepOpenzaDateClicked" />
+                    </Grid>
+                </Border>
+
+                <StackPanel x:Name="SubtasksSection" Spacing="8" Visibility="Collapsed">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock x:Name="SubtasksHeaderText" Text="Subtasks" Style="{StaticResource OpenzaFormSectionHeaderTextBlockStyle}" />
+                        <TextBlock
+                            x:Name="SubtasksProgressText"
+                            Grid.Column="1"
+                            VerticalAlignment="Center"
+                            Style="{StaticResource OpenzaCaptionTextBlockStyle}" />
+                    </Grid>
+                    <ItemsControl x:Name="SubtasksList">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:TaskListItemViewModel">
+                                <Border
+                                    Padding="0,9"
+                                    BorderBrush="{ThemeResource OpenzaSeparatorBrush}"
+                                    BorderThickness="0,0,0,1">
+                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+                                        <CheckBox
+                                            Width="22"
+                                            Height="22"
+                                            MinWidth="0"
+                                            MinHeight="0"
+                                            Padding="0"
+                                            Margin="0,1,0,0"
+                                            VerticalAlignment="Top"
+                                            IsChecked="{Binding Task.IsCompleted, Mode=OneWay}"
+                                            Tag="{Binding Id}"
+                                            Click="OnSubtaskToggleCompleteClicked"
+                                            AutomationProperties.Name="{Binding CompletionAutomationName}" />
+                                        <StackPanel Grid.Column="1" Spacing="2">
+                                            <TextBlock
+                                                Text="{Binding Title}"
+                                                FontWeight="SemiBold"
+                                                MaxLines="2"
+                                                TextWrapping="WrapWholeWords"
+                                                TextTrimming="CharacterEllipsis" />
+                                            <TextBlock
+                                                Text="{Binding DetailsSubtaskMetadataText}"
+                                                MaxLines="1"
+                                                TextTrimming="CharacterEllipsis"
+                                                Visibility="{Binding DetailsSubtaskMetadataVisibility}"
+                                                Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <HyperlinkButton
+                        x:Name="SubtasksToggleButton"
+                        Padding="0"
+                        HorizontalAlignment="Left"
+                        Click="OnToggleSubtasksClicked"
+                        Visibility="Collapsed" />
+                </StackPanel>
+
+                <StackPanel Spacing="8">
+                    <TextBlock Text="Notes" Style="{StaticResource OpenzaFormSectionHeaderTextBlockStyle}" />
+                    <TextBox
+                        x:Name="NotesEditor"
+                        PlaceholderText=""
+                        AcceptsReturn="True"
+                        MinHeight="80"
+                        MaxHeight="160"
+                        HorizontalAlignment="Stretch"
+                        TextChanged="OnEditorChanged" />
+                </StackPanel>
 
                 <TextBox
                     x:Name="LabelsEditor"
@@ -369,77 +538,100 @@
                     HorizontalAlignment="Stretch"
                     TextChanged="OnEditorChanged" />
 
-                <StackPanel x:Name="ProviderTaskSection" Spacing="10" Visibility="Collapsed">
-                    <TextBlock Text="Source task" Style="{StaticResource OpenzaFormSectionHeaderTextBlockStyle}" />
-                    <Border
-                        Padding="12"
-                        CornerRadius="6"
-                        Background="{ThemeResource LayerFillColorAltBrush}"
-                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                        BorderThickness="1">
-                        <StackPanel Spacing="12">
-                            <StackPanel Spacing="2">
-                                <TextBlock
-                                    Text="Title"
-                                    Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
-                                <TextBlock
-                                    x:Name="ProviderTitleText"
-                                    TextWrapping="Wrap"
-                                    FontWeight="SemiBold" />
-                            </StackPanel>
-                            <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="14" RowSpacing="10">
-                                <StackPanel Spacing="2">
-                                    <TextBlock Text="Project" Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
-                                    <TextBlock x:Name="ProviderProjectText" TextWrapping="Wrap" />
+                <Expander
+                    x:Name="ProviderTaskSection"
+                    HorizontalAlignment="Stretch"
+                    HorizontalContentAlignment="Stretch"
+                    IsExpanded="False"
+                    Visibility="Collapsed">
+                    <Expander.Header>
+                        <TextBlock x:Name="ProviderTaskHeaderText" Text="Source task" />
+                    </Expander.Header>
+                    <StackPanel
+                        HorizontalAlignment="Stretch"
+                        Spacing="12"
+                        Padding="0,8,0,0">
+                        <StackPanel x:Name="SourceDescriptionSection" Spacing="6" Visibility="Collapsed">
+                            <TextBlock Text="Source description" Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
+                            <Border
+                                HorizontalAlignment="Stretch"
+                                Padding="12"
+                                CornerRadius="6"
+                                Background="{ThemeResource OpenzaSurfaceAltBrush}"
+                                BorderBrush="{ThemeResource OpenzaBorderBrush}"
+                                BorderThickness="1">
+                                <StackPanel Spacing="6">
+                                    <TextBlock
+                                        x:Name="SourceDescriptionText"
+                                        TextWrapping="WrapWholeWords" />
+                                    <TextBlock
+                                        x:Name="SourceDescriptionHintText"
+                                        Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
                                 </StackPanel>
-                                <StackPanel Grid.Column="1" Spacing="2">
-                                    <TextBlock Text="Date" Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
-                                    <TextBlock x:Name="ProviderDateText" />
-                                </StackPanel>
-                                <StackPanel Grid.Row="1" Spacing="2">
-                                    <TextBlock Text="Deadline" Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
-                                    <TextBlock x:Name="ProviderDeadlineText" />
-                                </StackPanel>
-                                <StackPanel Grid.Row="1" Grid.Column="1" Spacing="2">
-                                    <TextBlock Text="Priority" Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
-                                    <TextBlock x:Name="ProviderPriorityText" />
-                                </StackPanel>
-                                <StackPanel Grid.Row="2" Spacing="2">
-                                    <TextBlock Text="Source" Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
-                                    <TextBlock x:Name="ProviderSourceText" />
-                                </StackPanel>
-                            </Grid>
+                            </Border>
                         </StackPanel>
-                    </Border>
-                </StackPanel>
+                        <Border
+                            HorizontalAlignment="Stretch"
+                            Padding="12"
+                            CornerRadius="6"
+                            Background="{ThemeResource OpenzaSurfaceAltBrush}"
+                            BorderBrush="{ThemeResource OpenzaBorderBrush}"
+                            BorderThickness="1">
+                            <StackPanel Spacing="12">
+                                <StackPanel Spacing="2">
+                                    <TextBlock
+                                        Text="Title"
+                                        Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
+                                    <TextBlock
+                                        x:Name="ProviderTitleText"
+                                        TextWrapping="Wrap"
+                                        FontWeight="SemiBold" />
+                                </StackPanel>
+                                <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="14" RowSpacing="10">
+                                    <StackPanel Spacing="2">
+                                        <TextBlock Text="Project" Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
+                                        <TextBlock x:Name="ProviderProjectText" TextWrapping="Wrap" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="1" Spacing="2">
+                                        <TextBlock Text="Date" Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
+                                        <TextBlock x:Name="ProviderDateText" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Row="1" Spacing="2">
+                                        <TextBlock Text="Deadline" Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
+                                        <TextBlock x:Name="ProviderDeadlineText" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Row="1" Grid.Column="1" Spacing="2">
+                                        <TextBlock Text="Priority" Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
+                                        <TextBlock x:Name="ProviderPriorityText" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Row="2" Spacing="2">
+                                        <TextBlock Text="Source" Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
+                                        <TextBlock x:Name="ProviderSourceText" />
+                                    </StackPanel>
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </Expander>
             </StackPanel>
         </ScrollViewer>
 
         <Grid
             Grid.Row="2"
             Padding="20,14"
-            ColumnDefinitions="Auto,Auto,*,Auto,Auto"
+            ColumnDefinitions="*,Auto,Auto"
             ColumnSpacing="8"
-            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+            BorderBrush="{ThemeResource OpenzaBorderBrush}"
             BorderThickness="0,1,0,0">
             <Button
-                x:Name="SaveButton"
-                Content="Save"
-                Style="{StaticResource AccentButtonStyle}"
-                Click="OnSaveTaskClicked" />
-            <Button
-                Grid.Column="1"
-                Content="Cancel"
-                Click="OnCancelEditClicked" />
-            <Button
                 x:Name="DeleteButton"
-                Grid.Column="3"
+                Grid.Column="1"
                 Content="Delete"
                 IsEnabled="False"
                 Click="OnDeleteTaskClicked" />
             <Button
                 x:Name="CompleteButton"
-                Grid.Column="4"
+                Grid.Column="2"
                 Content="Complete"
                 IsEnabled="False"
                 Click="OnToggleCompleteClicked" />

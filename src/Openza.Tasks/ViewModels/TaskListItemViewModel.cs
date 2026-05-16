@@ -5,7 +5,7 @@ using WinUIFontWeights = Microsoft.UI.Text.FontWeights;
 
 namespace Openza.Tasks.ViewModels;
 
-public sealed class TaskListItemViewModel(TaskItem task, ProjectItem? project, string view = "tasks", bool isProjectView = false, int nestingLevel = 0, string subtaskProgressText = "")
+public sealed class TaskListItemViewModel(TaskItem task, ProjectItem? project, string view = "tasks", bool isProjectView = false, int nestingLevel = 0, string subtaskProgressText = "", string matchingSubtaskText = "")
 {
     public TaskItem Task { get; } = task;
     public ProjectItem? Project { get; } = project;
@@ -13,12 +13,12 @@ public sealed class TaskListItemViewModel(TaskItem task, ProjectItem? project, s
     public bool IsProjectView { get; } = isProjectView;
     public int NestingLevel { get; } = nestingLevel;
     public string SubtaskProgressText { get; } = subtaskProgressText;
+    public string MatchingSubtaskText { get; } = matchingSubtaskText;
 
     public string Id => Task.Id;
     public string Title => Task.Title;
     public string Notes => Task.Notes ?? string.Empty;
     public string SourceDescription => Task.SourceDescription ?? string.Empty;
-    public string DisplayNotes => !string.IsNullOrWhiteSpace(Notes) ? Notes : SourceDescription;
     public string ProjectName => Project?.Name ?? string.Empty;
     public string SourceText => SourceName(Task.SourceIntegrationId ?? Task.IntegrationId);
     public string PriorityText => Task.Priority switch
@@ -65,22 +65,19 @@ public sealed class TaskListItemViewModel(TaskItem task, ProjectItem? project, s
     public string SummaryText => string.Join("  ", new[] { ProjectName, PriorityCueText, DateText, SourceText }.Where(value => !string.IsNullOrWhiteSpace(value)));
     public IReadOnlyList<TaskMetadataPartViewModel> MetadataItems => BuildMetadataItems();
     public string MetadataText => string.Join("  \u2022  ", BuildMetadataParts());
-    public string SecondaryText => DisplayNotes;
-    public bool HasDescription => !string.IsNullOrWhiteSpace(DisplayNotes);
+    public string DetailsSubtaskMetadataText => string.Join("  \u2022  ", BuildDetailsSubtaskMetadataParts());
     public bool HasLabels => !string.IsNullOrWhiteSpace(LabelText);
     public Visibility StatusVisibility => string.IsNullOrWhiteSpace(StatusText) ? Visibility.Collapsed : Visibility.Visible;
     public Visibility PriorityCueVisibility => string.IsNullOrWhiteSpace(PriorityCueText) ? Visibility.Collapsed : Visibility.Visible;
     public Visibility DueVisibility => string.IsNullOrWhiteSpace(DateText) ? Visibility.Collapsed : Visibility.Visible;
     public Visibility SourceVisibility => IsProviderTask ? Visibility.Visible : Visibility.Collapsed;
-    public Visibility SecondaryTextVisibility => string.IsNullOrWhiteSpace(SecondaryText) ? Visibility.Collapsed : Visibility.Visible;
+    public Visibility DetailsSubtaskMetadataVisibility => string.IsNullOrWhiteSpace(DetailsSubtaskMetadataText) ? Visibility.Collapsed : Visibility.Visible;
     public bool IsCompleted => Task.IsCompleted;
     public bool IsSubtask => NestingLevel > 0 || !string.IsNullOrWhiteSpace(Task.ParentId);
     public bool IsProviderTask => Task.IsProviderTask || Task.HasProviderSource;
     public bool IsOverdue => Task.DeadlineMoment is not null && !Task.IsCompleted && Task.DeadlineMoment.Value.LocalDateTime.Date < DateTimeOffset.Now.Date;
     public string CompletionAutomationName => Task.IsCompleted ? "Reopen task" : "Complete task";
-    public double IndentWidth => Math.Min(48, Math.Max(0, NestingLevel) * 24);
     public double TitleOpacity => IsSubtask ? 0.92 : 1;
-    public Visibility SubtaskGuideVisibility => IsSubtask ? Visibility.Visible : Visibility.Collapsed;
     public double RowMinHeight => IsSubtask ? 46 : 54;
     public double CheckboxSize => IsSubtask ? 22 : 24;
     public FontWeight TitleWeight => IsSubtask ? WinUIFontWeights.Normal : WinUIFontWeights.SemiBold;
@@ -124,6 +121,29 @@ public sealed class TaskListItemViewModel(TaskItem task, ProjectItem? project, s
         if (!string.IsNullOrWhiteSpace(SubtaskProgressText))
         {
             yield return SubtaskProgressText;
+        }
+
+        if (!string.IsNullOrWhiteSpace(MatchingSubtaskText))
+        {
+            yield return MatchingSubtaskText;
+        }
+    }
+
+    private IEnumerable<string> BuildDetailsSubtaskMetadataParts()
+    {
+        if (!string.IsNullOrWhiteSpace(DateText))
+        {
+            yield return DateText;
+        }
+
+        if (!string.IsNullOrWhiteSpace(PriorityCueText))
+        {
+            yield return PriorityCueText;
+        }
+
+        if (!string.IsNullOrWhiteSpace(LabelSummaryText))
+        {
+            yield return LabelSummaryText;
         }
     }
 

@@ -123,7 +123,7 @@ public sealed partial class AppShell
             return;
         }
 
-        if (!await ConfirmDiscardTaskEditsAsync().ConfigureAwait(true))
+        if (!await SavePendingTaskDetailsAsync().ConfigureAwait(true))
         {
             return;
         }
@@ -153,7 +153,7 @@ public sealed partial class AppShell
             return;
         }
 
-        if (!await ConfirmDiscardTaskEditsAsync().ConfigureAwait(true))
+        if (!await SavePendingTaskDetailsAsync().ConfigureAwait(true))
         {
             return;
         }

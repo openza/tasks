@@ -17,6 +17,9 @@ public static class TaskDateValues
     public static DateTimeOffset? PreferredMoment(DateOnly? date, DateTimeOffset? exactTime) =>
         exactTime ?? ToLocalDateTime(date);
 
+    public static DateOnly? PreferredDate(DateOnly? date, DateTimeOffset? exactTime) =>
+        FromDateTimeOffset(PreferredMoment(date, exactTime));
+
     public static string? ToStorageValue(DateOnly? value) =>
         value?.ToString(IsoDateFormat, CultureInfo.InvariantCulture);
 

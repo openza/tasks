@@ -7,7 +7,7 @@
     <Grid
         ColumnDefinitions="220,*"
         ColumnSpacing="28"
-        Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+        Background="{ThemeResource OpenzaAppCanvasBrush}">
         <StackPanel Spacing="16">
             <StackPanel Spacing="4">
                 <TextBlock Text="Settings" Style="{ThemeResource TitleTextBlockStyle}" />
@@ -133,7 +133,7 @@
                                 MinWidth="112"
                                 Padding="12,5"
                                 CornerRadius="14"
-                                Background="{StaticResource OpenzaQuietSurfaceBrush}">
+                                Background="{ThemeResource OpenzaChipBackgroundBrush}">
                                 <TextBlock
                                     x:Name="TodoistStatusText"
                                     Text="Not connected"
@@ -152,7 +152,7 @@
                                         x:Name="TodoistConnectButton"
                                         Grid.Column="1"
                                         Content="Connect"
-                                        Style="{StaticResource AccentButtonStyle}"
+                                        Style="{StaticResource OpenzaAccentButtonStyle}"
                                         Click="OnConnectTodoistClicked" />
                                 </Grid>
                             </toolkit:SettingsCard>
@@ -182,7 +182,7 @@
                                 MinWidth="112"
                                 Padding="12,5"
                                 CornerRadius="14"
-                                Background="{StaticResource OpenzaQuietSurfaceBrush}">
+                                Background="{ThemeResource OpenzaChipBackgroundBrush}">
                                 <TextBlock
                                     x:Name="MicrosoftStatusText"
                                     Text="Not connected"
@@ -214,7 +214,7 @@
                                         x:Name="MicrosoftConnectButton"
                                         Grid.Column="1"
                                         Content="Connect"
-                                        Style="{StaticResource AccentButtonStyle}"
+                                        Style="{StaticResource OpenzaAccentButtonStyle}"
                                         Click="OnConnectMicrosoftClicked" />
                                     <Button
                                         x:Name="MicrosoftDisconnectButton"
@@ -257,7 +257,7 @@
                             <Button
                                 Grid.Column="1"
                                 Content="Add"
-                                Style="{StaticResource AccentButtonStyle}"
+                                Style="{StaticResource OpenzaAccentButtonStyle}"
                                 Click="OnAddSpaceClicked" />
                         </Grid>
                     </toolkit:SettingsCard>
@@ -285,7 +285,7 @@
                                     <Border
                                         Padding="12"
                                         CornerRadius="8"
-                                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                        BorderBrush="{ThemeResource OpenzaBorderBrush}"
                                         BorderThickness="1">
                                         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
                                             <StackPanel Spacing="6">
@@ -299,7 +299,7 @@
                                                     <Border
                                                         Padding="7,1"
                                                         CornerRadius="8"
-                                                        Background="{StaticResource OpenzaQuietSurfaceBrush}"
+                                                        Background="{ThemeResource OpenzaChipBackgroundBrush}"
                                                         Visibility="{x:Bind CurrentVisibility, Mode=OneWay}">
                                                         <TextBlock
                                                             Text="Current"

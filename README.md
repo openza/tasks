@@ -64,6 +64,7 @@ src/
 The sync engine is C# in `Openza.Tasks.Core`. The previous Rust FFI engine is not shipped with the WinUI app.
 
 See [docs/architecture.md](docs/architecture.md) for the V3 task model, provider wrapper pattern, and future sync-route design.
+See [docs/design-guidelines.md](docs/design-guidelines.md) for the Openza Calm Fluent production UI language.
 
 For Microsoft To Do source builds, provide a public Azure app registration client ID via `OPENZA_TASKS_MSTODO_CLIENT_ID`, the Settings page, or `-p:MicrosoftToDoClientId=...` during build. The Azure app registration must allow public client flows and include the WAM redirect URI `ms-appx-web://microsoft.aad.brokerplugin/{client_id}`. Do not commit client secrets.
 

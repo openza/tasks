@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 using Openza.Tasks.Core.Models;
 using Openza.Tasks.ViewModels;
 using Windows.Foundation;
@@ -11,6 +12,8 @@ namespace Openza.Tasks.Controls;
 
 public sealed partial class TaskDetailsPaneControl : UserControl
 {
+    private const int SubtaskPreviewLimit = 5;
+
     private static readonly ProjectItem InboxProject = new()
     {
         Id = string.Empty,
@@ -27,10 +30,16 @@ public sealed partial class TaskDetailsPaneControl : UserControl
     private readonly ObservableCollection<string> _labelResults = [];
     private readonly ObservableCollection<LabelItem> _selectedLabels = [];
     private readonly ObservableCollection<TaskListItemViewModel> _subtasks = [];
+    private readonly List<TaskListItemViewModel> _allSubtasks = [];
     private readonly ObservableCollection<ProjectItem> _filteredProjectOptions = [];
+    private readonly HashSet<string> _dismissedSourceDateMismatchKeys = [];
+    private readonly DispatcherTimer _autoSaveTimer = new();
+    private readonly DispatcherTimer _autoSaveStateTimer = new();
     private ProjectItem? _selectedProject;
+    private bool _showAllSubtasks;
+    private bool _syncingCalendarSelection;
 
-    public event RoutedEventHandler? SaveTaskClicked;
+    public event RoutedEventHandler? AutoSaveRequested;
     public event RoutedEventHandler? ToggleCompleteClicked;
     public event RoutedEventHandler? SubtaskToggleCompleteClicked;
     public event TypedEventHandler<TaskDetailsPaneControl, string>? CreateProjectRequested;
@@ -43,6 +52,11 @@ public sealed partial class TaskDetailsPaneControl : UserControl
         SubtasksList.ItemsSource = _subtasks;
         ProjectResultsList.ItemsSource = _filteredProjectOptions;
         LabelResultsList.ItemsSource = _labelResults;
+        LabelFieldCell.AddHandler(PointerPressedEvent, new PointerEventHandler(OnLabelFieldPointerPressed), handledEventsToo: true);
+        _autoSaveTimer.Interval = TimeSpan.FromMilliseconds(700);
+        _autoSaveTimer.Tick += OnAutoSaveTimerTick;
+        _autoSaveStateTimer.Interval = TimeSpan.FromSeconds(2);
+        _autoSaveStateTimer.Tick += OnAutoSaveStateTimerTick;
         ClearForNewTask(null, 3);
     }
 
@@ -73,6 +87,8 @@ public sealed partial class TaskDetailsPaneControl : UserControl
 
     public bool IsEditingExistingProviderTask => _loadedTask?.IsProviderTask == true || _loadedTask?.HasProviderSource == true;
 
+    public string Snapshot => CurrentSnapshot();
+
     public bool HasUnsavedChanges => !_loading && CurrentSnapshot() != _originalSnapshot;
 
     public void SetProjects(IEnumerable<ProjectItem> projects)
@@ -102,7 +118,6 @@ public sealed partial class TaskDetailsPaneControl : UserControl
         _loading = true;
         _loadedTask = task;
         var editor = new TaskEditorViewModel { Task = task, Project = project };
-        HeaderTitleText.Text = string.IsNullOrWhiteSpace(task.Title) ? "Task details" : task.Title;
         HeaderCompleteBox.IsChecked = task.IsCompleted;
         HeaderCompleteBox.IsEnabled = true;
         SourceText.Text = HeaderContextText(editor.SourceText, project);
@@ -111,20 +126,21 @@ public sealed partial class TaskDetailsPaneControl : UserControl
         TitleEditor.Text = task.Title;
         NotesEditor.Text = task.Notes ?? string.Empty;
         SetSelectedLabels(task.Labels);
-        DateEditor.Date = TaskDateValues.ToLocalDateTime(task.PlannedOn);
-        DeadlineDateEditor.Date = TaskDateValues.ToLocalDateTime(task.DeadlineOn);
+        DateEditor.Date = task.PlannedMoment;
+        DeadlineDateEditor.Date = task.DeadlineMoment;
         SelectProject(project);
         SelectStatus(task.Status);
         SelectPriority(task.Priority);
         SetProviderFieldEditability(editor.CanEditProviderFields);
         SetSubtasks(subtasks ?? []);
+        RefreshInspectorValues();
 
         CompleteButton.IsEnabled = true;
         var isLinkedProviderTask = task.IsProviderTask || task.HasProviderSource;
         CompleteButton.Content = task.IsCompleted ? "Reopen" : "Complete";
         DeleteButton.IsEnabled = true;
-        SaveButton.Content = "Save";
         _originalSnapshot = CurrentSnapshot();
+        SetAutoSaveState(null);
         _loading = false;
         ResetScrollPosition();
     }
@@ -133,7 +149,6 @@ public sealed partial class TaskDetailsPaneControl : UserControl
     {
         _loading = true;
         _loadedTask = null;
-        HeaderTitleText.Text = "New task";
         HeaderCompleteBox.IsChecked = false;
         HeaderCompleteBox.IsEnabled = false;
         SourceText.Text = HeaderContextText("Openza Tasks", defaultProject);
@@ -149,45 +164,151 @@ public sealed partial class TaskDetailsPaneControl : UserControl
         SelectStatus(defaultStatus);
         SelectPriority(defaultPriority);
         SetProviderFieldEditability(true);
+        RefreshInspectorValues();
         CompleteButton.IsEnabled = false;
         CompleteButton.Content = "Complete";
         DeleteButton.IsEnabled = false;
-        SaveButton.Content = "Create task";
         _originalSnapshot = CurrentSnapshot();
+        SetAutoSaveState(null);
         _loading = false;
         ResetScrollPosition();
     }
 
     public void ResetDirtyState() => _originalSnapshot = CurrentSnapshot();
 
+    public bool MarkSaved(string snapshot)
+    {
+        if (!string.Equals(CurrentSnapshot(), snapshot, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        _originalSnapshot = snapshot;
+        return true;
+    }
+
+    public void StopPendingAutoSave() => _autoSaveTimer.Stop();
+
+    public void SetAutoSaveState(string? text, bool autoDismiss = false)
+    {
+        _autoSaveStateTimer.Stop();
+        AutoSaveStateText.Text = text ?? string.Empty;
+        AutoSaveStateText.Visibility = string.IsNullOrWhiteSpace(text) ? Visibility.Collapsed : Visibility.Visible;
+        if (autoDismiss && AutoSaveStateText.Visibility == Visibility.Visible)
+        {
+            _autoSaveStateTimer.Start();
+        }
+    }
+
+    private void RequestImmediateAutoSave()
+    {
+        if (_loading)
+        {
+            return;
+        }
+
+        _autoSaveTimer.Stop();
+        if (HasUnsavedChanges)
+        {
+            AutoSaveRequested?.Invoke(this, new RoutedEventArgs());
+        }
+    }
+
+    private void RequestDebouncedAutoSave()
+    {
+        if (_loading)
+        {
+            return;
+        }
+
+        _autoSaveTimer.Stop();
+        _autoSaveTimer.Start();
+    }
+
+    private void OnAutoSaveTimerTick(object? sender, object e)
+    {
+        _autoSaveTimer.Stop();
+        RequestImmediateAutoSave();
+    }
+
+    private void OnAutoSaveStateTimerTick(object? sender, object e)
+    {
+        _autoSaveStateTimer.Stop();
+        SetAutoSaveState(null);
+    }
+
     private void SetProviderFieldEditability(bool canEditProviderContent)
     {
         TitleEditor.IsReadOnly = !canEditProviderContent;
-        EditableTaskSection.Visibility = canEditProviderContent ? Visibility.Visible : Visibility.Collapsed;
         ProviderTaskSection.Visibility = canEditProviderContent ? Visibility.Collapsed : Visibility.Visible;
-        DateEditor.Visibility = Visibility.Visible;
-        DeadlineDateEditor.Visibility = Visibility.Visible;
+        WorkflowEditor.Visibility = Visibility.Collapsed;
+        DateEditor.Visibility = Visibility.Collapsed;
+        DeadlineDateEditor.Visibility = Visibility.Collapsed;
         ProjectEditor.Visibility = Visibility.Visible;
-        PriorityEditor.Visibility = Visibility.Visible;
-        OrganizeHeader.Text = "Organize";
+        PriorityEditor.Visibility = Visibility.Collapsed;
+    }
+
+    private void OnOrganizeFieldsSizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        var compact = e.NewSize.Width < 560;
+        OrganizeFieldsGrid.ColumnDefinitions[1].Width = compact ? new GridLength(0) : new GridLength(1, GridUnitType.Star);
+
+        Grid.SetRow(StatusFieldCell, 0);
+        Grid.SetColumn(StatusFieldCell, 0);
+        Grid.SetRow(ProjectEditor, compact ? 1 : 0);
+        Grid.SetColumn(ProjectEditor, compact ? 0 : 1);
+        Grid.SetRow(DateFieldCell, compact ? 2 : 1);
+        Grid.SetColumn(DateFieldCell, 0);
+        Grid.SetRow(DeadlineFieldCell, compact ? 3 : 1);
+        Grid.SetColumn(DeadlineFieldCell, compact ? 0 : 1);
+        Grid.SetRow(PriorityFieldCell, compact ? 4 : 2);
+        Grid.SetColumn(PriorityFieldCell, 0);
+        Grid.SetRow(LabelFieldCell, compact ? 5 : 3);
+        Grid.SetColumn(LabelFieldCell, 0);
+        Grid.SetColumnSpan(LabelFieldCell, compact ? 1 : 2);
     }
 
     private void SetSubtasks(IEnumerable<TaskListItemViewModel> subtasks)
     {
+        _allSubtasks.Clear();
         _subtasks.Clear();
         foreach (var subtask in subtasks)
+        {
+            _allSubtasks.Add(subtask);
+        }
+
+        _showAllSubtasks = false;
+        RefreshSubtasksSection();
+    }
+
+    private void RefreshSubtasksSection()
+    {
+        _subtasks.Clear();
+        var visibleSubtasks = _showAllSubtasks ? _allSubtasks : _allSubtasks.Take(SubtaskPreviewLimit);
+        foreach (var subtask in visibleSubtasks)
         {
             _subtasks.Add(subtask);
         }
 
-        var canShowSubtasks = _loadedTask is not null && string.IsNullOrWhiteSpace(_loadedTask.ParentId) && _subtasks.Count > 0;
+        var canShowSubtasks = _loadedTask is not null && string.IsNullOrWhiteSpace(_loadedTask.ParentId) && _allSubtasks.Count > 0;
         SubtasksSection.Visibility = canShowSubtasks ? Visibility.Visible : Visibility.Collapsed;
+        SubtasksProgressText.Text = canShowSubtasks
+            ? $"{_allSubtasks.Count(subtask => subtask.Task.IsCompleted)}/{_allSubtasks.Count}"
+            : string.Empty;
+        SubtasksToggleButton.Visibility = canShowSubtasks && _allSubtasks.Count > SubtaskPreviewLimit
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        SubtasksToggleButton.Content = _showAllSubtasks
+            ? "Show fewer"
+            : $"Show all {_allSubtasks.Count} subtasks";
     }
 
     private void SetProviderPresentation(TaskEditorViewModel editor, TaskItem? task, ProjectItem? project)
     {
         if (!editor.IsProviderOwned || task is null)
         {
+            ProviderTaskHeaderText.Text = "Source task";
+            ProviderTaskSection.IsExpanded = false;
             ProviderTitleText.Text = string.Empty;
             SourceDescriptionText.Text = string.Empty;
             SourceDescriptionHintText.Text = string.Empty;
@@ -200,14 +321,17 @@ public sealed partial class TaskDetailsPaneControl : UserControl
             return;
         }
 
+        ProviderTaskHeaderText.Text = $"Source: {editor.SourceText}";
         ProviderTitleText.Text = task.Title;
         SourceDescriptionText.Text = task.SourceDescription ?? string.Empty;
         SourceDescriptionHintText.Text = $"From {editor.SourceText}";
-        SourceDescriptionSection.Visibility = string.IsNullOrWhiteSpace(task.SourceDescription) ? Visibility.Collapsed : Visibility.Visible;
-        ProviderProjectText.Text = task.SourceProjectName ?? project?.Name ?? "No project";
-        ProviderDateText.Text = FormatDate(task.SourcePlannedMoment ?? task.PlannedMoment);
-        ProviderDeadlineText.Text = FormatDate(task.SourceDeadlineMoment ?? task.DeadlineMoment);
-        ProviderPriorityText.Text = FormatPriority(task.SourcePriority ?? task.Priority);
+        var hasSourceDescription = !string.IsNullOrWhiteSpace(task.SourceDescription);
+        SourceDescriptionSection.Visibility = hasSourceDescription ? Visibility.Visible : Visibility.Collapsed;
+        ProviderTaskSection.IsExpanded = hasSourceDescription;
+        ProviderProjectText.Text = string.IsNullOrWhiteSpace(task.SourceProjectName) ? "No source project" : task.SourceProjectName;
+        ProviderDateText.Text = FormatDate(task.SourcePlannedMoment);
+        ProviderDeadlineText.Text = FormatDate(task.SourceDeadlineMoment);
+        ProviderPriorityText.Text = FormatSourcePriority(task.SourcePriority);
         ProviderSourceText.Text = editor.SourceText;
     }
 
@@ -216,6 +340,7 @@ public sealed partial class TaskDetailsPaneControl : UserControl
         _selectedProject = project ?? InboxProject;
         ProjectPickerText.Text = string.IsNullOrWhiteSpace(_selectedProject.Name) ? "No project" : _selectedProject.Name;
         SourceText.Text = HeaderContextText(CurrentSourceText(), SelectedProject);
+        RefreshInspectorValues();
     }
 
     private void SelectStatus(TaskItemStatus status)
@@ -234,11 +359,13 @@ public sealed partial class TaskDetailsPaneControl : UserControl
             if (string.Equals(item.Tag?.ToString(), tag, StringComparison.Ordinal))
             {
                 WorkflowEditor.SelectedItem = item;
+                RefreshInspectorValues();
                 return;
             }
         }
 
         WorkflowEditor.SelectedIndex = 0;
+        RefreshInspectorValues();
     }
 
     private void SelectPriority(int priority)
@@ -248,11 +375,13 @@ public sealed partial class TaskDetailsPaneControl : UserControl
             if (item.Tag?.ToString() == priority.ToString(System.Globalization.CultureInfo.InvariantCulture))
             {
                 PriorityEditor.SelectedItem = item;
+                RefreshInspectorValues();
                 return;
             }
         }
 
         PriorityEditor.SelectedIndex = 2;
+        RefreshInspectorValues();
     }
 
     private static string FormatPriority(int priority) => priority switch
@@ -262,6 +391,9 @@ public sealed partial class TaskDetailsPaneControl : UserControl
         3 => "Normal",
         _ => "Low",
     };
+
+    private static string FormatSourcePriority(int? priority) =>
+        priority is null ? "No priority" : FormatPriority(priority.Value);
 
     private static string FormatDate(DateTimeOffset? date)
     {
@@ -283,6 +415,172 @@ public sealed partial class TaskDetailsPaneControl : UserControl
         }
 
         return date.Value.ToString("MMM d, yyyy", System.Globalization.CultureInfo.CurrentCulture);
+    }
+
+    private static string FormatPickerDate(DateTimeOffset? date, string emptyText)
+    {
+        if (date is null)
+        {
+            return emptyText;
+        }
+
+        var localDate = date.Value.LocalDateTime.Date;
+        var today = DateTimeOffset.Now.Date;
+        if (localDate == today)
+        {
+            return "Today";
+        }
+
+        if (localDate == today.AddDays(1))
+        {
+            return "Tomorrow";
+        }
+
+        return date.Value.ToString("MMM d, yyyy", System.Globalization.CultureInfo.CurrentCulture);
+    }
+
+    private void RefreshInspectorValues()
+    {
+        if (StatusValueText is not null)
+        {
+            StatusValueText.Text = (WorkflowEditor?.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "Inbox";
+        }
+
+        if (PriorityValueText is not null)
+        {
+            PriorityValueText.Text = (PriorityEditor?.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "Normal";
+        }
+
+        if (DateValueText is not null)
+        {
+            DateValueText.Text = FormatPickerDate(DateEditor?.Date, "Add date");
+        }
+
+        if (DeadlineValueText is not null)
+        {
+            DeadlineValueText.Text = FormatPickerDate(DeadlineDateEditor?.Date, "Add deadline");
+        }
+
+        if (ProjectPickerText is not null)
+        {
+            ProjectPickerText.Text = string.IsNullOrWhiteSpace(_selectedProject?.Name) ? "No project" : _selectedProject.Name;
+        }
+
+        if (LabelsEmptyText is not null && SelectedLabelsScrollViewer is not null)
+        {
+            var hasLabels = _selectedLabels.Count > 0;
+            LabelsEmptyText.Visibility = hasLabels ? Visibility.Collapsed : Visibility.Visible;
+            SelectedLabelsScrollViewer.Visibility = hasLabels ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        SyncCalendarViewSelection(DateCalendarView, DateEditor?.Date);
+        SyncCalendarViewSelection(DeadlineCalendarView, DeadlineDateEditor?.Date);
+        UpdateSourceDateMismatchNotice();
+    }
+
+    private void UpdateSourceDateMismatchNotice()
+    {
+        if (_loadedTask is null || !_loadedTask.HasProviderSource || !string.IsNullOrWhiteSpace(_loadedTask.RecurrenceRule))
+        {
+            HideSourceDateMismatchNotice();
+            return;
+        }
+
+        var localDate = DateOnlyFrom(DateEditor?.Date);
+        var localDeadline = DateOnlyFrom(DeadlineDateEditor?.Date);
+        var sourceDate = DateOnlyFrom(_loadedTask.SourcePlannedOn, _loadedTask.SourcePlannedAt);
+        var sourceDeadline = DateOnlyFrom(_loadedTask.SourceDeadlineOn, _loadedTask.SourceDeadlineAt);
+        var dateMismatch = localDate != sourceDate;
+        var deadlineMismatch = localDeadline != sourceDeadline;
+        if (!dateMismatch && !deadlineMismatch)
+        {
+            HideSourceDateMismatchNotice();
+            return;
+        }
+
+        var key = BuildSourceDateMismatchKey(_loadedTask.Id, localDate, sourceDate, localDeadline, sourceDeadline);
+        if (_dismissedSourceDateMismatchKeys.Contains(key))
+        {
+            HideSourceDateMismatchNotice();
+            return;
+        }
+
+        var sourceName = CurrentSourceText();
+        SourceDateMismatchTitleText.Text = dateMismatch && deadlineMismatch
+            ? $"{sourceName} dates changed"
+            : dateMismatch
+                ? $"{sourceName} date changed"
+                : $"{sourceName} deadline changed";
+        SourceDateMismatchBodyText.Text = BuildSourceDateMismatchText(sourceName, localDate, sourceDate, localDeadline, sourceDeadline, dateMismatch, deadlineMismatch);
+        UseSourceDateButton.Content = dateMismatch && deadlineMismatch
+            ? $"Use {sourceName} dates"
+            : dateMismatch
+                ? $"Use {sourceName} date"
+                : $"Use {sourceName} deadline";
+        SourceDateMismatchNotice.Visibility = Visibility.Visible;
+    }
+
+    private void HideSourceDateMismatchNotice()
+    {
+        if (SourceDateMismatchNotice is not null)
+        {
+            SourceDateMismatchNotice.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    private static string BuildSourceDateMismatchText(
+        string sourceName,
+        DateOnly? localDate,
+        DateOnly? sourceDate,
+        DateOnly? localDeadline,
+        DateOnly? sourceDeadline,
+        bool dateMismatch,
+        bool deadlineMismatch)
+    {
+        if (dateMismatch && deadlineMismatch)
+        {
+            return $"{sourceName} date is {FormatDateOnly(sourceDate)} and deadline is {FormatDateOnly(sourceDeadline)}. Openza keeps {FormatDateOnly(localDate)} and {FormatDateOnly(localDeadline)} until you choose otherwise.";
+        }
+
+        if (dateMismatch)
+        {
+            return $"{sourceName} date is {FormatDateOnly(sourceDate)}. Openza date is {FormatDateOnly(localDate)}.";
+        }
+
+        return $"{sourceName} deadline is {FormatDateOnly(sourceDeadline)}. Openza deadline is {FormatDateOnly(localDeadline)}.";
+    }
+
+    private string BuildSourceDateMismatchKey()
+    {
+        var localDate = DateOnlyFrom(DateEditor?.Date);
+        var localDeadline = DateOnlyFrom(DeadlineDateEditor?.Date);
+        var sourceDate = DateOnlyFrom(_loadedTask?.SourcePlannedOn, _loadedTask?.SourcePlannedAt);
+        var sourceDeadline = DateOnlyFrom(_loadedTask?.SourceDeadlineOn, _loadedTask?.SourceDeadlineAt);
+        return BuildSourceDateMismatchKey(_loadedTask?.Id ?? string.Empty, localDate, sourceDate, localDeadline, sourceDeadline);
+    }
+
+    private static string BuildSourceDateMismatchKey(string taskId, DateOnly? localDate, DateOnly? sourceDate, DateOnly? localDeadline, DateOnly? sourceDeadline) =>
+        $"{taskId}|{BuildSourceDateMismatchKey(localDate, sourceDate, localDeadline, sourceDeadline)}";
+
+    private static string BuildSourceDateMismatchKey(DateOnly? localDate, DateOnly? sourceDate, DateOnly? localDeadline, DateOnly? sourceDeadline) =>
+        string.Join('|', localDate?.ToString("O") ?? "", sourceDate?.ToString("O") ?? "", localDeadline?.ToString("O") ?? "", sourceDeadline?.ToString("O") ?? "");
+
+    private static DateOnly? DateOnlyFrom(DateTimeOffset? value) => TaskDateValues.FromDateTimeOffset(value);
+
+    private static DateOnly? DateOnlyFrom(DateOnly? date, DateTimeOffset? moment) => TaskDateValues.PreferredDate(date, moment);
+
+    private static string FormatDateOnly(DateOnly? value) => FormatDate(TaskDateValues.ToLocalDateTime(value));
+
+    private void SyncCalendarViewSelection(CalendarView calendar, DateTimeOffset? date)
+    {
+        _syncingCalendarSelection = true;
+        calendar.SelectedDates.Clear();
+        if (date is not null)
+        {
+            calendar.SelectedDates.Add(date.Value);
+        }
+
+        _syncingCalendarSelection = false;
     }
 
     private static string HeaderContextText(string source, ProjectItem? project)
@@ -313,10 +611,7 @@ public sealed partial class TaskDetailsPaneControl : UserControl
 
     private void OnEditorChanged(object sender, TextChangedEventArgs e)
     {
-        if (ReferenceEquals(sender, TitleEditor) && !_loading)
-        {
-            HeaderTitleText.Text = string.IsNullOrWhiteSpace(TitleEditor.Text) ? "New task" : TitleEditor.Text.Trim();
-        }
+        RequestDebouncedAutoSave();
     }
 
     private void OnWorkflowSelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -326,6 +621,27 @@ public sealed partial class TaskDetailsPaneControl : UserControl
             return;
         }
 
+        RefreshInspectorValues();
+        RequestImmediateAutoSave();
+    }
+
+    private void OnWorkflowMenuItemClicked(object sender, RoutedEventArgs e)
+    {
+        if ((sender as MenuFlyoutItem)?.Tag is not string tag)
+        {
+            return;
+        }
+
+        var status = tag switch
+        {
+            "next" => TaskItemStatus.Next,
+            "waiting" => TaskItemStatus.Waiting,
+            "someday" => TaskItemStatus.Someday,
+            _ => TaskItemStatus.Inbox,
+        };
+
+        SelectStatus(status);
+        RequestImmediateAutoSave();
     }
 
     private void OnProjectSelectionChanged()
@@ -336,6 +652,7 @@ public sealed partial class TaskDetailsPaneControl : UserControl
         }
 
         SourceText.Text = HeaderContextText(CurrentSourceText(), SelectedProject);
+        RequestImmediateAutoSave();
     }
 
     private void OnProjectPickerClicked(object sender, RoutedEventArgs e)
@@ -457,17 +774,133 @@ public sealed partial class TaskDetailsPaneControl : UserControl
 
     private void OnSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
+        RefreshInspectorValues();
+        RequestImmediateAutoSave();
+    }
+
+    private void OnPriorityMenuItemClicked(object sender, RoutedEventArgs e)
+    {
+        if (!int.TryParse((sender as MenuFlyoutItem)?.Tag?.ToString(), out var priority))
+        {
+            return;
+        }
+
+        SelectPriority(priority);
+        RequestImmediateAutoSave();
     }
 
     private void OnTaskDateChanged(CalendarDatePicker sender, CalendarDatePickerDateChangedEventArgs args)
     {
+        RefreshInspectorValues();
+        RequestImmediateAutoSave();
+    }
+
+    private void OnDateCalendarSelectedDatesChanged(CalendarView sender, CalendarViewSelectedDatesChangedEventArgs args)
+    {
+        if (_syncingCalendarSelection || sender.SelectedDates.Count == 0)
+        {
+            return;
+        }
+
+        DateEditor.Date = sender.SelectedDates[0];
+        DatePropertyButton.Flyout.Hide();
+    }
+
+    private void OnDeadlineCalendarSelectedDatesChanged(CalendarView sender, CalendarViewSelectedDatesChangedEventArgs args)
+    {
+        if (_syncingCalendarSelection || sender.SelectedDates.Count == 0)
+        {
+            return;
+        }
+
+        DeadlineDateEditor.Date = sender.SelectedDates[0];
+        DeadlinePropertyButton.Flyout.Hide();
+    }
+
+    private void OnClearDateClicked(object sender, RoutedEventArgs e)
+    {
+        DateEditor.Date = null;
+        DatePropertyButton.Flyout.Hide();
+    }
+
+    private void OnClearDeadlineClicked(object sender, RoutedEventArgs e)
+    {
+        DeadlineDateEditor.Date = null;
+        DeadlinePropertyButton.Flyout.Hide();
+    }
+
+    private void OnUseSourceDateClicked(object sender, RoutedEventArgs e)
+    {
+        if (_loadedTask is null)
+        {
+            return;
+        }
+
+        var wasLoading = _loading;
+        _loading = true;
+        DateEditor.Date = TaskDateValues.PreferredMoment(_loadedTask.SourcePlannedOn, _loadedTask.SourcePlannedAt);
+        DeadlineDateEditor.Date = TaskDateValues.PreferredMoment(_loadedTask.SourceDeadlineOn, _loadedTask.SourceDeadlineAt);
+        _loading = wasLoading;
+        RefreshInspectorValues();
+        RequestImmediateAutoSave();
+    }
+
+    private void OnKeepOpenzaDateClicked(object sender, RoutedEventArgs e)
+    {
+        _dismissedSourceDateMismatchKeys.Add(BuildSourceDateMismatchKey());
+        HideSourceDateMismatchNotice();
     }
 
     private void OnLabelPickerClicked(object sender, RoutedEventArgs e)
     {
+        PrepareLabelPicker();
+    }
+
+    private void OnLabelFieldTapped(object sender, TappedRoutedEventArgs e)
+    {
+        if (e.OriginalSource is DependencyObject source && IsInsideButton(source))
+        {
+            return;
+        }
+
+        PrepareLabelPicker();
+        LabelPickerFlyout.ShowAt(LabelFieldCell);
+        e.Handled = true;
+    }
+
+    private void OnLabelFieldPointerPressed(object sender, PointerRoutedEventArgs e)
+    {
+        if (e.OriginalSource is DependencyObject source && IsInsideButton(source))
+        {
+            return;
+        }
+
+        PrepareLabelPicker();
+        LabelPickerFlyout.ShowAt(LabelFieldCell);
+        e.Handled = true;
+    }
+
+    private void PrepareLabelPicker()
+    {
         ClearLabelSearch();
         RefreshLabelResults();
         LabelSearchBox.DispatcherQueue.TryEnqueue(() => LabelSearchBox.Focus(FocusState.Programmatic));
+    }
+
+    private static bool IsInsideButton(DependencyObject source)
+    {
+        var current = source;
+        while (current is not null)
+        {
+            if (current is Button)
+            {
+                return true;
+            }
+
+            current = VisualTreeHelper.GetParent(current);
+        }
+
+        return false;
     }
 
     private void OnLabelSearchTextChanged(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args)
@@ -511,6 +944,7 @@ public sealed partial class TaskDetailsPaneControl : UserControl
             _selectedLabels.Remove(label);
             SyncLabelsText();
             RefreshLabelResults(LabelSearchBox.Text);
+            RequestImmediateAutoSave();
         }
     }
 
@@ -522,7 +956,6 @@ public sealed partial class TaskDetailsPaneControl : UserControl
             _selectedLabels.Add(label);
         }
 
-        SelectedLabelsList.ItemsSource = _selectedLabels;
         SyncLabelsText();
         ClearLabelSearch();
         RefreshLabelResults();
@@ -557,6 +990,105 @@ public sealed partial class TaskDetailsPaneControl : UserControl
     private void SyncLabelsText()
     {
         LabelsEditor.Text = LabelsText;
+        RefreshSelectedLabelChips();
+        RefreshInspectorValues();
+    }
+
+    private void RefreshSelectedLabelChips()
+    {
+        if (SelectedLabelsPanel is null)
+        {
+            return;
+        }
+
+        SelectedLabelsPanel.Children.Clear();
+        var chipsPerRow = GetSelectedLabelChipsPerRow();
+        StackPanel? row = null;
+        foreach (var label in _selectedLabels)
+        {
+            var labelText = new TextBlock
+            {
+                Text = label.Name,
+                MaxWidth = GetSelectedLabelChipTextWidth(chipsPerRow),
+                TextTrimming = TextTrimming.CharacterEllipsis,
+            };
+
+            var removeIcon = new FontIcon
+            {
+                Glyph = "\uE711",
+                FontSize = 10,
+            };
+
+            var content = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 6,
+            };
+            content.Children.Add(labelText);
+            content.Children.Add(removeIcon);
+
+            var chip = new Button
+            {
+                Padding = new Thickness(10, 4, 10, 4),
+                Tag = label.Id,
+                Content = content,
+                MaxWidth = GetSelectedLabelChipWidth(chipsPerRow),
+            };
+            chip.Click += OnRemoveLabelClicked;
+
+            if (row is null || row.Children.Count >= chipsPerRow)
+            {
+                row = new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    Spacing = 8,
+                };
+                SelectedLabelsPanel.Children.Add(row);
+            }
+
+            row.Children.Add(chip);
+        }
+    }
+
+    private int GetSelectedLabelChipsPerRow()
+    {
+        var availableWidth = SelectedLabelsScrollViewer?.ActualWidth ?? 0;
+        if (availableWidth >= 640)
+        {
+            return 3;
+        }
+
+        if (availableWidth >= 360)
+        {
+            return 2;
+        }
+
+        return 1;
+    }
+
+    private double GetSelectedLabelChipWidth(int chipsPerRow)
+    {
+        var availableWidth = SelectedLabelsScrollViewer?.ActualWidth ?? 0;
+        if (availableWidth <= 0)
+        {
+            return chipsPerRow == 1 ? 320 : 220;
+        }
+
+        var totalGap = Math.Max(0, chipsPerRow - 1) * 8;
+        return Math.Max(120, Math.Floor((availableWidth - totalGap) / chipsPerRow));
+    }
+
+    private double GetSelectedLabelChipTextWidth(int chipsPerRow)
+    {
+        return Math.Max(80, GetSelectedLabelChipWidth(chipsPerRow) - 42);
+    }
+
+    private void OnSelectedLabelsSizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        if (_selectedLabels.Count > 0)
+        {
+            RefreshSelectedLabelChips();
+        }
     }
 
     private void RefreshLabelResults(string search = "")
@@ -610,6 +1142,8 @@ public sealed partial class TaskDetailsPaneControl : UserControl
         {
             LabelSearchBox.DispatcherQueue.TryEnqueue(() => LabelSearchBox.Focus(FocusState.Programmatic));
         }
+
+        RequestImmediateAutoSave();
     }
 
     private static string CreateLabelSuggestion(string labelName) => $"Create \"{labelName}\"";
@@ -629,11 +1163,15 @@ public sealed partial class TaskDetailsPaneControl : UserControl
             DetailsScrollViewer.ChangeView(null, 0, null, disableAnimation: true));
     }
 
-    private void OnSaveTaskClicked(object sender, RoutedEventArgs e) => SaveTaskClicked?.Invoke(sender, e);
-
     private void OnToggleCompleteClicked(object sender, RoutedEventArgs e) => ToggleCompleteClicked?.Invoke(sender, e);
 
     private void OnSubtaskToggleCompleteClicked(object sender, RoutedEventArgs e) => SubtaskToggleCompleteClicked?.Invoke(sender, e);
+
+    private void OnToggleSubtasksClicked(object sender, RoutedEventArgs e)
+    {
+        _showAllSubtasks = !_showAllSubtasks;
+        RefreshSubtasksSection();
+    }
 
     private void OnDeleteTaskClicked(object sender, RoutedEventArgs e) => DeleteTaskClicked?.Invoke(sender, e);
 

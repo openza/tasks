@@ -8,25 +8,17 @@
         Margin="0"
         Padding="10,9"
         CornerRadius="4"
-        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+        BorderBrush="{ThemeResource OpenzaSeparatorBrush}"
         BorderThickness="0,0,0,1"
-        Background="Transparent"
+        Background="{ThemeResource OpenzaRowBackgroundBrush}"
         PointerEntered="OnPointerEntered"
         PointerExited="OnPointerExited">
         <Grid
             MinHeight="{Binding RowMinHeight}"
-            ColumnDefinitions="Auto,36,*,Auto"
+            ColumnDefinitions="36,*,Auto"
             ColumnSpacing="12">
-            <Grid Width="{Binding IndentWidth}">
-                <Border
-                    Width="1"
-                    HorizontalAlignment="Center"
-                    Background="{ThemeResource DividerStrokeColorDefaultBrush}"
-                    Visibility="{Binding SubtaskGuideVisibility}" />
-            </Grid>
             <CheckBox
                 x:Name="CompleteCheckBox"
-                Grid.Column="1"
                 Width="{Binding CheckboxSize}"
                 Height="{Binding CheckboxSize}"
                 Padding="0"
@@ -36,7 +28,7 @@
                 Click="OnToggleCompleteClicked"
                 AutomationProperties.Name="{Binding CompletionAutomationName}" />
 
-            <StackPanel Grid.Column="2" Spacing="5">
+            <StackPanel Grid.Column="1" Spacing="5">
                 <TextBlock
                     Text="{Binding Title}"
                     FontSize="14"
@@ -74,7 +66,7 @@
                         Grid.Column="1"
                         Padding="7,2"
                         CornerRadius="10"
-                        Background="{StaticResource OpenzaQuietSurfaceBrush}"
+                        Background="{ThemeResource OpenzaChipBackgroundBrush}"
                         Visibility="{Binding PriorityCueVisibility}"
                         VerticalAlignment="Top">
                         <TextBlock
@@ -85,7 +77,7 @@
                         Grid.Column="2"
                         Padding="7,2"
                         CornerRadius="10"
-                        Background="{StaticResource OpenzaQuietSurfaceBrush}"
+                        Background="{ThemeResource OpenzaChipBackgroundBrush}"
                         Visibility="{Binding StatusVisibility}"
                         VerticalAlignment="Top">
                         <TextBlock
@@ -93,18 +85,11 @@
                             Style="{StaticResource OpenzaCaptionTextBlockStyle}" />
                     </Border>
                 </Grid>
-                <TextBlock
-                    Text="{Binding SecondaryText}"
-                    Visibility="{Binding SecondaryTextVisibility}"
-                    MaxLines="2"
-                    TextWrapping="WrapWholeWords"
-                    TextTrimming="CharacterEllipsis"
-                    Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
             </StackPanel>
 
             <StackPanel
                 x:Name="ActionsBar"
-                Grid.Column="3"
+                Grid.Column="2"
                 Orientation="Horizontal"
                 Spacing="4"
                 Opacity="0"

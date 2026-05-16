@@ -178,6 +178,7 @@ public sealed class TaskSyncEngineTests : IDisposable
         Assert.Equal(TaskCompletionState.Open, refreshed.CompletionState);
         Assert.Null(refreshed.CompletedAt);
         Assert.Equal(new DateOnly(2026, 7, 6), refreshed.PlannedOn);
+        Assert.Equal(new DateOnly(2026, 7, 6), refreshed.SourcePlannedOn);
         Assert.Equal("every 6th", refreshed.RecurrenceRule);
     }
 
@@ -206,6 +207,7 @@ public sealed class TaskSyncEngineTests : IDisposable
         Assert.NotNull(refreshed);
         Assert.Equal(TaskCompletionState.Open, refreshed.CompletionState);
         Assert.Equal(new DateOnly(2026, 7, 6), refreshed.PlannedOn);
+        Assert.Equal(new DateOnly(2026, 7, 6), refreshed.SourcePlannedOn);
         Assert.Equal("every 6th", refreshed.RecurrenceRule);
     }
 

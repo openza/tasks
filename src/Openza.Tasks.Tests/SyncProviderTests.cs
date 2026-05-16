@@ -66,6 +66,8 @@ public sealed class SyncProviderTests
         Assert.Equal("todoist_parent1", task.ParentId);
         Assert.Equal(TaskItemStatus.None, task.Status);
         Assert.Equal(1, task.Priority);
+        Assert.Equal(new DateOnly(2026, 5, 12), task.PlannedOn);
+        Assert.Null(task.PlannedAt);
         Assert.Equal("every 12th", task.RecurrenceRule);
         Assert.Equal("release", Assert.Single(task.Labels).Name);
         Assert.Contains(handler.Requests, request => request.Method == HttpMethod.Get && request.Uri.PathAndQuery == "/api/v1/tasks?limit=200");

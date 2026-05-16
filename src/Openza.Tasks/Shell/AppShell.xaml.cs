@@ -12,7 +12,6 @@ using Openza.Tasks.Services;
 using Openza.Tasks.ViewModels;
 using Windows.Foundation;
 using Windows.System;
-using Windows.UI;
 
 namespace Openza.Tasks.Shell;
 
@@ -51,6 +50,8 @@ public sealed partial class AppShell : UserControl
     private bool _uiReady;
     private bool _suppressNavigationSelection;
     private bool _suppressSettingsEvents;
+    private bool _taskDetailsAutoSaveQueued;
+    private Task<bool>? _taskDetailsAutoSaveTask;
 
     public string CurrentView => _currentView;
 
@@ -157,7 +158,7 @@ public sealed partial class AppShell : UserControl
         }
 
         if (!string.Equals(nextView, _currentView, StringComparison.Ordinal) &&
-            !await ConfirmDiscardTaskEditsAsync().ConfigureAwait(true))
+            !await SavePendingTaskDetailsAsync().ConfigureAwait(true))
         {
             SelectNavigationSilently(_currentView);
             return;
@@ -356,17 +357,20 @@ public sealed partial class AppShell : UserControl
     }
 
     private void OnAddTaskPointerEntered(object sender, PointerRoutedEventArgs e) =>
-        SetAddTaskBackground(Color.FromArgb(255, 29, 78, 216));
+        SetAddTaskBackground("OpenzaAccentHoverBrush");
 
     private void OnAddTaskPointerExited(object sender, PointerRoutedEventArgs e) =>
-        SetAddTaskBackground(Color.FromArgb(255, 37, 99, 235));
+        SetAddTaskBackground("OpenzaAccentBrush");
 
     private void OnAddTaskPointerPressed(object sender, PointerRoutedEventArgs e) =>
-        SetAddTaskBackground(Color.FromArgb(255, 30, 64, 175));
+        SetAddTaskBackground("OpenzaAccentPressedBrush");
 
-    private void SetAddTaskBackground(Color color)
+    private void SetAddTaskBackground(string brushKey)
     {
-        AddTaskNavItem.Background = new SolidColorBrush(color);
+        if (Application.Current.Resources[brushKey] is Brush brush)
+        {
+            AddTaskNavItem.Background = brush;
+        }
     }
 
     private void OnPageWorkspaceSizeChanged(object sender, SizeChangedEventArgs e)
@@ -544,7 +548,7 @@ public sealed partial class AppShell : UserControl
         }
 
         var isCurrent = string.Equals(space.Id, _currentSpaceId, StringComparison.Ordinal);
-        if (isCurrent && !await ConfirmDiscardTaskEditsAsync().ConfigureAwait(true))
+        if (isCurrent && !await SavePendingTaskDetailsAsync().ConfigureAwait(true))
         {
             return;
         }
@@ -586,7 +590,7 @@ public sealed partial class AppShell : UserControl
             return;
         }
 
-        if (!await ConfirmDiscardTaskEditsAsync().ConfigureAwait(true))
+        if (!await SavePendingTaskDetailsAsync().ConfigureAwait(true))
         {
             SpaceSelector.SelectedItem = _spaces.FirstOrDefault(item => item.Id == _currentSpaceId);
             return;
@@ -695,11 +699,12 @@ public sealed partial class AppShell : UserControl
 
             args.Handled = true;
         });
-        AddKeyboardShortcut(VirtualKey.S, VirtualKeyModifiers.Control, (_, args) =>
+        AddKeyboardShortcut(VirtualKey.S, VirtualKeyModifiers.Control, async (_, args) =>
         {
             if (IsTaskView(_currentView) && TasksPage.IsDetailsPaneOpen)
             {
-                OnSaveTaskClicked(this, new RoutedEventArgs());
+                TasksPage.DetailsPanel.StopPendingAutoSave();
+                await SaveTaskDetailsIfNeededAsync(showFeedback: true).ConfigureAwait(true);
             }
             else
             {
@@ -708,10 +713,16 @@ public sealed partial class AppShell : UserControl
 
             args.Handled = true;
         });
-        AddKeyboardShortcut(VirtualKey.Escape, VirtualKeyModifiers.None, (_, args) =>
+        AddKeyboardShortcut(VirtualKey.Escape, VirtualKeyModifiers.None, async (_, args) =>
         {
             if (IsTaskView(_currentView))
             {
+                if (!await SavePendingTaskDetailsAsync().ConfigureAwait(true))
+                {
+                    args.Handled = true;
+                    return;
+                }
+
                 TasksPage.SearchText = string.Empty;
                 _selectedTaskId = null;
                 TasksPage.HideDetailsPane();

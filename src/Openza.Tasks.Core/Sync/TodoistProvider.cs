@@ -154,8 +154,8 @@ public sealed class TodoistProvider(HttpClient httpClient, string accessToken, s
         return root.EnumerateArray().Select(task =>
         {
             var id = GetString(task, "id") ?? Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture);
-            var plannedAt = ParseTodoistDue(task);
-            var deadlineAt = ParseTodoistDeadline(task);
+            var plannedDate = ParseTodoistDue(task);
+            var deadlineDate = ParseTodoistDeadline(task);
             return new TaskItem
             {
                 Id = $"todoist_{id}",
@@ -168,10 +168,10 @@ public sealed class TodoistProvider(HttpClient httpClient, string accessToken, s
                 ParentId = PrefixOrNull("todoist_", GetString(task, "parent_id")),
                 Priority = 5 - Math.Clamp(GetInt(task, "priority", defaultValue: 1), 1, 4),
                 Status = GetBool(task, "is_completed") || GetBool(task, "checked") ? TaskItemStatus.Completed : TaskItemStatus.None,
-                PlannedOn = TaskDateValues.FromDateTimeOffset(plannedAt),
-                PlannedAt = HasSpecificTime(plannedAt) ? plannedAt : null,
-                DeadlineOn = TaskDateValues.FromDateTimeOffset(deadlineAt),
-                DeadlineAt = HasSpecificTime(deadlineAt) ? deadlineAt : null,
+                PlannedOn = plannedDate.Date,
+                PlannedAt = plannedDate.ExactTime,
+                DeadlineOn = deadlineDate.Date,
+                DeadlineAt = deadlineDate.ExactTime,
                 RecurrenceRule = ParseTodoistRecurrence(task),
                 CreatedAt = ParseDate(GetString(task, "created_at")) ?? ParseDate(GetString(task, "added_at")) ?? DateTimeOffset.UtcNow,
                 CompletedAt = ParseDate(GetString(task, "completed_at")),
@@ -214,24 +214,35 @@ public sealed class TodoistProvider(HttpClient httpClient, string accessToken, s
         });
     }
 
-    private static DateTimeOffset? ParseTodoistDue(JsonElement task)
+    private static TodoistDateValue ParseTodoistDue(JsonElement task)
     {
         if (!task.TryGetProperty("due", out var due) || due.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
         {
-            return null;
+            return default;
         }
 
-        return ParseDate(GetString(due, "datetime")) ?? ParseDate(GetString(due, "date"));
+        return ParseTodoistDateValue(due);
     }
 
-    private static DateTimeOffset? ParseTodoistDeadline(JsonElement task)
+    private static TodoistDateValue ParseTodoistDeadline(JsonElement task)
     {
         if (!task.TryGetProperty("deadline", out var deadline) || deadline.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
         {
-            return null;
+            return default;
         }
 
-        return ParseDate(GetString(deadline, "datetime")) ?? ParseDate(GetString(deadline, "date"));
+        return ParseTodoistDateValue(deadline);
+    }
+
+    private static TodoistDateValue ParseTodoistDateValue(JsonElement value)
+    {
+        if (ParseDate(GetString(value, "datetime")) is { } exactTime)
+        {
+            return new TodoistDateValue(TaskDateValues.FromDateTimeOffset(exactTime), exactTime);
+        }
+
+        var date = TaskDateValues.FromStorageValue(GetString(value, "date"));
+        return new TodoistDateValue(date, null);
     }
 
     private static string? ParseTodoistRecurrence(JsonElement task)
@@ -243,9 +254,6 @@ public sealed class TodoistProvider(HttpClient httpClient, string accessToken, s
 
         return GetBool(due, "is_recurring") ? GetString(due, "string") ?? "recurring" : null;
     }
-
-    private static bool HasSpecificTime(DateTimeOffset? value) =>
-        value is not null && (value.Value.Hour != 0 || value.Value.Minute != 0 || value.Value.Second != 0);
 
     private static string? PrefixOrNull(string prefix, string? value) => string.IsNullOrWhiteSpace(value) ? null : $"{prefix}{value}";
 
@@ -260,6 +268,8 @@ public sealed class TodoistProvider(HttpClient httpClient, string accessToken, s
 
     private static DateTimeOffset? ParseDate(string? value) =>
         DateTimeOffset.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var parsed) ? parsed : null;
+
+    private readonly record struct TodoistDateValue(DateOnly? Date, DateTimeOffset? ExactTime);
 
     private static string TodoistColorToHex(string? colorName) => colorName switch
     {

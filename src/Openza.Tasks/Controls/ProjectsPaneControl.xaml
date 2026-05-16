@@ -5,9 +5,9 @@
     xmlns:vm="using:Openza.Tasks.ViewModels">
     <Grid
         Padding="{StaticResource PanePadding}"
-        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+        BorderBrush="{ThemeResource OpenzaBorderBrush}"
         BorderThickness="0,0,1,0"
-        Background="{ThemeResource LayerFillColorDefaultBrush}"
+        Background="{ThemeResource OpenzaPaneBackgroundBrush}"
         RowDefinitions="Auto,Auto,Auto,*"
         RowSpacing="12">
         <Grid ColumnDefinitions="*,Auto">
@@ -112,10 +112,10 @@
                                             ToolTipService.ToolTip="{x:Bind Name}"
                                             AutomationProperties.Name="{x:Bind AccessibilityName}">
                                             <Button.Resources>
-                                                <SolidColorBrush x:Key="ButtonBackgroundPointerOver" Color="#14000000" />
-                                                <SolidColorBrush x:Key="ButtonBackgroundPressed" Color="#22000000" />
-                                                <SolidColorBrush x:Key="ButtonBorderBrushPointerOver" Color="#26000000" />
-                                                <SolidColorBrush x:Key="ButtonBorderBrushPressed" Color="#33000000" />
+                                                <StaticResource x:Key="ButtonBackgroundPointerOver" ResourceKey="OpenzaRowHoverBrush" />
+                                                <StaticResource x:Key="ButtonBackgroundPressed" ResourceKey="OpenzaRowSelectedBrush" />
+                                                <StaticResource x:Key="ButtonBorderBrushPointerOver" ResourceKey="OpenzaBorderBrush" />
+                                                <StaticResource x:Key="ButtonBorderBrushPressed" ResourceKey="OpenzaBorderBrush" />
                                             </Button.Resources>
                                             <Button.ContextFlyout>
                                                 <MenuFlyout>
@@ -137,7 +137,7 @@
                                                     CornerRadius="2"
                                                     HorizontalAlignment="Left"
                                                     Margin="-3,4,0,4"
-                                                    Background="{StaticResource OpenzaAccentBrush}"
+                                                    Background="{ThemeResource OpenzaAccentBrush}"
                                                     Opacity="{x:Bind IsSelectedOpacity}" />
                                                 <FontIcon
                                                     Glyph="{x:Bind Glyph}"
