@@ -65,7 +65,7 @@ src/
   Openza.Tasks.Tests/  Unit, repository, backup, and sync tests
 ```
 
-The sync engine is C# in `Openza.Tasks.Core`. The previous Rust FFI engine is not shipped with the WinUI app.
+The sync engine is C# in `Openza.Tasks.Core`. Historical Rust FFI work is preserved in git history and legacy releases; it is not shipped with the WinUI app.
 
 ## Legacy Flutter App
 

@@ -4,6 +4,9 @@ All notable changes to Openza Tasks will be documented in this file.
 
 ## [Unreleased]
 
+### Removed
+- Removed the legacy Rust sync reference crate from `main`; historical Rust work remains available in git history and older releases.
+
 ## [1.0.0] - 2026-05-17
 
 ### Changed
