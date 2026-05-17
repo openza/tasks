@@ -1,6 +1,6 @@
 # Privacy Policy
 
-Openza Tasks does not collect telemetry, analytics, or personal usage data.
+Openza Tasks does not collect telemetry, analytics, or personal usage data. Openza Tasks is maintained by Deependra Solanky; contact: `deependra@solanky.dev`.
 
 Task data is stored locally on your Windows device in the app data folder. Local backups are stored in a durable Openza backup folder outside package `LocalState` so app reset or reinstall does not remove the only backup copy.
 

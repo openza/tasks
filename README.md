@@ -4,6 +4,8 @@
 
 Openza Tasks is a Windows-native task manager for people who want fast local task capture with optional provider sync. The active app is built with WinUI 3 and stores data locally in SQLite.
 
+Openza Tasks is maintained by Deependra Solanky as a personal open-source project. Microsoft sign-in may show the Openza app name with the `solanky.dev` publisher/contact identity.
+
 ## Features
 
 - **Native Windows app** - WinUI 3, MSIX packaging, Mica where available
@@ -64,6 +66,10 @@ src/
 ```
 
 The sync engine is C# in `Openza.Tasks.Core`. The previous Rust FFI engine is not shipped with the WinUI app.
+
+## Legacy Flutter App
+
+The last Flutter-era mainline is preserved on the [`legacy-flutter-app`](https://github.com/openza/tasks/tree/legacy-flutter-app) branch. New development, issues, and releases target the Windows-native WinUI codebase in `src/Openza.Tasks/`. Any Flutter-era files left in `main` are historical leftovers and are not built, packaged, or maintained as the active Openza Tasks app.
 
 See [docs/architecture.md](docs/architecture.md) for the V3 task model, provider wrapper pattern, and future sync-route design.
 See [docs/design-guidelines.md](docs/design-guidelines.md) for the Openza Calm Fluent production UI language.
