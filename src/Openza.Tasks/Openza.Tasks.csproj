@@ -26,7 +26,8 @@
   <PropertyGroup>
     <LocalPackageCertificateKeyFile>Openza.Tasks_TemporaryKey.pfx</LocalPackageCertificateKeyFile>
     <MicrosoftGraphClientId Condition="'$(MicrosoftGraphClientId)' == '' and '$(MicrosoftToDoClientId)' != ''">$(MicrosoftToDoClientId)</MicrosoftGraphClientId>
-    <MicrosoftGraphClientId Condition="'$(MicrosoftGraphClientId)' == ''">10fd954c-9eb7-4344-a6b4-9919e2ed5f8a</MicrosoftGraphClientId>
+    <MicrosoftGraphClientId Condition="'$(MicrosoftGraphClientId)' == '' and '$(Configuration)' == 'Debug'">fbf30ec3-0911-4338-8d2a-1f55d003f77c</MicrosoftGraphClientId>
+    <MicrosoftGraphClientId Condition="'$(MicrosoftGraphClientId)' == ''">1ee7c73f-5894-4167-8a99-3ee8b2666b8c</MicrosoftGraphClientId>
     <MicrosoftGraphTenantId Condition="'$(MicrosoftGraphTenantId)' == '' and '$(MicrosoftToDoTenantId)' != ''">$(MicrosoftToDoTenantId)</MicrosoftGraphTenantId>
     <MicrosoftGraphTenantId Condition="'$(MicrosoftGraphTenantId)' == ''">common</MicrosoftGraphTenantId>
     <LocalPackageSigningEnabled Condition="'$(LocalPackageSigningEnabled)' == ''">false</LocalPackageSigningEnabled>

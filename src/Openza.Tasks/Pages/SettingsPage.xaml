@@ -456,7 +456,7 @@
                     <StackPanel Spacing="4" Margin="0,0,0,18">
                         <TextBlock Text="About" Style="{ThemeResource TitleTextBlockStyle}" />
                         <TextBlock
-                            Text="Openza Tasks is a local-first task app with optional integrations."
+                            Text="Openza Tasks is a local-first open-source task app by Deependra Solanky."
                             Style="{StaticResource OpenzaMetadataTextBlockStyle}"
                             TextWrapping="Wrap" />
                     </StackPanel>
@@ -465,7 +465,13 @@
                         <toolkit:SettingsCard.HeaderIcon>
                             <FontIcon Glyph="&#xE946;" />
                         </toolkit:SettingsCard.HeaderIcon>
-                        <TextBlock Text="Store V1" Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="Store V1" Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
+                            <TextBlock
+                                Text="Maintainer and Microsoft publisher contact: deependra@solanky.dev"
+                                Style="{StaticResource OpenzaCaptionTextBlockStyle}"
+                                TextWrapping="Wrap" />
+                        </StackPanel>
                     </toolkit:SettingsCard>
                 </StackPanel>
             </Grid>
