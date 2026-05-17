@@ -14,4 +14,4 @@ The active product is now the WinUI 3 app under `src/`.
 - task enhancement UI
 - non-Windows desktop maintenance
 
-Legacy app and Rust-FFI notes are preserved in git history and older releases.
+Legacy Flutter app notes are preserved in git history and older releases.

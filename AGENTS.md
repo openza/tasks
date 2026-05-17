@@ -7,7 +7,7 @@ Also follow the shared Openza guidance in `../AGENTS.md`. Keep this file limited
 - `src/Openza.Tasks.Core/` holds SQLite data access, migration, import/export, provider sync, credentials abstractions, and testable business logic.
 - `src/Openza.Tasks.Tests/` holds xUnit tests for the WinUI migration.
 - The legacy Flutter app is preserved on the `legacy-flutter-app` branch only; `main` is the active WinUI codebase.
-- `legacy/rust-sync-reference/` contains the old Rust sync engine reference. Do not ship a Rust DLL in the WinUI app.
+- Historical Rust sync work is preserved in git history and older releases. Do not ship a Rust DLL in the WinUI app.
 - `assets/` stores icons, images, and bundled resources used at runtime.
 - `docs/`, `website/`, and `scripts/` provide supporting documentation and tooling.
 
