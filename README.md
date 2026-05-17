@@ -43,7 +43,7 @@ winget configure -f https://aka.ms/winui-config
 ```powershell
 dotnet restore Openza.Tasks.slnx
 dotnet test src\Openza.Tasks.Tests\Openza.Tasks.Tests.csproj -c Release
-dotnet build src\Openza.Tasks\Openza.Tasks.csproj -c Release --no-restore
+dotnet build src\Openza.Tasks\Openza.Tasks.csproj -c Release -p:Platform=x64 --no-restore
 ```
 
 ### Run In Visual Studio
@@ -59,8 +59,8 @@ dotnet build src\Openza.Tasks\Openza.Tasks.csproj -c Release --no-restore
 ```text
 src/
   Openza.Tasks/        WinUI 3 packaged app
-  Openza.Tasks.Core/   SQLite data, migration, import/export, provider sync
-  Openza.Tasks.Tests/  Unit and migration tests
+  Openza.Tasks.Core/   SQLite data, backups, import/export, provider sync
+  Openza.Tasks.Tests/  Unit, repository, backup, and sync tests
 ```
 
 The sync engine is C# in `Openza.Tasks.Core`. The previous Rust FFI engine is not shipped with the WinUI app.

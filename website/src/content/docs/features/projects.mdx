@@ -5,37 +5,35 @@ description: Organize your tasks into projects
 
 import { Steps, Aside } from '@astrojs/starlight/components';
 
-Projects help you group related tasks together. Openza Tasks supports both local projects you create and read-only projects synced from external providers.
+Projects help you group related tasks together inside the selected Openza space. In WinUI V1, Openza projects are the user-facing project model; provider project and list names remain source context on imported tasks.
 
-## Project Types
+## Openza Projects
 
-### Local Projects
-
-Projects created in Openza Tasks that you fully control:
+Projects created in Openza Tasks are local and fully controlled by Openza:
 
 - Create, edit, and delete freely
-- Assign a color
 - Move tasks between them
+- Use them to filter the current task list
 
-### Provider Projects
+## Provider Project Context
 
-Projects from Todoist or Microsoft To Do appear in the sidebar automatically:
+Provider project or list names from Todoist and Microsoft To Do are preserved as source context:
 
-- **Read-only** - Cannot edit or delete from Openza Tasks
-- Managed through the original provider
-- Tasks synced from these projects show their source project
+- They help you understand where a source-linked task came from
+- They do not replace Openza projects
+- Provider project/list management stays in the original provider
 
 <Aside type="note">
-Provider projects are extracted from your synced tasks.
+When you add a provider source item to Inbox, you can assign the resulting Openza task to any local Openza project.
 </Aside>
 
 ### The Inbox
 
-Every integration has a default Inbox project:
+Inbox is the default place for unprojected tasks:
 
-- Always exists and cannot be deleted
 - Tasks without a project go here
-- Cannot be renamed or edited
+- Synced source items can be reviewed before becoming Openza tasks
+- Select a project later from task details
 
 ## Creating a Project
 
@@ -45,19 +43,19 @@ Every integration has a default Inbox project:
 3. Click **Create**
 </Steps>
 
-The new project appears in your Projects pane under the Openza Tasks section.
+The new project appears in the Projects pane for the selected space.
 
 ## Editing a Project
 
 <Steps>
 1. Find the project in the Projects pane
 2. Click **Edit**
-3. Change the name, color, or favorite status
+3. Change project details supported by the current app
 4. Click **Save**
 </Steps>
 
 <Aside type="note">
-Only local Openza Tasks projects can be edited. Provider projects must be edited in their original app.
+Provider project and list names are source context. Edit them in Todoist or Microsoft To Do, then sync.
 </Aside>
 
 ## Deleting a Project
@@ -65,14 +63,11 @@ Only local Openza Tasks projects can be edited. Provider projects must be edited
 <Steps>
 1. Select the project
 2. Click **Delete**
-3. Choose what to do with the tasks:
-   - **Move to Inbox** - Tasks are preserved in Inbox
-   - **Delete tasks** - Tasks are permanently removed
-4. Confirm the deletion
+3. Confirm the deletion
 </Steps>
 
 <Aside type="caution">
-Deleting a project cannot be undone. Consider moving tasks to Inbox if you want to keep them.
+Deleting a project cannot be undone. Move tasks to another project or Inbox first if you want to keep the project grouping.
 </Aside>
 
 ## Moving Tasks Between Projects
@@ -95,8 +90,6 @@ Click any project in the Projects pane to filter the task list:
 - The project name appears in the header
 - Select **All projects** or another view to clear the filter
 
-## Project Colors
+## Spaces
 
-When editing a local project, enter a hex color such as `#3b82f6`.
-
-Colors are stored with the project and can be used by richer project visuals as the WinUI app matures.
+Projects belong to the selected Openza space. Spaces are local visibility scopes, not provider accounts. Use Settings > Spaces to manage the spaces available in the app.

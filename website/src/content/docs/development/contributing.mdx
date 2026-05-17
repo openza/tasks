@@ -29,7 +29,7 @@ We welcome contributions to Openza Tasks. The active app is Windows-native WinUI
    ```powershell
    dotnet restore Openza.Tasks.slnx
    dotnet test src\Openza.Tasks.Tests\Openza.Tasks.Tests.csproj -c Release
-   dotnet build src\Openza.Tasks\Openza.Tasks.csproj -c Release --no-restore
+   dotnet build src\Openza.Tasks\Openza.Tasks.csproj -c Release -p:Platform=x64 --no-restore
    ```
 
 5. Submit a pull request.
@@ -38,8 +38,8 @@ We welcome contributions to Openza Tasks. The active app is Windows-native WinUI
 ## Coding Standards
 
 - Use native WinUI controls and Fluent spacing.
-- Keep data, sync, and migration logic in `Openza.Tasks.Core`.
-- Add tests for sync, provider mapping, backup, import/export, and migration changes.
+- Keep data, sync, backup, import/export, and provider logic in `Openza.Tasks.Core`.
+- Add tests for sync, provider mapping, backup, import/export, schema upgrade, and repository changes.
 - Do not commit secrets, generated certificates, MSIX packages, or Store-private data.
 
 ## Pull Request Guidelines

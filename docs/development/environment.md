@@ -19,7 +19,7 @@ winget configure -f https://aka.ms/winui-config
 ```powershell
 dotnet restore Openza.Tasks.slnx
 dotnet test src\Openza.Tasks.Tests\Openza.Tasks.Tests.csproj -c Release
-dotnet build src\Openza.Tasks\Openza.Tasks.csproj -c Release --no-restore
+dotnet build src\Openza.Tasks\Openza.Tasks.csproj -c Release -p:Platform=x64 --no-restore
 ```
 
 ## Debug And Daily Testing

@@ -1,4 +1,12 @@
 -- ============================================================
+-- Legacy Reference Only
+-- ============================================================
+--
+-- This script documents the historical Flutter-era SQLite migration. The active
+-- WinUI Store V1 app starts fresh, keeps its live database in Windows package
+-- state, and does not auto-migrate legacy Flutter databases.
+--
+-- ============================================================
 -- Openza Tasks Database Migration: Schema v1 to v2
 -- ============================================================
 --

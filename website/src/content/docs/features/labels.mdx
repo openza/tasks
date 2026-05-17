@@ -3,7 +3,7 @@ title: Labels
 description: Categorize tasks with labels
 ---
 
-Labels (called "tags" in some providers) allow you to categorize tasks across different projects.
+Labels (called "tags" or "categories" in some providers) let you categorize tasks across projects without forcing one fixed workflow.
 
 ## Viewing Labels
 
@@ -11,15 +11,22 @@ Access labels through:
 - **Next Actions view** - Shows active tasks with at least one label
 - **Task details** - See all labels applied to a task
 - **Label filter** - Filter the current task list by a specific label
+- **Grouping** - Group task lists by label when the current view supports grouping
 
 ## Label Colors
 
-Labels maintain their colors from your task provider:
-- Todoist label colors are synced automatically
-- Microsoft To Do categories show their assigned colors when available
+Provider labels and categories are imported when available:
+
+- Todoist labels are imported as labels
+- Microsoft To Do categories are imported as labels when available
+- Local label edits stay in Openza unless a future sync route explicitly supports provider write-back
 
 ## Filtering by Label
 
 The label dropdown above the task list shows all available labels from your tasks. Select a label to show only tasks with that label applied.
+
+## Flexible Workflow
+
+Use labels for any dimension that matters to you, such as location, person, area, energy, or review bucket. Openza does not hardcode those concepts into separate product pages.
 
 See [Projects](/tasks/features/projects) for organizing tasks into project groups.

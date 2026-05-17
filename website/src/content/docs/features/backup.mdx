@@ -5,7 +5,7 @@ description: Protect your tasks with automatic backups
 
 import { Steps, Aside } from '@astrojs/starlight/components';
 
-Openza Tasks can automatically back up your local SQLite database to protect your tasks from data loss.
+Openza Tasks can automatically back up your local SQLite database to protect your tasks from data loss. Local durable backups are the foundation; OneDrive backup is an optional extra layer.
 
 ## Automatic Backups
 
@@ -15,7 +15,7 @@ By default, Openza Tasks creates one startup backup per day. You can turn startu
 
 <Steps>
 1. Open **Settings** from the left navigation
-2. Find the **Backups** section
+2. Select **Backups**
 3. Toggle **Create a backup on startup** on or off
 </Steps>
 
@@ -34,8 +34,9 @@ Create a backup anytime from Settings:
 ### Viewing Backups
 
 Your backups are displayed with:
-- **Date** shown in calendar format (day and month)
-- **Time** of creation
+- **Reason** such as daily, manual, legacy, pre-restore, pre-import, or pre-migration
+- **Date and time** of creation
+- **Task, project, and space counts**
 - **File size**
 
 ### Export Backup
@@ -75,13 +76,15 @@ Restore a backup from another computer or external storage:
 </Steps>
 
 <Aside type="note">
-External backups are restored directly without being added to your backup list.
+External backups are restored directly. Openza still creates a safety backup before replacing the live database.
 </Aside>
 
 ## Backup Storage
 
 - Backups are stored in a stable Openza backup folder outside Windows package `LocalState`
-- Production and dev builds use separate backup folders
+- Production uses `%LOCALAPPDATA%\Openza\Tasks\Backups`
+- Dev uses `%LOCALAPPDATA%\Openza\Tasks Dev\Backups`
+- Production and dev builds do not share backup folders
 - Retention keeps recent daily, weekly, monthly, and event backups
 - Older package-local backups are copied forward when found, but not deleted automatically
 
@@ -94,6 +97,19 @@ OneDrive backup is cloud backup, not multi-device live sync. Your local SQLite d
 </Aside>
 
 You can enable passphrase encryption so backup files are encrypted before upload. On a new PC, encrypted OneDrive backups require the passphrase.
+
+### OneDrive Actions
+
+In Settings > Backups, you can:
+
+- Enable or disable OneDrive backup
+- Choose or change the Microsoft account used for OneDrive backup
+- Upload a backup now
+- Refresh the cloud backup list
+- Restore from a selected OneDrive backup
+- Add, change, or remove the optional passphrase
+
+Deleting a local backup does not delete the cloud copy. Cloud pruning only removes Openza-owned backup files according to the configured retention policy.
 
 ## Best Practices
 

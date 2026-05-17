@@ -90,7 +90,7 @@ Last updated: 2026-05-14
 ## Verification Checklist
 
 - [x] `dotnet test src\Openza.Tasks.Tests\Openza.Tasks.Tests.csproj -c Release --no-restore`
-- [x] `dotnet build src\Openza.Tasks\Openza.Tasks.csproj -c Release --no-restore`
+- [x] `dotnet build src\Openza.Tasks\Openza.Tasks.csproj -c Release -p:Platform=x64 --no-restore`
 - [ ] Manual visual check: Inbox with connected-app intake.
 - [ ] Manual visual check: Today, Tasks, project-filtered view, empty state.
 - [ ] Manual visual check: provider-linked task details.

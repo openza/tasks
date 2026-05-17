@@ -1,64 +1,67 @@
 ---
 title: App Layout
-description: Overview of the Openza Tasks Windows layout
+description: Overview of the Openza Tasks WinUI workspace
 ---
 
-Openza Tasks uses a Windows-native shell with top-level navigation, task commands, a projects pane, a task list, and a task details pane.
+Openza Tasks uses a Windows-native WinUI shell with persistent navigation, task commands, a projects pane, task lists, source intake, sync status, settings, and a details pane.
 
 ## Main Areas
 
 | Area | Purpose |
-|------|-------|---------|
-| **Navigation** | Switch between task views, Sync, and Settings |
-| **Command bar** | Search, add tasks, import/export Markdown, sync, and create projects |
-| **Projects pane** | Browse and search projects |
-| **Task list** | View, select, complete, copy IDs, and delete tasks |
-| **Task details** | Edit the selected task |
+|------|---------|
+| **Navigation** | Switch between task views, Inbox review, Sync, and Settings |
+| **Command bar** | Add tasks, import/export Markdown, sync, and create projects |
+| **Projects pane** | Browse, search, and create Openza projects |
+| **Task list** | Search, filter, group, select, complete, copy IDs, and delete tasks |
+| **Task details** | Edit the selected task and review source-linked fields |
 
 ## Navigation
 
 The left navigation provides:
+
+- **Inbox** - New local tasks and provider items waiting for review
 - **Next Actions** - Tasks ready to work on
 - **Today** - Tasks due today
 - **Overdue** - Past-due tasks
 - **Tasks** - All tasks
 - **Completed** - Finished tasks
 - **Sync** - Provider sync status and manual sync
-- **Settings** - Appearance, providers, and backups
+- **Settings** - Appearance, integrations, spaces, and backups
 
 ## Projects Pane
 
-The second pane shows all your projects:
+The projects pane shows Openza projects in the selected space:
 
 - **Search** - Find projects by name
-- **Provider names** - See which provider each project belongs to
 - **Project Selection** - Click to filter tasks by project
+- **New project** - Create a local Openza project
+- **Inbox** - See tasks without a project
 
 See [Projects](/tasks/features/projects) for details on managing projects.
 
 ## Tasks List
 
-The main content area displays tasks:
+The main content area displays the current task view:
 
-- **Task Cards** - Show title, project, due date, and priority
+- **Task rows** - Show title, project, date, priority, labels, and source context
 - **Checkboxes** - Mark tasks complete with one click
 - **Selection** - Click a task to open details
-- **Compact actions** - Copy the task ID or delete the task
+- **Compact actions** - Copy the task ID or delete eligible local tasks
 
 ### Sorting Tasks
 
-Use the first dropdown above the list to order tasks by:
+Use the sort dropdown above the list to order tasks by:
 
 | Sort Option | Description |
 |-------------|-------------|
 | Priority | Urgent tasks first, then high, normal, low |
-| Due Date | Earliest deadlines first |
+| Date | Earliest dated work first |
 | Created Date | Newest tasks first |
 | By Project | Group tasks by project |
 
 ### Filtering Tasks
 
-Use the priority and label dropdowns above the list to narrow the current task view.
+Use search, priority, label, and recurring filters above the list to narrow the current task view. Some views also support grouping, such as by date, project, status, priority, label, source, repeating state, created date, or completed date.
 
 ## Task Details
 
@@ -66,9 +69,14 @@ The rightmost pane shows the selected task:
 
 - **Title & Description** - View and edit task content
 - **Project Assignment** - Change the task's project
-- **Due Date** - Set or modify deadlines
+- **Date & Deadline** - Set planned dates and deadlines
 - **Priority** - Set task priority level
 - **Labels** - Add or remove labels
+- **Source context** - See provider details for source-linked tasks
+
+## Inbox Review
+
+Provider sync can surface source items in Inbox review before they become Openza task wrappers. You can add useful source items to Inbox, skip items you do not want, and keep provider-owned source data separate from your local planning fields.
 
 ## Quick Actions
 
@@ -76,8 +84,8 @@ From any pane, you can:
 - Click any task to view its details
 - Use checkboxes to mark tasks complete
 - Use task row actions for copy/delete
-- Use keyboard shortcuts for common actions
+- Use the command bar for add, import, export, and sync
 
 ## State Persistence
 
-The last selected top-level view and window size are saved locally.
+The last selected view, window size, settings, and backup preferences are saved locally.

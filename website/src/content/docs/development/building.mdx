@@ -44,10 +44,10 @@ winget configure -f https://aka.ms/winui-config
 4. Build the app:
 
    ```powershell
-   dotnet build src\Openza.Tasks\Openza.Tasks.csproj -c Release --no-restore
+   dotnet build src\Openza.Tasks\Openza.Tasks.csproj -c Release -p:Platform=x64 --no-restore
    ```
 </Steps>
 
 ## Visual Studio Debugging
 
-Open `Openza.Tasks.slnx`, choose the `Openza Tasks` MSIX launch profile, select `x64`, enable Deploy for the app project, and press F5.
+Open `Openza.Tasks.slnx`, choose the `Openza Tasks` MSIX launch profile, select `x64`, enable Deploy for the app project, and press F5. Debug/F5 uses the dev package identity so local testing stays separate from the daily installed app.

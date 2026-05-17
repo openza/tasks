@@ -5,7 +5,7 @@ description: Export your tasks to markdown format
 
 import { Steps, Aside } from '@astrojs/starlight/components';
 
-Export all your tasks to a human-readable markdown file for archiving, sharing, or migrating to other tools.
+Export your current task data to a human-readable Markdown file for archiving, sharing, or migrating to other tools.
 
 ## Export Format
 
@@ -13,7 +13,7 @@ Tasks are exported in organized Markdown format:
 
 - **Grouped by project** for easy navigation
 - **Checkbox syntax** (`- [ ]` for open, `- [x]` for completed)
-- **Task details** including priority, due dates, and labels
+- **Task details** including priority, dates, deadlines, and labels
 - **Separate labels section**
 
 ### Example Output
@@ -32,7 +32,7 @@ Tasks are exported in organized Markdown format:
 ## How to Export
 
 <Steps>
-1. Click **Export** in the command bar
+1. Click **Export Markdown** in the command bar
 2. Choose a save location and filename
 3. Openza Tasks writes a `.md` file
 </Steps>
@@ -57,7 +57,8 @@ Include task lists in project documentation or reports.
 
 ## Notes
 
-- Export includes all tasks (both local and synced)
+- Export includes local and source-linked Openza tasks
 - Completed tasks are included with `[x]` checkboxes
 - File is saved with `.md` extension
 - Export uses the Windows file picker
+- Provider tokens, MSAL cache data, OneDrive passphrases, and local backup files are never included in Markdown export
