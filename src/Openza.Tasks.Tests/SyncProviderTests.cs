@@ -10,9 +10,16 @@ public sealed class SyncProviderTests
     [Fact]
     public async Task TodoistProvider_maps_project_labels_date_and_completion_endpoint()
     {
-        var handler = new FakeHttpMessageHandler(request => request.RequestUri?.PathAndQuery switch
+        var handler = new FakeHttpMessageHandler(request =>
         {
-            "/api/v1/tasks?limit=200" => Json("""
+            if (IsTodoistCompletedTasksRequest(request))
+            {
+                return Json("""{ "items": [], "next_cursor": null }""");
+            }
+
+            return request.RequestUri?.PathAndQuery switch
+            {
+                "/api/v1/tasks?limit=200" => Json("""
                 {
                   "results": [
                     {
@@ -30,8 +37,8 @@ public sealed class SyncProviderTests
                   "next_cursor": "next-page"
                 }
                 """),
-            "/api/v1/tasks?limit=200&cursor=next-page" => Json("""{ "results": [], "next_cursor": null }"""),
-            "/api/v1/projects?limit=200" => Json("""
+                "/api/v1/tasks?limit=200&cursor=next-page" => Json("""{ "results": [], "next_cursor": null }"""),
+                "/api/v1/projects?limit=200" => Json("""
                 {
                   "results": [
                     {
@@ -45,9 +52,10 @@ public sealed class SyncProviderTests
                   "next_cursor": null
                 }
                 """),
-            "/api/v1/labels?limit=200" => Json("""{ "results": [{ "id": "label1", "name": "release", "color": "green", "order": 2 }], "next_cursor": null }"""),
-            "/api/v1/tasks/task1/close" => Empty(HttpStatusCode.OK),
-            _ => Empty(HttpStatusCode.NotFound),
+                "/api/v1/labels?limit=200" => Json("""{ "results": [{ "id": "label1", "name": "release", "color": "green", "order": 2 }], "next_cursor": null }"""),
+                "/api/v1/tasks/task1/close" => Empty(HttpStatusCode.OK),
+                _ => Empty(HttpStatusCode.NotFound),
+            };
         });
         var provider = new TodoistProvider(new HttpClient(handler), "token");
 
@@ -72,16 +80,67 @@ public sealed class SyncProviderTests
         Assert.Equal("release", Assert.Single(task.Labels).Name);
         Assert.Contains(handler.Requests, request => request.Method == HttpMethod.Get && request.Uri.PathAndQuery == "/api/v1/tasks?limit=200");
         Assert.Contains(handler.Requests, request => request.Method == HttpMethod.Get && request.Uri.PathAndQuery == "/api/v1/tasks?limit=200&cursor=next-page");
+        Assert.Contains(handler.Requests, request => request.Method == HttpMethod.Get && request.Uri.AbsolutePath == "/api/v1/tasks/completed/by_completion_date");
         Assert.Contains(handler.Requests, request => request.Method == HttpMethod.Post && request.Uri.AbsolutePath == "/api/v1/tasks/task1/close");
         Assert.All(handler.Requests, request => Assert.Equal("Bearer", request.AuthorizationScheme));
     }
 
     [Fact]
+    public async Task TodoistProvider_maps_completed_tasks_from_completion_history()
+    {
+        var handler = new FakeHttpMessageHandler(request =>
+        {
+            if (IsTodoistCompletedTasksRequest(request))
+            {
+                return Json("""
+                    {
+                      "items": [
+                        {
+                          "task_id": "task1",
+                          "content": "Repair Ovi cycle",
+                          "project_id": "project1",
+                          "completed_at": "2026-05-17T10:00:00Z"
+                        }
+                      ],
+                      "next_cursor": null
+                    }
+                    """);
+            }
+
+            return request.RequestUri?.PathAndQuery switch
+            {
+                "/api/v1/tasks?limit=200" => Json("""{ "results": [], "next_cursor": null }"""),
+                "/api/v1/projects?limit=200" => Json("""{ "results": [{ "id": "project1", "name": "Home" }], "next_cursor": null }"""),
+                "/api/v1/labels?limit=200" => Json("""{ "results": [], "next_cursor": null }"""),
+                _ => Empty(HttpStatusCode.NotFound),
+            };
+        });
+        var provider = new TodoistProvider(new HttpClient(handler), "token");
+
+        var snapshot = await provider.FetchSnapshotAsync();
+
+        Assert.Empty(snapshot.Tasks);
+        var task = Assert.Single(snapshot.CompletedTasks);
+        Assert.Equal("task1", task.ExternalId);
+        Assert.Equal("Repair Ovi cycle", task.Title);
+        Assert.Equal("todoist_project1", task.ProjectId);
+        Assert.Equal(TaskCompletionState.Completed, task.CompletionState);
+        Assert.Equal(new DateTimeOffset(2026, 5, 17, 10, 0, 0, TimeSpan.Zero), task.CompletedAt);
+    }
+
+    [Fact]
     public async Task TodoistProvider_maps_floating_due_datetime_from_date_field()
     {
-        var handler = new FakeHttpMessageHandler(request => request.RequestUri?.PathAndQuery switch
+        var handler = new FakeHttpMessageHandler(request =>
         {
-            "/api/v1/tasks?limit=200" => Json("""
+            if (IsTodoistCompletedTasksRequest(request))
+            {
+                return Json("""{ "items": [], "next_cursor": null }""");
+            }
+
+            return request.RequestUri?.PathAndQuery switch
+            {
+                "/api/v1/tasks?limit=200" => Json("""
                 {
                   "results": [
                     {
@@ -94,9 +153,10 @@ public sealed class SyncProviderTests
                   "next_cursor": null
                 }
                 """),
-            "/api/v1/projects?limit=200" => Json("""{ "results": [], "next_cursor": null }"""),
-            "/api/v1/labels?limit=200" => Json("""{ "results": [], "next_cursor": null }"""),
-            _ => Empty(HttpStatusCode.NotFound),
+                "/api/v1/projects?limit=200" => Json("""{ "results": [], "next_cursor": null }"""),
+                "/api/v1/labels?limit=200" => Json("""{ "results": [], "next_cursor": null }"""),
+                _ => Empty(HttpStatusCode.NotFound),
+            };
         });
         var provider = new TodoistProvider(new HttpClient(handler), "token");
 
@@ -179,6 +239,10 @@ public sealed class SyncProviderTests
         };
 
     private static HttpResponseMessage Empty(HttpStatusCode statusCode) => new(statusCode);
+
+    private static bool IsTodoistCompletedTasksRequest(HttpRequestMessage request) =>
+        request.Method == HttpMethod.Get &&
+        request.RequestUri?.AbsolutePath == "/api/v1/tasks/completed/by_completion_date";
 
     private sealed class FakeHttpMessageHandler(Func<HttpRequestMessage, HttpResponseMessage> responder) : HttpMessageHandler
     {

@@ -143,11 +143,34 @@ public sealed class TaskSyncEngineTests : IDisposable
     }
 
     [Fact]
-    public async Task Sync_detaches_adopted_source_item_missing_from_provider_snapshot()
+    public async Task Sync_preserves_adopted_source_item_missing_from_provider_snapshot_by_default()
     {
         var store = CreateStore();
         await store.InitializeAsync();
         var engine = new TaskSyncEngine(store);
+
+        var firstSync = await engine.SyncAsync(new FakeProvider());
+        var source = Assert.Single(await store.GetProviderSourceItemsAsync(IntegrationIds.Todoist));
+        var adopted = await store.AdoptProviderSourceItemAsync(source.Id);
+        Assert.True(firstSync.Success);
+        Assert.NotNull(adopted);
+
+        var secondSync = await engine.SyncAsync(new EmptyProvider());
+
+        var detached = await store.GetTaskAsync(adopted.Id);
+        Assert.True(secondSync.Success);
+        Assert.NotNull(detached);
+        Assert.True(detached.HasProviderSource);
+        var sourceAfterSync = Assert.Single(await store.GetProviderSourceItemsAsync(IntegrationIds.Todoist, includeAdopted: true, includeIgnored: true));
+        Assert.Equal(ProviderSourceAdoptionStates.Adopted, sourceAfterSync.AdoptionState);
+    }
+
+    [Fact]
+    public async Task Sync_detaches_adopted_source_item_missing_from_provider_snapshot_when_orphan_deletion_enabled()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        var engine = new TaskSyncEngine(store, new ConflictPolicy(DeleteOrphans: true));
 
         var firstSync = await engine.SyncAsync(new FakeProvider());
         var source = Assert.Single(await store.GetProviderSourceItemsAsync(IntegrationIds.Todoist));
@@ -165,6 +188,83 @@ public sealed class TaskSyncEngineTests : IDisposable
 
         await store.DeleteTaskAsync(adopted.Id);
         Assert.Null(await store.GetTaskAsync(adopted.Id));
+    }
+
+    [Fact]
+    public async Task Sync_marks_adopted_provider_task_completed_from_completed_snapshot()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        var provider = new FakeProvider();
+        var engine = new TaskSyncEngine(store);
+
+        var firstSync = await engine.SyncAsync(provider);
+        var source = Assert.Single(await store.GetProviderSourceItemsAsync(IntegrationIds.Todoist));
+        var adopted = await store.AdoptProviderSourceItemAsync(source.Id);
+        Assert.True(firstSync.Success);
+        Assert.NotNull(adopted);
+
+        provider.IncludeActiveTask = false;
+        provider.IncludeCompletedTask = true;
+        var secondSync = await engine.SyncAsync(provider);
+
+        var completed = await store.GetTaskAsync(adopted.Id);
+        var sourceAfterSync = Assert.Single(await store.GetProviderSourceItemsAsync(IntegrationIds.Todoist, includeAdopted: true));
+        Assert.True(secondSync.Success);
+        Assert.NotNull(completed);
+        Assert.True(completed.HasProviderSource);
+        Assert.Equal(TaskCompletionState.Completed, completed.CompletionState);
+        Assert.NotNull(completed.CompletedAt);
+        Assert.Equal(TaskCompletionState.Completed, sourceAfterSync.CompletionState);
+        Assert.Equal(ProviderSourceAdoptionStates.Adopted, sourceAfterSync.AdoptionState);
+    }
+
+    [Fact]
+    public async Task Sync_keeps_completed_snapshot_match_linked_when_orphan_deletion_enabled()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        var provider = new FakeProvider();
+        var engine = new TaskSyncEngine(store, new ConflictPolicy(DeleteOrphans: true));
+
+        var firstSync = await engine.SyncAsync(provider);
+        var source = Assert.Single(await store.GetProviderSourceItemsAsync(IntegrationIds.Todoist));
+        var adopted = await store.AdoptProviderSourceItemAsync(source.Id);
+        Assert.True(firstSync.Success);
+        Assert.NotNull(adopted);
+
+        provider.IncludeActiveTask = false;
+        provider.IncludeCompletedTask = true;
+        var secondSync = await engine.SyncAsync(provider);
+
+        var completed = await store.GetTaskAsync(adopted.Id);
+        var sourceAfterSync = Assert.Single(await store.GetProviderSourceItemsAsync(IntegrationIds.Todoist, includeAdopted: true, includeIgnored: true));
+        Assert.True(secondSync.Success);
+        Assert.NotNull(completed);
+        Assert.True(completed.HasProviderSource);
+        Assert.Equal(TaskCompletionState.Completed, completed.CompletionState);
+        Assert.Equal(TaskCompletionState.Completed, sourceAfterSync.CompletionState);
+        Assert.Equal(ProviderSourceAdoptionStates.Adopted, sourceAfterSync.AdoptionState);
+        Assert.Equal(adopted.Id, sourceAfterSync.AdoptedTaskId);
+    }
+
+    [Fact]
+    public async Task Sync_ignores_unknown_provider_task_from_completed_snapshot()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        var provider = new FakeProvider
+        {
+            IncludeActiveTask = false,
+            IncludeCompletedTask = true,
+        };
+        var engine = new TaskSyncEngine(store);
+
+        var result = await engine.SyncAsync(provider);
+
+        Assert.True(result.Success);
+        Assert.Empty(await store.GetProviderSourceItemsAsync(IntegrationIds.Todoist, includeAdopted: true, includeIgnored: true));
+        Assert.Empty(await store.GetTasksAsync(new TaskQuery { Kind = TaskListKind.All }));
     }
 
     [Fact]
@@ -255,6 +355,7 @@ public sealed class TaskSyncEngineTests : IDisposable
         var task = Assert.Single(await store.GetTasksAsync(new TaskQuery { Kind = TaskListKind.All }));
 
         provider.PlannedOn = new DateOnly(2026, 7, 6);
+        provider.IncludeCompletedTask = true;
         var secondSync = await engine.SyncAsync(provider);
 
         var refreshed = await store.GetTaskAsync(task.Id);
@@ -285,14 +386,17 @@ public sealed class TaskSyncEngineTests : IDisposable
         public string? Description { get; set; }
         public DateOnly? PlannedOn { get; set; }
         public string? RecurrenceRule { get; set; }
+        public bool IncludeActiveTask { get; set; } = true;
+        public bool IncludeCompletedTask { get; set; }
         public bool IncludeChildTask { get; set; }
         public int CompletedCalls { get; private set; }
 
         public Task<ProviderSnapshot> FetchSnapshotAsync(CancellationToken cancellationToken = default)
         {
-            List<TaskItem> tasks =
-            [
-                new TaskItem
+            List<TaskItem> tasks = [];
+            if (IncludeActiveTask)
+            {
+                tasks.Add(new TaskItem
                 {
                     Id = "todoist_remote_1",
                     ExternalId = "remote_1",
@@ -301,8 +405,9 @@ public sealed class TaskSyncEngineTests : IDisposable
                     Description = Description,
                     PlannedOn = PlannedOn,
                     RecurrenceRule = RecurrenceRule,
-                },
-            ];
+                });
+            }
+
             if (IncludeChildTask)
             {
                 tasks.Add(new TaskItem
@@ -315,10 +420,27 @@ public sealed class TaskSyncEngineTests : IDisposable
                 });
             }
 
+            List<TaskItem> completedTasks = [];
+            if (IncludeCompletedTask)
+            {
+                completedTasks.Add(new TaskItem
+                {
+                    Id = "todoist_remote_1",
+                    ExternalId = "remote_1",
+                    IntegrationId = IntegrationIds.Todoist,
+                    Title = Title,
+                    CompletionState = TaskCompletionState.Completed,
+                    CompletedAt = new DateTimeOffset(2026, 5, 17, 10, 0, 0, TimeSpan.Zero),
+                });
+            }
+
             return Task.FromResult(new ProviderSnapshot(
                 tasks,
                 [],
-                []));
+                [])
+            {
+                CompletedTasks = completedTasks,
+            });
         }
 
         public Task CompleteTaskAsync(PendingCompletion completion, CancellationToken cancellationToken = default)
