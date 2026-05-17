@@ -12,6 +12,6 @@ The active product is now the WinUI 3 app under `src/`.
 - reminders and notifications
 - time tracking UI
 - task enhancement UI
-- active Linux/macOS maintenance
+- non-Windows desktop maintenance
 
-Legacy Flutter/Linux/Rust-FFI notes are preserved in git history and older releases.
+Legacy app and Rust-FFI notes are preserved in git history and older releases.

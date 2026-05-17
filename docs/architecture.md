@@ -24,7 +24,7 @@ This keeps Openza safe for practical use cases such as screen sharing at work wi
 
 For a clean new database, Openza creates one default space. If setup/import tooling creates spaces first, the app does not add an extra empty default space.
 
-Store V1 is a fresh-start WinUI product. It does not auto-migrate legacy Flutter databases; future import tooling can be designed as an explicit user action if needed.
+Store V1 is a fresh-start WinUI product. It does not auto-migrate old local app stores; future import tooling can be designed as an explicit user action if needed.
 
 ## Task Model
 
