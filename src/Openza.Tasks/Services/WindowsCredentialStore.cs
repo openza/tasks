@@ -19,7 +19,13 @@ public sealed class WindowsCredentialStore : ICredentialStore
     {
         try
         {
-            var credential = _vault.Retrieve(Resource, key);
+            var credential = _vault.FindAllByResource(Resource)
+                .FirstOrDefault(item => string.Equals(item.UserName, key, StringComparison.Ordinal));
+            if (credential is null)
+            {
+                return Task.FromResult<string?>(null);
+            }
+
             credential.RetrievePassword();
             return Task.FromResult<string?>(credential.Password);
         }
@@ -39,7 +45,12 @@ public sealed class WindowsCredentialStore : ICredentialStore
     {
         try
         {
-            _vault.Remove(_vault.Retrieve(Resource, key));
+            var credential = _vault.FindAllByResource(Resource)
+                .FirstOrDefault(item => string.Equals(item.UserName, key, StringComparison.Ordinal));
+            if (credential is not null)
+            {
+                _vault.Remove(credential);
+            }
         }
         catch
         {

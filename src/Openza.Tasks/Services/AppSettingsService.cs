@@ -18,6 +18,8 @@ public sealed class AppSettingsService
 
         await using var stream = File.OpenRead(_settingsPath);
         Settings = await JsonSerializer.DeserializeAsync<AppSettings>(stream).ConfigureAwait(false) ?? new AppSettings();
+        Settings.MicrosoftToDoAccount ??= new();
+        Settings.OneDriveBackupAccount ??= new();
     }
 
     public async Task SaveAsync()
@@ -43,6 +45,13 @@ public sealed class AppSettings
     public Dictionary<string, string> TaskGroupModes { get; set; } = new();
     public Dictionary<string, TaskViewSettings> TaskViewSettings { get; set; } = new();
     public DateTimeOffset? LastAutoBackupAt { get; set; }
+    public bool OneDriveBackupEnabled { get; set; }
+    public bool OneDriveBackupEncryptionEnabled { get; set; }
+    public DateTimeOffset? LastOneDriveBackupAt { get; set; }
+    public string LastOneDriveBackupStatus { get; set; } = string.Empty;
+    public string LastOneDriveBackupError { get; set; } = string.Empty;
+    public MicrosoftGraphAccountState MicrosoftToDoAccount { get; set; } = new();
+    public MicrosoftGraphAccountState OneDriveBackupAccount { get; set; } = new();
     public string MicrosoftToDoClientId { get; set; } = string.Empty;
     public string MicrosoftToDoTenantId { get; set; } = "common";
 }

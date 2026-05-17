@@ -18,6 +18,7 @@ namespace Openza.Tasks.Shell;
 public sealed partial class AppShell : UserControl
 {
     private const string TodoistTokenKey = "todoist.accessToken";
+    private const string OneDrivePassphraseKey = "onedrive.backup.passphrase";
     private const int DefaultAutoSyncIntervalMinutes = 5;
 
     private readonly ITaskStore _store;
@@ -25,7 +26,7 @@ public sealed partial class AppShell : UserControl
     private readonly ICredentialStore _credentials;
     private readonly BackupService _backupService;
     private readonly AppSettingsService _settings;
-    private readonly MicrosoftToDoAuthService _microsoftAuth;
+    private readonly MicrosoftGraphAuthService _microsoftAuth;
     private readonly BackupInfo? _startupRecoveryCandidate;
     private readonly Window _ownerWindow;
     private readonly HttpClient _httpClient = new();
@@ -64,7 +65,7 @@ public sealed partial class AppShell : UserControl
         ICredentialStore credentials,
         BackupService backupService,
         AppSettingsService settings,
-        MicrosoftToDoAuthService microsoftAuth,
+        MicrosoftGraphAuthService microsoftAuth,
         BackupInfo? startupRecoveryCandidate = null)
     {
         _ownerWindow = ownerWindow;
@@ -88,7 +89,9 @@ public sealed partial class AppShell : UserControl
         SettingsPage.SelectTheme(_settings.Settings.Theme);
         SettingsPage.AutoBackupEnabled = _settings.Settings.AutoBackupEnabled;
         SettingsPage.AutoSyncEnabled = _settings.Settings.AutoSyncEnabled;
-        SettingsPage.SetMicrosoftConfig(GetMicrosoftClientId(), GetMicrosoftTenantId());
+        SettingsPage.SetCloudBackupAvailable(IsOneDriveBackupAvailable());
+        SettingsPage.CloudBackupEnabled = IsOneDriveBackupAvailable() && _settings.Settings.OneDriveBackupEnabled;
+        SettingsPage.CloudBackupEncryptionEnabled = _settings.Settings.OneDriveBackupEncryptionEnabled;
         _suppressSettingsEvents = false;
         ApplyTheme(_settings.Settings.Theme);
         if (_startupRecoveryCandidate is not null)
@@ -108,6 +111,7 @@ public sealed partial class AppShell : UserControl
             await LoadProjectsAsync().ConfigureAwait(true);
             await LoadLabelsAsync().ConfigureAwait(true);
             await RefreshSettingsStateAsync().ConfigureAwait(true);
+            await TryUploadPendingCloudBackupsAsync(interactive: false, showResult: false).ConfigureAwait(true);
             if (_settings.Settings.AutoSyncEnabled)
             {
                 await RunAutomaticSyncAsync().ConfigureAwait(true);
@@ -690,15 +694,8 @@ public sealed partial class AppShell : UserControl
         _ => "Openza Tasks",
     };
 
-    private string GetMicrosoftClientId() =>
-        string.IsNullOrWhiteSpace(_settings.Settings.MicrosoftToDoClientId)
-            ? MicrosoftToDoAuthService.ResolveDefaultClientId()
-            : _settings.Settings.MicrosoftToDoClientId.Trim();
-
-    private string GetMicrosoftTenantId() =>
-        string.IsNullOrWhiteSpace(_settings.Settings.MicrosoftToDoTenantId)
-            ? MicrosoftToDoAuthService.ResolveDefaultTenantId()
-            : _settings.Settings.MicrosoftToDoTenantId.Trim();
+    private bool IsOneDriveBackupAvailable() =>
+        CloudBackupService.IsAvailableForAppFlavor(_backupService.Context.AppFlavor);
 
     private void AddKeyboardShortcuts()
     {

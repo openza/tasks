@@ -32,7 +32,8 @@ public sealed partial class AppShell
         {
             try
             {
-                await _backupService.CreateBackupAsync(BackupReasons.PreImport).ConfigureAwait(true);
+                var backupPath = await _backupService.CreateBackupAsync(BackupReasons.PreImport).ConfigureAwait(true);
+                await TryUploadCloudBackupAsync(backupPath, interactive: false, showResult: false).ConfigureAwait(true);
             }
             catch (Exception exception)
             {
@@ -117,10 +118,24 @@ public sealed partial class AppShell
                 summaries.Add(await _syncEngine.SyncAsync(new TodoistProvider(_httpClient, todoistToken)).ConfigureAwait(true));
             }
 
-            var microsoftToken = await _microsoftAuth.GetAccessTokenAsync(GetMicrosoftClientId(), GetMicrosoftTenantId(), interactiveIfNeeded: false).ConfigureAwait(true);
-            if (!string.IsNullOrWhiteSpace(microsoftToken))
+            if (_settings.Settings.MicrosoftToDoAccount.IsConnected)
             {
-                summaries.Add(await _syncEngine.SyncAsync(new MicrosoftToDoProvider(_httpClient, microsoftToken)).ConfigureAwait(true));
+                var microsoftResult = await _microsoftAuth.GetAccessTokenAsync(
+                    MicrosoftGraphFeature.MicrosoftToDo,
+                    _settings.Settings.MicrosoftToDoAccount,
+                    MicrosoftGraphAuthService.MicrosoftToDoScopes,
+                    interactiveIfNeeded: false).ConfigureAwait(true);
+                if (microsoftResult is not null)
+                {
+                    _settings.Settings.MicrosoftToDoAccount = microsoftResult.Account;
+                    await _settings.SaveAsync().ConfigureAwait(true);
+                    summaries.Add(await _syncEngine.SyncAsync(new MicrosoftToDoProvider(_httpClient, microsoftResult.AccessToken)).ConfigureAwait(true));
+                }
+                else
+                {
+                    await _settings.SaveAsync().ConfigureAwait(true);
+                    summaries.Add(new SyncSummary(IntegrationIds.MicrosoftToDo, false, 0, 0, 0, 0, 0, 0, _settings.Settings.MicrosoftToDoAccount.LastAuthStatus));
+                }
             }
 
             await LoadProjectsAsync().ConfigureAwait(true);
@@ -186,22 +201,19 @@ public sealed partial class AppShell
 
     private async void OnConnectMicrosoftClicked(object sender, RoutedEventArgs e)
     {
-        var clientId = SettingsPage.MicrosoftClientId;
-        var tenantId = SettingsPage.MicrosoftTenantId;
-        if (string.IsNullOrWhiteSpace(clientId))
-        {
-            ShowInfo("Microsoft client ID required", "Add the public Azure app client ID for Microsoft To Do sign-in.", InfoBarSeverity.Warning);
-            return;
-        }
-
         try
         {
-            _settings.Settings.MicrosoftToDoClientId = clientId;
-            _settings.Settings.MicrosoftToDoTenantId = tenantId;
-            await _settings.SaveAsync().ConfigureAwait(true);
-
-            var result = await _microsoftAuth.SignInAsync(clientId, tenantId).ConfigureAwait(true);
+            var result = await _microsoftAuth.ConnectAsync(
+                MicrosoftGraphFeature.MicrosoftToDo,
+                MicrosoftGraphAuthService.MicrosoftToDoScopes).ConfigureAwait(true);
+            var previousAccount = _settings.Settings.MicrosoftToDoAccount;
+            _settings.Settings.MicrosoftToDoAccount = result.Account;
+            await _microsoftAuth.DisconnectAsync(
+                    previousAccount,
+                    [_settings.Settings.MicrosoftToDoAccount, _settings.Settings.OneDriveBackupAccount])
+                .ConfigureAwait(true);
             await _store.SetIntegrationConfiguredAsync(IntegrationIds.MicrosoftToDo, true).ConfigureAwait(true);
+            await _settings.SaveAsync().ConfigureAwait(true);
             await RefreshSettingsStateAsync().ConfigureAwait(true);
             var message = string.IsNullOrWhiteSpace(result.Username)
                 ? "Microsoft To Do connected."
@@ -225,8 +237,14 @@ public sealed partial class AppShell
 
     private async void OnDisconnectMicrosoftClicked(object sender, RoutedEventArgs e)
     {
-        await _microsoftAuth.SignOutAsync(GetMicrosoftClientId(), GetMicrosoftTenantId()).ConfigureAwait(true);
+        var disconnectedAccount = _settings.Settings.MicrosoftToDoAccount;
+        _settings.Settings.MicrosoftToDoAccount = new MicrosoftGraphAccountState();
+        await _microsoftAuth.DisconnectAsync(
+                disconnectedAccount,
+                [_settings.Settings.OneDriveBackupAccount])
+            .ConfigureAwait(true);
         await _store.SetIntegrationConfiguredAsync(IntegrationIds.MicrosoftToDo, false).ConfigureAwait(true);
+        await _settings.SaveAsync().ConfigureAwait(true);
         await RefreshSettingsStateAsync().ConfigureAwait(true);
         ShowInfo("Microsoft To Do disconnected", "Existing synced tasks stay in your local database.", InfoBarSeverity.Informational);
     }
@@ -235,7 +253,11 @@ public sealed partial class AppShell
     {
         var path = await _backupService.CreateBackupAsync(BackupReasons.Manual).ConfigureAwait(true);
         await RefreshBackupListAsync().ConfigureAwait(true);
-        ShowInfo("Backup created", path, InfoBarSeverity.Success);
+        await TryUploadCloudBackupAsync(path, interactive: true, showResult: true).ConfigureAwait(true);
+        if (!_settings.Settings.OneDriveBackupEnabled)
+        {
+            ShowInfo("Backup created", path, InfoBarSeverity.Success);
+        }
     }
 
     private async void OnOpenBackupFolderClicked(object sender, RoutedEventArgs e)
@@ -346,6 +368,242 @@ public sealed partial class AppShell
         await _settings.SaveAsync().ConfigureAwait(true);
     }
 
+    private async void OnOneDriveBackupToggled(object sender, RoutedEventArgs e)
+    {
+        if (_suppressSettingsEvents)
+        {
+            return;
+        }
+
+        if (!IsOneDriveBackupAvailable())
+        {
+            ResetOneDriveBackupSwitches();
+            ShowInfo("OneDrive backup unavailable", "Cloud backup is not available for this app flavor.", InfoBarSeverity.Warning);
+            return;
+        }
+
+        if (!SettingsPage.CloudBackupEnabled)
+        {
+            _settings.Settings.OneDriveBackupEnabled = false;
+            await _settings.SaveAsync().ConfigureAwait(true);
+            RefreshCloudBackupStatus(isBusy: false);
+            ShowInfo("OneDrive backup off", "Local backups continue to work normally.", InfoBarSeverity.Informational);
+            return;
+        }
+
+        try
+        {
+            await EnsureOneDriveAccessAsync(interactive: true).ConfigureAwait(true);
+            if (_settings.Settings.OneDriveBackupEncryptionEnabled &&
+                string.IsNullOrWhiteSpace(await _credentials.GetAsync(OneDrivePassphraseKey).ConfigureAwait(true)))
+            {
+                var passphrase = await PromptForPassphraseAsync("Set cloud backup passphrase", confirm: true).ConfigureAwait(true);
+                if (string.IsNullOrWhiteSpace(passphrase))
+                {
+                    throw new InvalidOperationException("A passphrase is required for encrypted OneDrive backup.");
+                }
+
+                await _credentials.SaveAsync(OneDrivePassphraseKey, passphrase).ConfigureAwait(true);
+            }
+
+            _settings.Settings.OneDriveBackupEnabled = true;
+            _settings.Settings.LastOneDriveBackupError = string.Empty;
+            await _settings.SaveAsync().ConfigureAwait(true);
+            RefreshCloudBackupStatus(isBusy: true);
+            await TryUploadPendingCloudBackupsAsync(interactive: true, showResult: true).ConfigureAwait(true);
+            await RefreshCloudBackupListAsync(interactive: true, showResult: false).ConfigureAwait(true);
+        }
+        catch (Exception exception)
+        {
+            _settings.Settings.OneDriveBackupEnabled = false;
+            _settings.Settings.LastOneDriveBackupError = exception.Message;
+            await _settings.SaveAsync().ConfigureAwait(true);
+            ResetOneDriveBackupSwitches();
+            RefreshCloudBackupStatus(isBusy: false);
+            ShowInfo("OneDrive backup not enabled", exception.Message, InfoBarSeverity.Error);
+        }
+    }
+
+    private async void OnOneDriveEncryptionToggled(object sender, RoutedEventArgs e)
+    {
+        if (_suppressSettingsEvents)
+        {
+            return;
+        }
+
+        if (SettingsPage.CloudBackupEncryptionEnabled)
+        {
+            var passphrase = await PromptForPassphraseAsync("Set cloud backup passphrase", confirm: true).ConfigureAwait(true);
+            if (string.IsNullOrWhiteSpace(passphrase))
+            {
+                _suppressSettingsEvents = true;
+                SettingsPage.CloudBackupEncryptionEnabled = false;
+                _suppressSettingsEvents = false;
+                return;
+            }
+
+            await _credentials.SaveAsync(OneDrivePassphraseKey, passphrase).ConfigureAwait(true);
+            _settings.Settings.OneDriveBackupEncryptionEnabled = true;
+            await _settings.SaveAsync().ConfigureAwait(true);
+            RefreshCloudBackupStatus(isBusy: false);
+            ShowInfo("Cloud backup encryption on", "Remember this passphrase. A new PC needs it to restore encrypted backups.", InfoBarSeverity.Success);
+        }
+        else
+        {
+            await _credentials.RemoveAsync(OneDrivePassphraseKey).ConfigureAwait(true);
+            _settings.Settings.OneDriveBackupEncryptionEnabled = false;
+            await _settings.SaveAsync().ConfigureAwait(true);
+            RefreshCloudBackupStatus(isBusy: false);
+            ShowInfo("Cloud backup encryption off", "Future cloud backups will rely on your Microsoft account and OneDrive protection.", InfoBarSeverity.Informational);
+        }
+    }
+
+    private async void OnUploadOneDriveBackupClicked(object sender, RoutedEventArgs e)
+    {
+        if (!EnsureCloudBackupEnabledForAction())
+        {
+            return;
+        }
+
+        try
+        {
+            var path = await _backupService.CreateBackupAsync(BackupReasons.Manual).ConfigureAwait(true);
+            await RefreshBackupListAsync().ConfigureAwait(true);
+            await TryUploadCloudBackupAsync(path, interactive: true, showResult: true).ConfigureAwait(true);
+        }
+        catch (Exception exception)
+        {
+            ShowInfo("Cloud upload failed", exception.Message, InfoBarSeverity.Error);
+        }
+    }
+
+    private async void OnRefreshOneDriveBackupsClicked(object sender, RoutedEventArgs e)
+    {
+        if (!EnsureOneDriveAvailableForAction())
+        {
+            return;
+        }
+
+        await RefreshCloudBackupListAsync(interactive: true, showResult: true).ConfigureAwait(true);
+    }
+
+    private async void OnRestoreOneDriveBackupClicked(object sender, RoutedEventArgs e)
+    {
+        if (!EnsureOneDriveAvailableForAction())
+        {
+            return;
+        }
+
+        var backup = SettingsPage.SelectedCloudBackup;
+        if (backup is null)
+        {
+            ShowInfo("Select a cloud backup", "Choose a OneDrive backup to restore.", InfoBarSeverity.Warning);
+            return;
+        }
+
+        var dialog = new ContentDialog
+        {
+            Title = "Restore OneDrive backup",
+            Content = "This will download the selected backup and replace the current local database. A local pre-restore backup is created first.",
+            PrimaryButtonText = "Restore",
+            CloseButtonText = "Cancel",
+            XamlRoot = XamlRoot,
+        };
+
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+        {
+            return;
+        }
+
+        try
+        {
+            var passphrase = await GetPassphraseForRestoreAsync(backup).ConfigureAwait(true);
+            if (string.Equals(backup.EncryptionMode, CloudBackupEncryptionModes.Passphrase, StringComparison.OrdinalIgnoreCase) &&
+                string.IsNullOrWhiteSpace(passphrase))
+            {
+                return;
+            }
+
+            var tempPath = Path.Combine(Path.GetTempPath(), $"openza-onedrive-restore-{Guid.NewGuid():N}.db");
+            var restoreStartedAt = DateTime.Now;
+            try
+            {
+                await CreateCloudBackupService(interactive: true).DownloadBackupAsync(backup, tempPath, passphrase).ConfigureAwait(true);
+                await _backupService.RestoreBackupAsync(tempPath).ConfigureAwait(true);
+            }
+            finally
+            {
+                if (File.Exists(tempPath))
+                {
+                    File.Delete(tempPath);
+                }
+            }
+
+            await _store.InitializeAsync().ConfigureAwait(true);
+            await LoadProjectsAsync().ConfigureAwait(true);
+            await LoadLabelsAsync().ConfigureAwait(true);
+            await RefreshTasksAsync().ConfigureAwait(true);
+            await RefreshBackupListAsync().ConfigureAwait(true);
+            await TryUploadNewestPreRestoreBackupAsync(restoreStartedAt, interactive: true).ConfigureAwait(true);
+            ShowInfo("OneDrive backup restored", backup.DisplayName, InfoBarSeverity.Success);
+        }
+        catch (Exception exception)
+        {
+            ShowInfo("OneDrive restore failed", exception.Message, InfoBarSeverity.Error);
+        }
+    }
+
+    private async void OnChangeOneDriveAccountClicked(object sender, RoutedEventArgs e)
+    {
+        if (!EnsureOneDriveAvailableForAction())
+        {
+            return;
+        }
+
+        try
+        {
+            var previousAccount = _settings.Settings.OneDriveBackupAccount;
+            var result = await _microsoftAuth.ConnectAsync(
+                    MicrosoftGraphFeature.OneDriveBackup,
+                    MicrosoftGraphAuthService.OneDriveBackupScopes)
+                .ConfigureAwait(true);
+            _settings.Settings.OneDriveBackupAccount = result.Account;
+            _settings.Settings.LastOneDriveBackupError = string.Empty;
+            await _microsoftAuth.DisconnectAsync(
+                    previousAccount,
+                    [_settings.Settings.MicrosoftToDoAccount, _settings.Settings.OneDriveBackupAccount])
+                .ConfigureAwait(true);
+            await _settings.SaveAsync().ConfigureAwait(true);
+            RefreshCloudBackupStatus(isBusy: false);
+            ShowInfo("OneDrive backup account selected", result.Username ?? "Microsoft account connected.", InfoBarSeverity.Success);
+        }
+        catch (Exception exception)
+        {
+            _settings.Settings.LastOneDriveBackupError = exception.Message;
+            await _settings.SaveAsync().ConfigureAwait(true);
+            RefreshCloudBackupStatus(isBusy: false);
+            ShowInfo("OneDrive sign-in failed", exception.Message, InfoBarSeverity.Error);
+        }
+    }
+
+    private async void OnChangeOneDrivePassphraseClicked(object sender, RoutedEventArgs e)
+    {
+        var passphrase = await PromptForPassphraseAsync("Change cloud backup passphrase", confirm: true).ConfigureAwait(true);
+        if (string.IsNullOrWhiteSpace(passphrase))
+        {
+            return;
+        }
+
+        await _credentials.SaveAsync(OneDrivePassphraseKey, passphrase).ConfigureAwait(true);
+        _settings.Settings.OneDriveBackupEncryptionEnabled = true;
+        await _settings.SaveAsync().ConfigureAwait(true);
+        _suppressSettingsEvents = true;
+        SettingsPage.CloudBackupEncryptionEnabled = true;
+        _suppressSettingsEvents = false;
+        RefreshCloudBackupStatus(isBusy: false);
+        ShowInfo("Passphrase updated", "Future encrypted cloud backups will use the new passphrase.", InfoBarSeverity.Success);
+    }
+
     private async void OnAutoSyncToggled(object sender, RoutedEventArgs e)
     {
         if (_suppressSettingsEvents)
@@ -389,6 +647,326 @@ public sealed partial class AppShell
         _autoSyncTimer.Start();
     }
 
+    private async Task TryUploadCloudBackupAsync(string localBackupPath, bool interactive, bool showResult)
+    {
+        if (!_settings.Settings.OneDriveBackupEnabled || !IsOneDriveBackupAvailable())
+        {
+            return;
+        }
+
+        var backup = _backupService.ListBackupInfo()
+            .FirstOrDefault(item => string.Equals(item.Path, localBackupPath, StringComparison.OrdinalIgnoreCase));
+        if (backup is null)
+        {
+            return;
+        }
+
+        try
+        {
+            RefreshCloudBackupStatus(isBusy: true);
+            var options = await CreateCloudBackupOptionsAsync(interactive).ConfigureAwait(true);
+            var uploaded = await CreateCloudBackupService(interactive).UploadBackupAsync(backup, options).ConfigureAwait(true);
+            if (uploaded is not null)
+            {
+                _settings.Settings.LastOneDriveBackupAt = DateTimeOffset.Now;
+                _settings.Settings.LastOneDriveBackupStatus = "Uploaded";
+                _settings.Settings.LastOneDriveBackupError = string.Empty;
+                await _settings.SaveAsync().ConfigureAwait(true);
+                if (showResult)
+                {
+                    ShowInfo("OneDrive backup uploaded", uploaded.DisplayName, InfoBarSeverity.Success);
+                }
+            }
+        }
+        catch (Exception exception)
+        {
+            _settings.Settings.LastOneDriveBackupStatus = "Failed";
+            _settings.Settings.LastOneDriveBackupError = exception.Message;
+            await _settings.SaveAsync().ConfigureAwait(true);
+            AppLog.Write(exception);
+            if (showResult)
+            {
+                ShowInfo("Local backup created", $"OneDrive upload failed: {exception.Message}", InfoBarSeverity.Warning);
+            }
+        }
+        finally
+        {
+            RefreshCloudBackupStatus(isBusy: false);
+        }
+    }
+
+    private async Task TryUploadPendingCloudBackupsAsync(bool interactive, bool showResult)
+    {
+        if (!_settings.Settings.OneDriveBackupEnabled || !IsOneDriveBackupAvailable())
+        {
+            return;
+        }
+
+        try
+        {
+            RefreshCloudBackupStatus(isBusy: true);
+            var options = await CreateCloudBackupOptionsAsync(interactive).ConfigureAwait(true);
+            var uploaded = await CreateCloudBackupService(interactive)
+                .UploadPendingBackupsAsync(_backupService.ListBackupInfo(), options)
+                .ConfigureAwait(true);
+            if (uploaded.Count > 0)
+            {
+                _settings.Settings.LastOneDriveBackupAt = DateTimeOffset.Now;
+                _settings.Settings.LastOneDriveBackupStatus = "Uploaded";
+                _settings.Settings.LastOneDriveBackupError = string.Empty;
+                await _settings.SaveAsync().ConfigureAwait(true);
+            }
+
+            if (showResult)
+            {
+                ShowInfo(
+                    "OneDrive backup ready",
+                    uploaded.Count == 0 ? "No new local backups needed uploading." : $"Uploaded {uploaded.Count} backup{(uploaded.Count == 1 ? string.Empty : "s")}.",
+                    InfoBarSeverity.Success);
+            }
+        }
+        catch (Exception exception)
+        {
+            _settings.Settings.LastOneDriveBackupStatus = "Failed";
+            _settings.Settings.LastOneDriveBackupError = exception.Message;
+            await _settings.SaveAsync().ConfigureAwait(true);
+            AppLog.Write(exception);
+            if (showResult)
+            {
+                ShowInfo("OneDrive upload failed", exception.Message, InfoBarSeverity.Error);
+            }
+        }
+        finally
+        {
+            RefreshCloudBackupStatus(isBusy: false);
+        }
+    }
+
+    private async Task TryUploadNewestPreRestoreBackupAsync(DateTime restoreStartedAt, bool interactive)
+    {
+        var backup = _backupService.ListBackupInfo()
+            .Where(item => string.Equals(item.Reason, BackupReasons.PreRestore, StringComparison.OrdinalIgnoreCase))
+            .Where(item => item.CreatedAt >= restoreStartedAt.AddSeconds(-2))
+            .OrderByDescending(item => item.CreatedAt)
+            .FirstOrDefault();
+        if (backup is not null)
+        {
+            await TryUploadCloudBackupAsync(backup.Path, interactive, showResult: false).ConfigureAwait(true);
+        }
+    }
+
+    private async Task RefreshCloudBackupListAsync(bool interactive, bool showResult)
+    {
+        if (!IsOneDriveBackupAvailable() || (!_settings.Settings.OneDriveBackupEnabled && !interactive))
+        {
+            SettingsPage.SetCloudBackups([]);
+            RefreshCloudBackupStatus(isBusy: false);
+            return;
+        }
+
+        try
+        {
+            RefreshCloudBackupStatus(isBusy: true);
+            await EnsureOneDriveAccessAsync(interactive).ConfigureAwait(true);
+            var backups = await CreateCloudBackupService(interactive)
+                .ListBackupsAsync(_backupService.Context.AppFlavor)
+                .ConfigureAwait(true);
+            SettingsPage.SetCloudBackups(backups);
+            _settings.Settings.LastOneDriveBackupError = string.Empty;
+            await _settings.SaveAsync().ConfigureAwait(true);
+            if (showResult)
+            {
+                ShowInfo("OneDrive backups refreshed", $"{backups.Count} backup{(backups.Count == 1 ? string.Empty : "s")} found.", InfoBarSeverity.Success);
+            }
+        }
+        catch (Exception exception)
+        {
+            _settings.Settings.LastOneDriveBackupError = exception.Message;
+            await _settings.SaveAsync().ConfigureAwait(true);
+            AppLog.Write(exception);
+            if (showResult)
+            {
+                ShowInfo("Could not refresh OneDrive", exception.Message, InfoBarSeverity.Error);
+            }
+        }
+        finally
+        {
+            RefreshCloudBackupStatus(isBusy: false);
+        }
+    }
+
+    private CloudBackupService CreateCloudBackupService(bool interactive) =>
+        new(
+            new OneDriveBackupProvider(
+                _httpClient,
+                cancellationToken => GetOneDriveAccessTokenAsync(interactive, cancellationToken)),
+            _backupService.RetentionPolicy);
+
+    private async Task<CloudBackupOptions> CreateCloudBackupOptionsAsync(bool interactive)
+    {
+        var passphrase = _settings.Settings.OneDriveBackupEncryptionEnabled
+            ? await _credentials.GetAsync(OneDrivePassphraseKey).ConfigureAwait(true)
+            : null;
+        if (_settings.Settings.OneDriveBackupEncryptionEnabled && string.IsNullOrWhiteSpace(passphrase) && interactive)
+        {
+            passphrase = await PromptForPassphraseAsync("Enter cloud backup passphrase", confirm: false).ConfigureAwait(true);
+            if (!string.IsNullOrWhiteSpace(passphrase))
+            {
+                await _credentials.SaveAsync(OneDrivePassphraseKey, passphrase).ConfigureAwait(true);
+            }
+        }
+
+        return new CloudBackupOptions(
+            _settings.Settings.OneDriveBackupEnabled,
+            _settings.Settings.OneDriveBackupEncryptionEnabled,
+            passphrase,
+            _backupService.Context.AppFlavor);
+    }
+
+    private async Task<string?> GetOneDriveAccessTokenAsync(bool interactive, CancellationToken cancellationToken)
+    {
+        var result = await _microsoftAuth.GetAccessTokenAsync(
+            MicrosoftGraphFeature.OneDriveBackup,
+            _settings.Settings.OneDriveBackupAccount,
+            MicrosoftGraphAuthService.OneDriveBackupScopes,
+            interactive,
+            cancellationToken).ConfigureAwait(true);
+        if (result is null)
+        {
+            await _settings.SaveAsync().ConfigureAwait(true);
+            return null;
+        }
+
+        _settings.Settings.OneDriveBackupAccount = result.Account;
+        _settings.Settings.LastOneDriveBackupError = string.Empty;
+        await _settings.SaveAsync().ConfigureAwait(true);
+        return result.AccessToken;
+    }
+
+    private async Task EnsureOneDriveAccessAsync(bool interactive)
+    {
+        var token = await GetOneDriveAccessTokenAsync(interactive, CancellationToken.None).ConfigureAwait(true);
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            throw new InvalidOperationException("Sign in to the OneDrive backup account before using cloud backup.");
+        }
+    }
+
+    private async Task<string?> GetPassphraseForRestoreAsync(CloudBackupInfo backup)
+    {
+        if (!string.Equals(backup.EncryptionMode, CloudBackupEncryptionModes.Passphrase, StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        return await _credentials.GetAsync(OneDrivePassphraseKey).ConfigureAwait(true) ??
+            await PromptForPassphraseAsync("Enter cloud backup passphrase", confirm: false).ConfigureAwait(true);
+    }
+
+    private async Task<string?> PromptForPassphraseAsync(string title, bool confirm)
+    {
+        var passphraseBox = new PasswordBox
+        {
+            PlaceholderText = "Passphrase",
+            MinWidth = 320,
+        };
+        var confirmBox = new PasswordBox
+        {
+            PlaceholderText = "Confirm passphrase",
+            MinWidth = 320,
+            Visibility = confirm ? Visibility.Visible : Visibility.Collapsed,
+        };
+        var content = new StackPanel
+        {
+            Spacing = 12,
+            Children =
+            {
+                new TextBlock
+                {
+                    Text = confirm
+                        ? "Store this passphrase somewhere safe. Encrypted OneDrive backups cannot be restored without it."
+                        : "Encrypted OneDrive backups require the passphrase used when they were uploaded.",
+                    TextWrapping = TextWrapping.Wrap,
+                },
+                passphraseBox,
+                confirmBox,
+            },
+        };
+        var dialog = new ContentDialog
+        {
+            Title = title,
+            Content = content,
+            PrimaryButtonText = "Save",
+            CloseButtonText = "Cancel",
+            XamlRoot = XamlRoot,
+        };
+
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+        {
+            return null;
+        }
+
+        if (string.IsNullOrWhiteSpace(passphraseBox.Password))
+        {
+            ShowInfo("Passphrase required", "Enter a cloud backup passphrase.", InfoBarSeverity.Warning);
+            return null;
+        }
+
+        if (confirm && passphraseBox.Password != confirmBox.Password)
+        {
+            ShowInfo("Passphrases do not match", "Enter the same passphrase twice.", InfoBarSeverity.Warning);
+            return null;
+        }
+
+        return passphraseBox.Password;
+    }
+
+    private void RefreshCloudBackupStatus(bool isBusy)
+    {
+        SettingsPage.SetCloudBackupAvailable(IsOneDriveBackupAvailable());
+        SettingsPage.SetCloudBackupStatus(
+            IsOneDriveBackupAvailable() && _settings.Settings.OneDriveBackupEnabled,
+            _settings.Settings.OneDriveBackupEncryptionEnabled,
+            isBusy,
+            _settings.Settings.OneDriveBackupAccount.Username,
+            _settings.Settings.LastOneDriveBackupAt,
+            _settings.Settings.LastOneDriveBackupError);
+    }
+
+    private bool EnsureCloudBackupEnabledForAction()
+    {
+        if (!EnsureOneDriveAvailableForAction())
+        {
+            return false;
+        }
+
+        if (!_settings.Settings.OneDriveBackupEnabled)
+        {
+            ShowInfo("OneDrive backup is off", "Turn on OneDrive backup first.", InfoBarSeverity.Warning);
+            return false;
+        }
+
+        return true;
+    }
+
+    private bool EnsureOneDriveAvailableForAction()
+    {
+        if (!IsOneDriveBackupAvailable())
+        {
+            ShowInfo("OneDrive backup unavailable", "Cloud backup is not available for this app flavor.", InfoBarSeverity.Warning);
+            return false;
+        }
+
+        return true;
+    }
+
+    private void ResetOneDriveBackupSwitches()
+    {
+        _suppressSettingsEvents = true;
+        SettingsPage.CloudBackupEnabled = false;
+        _suppressSettingsEvents = false;
+    }
+
     private async Task RestoreBackupPathAsync(string path)
     {
         var dialog = new ContentDialog
@@ -407,12 +985,14 @@ public sealed partial class AppShell
 
         try
         {
+            var restoreStartedAt = DateTime.Now;
             await _backupService.RestoreBackupAsync(path).ConfigureAwait(true);
             await _store.InitializeAsync().ConfigureAwait(true);
             await LoadProjectsAsync().ConfigureAwait(true);
             await LoadLabelsAsync().ConfigureAwait(true);
             await RefreshTasksAsync().ConfigureAwait(true);
             await RefreshBackupListAsync().ConfigureAwait(true);
+            await TryUploadNewestPreRestoreBackupAsync(restoreStartedAt, interactive: false).ConfigureAwait(true);
             ShowInfo("Backup restored", path, InfoBarSeverity.Success);
         }
         catch (Exception exception)
@@ -424,11 +1004,11 @@ public sealed partial class AppShell
     private async Task RefreshSettingsStateAsync()
     {
         var todoistConnected = !string.IsNullOrWhiteSpace(await _credentials.GetAsync(TodoistTokenKey).ConfigureAwait(true));
-        var microsoftConnected = await _microsoftAuth.IsConnectedAsync(GetMicrosoftClientId(), GetMicrosoftTenantId()).ConfigureAwait(true);
-        SettingsPage.SetProviderStatus(todoistConnected, microsoftConnected);
+        var microsoftConnected = _settings.Settings.MicrosoftToDoAccount.IsConnected;
+        SettingsPage.SetProviderStatus(todoistConnected, _settings.Settings.MicrosoftToDoAccount.Username);
         SyncPage.SetProviderStatus(todoistConnected, microsoftConnected);
-        SettingsPage.SetMicrosoftConfig(GetMicrosoftClientId(), GetMicrosoftTenantId());
         await RefreshBackupListAsync().ConfigureAwait(true);
+        RefreshCloudBackupStatus(isBusy: false);
         await RefreshSourceItemsAsync().ConfigureAwait(true);
     }
 
@@ -448,9 +1028,10 @@ public sealed partial class AppShell
 
         try
         {
-            await _backupService.CreateBackupAsync(BackupReasons.Daily).ConfigureAwait(true);
+            var backupPath = await _backupService.CreateBackupAsync(BackupReasons.Daily).ConfigureAwait(true);
             _settings.Settings.LastAutoBackupAt = DateTimeOffset.Now;
             await _settings.SaveAsync().ConfigureAwait(true);
+            await TryUploadCloudBackupAsync(backupPath, interactive: false, showResult: false).ConfigureAwait(true);
         }
         catch (Exception exception)
         {
@@ -476,8 +1057,10 @@ public sealed partial class AppShell
 
         try
         {
+            var restoreStartedAt = DateTime.Now;
             await _backupService.RestoreBackupAsync(backup.Path).ConfigureAwait(true);
             await _store.InitializeAsync().ConfigureAwait(true);
+            await TryUploadNewestPreRestoreBackupAsync(restoreStartedAt, interactive: false).ConfigureAwait(true);
             ShowInfo("Backup restored", backup.Path, InfoBarSeverity.Success);
         }
         catch (Exception exception)

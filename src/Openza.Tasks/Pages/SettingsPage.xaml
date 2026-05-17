@@ -173,7 +173,7 @@
                         </toolkit:SettingsExpander.Items>
                     </toolkit:SettingsExpander>
 
-                    <toolkit:SettingsExpander Header="Microsoft To Do" Description="Connect Microsoft To Do through Microsoft Graph.">
+                    <toolkit:SettingsExpander Header="Microsoft To Do" Description="Choose the Microsoft account Openza uses for Microsoft To Do.">
                         <toolkit:SettingsExpander.HeaderIcon>
                             <FontIcon Glyph="&#xE787;" />
                         </toolkit:SettingsExpander.HeaderIcon>
@@ -191,23 +191,11 @@
                             </Border>
                         </StackPanel>
                         <toolkit:SettingsExpander.Items>
-                            <toolkit:SettingsCard Header="App client ID" Description="Use a public Azure app registration client ID.">
-                                <TextBox
-                                    x:Name="MicrosoftClientIdBox"
-                                    Width="340"
-                                    PlaceholderText="Public client ID from Azure app registration" />
-                            </toolkit:SettingsCard>
-                            <toolkit:SettingsCard Header="Tenant" Description="Use common unless you need a specific tenant.">
-                                <TextBox
-                                    x:Name="MicrosoftTenantIdBox"
-                                    Width="220"
-                                    PlaceholderText="common" />
-                            </toolkit:SettingsCard>
                             <toolkit:SettingsCard Header="Sync boundary" Description="Microsoft To Do source fields stay separate from Openza planning fields.">
                                 <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10" Width="560">
                                     <TextBlock
                                         x:Name="MicrosoftSummaryText"
-                                        Text="Use a public Azure app registration client ID. Tokens stay in Windows credential storage."
+                                        Text="Choose a Microsoft account for Microsoft To Do."
                                         Style="{StaticResource OpenzaMetadataTextBlockStyle}"
                                         TextWrapping="Wrap" />
                                     <Button
@@ -379,6 +367,85 @@
                                 <Button Content="Delete selected" Click="OnDeleteBackupClicked" />
                             </StackPanel>
                         </StackPanel>
+                    </toolkit:SettingsExpander>
+
+                    <toolkit:SettingsExpander
+                        x:Name="OneDriveBackupExpander"
+                        Header="OneDrive backup"
+                        Description="Optional cloud backup for restoring this local-first database if this PC is lost or reset.">
+                        <toolkit:SettingsExpander.HeaderIcon>
+                            <FontIcon Glyph="&#xE753;" />
+                        </toolkit:SettingsExpander.HeaderIcon>
+                        <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                            <Border
+                                MinWidth="112"
+                                Padding="12,5"
+                                CornerRadius="14"
+                                Background="{ThemeResource OpenzaChipBackgroundBrush}">
+                                <TextBlock
+                                    x:Name="OneDriveBackupStatusText"
+                                    Text="Off"
+                                    Style="{StaticResource OpenzaCaptionTextBlockStyle}"
+                                    TextAlignment="Center" />
+                            </Border>
+                        </StackPanel>
+                        <toolkit:SettingsExpander.Items>
+                            <toolkit:SettingsCard Header="Cloud backup" Description="Backups stay local unless this is turned on.">
+                                <ToggleSwitch
+                                    x:Name="OneDriveBackupSwitch"
+                                    OnContent="On"
+                                    OffContent="Off"
+                                    AutomationProperties.Name="OneDrive cloud backup"
+                                    Toggled="OnOneDriveBackupToggled" />
+                            </toolkit:SettingsCard>
+                            <toolkit:SettingsCard Header="Passphrase encryption" Description="Encrypt backup files before they leave this PC. Restore on a new PC requires the passphrase.">
+                                <ToggleSwitch
+                                    x:Name="OneDriveEncryptionSwitch"
+                                    OnContent="Encrypted"
+                                    OffContent="OneDrive protected"
+                                    AutomationProperties.Name="OneDrive backup passphrase encryption"
+                                    Toggled="OnOneDriveEncryptionToggled" />
+                            </toolkit:SettingsCard>
+                            <toolkit:SettingsCard Header="Status" Description="Review the last cloud backup result.">
+                                <StackPanel Spacing="4" Width="520">
+                                    <TextBlock
+                                        x:Name="OneDriveBackupSummaryText"
+                                        Text="OneDrive backup is off."
+                                        Style="{StaticResource OpenzaMetadataTextBlockStyle}"
+                                        TextWrapping="Wrap" />
+                                    <TextBlock
+                                        x:Name="OneDriveBackupDetailText"
+                                        Text="When passphrase encryption is off, files are protected by your Microsoft account and OneDrive, not by Openza end-to-end encryption."
+                                        Style="{StaticResource OpenzaCaptionTextBlockStyle}"
+                                        TextWrapping="Wrap" />
+                                </StackPanel>
+                            </toolkit:SettingsCard>
+                            <toolkit:SettingsCard Header="Cloud backups" Description="Upload a fresh backup, refresh OneDrive, or restore a selected cloud backup.">
+                                <StackPanel Spacing="12" Width="560">
+                                    <CommandBar Background="Transparent" DefaultLabelPosition="Right">
+                                        <AppBarButton Icon="Upload" Label="Upload now" Click="OnUploadOneDriveBackupClicked" />
+                                        <AppBarButton Icon="Refresh" Label="Refresh" Click="OnRefreshOneDriveBackupsClicked" />
+                                        <AppBarButton Icon="Download" Label="Restore" Click="OnRestoreOneDriveBackupClicked" />
+                                        <AppBarButton Label="Account" Click="OnChangeOneDriveAccountClicked">
+                                            <AppBarButton.Icon>
+                                                <FontIcon Glyph="&#xE77B;" />
+                                            </AppBarButton.Icon>
+                                        </AppBarButton>
+                                        <AppBarButton Label="Passphrase" Click="OnChangeOneDrivePassphraseClicked">
+                                            <AppBarButton.Icon>
+                                                <FontIcon Glyph="&#xE72E;" />
+                                            </AppBarButton.Icon>
+                                        </AppBarButton>
+                                    </CommandBar>
+                                    <ListView
+                                        x:Name="OneDriveBackupsList"
+                                        MinHeight="140"
+                                        MaxHeight="280"
+                                        ItemsSource="{x:Bind CloudBackups, Mode=OneWay}"
+                                        DisplayMemberPath="DisplayName" />
+                                </StackPanel>
+                            </toolkit:SettingsCard>
+                        </toolkit:SettingsExpander.Items>
                     </toolkit:SettingsExpander>
                 </StackPanel>
 

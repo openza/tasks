@@ -84,8 +84,7 @@ public partial class App : Application
 
             var credentials = new WindowsCredentialStore();
             var syncEngine = new TaskSyncEngine(store);
-            var microsoftAuth = new MicrosoftToDoAuthService(
-                credentials,
+            var microsoftAuth = new MicrosoftGraphAuthService(
                 Path.Combine(appData, "msal-cache.bin"),
                 () => _window is null ? IntPtr.Zero : WindowNative.GetWindowHandle(_window));
 

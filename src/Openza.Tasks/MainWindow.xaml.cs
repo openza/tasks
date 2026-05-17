@@ -21,7 +21,7 @@ public sealed partial class MainWindow : Window
         ICredentialStore credentials,
         BackupService backupService,
         AppSettingsService settings,
-        MicrosoftToDoAuthService microsoftAuth,
+        MicrosoftGraphAuthService microsoftAuth,
         BackupInfo? startupRecoveryCandidate = null)
     {
         _settings = settings;

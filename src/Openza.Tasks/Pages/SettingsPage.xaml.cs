@@ -22,12 +22,21 @@ public sealed partial class SettingsPage : UserControl
     public event RoutedEventHandler? RestoreSelectedBackupClicked;
     public event RoutedEventHandler? DeleteBackupClicked;
     public event RoutedEventHandler? AutoBackupToggled;
+    public event RoutedEventHandler? OneDriveBackupToggled;
+    public event RoutedEventHandler? OneDriveEncryptionToggled;
+    public event RoutedEventHandler? UploadOneDriveBackupClicked;
+    public event RoutedEventHandler? RefreshOneDriveBackupsClicked;
+    public event RoutedEventHandler? RestoreOneDriveBackupClicked;
+    public event RoutedEventHandler? ChangeOneDriveAccountClicked;
+    public event RoutedEventHandler? ChangeOneDrivePassphraseClicked;
     public event RoutedEventHandler? AutoSyncToggled;
     public event RoutedEventHandler? AddSpaceClicked;
     public event TypedEventHandler<SettingsPage, string>? RenameSpaceClicked;
     public event TypedEventHandler<SettingsPage, string>? ArchiveSpaceClicked;
 
     public ObservableCollection<BackupInfo> Backups { get; } = [];
+
+    public ObservableCollection<CloudBackupInfo> CloudBackups { get; } = [];
 
     public ObservableCollection<SpaceSettingsItemViewModel> Spaces { get; } = [];
 
@@ -40,16 +49,26 @@ public sealed partial class SettingsPage : UserControl
 
     public string TodoistToken => TodoistTokenBox.Password;
 
-    public string MicrosoftClientId => MicrosoftClientIdBox.Text.Trim();
-
-    public string MicrosoftTenantId => string.IsNullOrWhiteSpace(MicrosoftTenantIdBox.Text) ? "common" : MicrosoftTenantIdBox.Text.Trim();
-
     public BackupInfo? SelectedBackup => BackupsList.SelectedItem as BackupInfo;
+
+    public CloudBackupInfo? SelectedCloudBackup => OneDriveBackupsList.SelectedItem as CloudBackupInfo;
 
     public bool AutoBackupEnabled
     {
         get => AutoBackupSwitch.IsOn;
         set => AutoBackupSwitch.IsOn = value;
+    }
+
+    public bool CloudBackupEnabled
+    {
+        get => OneDriveBackupSwitch.IsOn;
+        set => OneDriveBackupSwitch.IsOn = value;
+    }
+
+    public bool CloudBackupEncryptionEnabled
+    {
+        get => OneDriveEncryptionSwitch.IsOn;
+        set => OneDriveEncryptionSwitch.IsOn = value;
     }
 
     public bool AutoSyncEnabled
@@ -60,11 +79,12 @@ public sealed partial class SettingsPage : UserControl
 
     public string NewSpaceName => NewSpaceNameBox.Text.Trim();
 
-    public void SetProviderStatus(bool todoistConnected, bool microsoftConnected)
+    public void SetProviderStatus(bool todoistConnected, string? microsoftAccountUsername)
     {
-            SetIntegrationState(
-                TodoistStatusText,
-                TodoistSummaryText,
+        var microsoftConnected = !string.IsNullOrWhiteSpace(microsoftAccountUsername);
+        SetIntegrationState(
+            TodoistStatusText,
+            TodoistSummaryText,
             TodoistConnectButton,
             TodoistDisconnectButton,
             todoistConnected,
@@ -72,15 +92,15 @@ public sealed partial class SettingsPage : UserControl
             "Paste a Todoist API token to connect your account.",
             "Update token");
 
-            SetIntegrationState(
-                MicrosoftStatusText,
-                MicrosoftSummaryText,
+        SetIntegrationState(
+            MicrosoftStatusText,
+            MicrosoftSummaryText,
             MicrosoftConnectButton,
             MicrosoftDisconnectButton,
             microsoftConnected,
-            "Microsoft To Do is connected. You can update the app registration settings if needed.",
-            "Use a public Azure app registration client ID. Tokens stay in Windows credential storage.",
-            "Update");
+            $"Connected as {microsoftAccountUsername}.",
+            "Choose a Microsoft account for Microsoft To Do.",
+            "Change account");
     }
 
     private static void SetIntegrationState(
@@ -111,6 +131,65 @@ public sealed partial class SettingsPage : UserControl
     public void SetBackupFolder(string path)
     {
         BackupFolderText.Text = path;
+    }
+
+    public void SetCloudBackupAvailable(bool available)
+    {
+        OneDriveBackupExpander.Visibility = available ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    public void SetCloudBackupStatus(
+        bool enabled,
+        bool encrypted,
+        bool isBusy,
+        string? accountUsername,
+        DateTimeOffset? lastBackupAt,
+        string? error)
+    {
+        var hasAccount = !string.IsNullOrWhiteSpace(accountUsername);
+        var accountText = hasAccount
+            ? $"Backup account: {accountUsername}."
+            : "No backup account selected.";
+        if (isBusy)
+        {
+            OneDriveBackupStatusText.Text = "Uploading";
+            OneDriveBackupSummaryText.Text = $"{accountText} Openza is updating OneDrive backup.";
+        }
+        else if (!enabled)
+        {
+            OneDriveBackupStatusText.Text = "Off";
+            OneDriveBackupSummaryText.Text = $"{accountText} OneDrive backup is off.";
+        }
+        else if (!hasAccount)
+        {
+            OneDriveBackupStatusText.Text = "Sign in required";
+            OneDriveBackupSummaryText.Text = "Choose a Microsoft account for OneDrive backup.";
+        }
+        else if (!string.IsNullOrWhiteSpace(error))
+        {
+            OneDriveBackupStatusText.Text = "Needs attention";
+            OneDriveBackupSummaryText.Text = $"{accountText} {error}";
+        }
+        else
+        {
+            OneDriveBackupStatusText.Text = encrypted ? "Encrypted" : "Connected";
+            OneDriveBackupSummaryText.Text = lastBackupAt is null
+                ? $"{accountText} OneDrive backup is ready."
+                : $"{accountText} Last OneDrive backup: {lastBackupAt.Value.LocalDateTime:g}.";
+        }
+
+        OneDriveBackupDetailText.Text = encrypted
+            ? "Backups are encrypted before upload. Restore on a new PC requires the passphrase."
+            : "Files are protected by your Microsoft account and OneDrive, not by Openza end-to-end encryption.";
+    }
+
+    public void SetCloudBackups(IEnumerable<CloudBackupInfo> backups)
+    {
+        CloudBackups.Clear();
+        foreach (var backup in backups)
+        {
+            CloudBackups.Add(backup);
+        }
     }
 
     public void SetSpaces(IEnumerable<SpaceSettingsItemViewModel> spaces)
@@ -147,12 +226,6 @@ public sealed partial class SettingsPage : UserControl
         SpacesInfo.Message = message;
         SpacesInfo.Severity = severity;
         SpacesInfo.IsOpen = true;
-    }
-
-    public void SetMicrosoftConfig(string clientId, string tenantId)
-    {
-        MicrosoftClientIdBox.Text = clientId;
-        MicrosoftTenantIdBox.Text = string.IsNullOrWhiteSpace(tenantId) ? "common" : tenantId;
     }
 
     private void OnThemeChanged(object sender, SelectionChangedEventArgs e) => ThemeChanged?.Invoke(sender, e);
@@ -205,6 +278,20 @@ public sealed partial class SettingsPage : UserControl
     private void OnDeleteBackupClicked(object sender, RoutedEventArgs e) => DeleteBackupClicked?.Invoke(sender, e);
 
     private void OnAutoBackupToggled(object sender, RoutedEventArgs e) => AutoBackupToggled?.Invoke(sender, e);
+
+    private void OnOneDriveBackupToggled(object sender, RoutedEventArgs e) => OneDriveBackupToggled?.Invoke(sender, e);
+
+    private void OnOneDriveEncryptionToggled(object sender, RoutedEventArgs e) => OneDriveEncryptionToggled?.Invoke(sender, e);
+
+    private void OnUploadOneDriveBackupClicked(object sender, RoutedEventArgs e) => UploadOneDriveBackupClicked?.Invoke(sender, e);
+
+    private void OnRefreshOneDriveBackupsClicked(object sender, RoutedEventArgs e) => RefreshOneDriveBackupsClicked?.Invoke(sender, e);
+
+    private void OnRestoreOneDriveBackupClicked(object sender, RoutedEventArgs e) => RestoreOneDriveBackupClicked?.Invoke(sender, e);
+
+    private void OnChangeOneDriveAccountClicked(object sender, RoutedEventArgs e) => ChangeOneDriveAccountClicked?.Invoke(sender, e);
+
+    private void OnChangeOneDrivePassphraseClicked(object sender, RoutedEventArgs e) => ChangeOneDrivePassphraseClicked?.Invoke(sender, e);
 
     private void OnAutoSyncToggled(object sender, RoutedEventArgs e) => AutoSyncToggled?.Invoke(sender, e);
 

@@ -25,8 +25,10 @@
 
   <PropertyGroup>
     <LocalPackageCertificateKeyFile>Openza.Tasks_TemporaryKey.pfx</LocalPackageCertificateKeyFile>
-    <MicrosoftToDoClientId Condition="'$(MicrosoftToDoClientId)' == ''"></MicrosoftToDoClientId>
-    <MicrosoftToDoTenantId Condition="'$(MicrosoftToDoTenantId)' == ''">common</MicrosoftToDoTenantId>
+    <MicrosoftGraphClientId Condition="'$(MicrosoftGraphClientId)' == '' and '$(MicrosoftToDoClientId)' != ''">$(MicrosoftToDoClientId)</MicrosoftGraphClientId>
+    <MicrosoftGraphClientId Condition="'$(MicrosoftGraphClientId)' == ''">10fd954c-9eb7-4344-a6b4-9919e2ed5f8a</MicrosoftGraphClientId>
+    <MicrosoftGraphTenantId Condition="'$(MicrosoftGraphTenantId)' == '' and '$(MicrosoftToDoTenantId)' != ''">$(MicrosoftToDoTenantId)</MicrosoftGraphTenantId>
+    <MicrosoftGraphTenantId Condition="'$(MicrosoftGraphTenantId)' == ''">common</MicrosoftGraphTenantId>
     <LocalPackageSigningEnabled Condition="'$(LocalPackageSigningEnabled)' == ''">false</LocalPackageSigningEnabled>
     <AppxPackageSigningEnabled Condition="'$(LocalPackageSigningEnabled)' == 'true' and Exists('$(LocalPackageCertificateKeyFile)')">true</AppxPackageSigningEnabled>
     <AppxPackageSigningEnabled Condition="'$(LocalPackageSigningEnabled)' != 'true' or !Exists('$(LocalPackageCertificateKeyFile)')">false</AppxPackageSigningEnabled>
@@ -42,14 +44,14 @@
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.7" />
   </ItemGroup>
 
-  <ItemGroup Condition="'$(MicrosoftToDoClientId)' != ''">
+  <ItemGroup Condition="'$(MicrosoftGraphClientId)' != ''">
     <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
-      <_Parameter1>MicrosoftToDoClientId</_Parameter1>
-      <_Parameter2>$(MicrosoftToDoClientId)</_Parameter2>
+      <_Parameter1>MicrosoftGraphClientId</_Parameter1>
+      <_Parameter2>$(MicrosoftGraphClientId)</_Parameter2>
     </AssemblyAttribute>
     <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
-      <_Parameter1>MicrosoftToDoTenantId</_Parameter1>
-      <_Parameter2>$(MicrosoftToDoTenantId)</_Parameter2>
+      <_Parameter1>MicrosoftGraphTenantId</_Parameter1>
+      <_Parameter2>$(MicrosoftGraphTenantId)</_Parameter2>
     </AssemblyAttribute>
   </ItemGroup>
 
