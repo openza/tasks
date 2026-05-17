@@ -13,7 +13,8 @@ Openza Tasks supports multiple task providers. You can connect one or more provi
 |----------|--------|-------------|
 | Local Tasks | Fully Supported | N/A (offline) |
 | Todoist | Fully Supported | API Token |
-| Microsoft To Do | Supported | MSAL.NET with Windows Web Account Manager |
+| Microsoft To Do | Supported | Microsoft sign-in with MSAL.NET |
+| OneDrive Backup | Optional | Microsoft sign-in with MSAL.NET |
 
 ## First Launch
 
@@ -26,14 +27,14 @@ When you first launch Openza Tasks, you can start using it immediately with loca
 ## Provider Setup Guides
 
 - [Todoist Setup](/tasks/guides/todoist-setup) - Connect your Todoist account with API token
-- [Microsoft To Do Setup](/tasks/guides/mstodo-setup) - Connect your Microsoft account with MSAL/WAM
+- [Microsoft To Do Setup](/tasks/guides/mstodo-setup) - Connect the Microsoft account Openza should use for Microsoft To Do
 
 ## Settings
 
 Access settings from the left navigation. Available sections include:
 
 - **Appearance** - Toggle between light and dark themes
-- **Providers** - Connect or disconnect Todoist and Microsoft To Do
-- **Backup** - Configure automatic backups and restore from previous backups
+- **Integrations** - Connect or disconnect Todoist and Microsoft To Do
+- **Backups** - Configure local backups, optional OneDrive backup, and restore from previous backups
 
 Import and export actions are available from the task command bar.

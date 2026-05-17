@@ -29,7 +29,7 @@ jobs:
         run: dotnet test src\Openza.Tasks.Tests\Openza.Tasks.Tests.csproj -c Release --no-restore
 
       - name: Build app
-        run: dotnet build src\Openza.Tasks\Openza.Tasks.csproj -c Release --no-restore
+        run: dotnet build src\Openza.Tasks\Openza.Tasks.csproj -c Release -p:Platform=x64 --no-restore
 
   release:
     needs: validate-windows

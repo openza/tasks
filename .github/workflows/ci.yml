@@ -28,4 +28,29 @@ jobs:
         run: dotnet test src\Openza.Tasks.Tests\Openza.Tasks.Tests.csproj -c Release --no-restore
 
       - name: Build app
-        run: dotnet build src\Openza.Tasks\Openza.Tasks.csproj -c Release --no-restore
+        run: dotnet build src\Openza.Tasks\Openza.Tasks.csproj -c Release -p:Platform=x64 --no-restore
+
+  docs:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+          cache-dependency-path: website/pnpm-lock.yaml
+
+      - name: Install docs dependencies
+        run: pnpm --dir website install --frozen-lockfile
+
+      - name: Build docs
+        run: pnpm --dir website build

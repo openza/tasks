@@ -5,7 +5,7 @@ description: Connect your Microsoft To Do account to Openza Tasks
 
 import { Steps, Aside } from '@astrojs/starlight/components';
 
-Openza Tasks syncs Microsoft To Do through Microsoft Graph using MSAL.NET with Windows Web Account Manager (WAM).
+Openza Tasks syncs Microsoft To Do through Microsoft Graph using MSAL.NET. Windows Web Account Manager (WAM) is used when available, with browser sign-in as a fallback.
 
 <Aside type="caution">
   Microsoft To Do integration requires a Microsoft personal or work/school account.
@@ -16,21 +16,15 @@ Openza Tasks syncs Microsoft To Do through Microsoft Graph using MSAL.NET with W
 <Steps>
 1. **Open Settings** in Openza Tasks
 
-2. **Confirm the Microsoft app client ID**
+2. **Click Connect Microsoft To Do**
 
-   Store builds can include this automatically. Source builds can set `OPENZA_TASKS_MSTODO_CLIENT_ID`, pass `-p:MicrosoftToDoClientId=...` at build time, or paste the public client ID in Settings.
+3. **Choose the Microsoft account for this feature**
 
-   For source builds, the Azure app registration must be a public client/native app and include this redirect URI:
-
-   ```text
-   ms-appx-web://microsoft.aad.brokerplugin/{client_id}
-   ```
-
-3. **Click Connect Microsoft To Do**
+   Openza uses its built-in public Microsoft app registration. You do not need to paste a client ID or configure Azure.
 
 4. **Sign in with Microsoft**
 
-   Windows shows the account broker sign-in experience and may reuse a Windows account already connected to the device.
+   Windows may show the native account broker. If broker sign-in is unavailable, Openza can fall back to browser sign-in.
 
 5. **Run Sync**
 </Steps>
@@ -49,14 +43,6 @@ Openza Tasks syncs Microsoft To Do through Microsoft Graph using MSAL.NET with W
 
 ## Troubleshooting
 
-### Client ID missing
-
-Open-source source builds need a public Azure app registration client ID. This is not a client secret.
-
-### Broker redirect URI missing
-
-If sign-in fails immediately after choosing an account, verify that the Azure app registration includes `ms-appx-web://microsoft.aad.brokerplugin/{client_id}` as a mobile and desktop redirect URI.
-
 ### Sign-in or refresh issues
 
 If Microsoft sync stops:
@@ -65,5 +51,5 @@ If Microsoft sync stops:
 3. Run Sync
 
 <Aside type="tip">
-  The current access token is stored in Windows Credential Locker. The MSAL cache is stored locally and encrypted for the current Windows user.
+  Microsoft To Do and OneDrive backup can use different Microsoft accounts. Microsoft tokens are kept in the local MSAL cache encrypted for the current Windows user.
 </Aside>

@@ -9,6 +9,8 @@ Openza Tasks is a Windows-native task manager for people who want fast local tas
 - **Native Windows app** - WinUI 3, MSIX packaging, Mica where available
 - **Local-first storage** - tasks, projects, labels, backups, and imports live on your device
 - **Provider sync** - optional Todoist and Microsoft To Do reconnect/sync
+- **Durable backups** - automatic and manual SQLite backups are stored outside package state
+- **Optional OneDrive backup** - restorable backup snapshots can be uploaded to the app's OneDrive folder
 - **Focused task layout** - navigation, projects, task list, and details in one productive surface
 - **Markdown import/export** - import GFM checkboxes and export tasks grouped by project
 - **Clean local database** - Store V1 starts fresh with planner-ready local data
@@ -66,11 +68,11 @@ The sync engine is C# in `Openza.Tasks.Core`. The previous Rust FFI engine is no
 See [docs/architecture.md](docs/architecture.md) for the V3 task model, provider wrapper pattern, and future sync-route design.
 See [docs/design-guidelines.md](docs/design-guidelines.md) for the Openza Calm Fluent production UI language.
 
-For Microsoft To Do source builds, provide a public Azure app registration client ID via `OPENZA_TASKS_MSTODO_CLIENT_ID`, the Settings page, or `-p:MicrosoftToDoClientId=...` during build. The Azure app registration must allow public client flows and include the WAM redirect URI `ms-appx-web://microsoft.aad.brokerplugin/{client_id}`. Do not commit client secrets.
+Microsoft To Do and OneDrive backup use Openza's built-in public Microsoft app registration. Developers can override the public client ID at build time for testing, but normal users do not need to configure Azure app registrations or client IDs.
 
 ## Privacy
 
-Openza Tasks does not add telemetry or analytics. Provider tokens are stored locally using Windows Credential Locker. See [PRIVACY.md](PRIVACY.md).
+Openza Tasks does not add telemetry or analytics. Todoist tokens and OneDrive backup passphrases are stored locally using Windows Credential Locker. Microsoft sign-in uses the local MSAL cache encrypted for the current Windows user. See [PRIVACY.md](PRIVACY.md).
 
 ## License
 

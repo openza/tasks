@@ -5,7 +5,7 @@ description: Protect your tasks with automatic backups
 
 import { Steps, Aside } from '@astrojs/starlight/components';
 
-Openza Tasks can automatically back up your local database to protect your tasks from data loss.
+Openza Tasks can automatically back up your local SQLite database to protect your tasks from data loss.
 
 ## Automatic Backups
 
@@ -80,13 +80,24 @@ External backups are restored directly without being added to your backup list.
 
 ## Backup Storage
 
-- Backups are stored in your app data folder
-- Up to **7 backups** are retained automatically
-- Oldest backups are deleted when the limit is reached
+- Backups are stored in a stable Openza backup folder outside Windows package `LocalState`
+- Production and dev builds use separate backup folders
+- Retention keeps recent daily, weekly, monthly, and event backups
+- Older package-local backups are copied forward when found, but not deleted automatically
+
+## OneDrive Backup
+
+OneDrive backup is optional and disabled by default. When enabled, Openza uploads backup snapshots to its app folder in the Microsoft account you choose for OneDrive backup.
+
+<Aside type="note">
+OneDrive backup is cloud backup, not multi-device live sync. Your local SQLite database remains the primary database.
+</Aside>
+
+You can enable passphrase encryption so backup files are encrypted before upload. On a new PC, encrypted OneDrive backups require the passphrase.
 
 ## Best Practices
 
 - Keep auto-backup enabled for peace of mind
-- Download important backups to external storage
+- Enable OneDrive backup if you want recovery after PC loss, reset, or disk failure
 - After major changes, create a manual backup
-- Before restoring, download your current data first
+- Before restoring, Openza creates a safety backup of the current database
