@@ -1,56 +1,40 @@
 ---
 title: Introduction
-description: Welcome to Openza Tasks - Local First Task Organizer for Linux and Windows
+description: Welcome to Openza Tasks - Windows-native local-first task management
 ---
 
 import { Card, CardGrid } from '@astrojs/starlight/components';
 
-**Local First. Open Source.**
+**Windows Native. Local First. Open Source.**
 
-A local-first task organizer for Linux and Windows. Store tasks locally and optionally sync with Todoist or Microsoft To-Do, or extract tasks from your Obsidian vault.
+Openza Tasks is the flagship Openza task manager for Windows. It stores your task data locally in SQLite, supports Markdown import/export, and can reconnect to Todoist and Microsoft To Do when you want provider sync.
 
 ## Features
 
 <CardGrid stagger>
+  <Card title="Native Windows App" icon="laptop">
+    Built with WinUI 3 and Windows App SDK for a modern Windows experience.
+  </Card>
   <Card title="Local-First Storage" icon="seti:db">
-    Your tasks live on your device, always accessible. No account required.
+    Start without an account. Your tasks stay available on your device.
   </Card>
   <Card title="Provider Sync" icon="puzzle">
-    Connect Todoist or Microsoft To-Do to sync tasks, or extract tasks from an Obsidian vault.
+    Connect Todoist or Microsoft To Do only when you want external sync.
   </Card>
-  <Card title="4-Pane GTD Layout" icon="laptop">
-    Productivity-focused interface with Navigation, Projects, Tasks, and Details panes.
+  <Card title="Durable Backups" icon="seti:config">
+    Local backups live outside Windows package state, with optional OneDrive backup snapshots.
   </Card>
-  <Card title="Automatic Backups" icon="document">
-    Daily automatic backups keep your data safe. Restore, download, or import backups anytime.
-  </Card>
-  <Card title="Dark Theme" icon="moon">
-    Beautiful dark theme support for comfortable use in any lighting condition.
-  </Card>
-  <Card title="Import & Export" icon="random">
-    Import tasks from markdown files and export your data for backup or sharing.
-  </Card>
-  <Card title="Native Performance" icon="rocket">
-    Built with Flutter for smooth, responsive desktop performance. Quick to launch, easy on resources.
-  </Card>
-  <Card title="Secure by Design" icon="shield">
-    OAuth 2.0 authentication with encrypted local storage. Your credentials stay safe.
+  <Card title="Productive Layout" icon="document">
+    Navigation, projects, task lists, source intake, and details are designed for repeated daily use.
   </Card>
   <Card title="Open Source" icon="github">
-    MIT licensed and fully open source. Fork it, improve it, share it.
+    MIT licensed and open for contributions.
   </Card>
 </CardGrid>
 
 ## Quick Start
 
-1. [Install Openza Tasks](/tasks/getting-started/installation) on your system
-2. [Configure your task providers](/tasks/getting-started/configuration)
-3. Start managing your tasks with a beautiful interface
-
-## What's Next?
-
-- Learn how to [connect Todoist](/tasks/guides/todoist-setup)
-- Learn how to [connect Microsoft To-Do](/tasks/guides/mstodo-setup)
-- Learn how to [connect Obsidian](/tasks/guides/obsidian-setup)
-- Explore the [dashboard layout](/tasks/features/dashboard)
-- Learn about [backup & restore](/tasks/features/backup)
+1. [Install Openza Tasks](/tasks/getting-started/installation) on Windows.
+2. [Configure your task providers](/tasks/getting-started/configuration) if you want sync.
+3. Add local tasks, import Markdown checkboxes, or sync provider tasks into Inbox review.
+4. Keep local backups enabled, and optionally add OneDrive backup for device-loss recovery.

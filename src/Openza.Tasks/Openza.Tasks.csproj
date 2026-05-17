@@ -1,0 +1,81 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.19045.0</TargetPlatformMinVersion>
+    <SupportedOSPlatformVersion>10.0.19045.0</SupportedOSPlatformVersion>
+    <Platforms>AnyCPU;x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
+    <UseWinUI>true</UseWinUI>
+    <EnableMsixTooling>true</EnableMsixTooling>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <UseDotNetNativeToolchain>false</UseDotNetNativeToolchain>
+    <RootNamespace>Openza.Tasks</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <GenerateAppxPackageOnBuild>false</GenerateAppxPackageOnBuild>
+    <GenerateAppInstallerFile>False</GenerateAppInstallerFile>
+    <AppxPackageSigningTimestampDigestAlgorithm>SHA256</AppxPackageSigningTimestampDigestAlgorithm>
+    <AppxAutoIncrementPackageRevision>True</AppxAutoIncrementPackageRevision>
+    <GenerateTestArtifacts>False</GenerateTestArtifacts>
+    <AppxBundle>Never</AppxBundle>
+    <HoursBetweenUpdateChecks>0</HoursBetweenUpdateChecks>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <LocalPackageCertificateKeyFile>Openza.Tasks_TemporaryKey.pfx</LocalPackageCertificateKeyFile>
+    <MicrosoftGraphClientId Condition="'$(MicrosoftGraphClientId)' == '' and '$(MicrosoftToDoClientId)' != ''">$(MicrosoftToDoClientId)</MicrosoftGraphClientId>
+    <MicrosoftGraphClientId Condition="'$(MicrosoftGraphClientId)' == ''">10fd954c-9eb7-4344-a6b4-9919e2ed5f8a</MicrosoftGraphClientId>
+    <MicrosoftGraphTenantId Condition="'$(MicrosoftGraphTenantId)' == '' and '$(MicrosoftToDoTenantId)' != ''">$(MicrosoftToDoTenantId)</MicrosoftGraphTenantId>
+    <MicrosoftGraphTenantId Condition="'$(MicrosoftGraphTenantId)' == ''">common</MicrosoftGraphTenantId>
+    <LocalPackageSigningEnabled Condition="'$(LocalPackageSigningEnabled)' == ''">false</LocalPackageSigningEnabled>
+    <AppxPackageSigningEnabled Condition="'$(LocalPackageSigningEnabled)' == 'true' and Exists('$(LocalPackageCertificateKeyFile)')">true</AppxPackageSigningEnabled>
+    <AppxPackageSigningEnabled Condition="'$(LocalPackageSigningEnabled)' != 'true' or !Exists('$(LocalPackageCertificateKeyFile)')">false</AppxPackageSigningEnabled>
+    <PackageCertificateKeyFile Condition="'$(LocalPackageSigningEnabled)' == 'true' and Exists('$(LocalPackageCertificateKeyFile)')">$(LocalPackageCertificateKeyFile)</PackageCertificateKeyFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+    <PackageReference Include="CommunityToolkit.WinUI.Controls.SettingsControls" Version="8.2.250402" />
+    <PackageReference Include="Microsoft.Identity.Client" Version="4.84.0" />
+    <PackageReference Include="Microsoft.Identity.Client.Broker" Version="4.84.0" />
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.0.1" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.7" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(MicrosoftGraphClientId)' != ''">
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>MicrosoftGraphClientId</_Parameter1>
+      <_Parameter2>$(MicrosoftGraphClientId)</_Parameter2>
+    </AssemblyAttribute>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>MicrosoftGraphTenantId</_Parameter1>
+      <_Parameter2>$(MicrosoftGraphTenantId)</_Parameter2>
+    </AssemblyAttribute>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Openza.Tasks.Core\Openza.Tasks.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(Configuration)' == 'Debug'">
+    <AppxManifest Include="Package.Dev.appxmanifest" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(Configuration)' != 'Debug'">
+    <AppxManifest Include="Package.appxmanifest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="Assets\*.png" />
+    <None Include="Package.appxmanifest" />
+    <None Include="Package.Dev.appxmanifest" />
+  </ItemGroup>
+
+  <Target Name="DisableStoreUploadPackagingForCommandLineBuild" BeforeTargets="_GenerateAppxUploadPackageRecipe;_GenerateAppxUploadPackageFile;_CreateAppStoreContainerForUAP;GenerateUploadMsixPackage" Condition="'$(BuildingInsideVisualStudio)' != 'true' and '$(GenerateAppxPackageOnBuild)' != 'true' and '$(PublishAppxPackage)' != 'true'">
+    <PropertyGroup>
+      <BuildAppxUploadPackageForUap>false</BuildAppxUploadPackageForUap>
+    </PropertyGroup>
+  </Target>
+</Project>

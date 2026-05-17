@@ -1,0 +1,174 @@
+<UserControl
+    x:Class="Openza.Tasks.Controls.ProjectsPaneControl"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="using:Openza.Tasks.ViewModels">
+    <Grid
+        Padding="{StaticResource PanePadding}"
+        BorderBrush="{ThemeResource OpenzaBorderBrush}"
+        BorderThickness="0,0,1,0"
+        Background="{ThemeResource OpenzaPaneBackgroundBrush}"
+        RowDefinitions="Auto,Auto,Auto,*"
+        RowSpacing="12">
+        <Grid ColumnDefinitions="*,Auto">
+            <StackPanel Spacing="2">
+                <TextBlock Text="Projects" Style="{ThemeResource SubtitleTextBlockStyle}" />
+                <TextBlock
+                    Text="Filter all tasks"
+                    Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
+            </StackPanel>
+            <Button
+                Grid.Column="1"
+                Width="36"
+                Height="36"
+                Padding="0"
+                Click="OnAddProjectClicked"
+                ToolTipService.ToolTip="New project"
+                AutomationProperties.Name="New project">
+                <FontIcon Glyph="&#xE710;" FontSize="16" />
+            </Button>
+        </Grid>
+
+        <AutoSuggestBox
+            x:Name="ProjectSearchBox"
+            Grid.Row="1"
+            PlaceholderText="Filter projects"
+            QueryIcon="Find"
+            TextChanged="OnProjectSearchTextChanged" />
+
+        <ComboBox
+            x:Name="ProjectFilterBox"
+            Grid.Row="2"
+            HorizontalAlignment="Stretch"
+            SelectionChanged="OnProjectFilterChanged">
+            <ComboBoxItem Content="All projects" Tag="all" IsSelected="True" />
+            <ComboBoxItem Content="Active" Tag="active" />
+            <ComboBoxItem Content="Completed" Tag="completed" />
+            <ComboBoxItem Content="Archived" Tag="archived" />
+        </ComboBox>
+
+        <ScrollViewer
+            Grid.Row="3"
+            Padding="0,0,8,0"
+            HorizontalScrollBarVisibility="Disabled"
+            VerticalScrollBarVisibility="Hidden">
+            <ItemsControl
+                x:Name="ProjectGroupsList"
+                ItemsSource="{x:Bind ProjectGroups, Mode=OneWay}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:ProjectGroupViewModel">
+                        <StackPanel Margin="0,0,0,18">
+                            <Button
+                                HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Stretch"
+                                MinHeight="30"
+                                Padding="4,6"
+                                Background="Transparent"
+                                BorderBrush="Transparent"
+                                BorderThickness="0"
+                                Visibility="{x:Bind HeaderVisibility}"
+                                Tag="{x:Bind Id}"
+                                Click="OnProjectGroupHeaderClicked">
+                                <Grid ColumnDefinitions="18,*,Auto,18" ColumnSpacing="8">
+                                    <FontIcon
+                                        Glyph="{x:Bind Glyph}"
+                                        FontSize="13"
+                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    <TextBlock
+                                        Grid.Column="1"
+                                        Text="{x:Bind Name}"
+                                        FontSize="13"
+                                        FontWeight="SemiBold"
+                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    <TextBlock
+                                        Grid.Column="2"
+                                        Text="{x:Bind CountText}"
+                                        Margin="8,0,0,0"
+                                        Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
+                                    <FontIcon
+                                        Grid.Column="3"
+                                        Glyph="{x:Bind ExpandGlyph}"
+                                        FontSize="12"
+                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                </Grid>
+                            </Button>
+                            <ItemsControl
+                                ItemsSource="{x:Bind Projects}"
+                                Visibility="{x:Bind ProjectsVisibility}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:ProjectListItemViewModel">
+                                        <Button
+                                            HorizontalAlignment="Stretch"
+                                            HorizontalContentAlignment="Stretch"
+                                            MinHeight="42"
+                                            Margin="0,1"
+                                            Padding="3,6"
+                                            Background="Transparent"
+                                            BorderBrush="Transparent"
+                                            BorderThickness="0"
+                                            CornerRadius="6"
+                                            Tag="{x:Bind Id}"
+                                            Click="OnProjectButtonClicked"
+                                            ToolTipService.ToolTip="{x:Bind Name}"
+                                            AutomationProperties.Name="{x:Bind AccessibilityName}">
+                                            <Button.Resources>
+                                                <StaticResource x:Key="ButtonBackgroundPointerOver" ResourceKey="OpenzaRowHoverBrush" />
+                                                <StaticResource x:Key="ButtonBackgroundPressed" ResourceKey="OpenzaRowSelectedBrush" />
+                                                <StaticResource x:Key="ButtonBorderBrushPointerOver" ResourceKey="OpenzaBorderBrush" />
+                                                <StaticResource x:Key="ButtonBorderBrushPressed" ResourceKey="OpenzaBorderBrush" />
+                                            </Button.Resources>
+                                            <Button.ContextFlyout>
+                                                <MenuFlyout>
+                                                    <MenuFlyoutItem
+                                                        Text="Edit"
+                                                        Tag="{x:Bind Id}"
+                                                        IsEnabled="{x:Bind CanEdit}"
+                                                        Click="OnEditProjectClicked" />
+                                                    <MenuFlyoutItem
+                                                        Text="Delete"
+                                                        Tag="{x:Bind Id}"
+                                                        IsEnabled="{x:Bind CanDelete}"
+                                                        Click="OnDeleteProjectClicked" />
+                                                </MenuFlyout>
+                                            </Button.ContextFlyout>
+                                            <Grid ColumnDefinitions="16,*,Auto" ColumnSpacing="7">
+                                                <Border
+                                                    Width="3"
+                                                    CornerRadius="2"
+                                                    HorizontalAlignment="Left"
+                                                    Margin="-3,4,0,4"
+                                                    Background="{ThemeResource OpenzaAccentBrush}"
+                                                    Opacity="{x:Bind IsSelectedOpacity}" />
+                                                <FontIcon
+                                                    Glyph="{x:Bind Glyph}"
+                                                    FontSize="13"
+                                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                                <Grid
+                                                    Grid.Column="1"
+                                                    VerticalAlignment="Center">
+                                                    <TextBlock
+                                                        Text="{x:Bind Name}"
+                                                        MaxLines="2"
+                                                        TextWrapping="WrapWholeWords"
+                                                        TextTrimming="CharacterEllipsis"
+                                                        FontWeight="{x:Bind NameWeight}" />
+                                                </Grid>
+                                                <TextBlock
+                                                    Grid.Column="2"
+                                                    Margin="8,0,0,0"
+                                                    VerticalAlignment="Center"
+                                                    HorizontalAlignment="Right"
+                                                    Text="{x:Bind CountText}"
+                                                    Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
+                                            </Grid>
+                                        </Button>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

@@ -3,162 +3,51 @@ title: Building from Source
 description: How to build Openza Tasks from source
 ---
 
-import { Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+import { Steps } from '@astrojs/starlight/components';
 
-Openza Tasks is built with Flutter and can be compiled for Linux and Windows.
+Openza Tasks is built with .NET, Windows App SDK, and WinUI 3.
 
 ## Prerequisites
 
-- Flutter SDK 3.7.0 or later
-- Dart SDK 3.7.0 or later
-- Rust toolchain (stable)
-- Git
+- Windows 10 22H2 or Windows 11
+- .NET 10 SDK
+- Visual Studio 2026 Community or newer with WinUI workloads
 
-### Platform Dependencies
+Install the recommended toolchain:
 
-<Tabs>
-  <TabItem label="Windows">
-    - Visual Studio 2022 with "Desktop development with C++" workload
-    - Install Rust: [rustup.rs](https://rustup.rs)
-    - Install Inno Setup (for installer):
-      ```powershell
-      winget install JRSoftware.InnoSetup
-      ```
-  </TabItem>
-  <TabItem label="Ubuntu/Debian">
-    ```bash
-    sudo apt install clang cmake ninja-build pkg-config \
-      libgtk-3-dev libsecret-1-dev libjsoncpp-dev
-    ```
-  </TabItem>
-  <TabItem label="Fedora">
-    ```bash
-    sudo dnf install clang cmake ninja-build \
-      gtk3-devel libsecret-devel jsoncpp-devel
-    ```
-  </TabItem>
-  <TabItem label="Arch">
-    ```bash
-    sudo pacman -S clang cmake ninja gtk3 libsecret jsoncpp
-    ```
-  </TabItem>
-</Tabs>
-
-### Rust Toolchain
-
-Install Rust using rustup:
-
-<Tabs>
-  <TabItem label="Windows">
-    Download and run [rustup-init.exe](https://rustup.rs)
-  </TabItem>
-  <TabItem label="Linux/macOS">
-    ```bash
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-    source ~/.cargo/env
-    ```
-  </TabItem>
-</Tabs>
+```powershell
+winget configure -f https://aka.ms/winui-config
+```
 
 ## Build Steps
 
-<Tabs>
-  <TabItem label="Windows">
-    <Steps>
-    1. **Clone the repository**
-       ```powershell
-       git clone https://github.com/openza/tasks.git
-       cd tasks
-       ```
+<Steps>
+1. Clone the repository:
 
-    2. **Install dependencies**
-       ```powershell
-       flutter pub get
-       ```
+   ```powershell
+   git clone https://github.com/openza/tasks.git
+   cd tasks
+   ```
 
-    3. **Generate code**
-       ```powershell
-       dart run build_runner build --delete-conflicting-outputs
-       ```
+2. Restore packages:
 
-    4. **Build Rust sync engine**
-       ```powershell
-       cd rust; cargo build --release; cd ..
-       copy rust\target\release\openza_sync.dll .
-       ```
+   ```powershell
+   dotnet restore Openza.Tasks.slnx
+   ```
 
-    5. **Build the application**
-       ```powershell
-       flutter build windows --release
-       ```
+3. Run tests:
 
-    6. **Create installer**
-       ```powershell
-       dart run inno_bundle --release --no-app
-       ```
-    </Steps>
+   ```powershell
+   dotnet test src\Openza.Tasks.Tests\Openza.Tasks.Tests.csproj -c Release
+   ```
 
-    The installer will be in `build/windows/x64/installer/Release/`.
-  </TabItem>
+4. Build the app:
 
-  <TabItem label="Linux">
-    <Steps>
-    1. **Clone the repository**
-       ```bash
-       git clone https://github.com/openza/tasks.git
-       cd tasks
-       ```
+   ```powershell
+   dotnet build src\Openza.Tasks\Openza.Tasks.csproj -c Release -p:Platform=x64 --no-restore
+   ```
+</Steps>
 
-    2. **Install dependencies**
-       ```bash
-       flutter pub get
-       ```
+## Visual Studio Debugging
 
-    3. **Generate code**
-       ```bash
-       dart run build_runner build --delete-conflicting-outputs
-       ```
-
-    4. **Build Rust sync engine**
-       ```bash
-       cd rust && cargo build --release && cd ..
-       ```
-
-    5. **Build the application**
-       ```bash
-       flutter build linux --release
-       ```
-    </Steps>
-
-    The built application will be in `build/linux/x64/release/bundle/`.
-
-    ### Creating an AppImage
-
-    ```bash
-    ./scripts/build-appimage.sh
-    ```
-
-    ### Creating a Flatpak
-
-    ```bash
-    ./scripts/build-flatpak.sh
-    ```
-  </TabItem>
-</Tabs>
-
-## Development Mode
-
-For development with hot reload:
-
-<Tabs>
-  <TabItem label="Windows">
-    ```powershell
-    flutter run -d windows
-    ```
-  </TabItem>
-  <TabItem label="Linux">
-    ```bash
-    flutter run -d linux
-    ```
-  </TabItem>
-</Tabs>
+Open `Openza.Tasks.slnx`, choose the `Openza Tasks` MSIX launch profile, select `x64`, enable Deploy for the app project, and press F5. Debug/F5 uses the dev package identity so local testing stays separate from the daily installed app.

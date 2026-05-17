@@ -5,57 +5,54 @@ description: Create, edit, and manage your tasks
 
 import { Steps, Aside } from '@astrojs/starlight/components';
 
-Tasks are the core of Openza Tasks. You can create local tasks or sync tasks from Todoist and Microsoft To-Do.
+Tasks are the core of Openza Tasks. You can create local Openza tasks, import Markdown checkboxes, or review tasks synced from Todoist and Microsoft To Do.
 
 ## Creating a Task
 
 <Steps>
-1. Click **Add Task** in the navigation rail
+1. Click **Add task** in the command bar
 2. Enter a title (required)
 3. Optionally set:
    - Description
    - Project (defaults to Inbox)
    - Priority (Urgent, High, Normal, Low)
-   - Due date
+   - Date or deadline
    - Labels
-4. Click **Add Task** or press Enter
+4. Click **Save task**
 </Steps>
 
 <Aside type="note">
-Only local Openza Tasks projects and labels appear in the create dialog. To add tasks to Todoist or MS To-Do projects, create them in those apps and sync.
+New tasks created in Openza are local Openza tasks. To create a new Todoist or Microsoft To Do task, create it in that provider and sync it into Openza.
 </Aside>
 
 ## Editing a Task
 
 <Steps>
 1. Click a task to open the details panel
-2. Click the **pencil icon** to enter edit mode
-3. Modify any fields
-4. Click **Save** to apply changes, or **Cancel** to discard
+2. Modify fields in the details pane
+3. Click **Save task**
 </Steps>
 
-If you have unsaved changes and try to cancel, a confirmation dialog appears.
+The details pane is the main editing surface in WinUI V1.
 
 ### Editing Synced Tasks
 
 <Aside type="note">
-Tasks from Todoist, Microsoft To-Do, and Obsidian are editable in Openza Tasks. Edits to title,
-description, due date, priority, labels, and local project assignments stay local.
+Tasks from Todoist and Microsoft To Do can be linked to local Openza task wrappers. Local planning fields such as workflow status, Openza project, priority, labels, notes, date, and deadline stay local.
 
-For Todoist and Microsoft To-Do, **only completion syncs back**. For Obsidian, the vault is never
-modified; re-sync to pull changes from your notes.
+For Todoist and Microsoft To Do, **completion and reopen are the only write-back operations** in V1.
 </Aside>
 
 ## Completing a Task
 
 Complete a task in two ways:
-- Click the **circular checkbox** on the task card or in the details panel
+- Click the checkbox on the task row or in the details panel
 - Click the **Complete** button in the details panel footer
 
 Completed tasks:
-- Show strikethrough text
 - Move to the Completed view
 - Record a completion timestamp
+- Write a completion operation back to the provider on the next sync when the task is source-linked
 
 ### Reopening a Task
 
@@ -65,7 +62,7 @@ To reopen a completed task:
 3. Click **Reopen** in the footer
 
 <Aside type="tip">
-Completing or reopening synced tasks updates the original provider (Todoist/MS To-Do) on the next sync.
+Completing or reopening source-linked tasks updates the original provider on the next sync.
 </Aside>
 
 ## Deleting a Task
@@ -76,11 +73,8 @@ Completing or reopening synced tasks updates the original provider (Todoist/MS T
 3. Confirm the deletion in the dialog
 </Steps>
 
-You can also right-click a task and select **Delete** from the context menu.
-
 <Aside type="caution">
-Deletion cannot be undone. For Todoist and Microsoft To-Do tasks, deletion also removes the task from
-the original provider. For Obsidian tasks, deletion is local only and does not change your vault.
+Deletion cannot be undone locally. If a task is still linked to an existing provider source item, Openza blocks local deletion and asks you to delete it in the provider first, then sync. If the source item is already gone, Openza can clean up the stale link and delete the local task.
 </Aside>
 
 ## Task Properties
@@ -91,29 +85,34 @@ the original provider. For Obsidian tasks, deletion is local only and does not c
 | **Description** | Additional details |
 | **Project** | Which project the task belongs to |
 | **Priority** | Urgent, High, Normal, or Low |
-| **Due Date** | When the task is due |
+| **Date** | The day the task should appear in dated views |
+| **Deadline** | The last acceptable day for the outcome |
 | **Labels** | Tags for categorization |
 | **Created** | When the task was created |
 | **Completed** | When the task was marked done |
+| **Source** | Provider context for source-linked tasks |
 
 ## Task Views
 
-Access different views from the navigation rail:
+Access different views from the left navigation:
 
 | View | Shows |
 |------|-------|
+| **Inbox** | Local inbox tasks and provider items waiting for review |
 | **Today** | Tasks due today |
 | **Overdue** | Past-due tasks (highlighted in red) |
-| **Next Actions** | Tasks that have at least one label |
+| **Next Actions** | Active tasks that have at least one label |
 | **Tasks** | All active tasks with filtering options |
 | **Completed** | Finished tasks, sorted by completion date |
 
+## Source Conflicts
+
+If a provider date changes while you have a different local date, Openza can ask which date to keep. After you choose, the decision is stored locally so the same conflict does not keep reappearing after restart.
+
 ## Quick Actions
 
-Right-click any task to access:
-- **Move to Inbox** - Quick move to Inbox
-- **Move to Project** - Move to another project
-- **Edit** - Open edit mode
-- **Delete** - Remove the task
+Task rows provide compact actions for:
+- **Copy task ID**
+- **Delete**, when the task is eligible for local deletion
 
 See [App Layout](/tasks/features/dashboard) for sorting and filtering options in the Tasks view.

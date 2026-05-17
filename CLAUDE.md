@@ -1,66 +1,35 @@
 # Openza Tasks
 
-Unified task manager for Linux integrating Todoist and Microsoft To-Do. Flutter frontend + Rust sync engine.
+Windows-native local-first task manager built with WinUI 3 and .NET.
 
 ## Tech Stack
 
-Flutter 3.7+, Rust 2024, Riverpod 3.0, Drift (SQLite), Freezed, GoRouter, OAuth 2.0
+.NET 10, Windows App SDK 2.0.x, WinUI 3, CommunityToolkit.Mvvm, Microsoft.Data.Sqlite, xUnit.
 
 ## Essential Commands
 
-```bash
-# Code generation (REQUIRED after modifying models/providers)
-flutter pub run build_runner build --delete-conflicting-outputs
-
-# Development
-./dev.sh
-
-# Verify before committing
-flutter analyze && flutter test
+```powershell
+dotnet restore Openza.Tasks.slnx
+dotnet test src\Openza.Tasks.Tests\Openza.Tasks.Tests.csproj -c Release
+dotnet build src\Openza.Tasks\Openza.Tasks.csproj -c Release --no-restore
 ```
 
 ## Critical Rules
 
-**Git:** Never work on main branch. Always create feature branches.
-
-**Database:** Never execute SQL migrations directly during development. Provide migration scripts for the developer to review and run manually. (Note: This does not apply to Drift's automatic runtime migrations for end users.)
-
-**Sync Engine:** For synced tasks, only update local-enhancement fields to avoid conflicts with Rust sync.
-
-**Code Generation:** Always regenerate after modifying `@freezed` entities or Riverpod providers.
-
-## Security
-
-**Never commit:** API keys, `.env` files, OAuth credentials, tokens
-
-**Environment files:**
-- `.env.example` - Template (committed)
-- `.env.local` - Real credentials (gitignored)
-
-**Before committing:** Run `gitleaks detect --source . --verbose`
-
-**If secrets leak:** Rotate immediately, clean git history, notify maintainers
-
-**In code:** Use `flutter_secure_storage` for credentials, never log sensitive data
+- Never commit secrets, `.env` files, generated certificates, MSIX packages, or Store-private data.
+- Run `gitleaks detect --source . --verbose` before publishing.
+- Keep provider tokens behind `ICredentialStore`; do not log token values.
+- Store V1 is a fresh-start WinUI app. Do not auto-migrate legacy Flutter databases; consider explicit import tooling later if the product decision changes.
+- XAML changes must compile through the app project.
 
 ## Architecture
 
+```text
+src/Openza.Tasks        WinUI app, Windows Credential Locker, app settings
+src/Openza.Tasks.Core   Data, migration, backup, Markdown import/export, C# sync
+src/Openza.Tasks.Tests  Unit and migration tests
 ```
-lib/domain/     → Entities, repository interfaces
-lib/data/       → Repositories, API clients, database
-lib/presentation/ → Screens, providers, widgets
-rust/           → Sync engine (FFI bridge)
-```
 
-## Patterns
+## Migration Notes
 
-- **State:** Riverpod (`ref.watch()`, `ConsumerWidget`, `FutureProvider`)
-- **Models:** Freezed for immutability, JsonSerializable for serialization
-- **Errors:** `ApiErrorHandler` + toastification for user feedback
-- **Database:** Drift ORM, WAL mode, offline-first
-
-## Links
-
-- [Repository](https://github.com/openza/tasks)
-- [Contributing Guide](CONTRIBUTING.md)
-- Maintainer: [@solankydev](https://github.com/solankydev)
+Flutter/Linux/Rust-FFI builds are legacy. The WinUI app does not ship the old Rust DLL; sync logic now lives in C# so it can later move into an Openza Sync service or CLI.

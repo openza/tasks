@@ -67,6 +67,7 @@ website/.astro/
 
 # Rust build artifacts
 rust/target/
+legacy/rust-sync-reference/target/
 
 # Compiled Rust library
 linux/libopenza_sync.so
@@ -74,3 +75,25 @@ linux/libopenza_sync.so
 # Flutter DevTools
 devtools_options.yaml
 openza_sync.dll
+
+# .NET / WinUI
+bin/
+obj/
+TestResults/
+*.user
+*.suo
+.vs/
+*.nupkg
+
+# MSIX / Store packaging
+AppPackages/
+BundleArtifacts/
+*.appx
+*.appxbundle
+*.msix
+*.msixbundle
+*.msixupload
+*.appinstaller
+*.cer
+*.pfx
+*_TemporaryKey.pfx

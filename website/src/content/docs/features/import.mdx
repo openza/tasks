@@ -1,15 +1,15 @@
 ---
 title: Import from Markdown
-description: Import tasks from markdown files or text
+description: Import tasks from markdown files
 ---
 
 import { Steps, Aside } from '@astrojs/starlight/components';
 
-Import tasks directly from markdown files or pasted text using GitHub Flavored Markdown (GFM) checkbox syntax.
+Import tasks directly from Markdown files using GitHub Flavored Markdown (GFM) checkbox syntax.
 
 ## Supported Format
 
-Openza Tasks recognizes GFM task list syntax:
+Openza Tasks recognizes GitHub Flavored Markdown task list syntax:
 
 ```markdown
 - [ ] Open task (will be imported as active)
@@ -20,61 +20,36 @@ Openza Tasks recognizes GFM task list syntax:
 
 - **Task title** - The text after the checkbox
 - **Completion status** - Based on `[ ]` (open) or `[x]` (completed)
+- **Project** - Imported tasks are placed in Inbox for review
 
 <Aside type="note">
-Priority, due dates, and labels are not imported from markdown. You can add these after import.
+Priority, dates, deadlines, labels, and source links are not imported from Markdown. Add them in task details after import.
 </Aside>
 
 ## Import Methods
 
-### Method 1: Paste Text
+### Import File
 
 <Steps>
-1. Click **Import** in the navigation rail
-2. Select the **Paste** tab
-3. Paste your markdown text
-4. Review detected tasks
-5. Click **Import**
-</Steps>
-
-### Method 2: Import File
-
-<Steps>
-1. Click **Import** in the navigation rail
-2. Select the **File** tab
-3. Click **Choose File**
-4. Select a `.md` or `.txt` file
-5. Review detected tasks
-6. Click **Import**
+1. Click **Import** in the command bar
+2. Select a `.md`, `.markdown`, or `.txt` file
+3. Openza Tasks imports detected checkboxes into Inbox
 </Steps>
 
 ## Duplicate Detection
 
-When importing, Openza Tasks checks for duplicate tasks:
-
-| Option | Behavior |
-|--------|----------|
-| Skip duplicates | Existing tasks are not modified |
-| Create anyway | Import all tasks even if duplicates exist |
-
-## Task Preview
-
-Before importing, you'll see:
-- List of all detected tasks
-- Checkbox status (open/completed)
-- Total count of tasks to import
+Duplicate detection is not part of WinUI V1. Review imported tasks after import and delete anything you do not need.
 
 <Aside type="tip">
-Review the preview carefully before importing. You can go back and edit your markdown if needed.
+Import into a clean Inbox or project-specific file when you want an easier review pass.
 </Aside>
 
 ## Safety Limits
 
 To prevent issues with large files:
 
-- **Maximum file size**: 5 MB
 - **Maximum line length**: 10,000 characters
-- **Encoding**: UTF-8 only
+- **Encoding**: UTF-8 text files are recommended
 
 ## Examples
 

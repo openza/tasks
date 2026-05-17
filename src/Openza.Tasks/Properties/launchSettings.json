@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "Openza Tasks Dev": {
+      "commandName": "MsixPackage",
+      "nativeDebugging": false
+    }
+  }
+}

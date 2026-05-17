@@ -9,7 +9,7 @@ export default defineConfig({
     sitemap(),
     starlight({
       title: 'Openza Tasks',
-      description: 'Documentation for Openza Tasks - A local-first task organizer for Linux and Windows',
+      description: 'Documentation for Openza Tasks - a Windows-native local-first task manager',
       logo: {
         src: './src/assets/logo.svg',
       },
@@ -46,7 +46,6 @@ export default defineConfig({
           items: [
             { label: 'Todoist Setup', slug: 'guides/todoist-setup' },
             { label: 'Microsoft To-Do', slug: 'guides/mstodo-setup' },
-            { label: 'Obsidian Setup', slug: 'guides/obsidian-setup' },
           ],
         },
         {

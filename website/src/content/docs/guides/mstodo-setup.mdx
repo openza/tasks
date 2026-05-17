@@ -1,35 +1,32 @@
 ---
-title: Microsoft To-Do Setup
-description: Connect your Microsoft To-Do account to Openza Tasks
+title: Microsoft To Do Setup
+description: Connect your Microsoft To Do account to Openza Tasks
 ---
 
 import { Steps, Aside } from '@astrojs/starlight/components';
 
-Openza Tasks uses Microsoft's OAuth 2.0 to securely connect to your Microsoft To-Do account.
+Openza Tasks syncs Microsoft To Do through Microsoft Graph using MSAL.NET. Windows Web Account Manager (WAM) is used when available, with browser sign-in as a fallback.
 
 <Aside type="caution">
-  Microsoft To-Do integration requires a Microsoft personal or work/school account.
+  Microsoft To Do integration requires a Microsoft personal or work/school account.
 </Aside>
 
 ## Setup Process
 
 <Steps>
-1. **Launch Openza Tasks** and click "Connect with Microsoft" on the login screen
+1. **Open Settings** in Openza Tasks
 
-2. **Sign in to Microsoft**
+2. **Click Connect Microsoft To Do**
 
-   A browser window will open for Microsoft authentication
+3. **Choose the Microsoft account for this feature**
 
-3. **Grant Permissions**
+   Openza uses its built-in public Microsoft app registration. You do not need to paste a client ID or configure Azure.
 
-   Openza Tasks requests access to:
-   - Read and write your tasks
-   - Access your task lists
-   - Read your profile information
+4. **Sign in with Microsoft**
 
-4. **Return to the App**
+   Windows may show the native account broker. If broker sign-in is unavailable, Openza can fall back to browser sign-in.
 
-   After authorization, you'll be redirected back with your tasks loaded
+5. **Run Sync**
 </Steps>
 
 ## What Syncs
@@ -39,22 +36,20 @@ Openza Tasks uses Microsoft's OAuth 2.0 to securely connect to your Microsoft To
 | Tasks | Yes |
 | Lists | Yes |
 | Due Dates | Yes |
-| Recurrence | Yes |
-| Categories | Coming soon |
+| Complete/Reopen | Yes |
+| Create/Edit/Delete write-back | Not in V1 |
+| Recurrence | Not yet |
+| Categories | Yes, imported as labels when available |
 
 ## Troubleshooting
 
-### "Tenant Not Allowed" Error
+### Sign-in or refresh issues
 
-This can occur with some organizational accounts. Contact your IT administrator to allow third-party app access.
-
-### Token Refresh Issues
-
-If you're frequently being logged out:
+If Microsoft sync stops:
 1. Disconnect your account in Settings
-2. Clear any cached data
-3. Reconnect your Microsoft account
+2. Connect Microsoft To Do again
+3. Run Sync
 
 <Aside type="tip">
-  Your tokens are stored securely in your system's secret storage service (e.g., GNOME Keyring, KWallet).
+  Microsoft To Do and OneDrive backup can use different Microsoft accounts. Microsoft tokens are kept in the local MSAL cache encrypted for the current Windows user.
 </Aside>

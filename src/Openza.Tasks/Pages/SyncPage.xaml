@@ -1,0 +1,105 @@
+<UserControl
+    x:Class="Openza.Tasks.Pages.SyncPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:toolkit="using:CommunityToolkit.WinUI.Controls">
+    <StackPanel Spacing="24">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
+            <StackPanel Spacing="4">
+                <TextBlock Text="Sync" Style="{ThemeResource TitleTextBlockStyle}" />
+                <TextBlock
+                    Text="Use Openza Tasks locally, connect integrations, or prepare future automation routes."
+                    Style="{StaticResource OpenzaMetadataTextBlockStyle}"
+                    TextWrapping="Wrap" />
+            </StackPanel>
+            <StackPanel
+                Grid.Column="1"
+                Orientation="Horizontal"
+                Spacing="10"
+                VerticalAlignment="Top">
+                <ProgressRing
+                    x:Name="SyncProgress"
+                    Width="24"
+                    Height="24"
+                    IsActive="False"
+                    Visibility="Collapsed" />
+                <Button
+                    x:Name="SyncNowButton"
+                    Content="Sync now"
+                    Click="OnRunSyncClicked" />
+            </StackPanel>
+        </Grid>
+
+        <StackPanel Spacing="10">
+            <TextBlock Text="How Openza sync works" Style="{StaticResource OpenzaSectionHeaderTextBlockStyle}" />
+            <toolkit:SettingsCard Header="Local tasks" Description="Your offline Openza workspace is always available and remains the core task database.">
+                <toolkit:SettingsCard.HeaderIcon>
+                    <FontIcon Glyph="&#xE715;" />
+                </toolkit:SettingsCard.HeaderIcon>
+            </toolkit:SettingsCard>
+            <toolkit:SettingsCard Header="Connected integrations" Description="Todoist and Microsoft To Do can import tasks; V1 writes back completion and reopen changes only.">
+                <toolkit:SettingsCard.HeaderIcon>
+                    <FontIcon Glyph="&#xE8A7;" />
+                </toolkit:SettingsCard.HeaderIcon>
+            </toolkit:SettingsCard>
+            <toolkit:SettingsCard Header="Sync routes" Description="Routes are the future automation layer for flows such as Todoist to Obsidian. The database is prepared, but route UI is deferred.">
+                <toolkit:SettingsCard.HeaderIcon>
+                    <FontIcon Glyph="&#xE8FD;" />
+                </toolkit:SettingsCard.HeaderIcon>
+            </toolkit:SettingsCard>
+        </StackPanel>
+
+        <StackPanel Spacing="10">
+            <TextBlock Text="Integrations" Style="{StaticResource OpenzaSectionHeaderTextBlockStyle}" />
+            <toolkit:SettingsCard Header="Connection status" Description="Connect integrations in Settings before running sync.">
+                <toolkit:SettingsCard.HeaderIcon>
+                    <FontIcon Glyph="&#xE8A7;" />
+                </toolkit:SettingsCard.HeaderIcon>
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <TextBlock
+                        x:Name="ProviderStatusText"
+                        Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
+                    <Button Content="Integration settings" Click="OnOpenSettingsClicked" />
+                </StackPanel>
+            </toolkit:SettingsCard>
+
+            <toolkit:SettingsCard Header="Last result" Description="Review the latest sync outcome before retrying.">
+                <toolkit:SettingsCard.HeaderIcon>
+                    <FontIcon Glyph="&#xE895;" />
+                </toolkit:SettingsCard.HeaderIcon>
+                <TextBlock
+                    x:Name="LastSyncText"
+                    Style="{StaticResource OpenzaMetadataTextBlockStyle}"
+                    TextWrapping="Wrap" />
+            </toolkit:SettingsCard>
+        </StackPanel>
+
+        <StackPanel Spacing="10">
+            <TextBlock Text="Inbox intake" Style="{StaticResource OpenzaSectionHeaderTextBlockStyle}" />
+            <toolkit:SettingsCard Header="Connected tasks wait in Inbox" Description="Run sync here, then open Inbox to decide which tasks belong in Openza.">
+                <toolkit:SettingsCard.HeaderIcon>
+                    <FontIcon Glyph="&#xE8F4;" />
+                </toolkit:SettingsCard.HeaderIcon>
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <TextBlock
+                        x:Name="SourceItemsEmptyText"
+                        Text="No connected-app tasks waiting."
+                        Style="{StaticResource OpenzaMetadataTextBlockStyle}"
+                        TextWrapping="Wrap" />
+                    <Button
+                        Content="Open Inbox"
+                        Click="OnOpenInboxClicked" />
+                </StackPanel>
+            </toolkit:SettingsCard>
+        </StackPanel>
+
+        <StackPanel Spacing="10">
+            <TextBlock Text="V1 sync boundary" Style="{StaticResource OpenzaSectionHeaderTextBlockStyle}" />
+            <toolkit:SettingsCard Header="Read integration fields, write completion only" Description="Openza Tasks reads tasks, projects, labels, dates, and priorities. Todoist and Microsoft To Do write-back is limited to completion and reopen changes in V1.">
+                <toolkit:SettingsCard.HeaderIcon>
+                    <FontIcon Glyph="&#xE946;" />
+                </toolkit:SettingsCard.HeaderIcon>
+            </toolkit:SettingsCard>
+        </StackPanel>
+    </StackPanel>
+</UserControl>

@@ -1,0 +1,110 @@
+<UserControl
+    x:Class="Openza.Tasks.Controls.TaskRowControl"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="using:Openza.Tasks.ViewModels">
+    <Border
+        x:Name="RowSurface"
+        Margin="0"
+        Padding="10,9"
+        CornerRadius="4"
+        BorderBrush="{ThemeResource OpenzaSeparatorBrush}"
+        BorderThickness="0,0,0,1"
+        Background="{ThemeResource OpenzaRowBackgroundBrush}"
+        PointerEntered="OnPointerEntered"
+        PointerExited="OnPointerExited">
+        <Grid
+            MinHeight="{Binding RowMinHeight}"
+            ColumnDefinitions="36,*,Auto"
+            ColumnSpacing="12">
+            <CheckBox
+                x:Name="CompleteCheckBox"
+                Width="{Binding CheckboxSize}"
+                Height="{Binding CheckboxSize}"
+                Padding="0"
+                VerticalAlignment="Top"
+                IsChecked="{Binding Task.IsCompleted, Mode=OneWay}"
+                Tag="{Binding Id}"
+                Click="OnToggleCompleteClicked"
+                AutomationProperties.Name="{Binding CompletionAutomationName}" />
+
+            <StackPanel Grid.Column="1" Spacing="5">
+                <TextBlock
+                    Text="{Binding Title}"
+                    FontSize="14"
+                    FontWeight="{Binding TitleWeight}"
+                    Opacity="{Binding TitleOpacity}"
+                    MaxLines="3"
+                    TextWrapping="WrapWholeWords"
+                    TextTrimming="CharacterEllipsis" />
+                <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="6">
+                    <ItemsControl
+                        ItemsSource="{Binding MetadataItems}"
+                        Opacity="{Binding MetadataOpacity}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <StackPanel Orientation="Horizontal" />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:TaskMetadataPartViewModel">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <TextBlock
+                                        Text="&#x2022;"
+                                        Visibility="{Binding SeparatorVisibility}"
+                                        Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
+                                    <TextBlock
+                                        Text="{Binding Text}"
+                                        MaxLines="1"
+                                        TextTrimming="CharacterEllipsis"
+                                        Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <Border
+                        Grid.Column="1"
+                        Padding="7,2"
+                        CornerRadius="10"
+                        Background="{ThemeResource OpenzaChipBackgroundBrush}"
+                        Visibility="{Binding PriorityCueVisibility}"
+                        VerticalAlignment="Top">
+                        <TextBlock
+                            Text="{Binding PriorityCueText}"
+                            Style="{StaticResource OpenzaCaptionTextBlockStyle}" />
+                    </Border>
+                    <Border
+                        Grid.Column="2"
+                        Padding="7,2"
+                        CornerRadius="10"
+                        Background="{ThemeResource OpenzaChipBackgroundBrush}"
+                        Visibility="{Binding StatusVisibility}"
+                        VerticalAlignment="Top">
+                        <TextBlock
+                            Text="{Binding StatusText}"
+                            Style="{StaticResource OpenzaCaptionTextBlockStyle}" />
+                    </Border>
+                </Grid>
+            </StackPanel>
+
+            <StackPanel
+                x:Name="ActionsBar"
+                Grid.Column="2"
+                Orientation="Horizontal"
+                Spacing="4"
+                Opacity="0"
+                GotFocus="OnActionsGotFocus"
+                LostFocus="OnActionsLostFocus"
+                VerticalAlignment="Center">
+                <Button
+                    Style="{StaticResource OpenzaIconOnlyButtonStyle}"
+                    Tag="{Binding Id}"
+                    Click="OnDeleteTaskClicked"
+                    ToolTipService.ToolTip="Delete task"
+                    AutomationProperties.Name="Delete task">
+                    <FontIcon Glyph="&#xE74D;" FontSize="14" />
+                </Button>
+            </StackPanel>
+        </Grid>
+    </Border>
+</UserControl>

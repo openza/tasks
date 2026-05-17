@@ -34,19 +34,21 @@ Openza Tasks connects to Todoist using your personal API token.
 <Steps>
 1. **Open Settings** in Openza Tasks
 
-2. **Select Todoist** from the sidebar
+2. **Find the Providers section**
 
 3. **Enter Your API Token**
 
    Paste the token you copied from Todoist
 
-4. **Click Connect**
+4. **Click Connect Todoist**
 
-   Your tasks will begin syncing automatically
+5. **Run Sync**
+
+   Use the Sync page or toolbar button to import tasks and push completion changes.
 </Steps>
 
 <Aside type="tip">
-  Openza Tasks stores your API token securely using your system's keyring/secret storage.
+  Openza Tasks stores your API token locally in Windows Credential Locker.
 </Aside>
 
 ## What Syncs
@@ -60,6 +62,8 @@ When connected to Todoist, the following items are synced:
 | Labels | Yes |
 | Due dates | Yes |
 | Priorities | Yes |
+| Complete/Reopen | Yes |
+| Create/Edit/Delete write-back | Not in V1 |
 | Comments | Coming soon |
 
 ## Troubleshooting
@@ -74,5 +78,5 @@ If you see this error:
 ### Tasks Not Syncing
 
 1. Check your internet connection
-2. Click the **Sync** button in the navigation rail to sync manually
+2. Click **Sync** in the command bar or open the Sync page and click **Sync now**
 3. Verify your API token is still valid in Todoist settings

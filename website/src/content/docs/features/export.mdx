@@ -5,60 +5,41 @@ description: Export your tasks to markdown format
 
 import { Steps, Aside } from '@astrojs/starlight/components';
 
-Export all your tasks to a human-readable markdown file for archiving, sharing, or migrating to other tools.
+Export your current task data to a human-readable Markdown file for archiving, sharing, or migrating to other tools.
 
 ## Export Format
 
-Tasks are exported in organized markdown format:
+Tasks are exported in organized Markdown format:
 
 - **Grouped by project** for easy navigation
 - **Checkbox syntax** (`- [ ]` for open, `- [x]` for completed)
-- **Task details** including priority, due dates, and labels
-- **Separate sections** for projects and labels
+- **Task details** including priority, dates, deadlines, and labels
+- **Separate labels section**
 
 ### Example Output
 
 ```markdown
-# Tasks Export
+# Openza Tasks Export
 
-## Project: Work
+## Projects & Tasks
 
-- [ ] Review quarterly report
-  - Priority: High
-  - Due: 2025-01-15
-  - Labels: work, urgent
+### Work
 
-- [x] Submit expense report
-  - Priority: Medium
-  - Completed
-
-## Project: Personal
-
-- [ ] Buy groceries
-  - Labels: errands
+- [ ] Review quarterly report (Priority: High, Due: 2026-05-15) @work @urgent
+- [x] Submit expense report (Priority: Medium)
 ```
 
 ## How to Export
 
 <Steps>
-1. Open **Settings** (gear icon in the navigation rail)
-2. Go to the **Export** page
-3. Review the preview showing your tasks
-4. Click **Export to File**
-5. Choose a save location and filename
+1. Click **Export Markdown** in the command bar
+2. Choose a save location and filename
+3. Openza Tasks writes a `.md` file
 </Steps>
 
 ## Export Preview
 
-Before exporting, you'll see:
-
-- **Statistics** - Total tasks, active/completed counts, projects, and labels
-- **Preview** - First 50 lines of the export
-- Full export is saved to your chosen file
-
-<Aside type="tip">
-The export preview helps you verify the content before saving. The full export may contain more data than shown in the preview.
-</Aside>
+The exported file includes totals, grouped tasks, and labels.
 
 ## Use Cases
 
@@ -76,7 +57,8 @@ Include task lists in project documentation or reports.
 
 ## Notes
 
-- Export includes all tasks (both local and synced)
+- Export includes local and source-linked Openza tasks
 - Completed tasks are included with `[x]` checkboxes
 - File is saved with `.md` extension
-- Export runs in the background without blocking the UI
+- Export uses the Windows file picker
+- Provider tokens, MSAL cache data, OneDrive passphrases, and local backup files are never included in Markdown export

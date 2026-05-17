@@ -1,0 +1,162 @@
+<ResourceDictionary
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <ResourceDictionary.ThemeDictionaries>
+        <ResourceDictionary x:Key="Light">
+            <SolidColorBrush x:Key="OpenzaAppCanvasBrush" Color="#F6F8FA" />
+            <SolidColorBrush x:Key="OpenzaPaneBackgroundBrush" Color="#F8FAFC" />
+            <SolidColorBrush x:Key="OpenzaDetailPaneBackgroundBrush" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="OpenzaElevatedSurfaceBrush" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="OpenzaSurfaceAltBrush" Color="#F1F5F9" />
+            <SolidColorBrush x:Key="OpenzaBorderBrush" Color="#DDE5EE" />
+            <SolidColorBrush x:Key="OpenzaSeparatorBrush" Color="#E5EAF0" />
+            <SolidColorBrush x:Key="OpenzaTextPrimaryBrush" Color="#111827" />
+            <SolidColorBrush x:Key="OpenzaTextSecondaryBrush" Color="#475569" />
+            <SolidColorBrush x:Key="OpenzaTextTertiaryBrush" Color="#64748B" />
+            <StaticResource x:Key="OpenzaRowBackgroundBrush" ResourceKey="ControlFillColorTransparentBrush" />
+            <SolidColorBrush x:Key="OpenzaRowHoverBrush" Color="#F0F3F6" />
+            <SolidColorBrush x:Key="OpenzaRowSelectedBrush" Color="#E9EDF2" />
+            <SolidColorBrush x:Key="OpenzaChipBackgroundBrush" Color="#ECEFF3" />
+            <SolidColorBrush x:Key="OpenzaChipForegroundBrush" Color="#475569" />
+            <SolidColorBrush x:Key="OpenzaAccentBrush" Color="#1E293B" />
+            <SolidColorBrush x:Key="OpenzaAccentHoverBrush" Color="#334155" />
+            <SolidColorBrush x:Key="OpenzaAccentPressedBrush" Color="#0F172A" />
+            <SolidColorBrush x:Key="OpenzaOnAccentBrush" Color="#FFFFFFFF" />
+            <SolidColorBrush x:Key="OpenzaNavSelectedBrush" Color="#EEF1F5" />
+            <SolidColorBrush x:Key="OpenzaNavSelectedHoverBrush" Color="#E7EBF0" />
+            <SolidColorBrush x:Key="OpenzaNavSelectedPressedBrush" Color="#DDE3EA" />
+            <SolidColorBrush x:Key="OpenzaNavQuietBadgeBrush" Color="#E5E7EB" />
+            <SolidColorBrush x:Key="OpenzaNavQuietBadgeForegroundBrush" Color="#475569" />
+            <SolidColorBrush x:Key="OpenzaDangerBrush" Color="#B42318" />
+            <SolidColorBrush x:Key="OpenzaOnDangerBrush" Color="#FFFFFFFF" />
+            <SolidColorBrush x:Key="OpenzaToastInfoBrush" Color="#334155" />
+            <SolidColorBrush x:Key="OpenzaToastWarningBrush" Color="#92400E" />
+            <SolidColorBrush x:Key="OpenzaToastErrorBrush" Color="#991B1B" />
+            <SolidColorBrush x:Key="OpenzaToastSuccessBrush" Color="#166534" />
+            <SolidColorBrush x:Key="OpenzaToastForegroundBrush" Color="#FFFFFFFF" />
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="Dark">
+            <SolidColorBrush x:Key="OpenzaAppCanvasBrush" Color="#0F172A" />
+            <SolidColorBrush x:Key="OpenzaPaneBackgroundBrush" Color="#111827" />
+            <SolidColorBrush x:Key="OpenzaDetailPaneBackgroundBrush" Color="#182030" />
+            <SolidColorBrush x:Key="OpenzaElevatedSurfaceBrush" Color="#1E293B" />
+            <SolidColorBrush x:Key="OpenzaSurfaceAltBrush" Color="#162033" />
+            <SolidColorBrush x:Key="OpenzaBorderBrush" Color="#334155" />
+            <SolidColorBrush x:Key="OpenzaSeparatorBrush" Color="#253044" />
+            <SolidColorBrush x:Key="OpenzaTextPrimaryBrush" Color="#E5E7EB" />
+            <SolidColorBrush x:Key="OpenzaTextSecondaryBrush" Color="#94A3B8" />
+            <SolidColorBrush x:Key="OpenzaTextTertiaryBrush" Color="#64748B" />
+            <StaticResource x:Key="OpenzaRowBackgroundBrush" ResourceKey="ControlFillColorTransparentBrush" />
+            <SolidColorBrush x:Key="OpenzaRowHoverBrush" Color="#172033" />
+            <SolidColorBrush x:Key="OpenzaRowSelectedBrush" Color="#223044" />
+            <SolidColorBrush x:Key="OpenzaChipBackgroundBrush" Color="#243044" />
+            <SolidColorBrush x:Key="OpenzaChipForegroundBrush" Color="#CBD5E1" />
+            <SolidColorBrush x:Key="OpenzaAccentBrush" Color="#CBD5E1" />
+            <SolidColorBrush x:Key="OpenzaAccentHoverBrush" Color="#E2E8F0" />
+            <SolidColorBrush x:Key="OpenzaAccentPressedBrush" Color="#94A3B8" />
+            <SolidColorBrush x:Key="OpenzaOnAccentBrush" Color="#0F172A" />
+            <SolidColorBrush x:Key="OpenzaNavSelectedBrush" Color="#1E293B" />
+            <SolidColorBrush x:Key="OpenzaNavSelectedHoverBrush" Color="#263447" />
+            <SolidColorBrush x:Key="OpenzaNavSelectedPressedBrush" Color="#334155" />
+            <SolidColorBrush x:Key="OpenzaNavQuietBadgeBrush" Color="#243044" />
+            <SolidColorBrush x:Key="OpenzaNavQuietBadgeForegroundBrush" Color="#CBD5E1" />
+            <SolidColorBrush x:Key="OpenzaDangerBrush" Color="#F87171" />
+            <SolidColorBrush x:Key="OpenzaOnDangerBrush" Color="#1F0A0A" />
+            <SolidColorBrush x:Key="OpenzaToastInfoBrush" Color="#475569" />
+            <SolidColorBrush x:Key="OpenzaToastWarningBrush" Color="#A16207" />
+            <SolidColorBrush x:Key="OpenzaToastErrorBrush" Color="#B91C1C" />
+            <SolidColorBrush x:Key="OpenzaToastSuccessBrush" Color="#15803D" />
+            <SolidColorBrush x:Key="OpenzaToastForegroundBrush" Color="#FFFFFFFF" />
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="HighContrast">
+            <StaticResource x:Key="OpenzaAppCanvasBrush" ResourceKey="SystemColorWindowColorBrush" />
+            <StaticResource x:Key="OpenzaPaneBackgroundBrush" ResourceKey="SystemColorWindowColorBrush" />
+            <StaticResource x:Key="OpenzaDetailPaneBackgroundBrush" ResourceKey="SystemColorWindowColorBrush" />
+            <StaticResource x:Key="OpenzaElevatedSurfaceBrush" ResourceKey="SystemColorWindowColorBrush" />
+            <StaticResource x:Key="OpenzaSurfaceAltBrush" ResourceKey="SystemColorButtonFaceColorBrush" />
+            <StaticResource x:Key="OpenzaBorderBrush" ResourceKey="SystemColorWindowTextColorBrush" />
+            <StaticResource x:Key="OpenzaSeparatorBrush" ResourceKey="SystemColorWindowTextColorBrush" />
+            <StaticResource x:Key="OpenzaTextPrimaryBrush" ResourceKey="SystemColorWindowTextColorBrush" />
+            <StaticResource x:Key="OpenzaTextSecondaryBrush" ResourceKey="SystemColorWindowTextColorBrush" />
+            <StaticResource x:Key="OpenzaTextTertiaryBrush" ResourceKey="SystemColorGrayTextColorBrush" />
+            <StaticResource x:Key="OpenzaRowBackgroundBrush" ResourceKey="SystemColorWindowColorBrush" />
+            <StaticResource x:Key="OpenzaRowHoverBrush" ResourceKey="SystemColorButtonFaceColorBrush" />
+            <StaticResource x:Key="OpenzaRowSelectedBrush" ResourceKey="SystemColorHighlightColorBrush" />
+            <StaticResource x:Key="OpenzaChipBackgroundBrush" ResourceKey="SystemColorButtonFaceColorBrush" />
+            <StaticResource x:Key="OpenzaChipForegroundBrush" ResourceKey="SystemColorButtonTextColorBrush" />
+            <StaticResource x:Key="OpenzaAccentBrush" ResourceKey="SystemColorHighlightColorBrush" />
+            <StaticResource x:Key="OpenzaAccentHoverBrush" ResourceKey="SystemColorHighlightColorBrush" />
+            <StaticResource x:Key="OpenzaAccentPressedBrush" ResourceKey="SystemColorHighlightColorBrush" />
+            <StaticResource x:Key="OpenzaOnAccentBrush" ResourceKey="SystemColorHighlightTextColorBrush" />
+            <StaticResource x:Key="OpenzaNavSelectedBrush" ResourceKey="SystemColorHighlightColorBrush" />
+            <StaticResource x:Key="OpenzaNavSelectedHoverBrush" ResourceKey="SystemColorHighlightColorBrush" />
+            <StaticResource x:Key="OpenzaNavSelectedPressedBrush" ResourceKey="SystemColorHighlightColorBrush" />
+            <StaticResource x:Key="OpenzaNavQuietBadgeBrush" ResourceKey="SystemColorButtonFaceColorBrush" />
+            <StaticResource x:Key="OpenzaNavQuietBadgeForegroundBrush" ResourceKey="SystemColorButtonTextColorBrush" />
+            <StaticResource x:Key="OpenzaDangerBrush" ResourceKey="SystemColorHighlightColorBrush" />
+            <StaticResource x:Key="OpenzaOnDangerBrush" ResourceKey="SystemColorHighlightTextColorBrush" />
+            <StaticResource x:Key="OpenzaToastInfoBrush" ResourceKey="SystemColorHighlightColorBrush" />
+            <StaticResource x:Key="OpenzaToastWarningBrush" ResourceKey="SystemColorHighlightColorBrush" />
+            <StaticResource x:Key="OpenzaToastErrorBrush" ResourceKey="SystemColorHighlightColorBrush" />
+            <StaticResource x:Key="OpenzaToastSuccessBrush" ResourceKey="SystemColorHighlightColorBrush" />
+            <StaticResource x:Key="OpenzaToastForegroundBrush" ResourceKey="SystemColorHighlightTextColorBrush" />
+        </ResourceDictionary>
+    </ResourceDictionary.ThemeDictionaries>
+
+    <Thickness x:Key="PanePadding">22,22</Thickness>
+    <Thickness x:Key="PagePadding">28,28</Thickness>
+    <CornerRadius x:Key="OpenzaPaneCornerRadius">8</CornerRadius>
+    <CornerRadius x:Key="OpenzaRowCornerRadius">8</CornerRadius>
+
+    <Style x:Key="OpenzaSectionHeaderTextBlockStyle" TargetType="TextBlock" BasedOn="{StaticResource BodyStrongTextBlockStyle}">
+        <Setter Property="Margin" Value="0,20,0,6" />
+    </Style>
+
+    <Style x:Key="OpenzaFormSectionHeaderTextBlockStyle" TargetType="TextBlock" BasedOn="{StaticResource BodyStrongTextBlockStyle}">
+        <Setter Property="Margin" Value="0,4,0,0" />
+    </Style>
+
+    <Style x:Key="OpenzaMetadataTextBlockStyle" TargetType="TextBlock">
+        <Setter Property="Foreground" Value="{ThemeResource OpenzaTextSecondaryBrush}" />
+        <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+        <Setter Property="FontSize" Value="13" />
+    </Style>
+
+    <Style x:Key="OpenzaCaptionTextBlockStyle" TargetType="TextBlock">
+        <Setter Property="Foreground" Value="{ThemeResource OpenzaTextTertiaryBrush}" />
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+    </Style>
+
+    <Style x:Key="OpenzaIconButtonStyle" TargetType="AppBarButton">
+        <Setter Property="IsCompact" Value="True" />
+        <Setter Property="MinWidth" Value="40" />
+        <Setter Property="MinHeight" Value="36" />
+    </Style>
+
+    <Style x:Key="OpenzaIconOnlyButtonStyle" TargetType="Button">
+        <Setter Property="Width" Value="34" />
+        <Setter Property="Height" Value="34" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="MinWidth" Value="34" />
+        <Setter Property="MinHeight" Value="34" />
+    </Style>
+
+    <Style x:Key="OpenzaAccentButtonStyle" TargetType="Button" BasedOn="{StaticResource AccentButtonStyle}">
+        <Setter Property="Background" Value="{ThemeResource OpenzaAccentBrush}" />
+        <Setter Property="Foreground" Value="{ThemeResource OpenzaOnAccentBrush}" />
+        <Setter Property="BorderBrush" Value="{ThemeResource OpenzaAccentBrush}" />
+    </Style>
+
+    <Style x:Key="OpenzaNavInfoBadgeStyle" TargetType="InfoBadge">
+        <Setter Property="Background" Value="{ThemeResource OpenzaNavQuietBadgeBrush}" />
+        <Setter Property="Foreground" Value="{ThemeResource OpenzaNavQuietBadgeForegroundBrush}" />
+    </Style>
+
+    <Style x:Key="OpenzaNavDangerInfoBadgeStyle" TargetType="InfoBadge" BasedOn="{StaticResource OpenzaNavInfoBadgeStyle}">
+        <Setter Property="Background" Value="{ThemeResource OpenzaDangerBrush}" />
+        <Setter Property="Foreground" Value="{ThemeResource OpenzaOnDangerBrush}" />
+    </Style>
+
+</ResourceDictionary>

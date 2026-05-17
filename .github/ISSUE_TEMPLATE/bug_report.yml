@@ -20,9 +20,7 @@ body:
     attributes:
       label: OS
       options:
-        - Linux
         - Windows
-        - macOS
         - Other
     validations:
       required: true

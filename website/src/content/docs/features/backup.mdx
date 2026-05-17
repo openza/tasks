@@ -5,36 +5,27 @@ description: Protect your tasks with automatic backups
 
 import { Steps, Aside } from '@astrojs/starlight/components';
 
-Openza Tasks automatically backs up your local database to protect your tasks from data loss.
+Openza Tasks can automatically back up your local SQLite database to protect your tasks from data loss. Local durable backups are the foundation; OneDrive backup is an optional extra layer.
 
 ## Automatic Backups
 
-By default, Openza Tasks creates daily backups of your task database. You can configure the backup frequency in Settings.
-
-### Backup Frequency Options
-
-| Frequency | Description |
-|-----------|-------------|
-| Hourly | Best for heavy users who make frequent changes |
-| Daily | Recommended for most users (default) |
-| Weekly | For light usage or when storage is limited |
+By default, Openza Tasks creates one startup backup per day. You can turn startup backups on or off in Settings.
 
 ### Enabling/Disabling Auto-Backup
 
 <Steps>
-1. Open **Settings** (gear icon in the navigation rail)
-2. Go to the **Backup** page
-3. Toggle **Automatic Backup** on or off
-4. Select your preferred frequency
+1. Open **Settings** from the left navigation
+2. Select **Backups**
+3. Toggle **Create a backup on startup** on or off
 </Steps>
 
 ## Manual Backup
 
-Create a backup anytime from the Settings modal:
+Create a backup anytime from Settings:
 
 <Steps>
-1. Open **Settings** > **Backup**
-2. Click **Backup Now**
+1. Open **Settings**
+2. Click **Create backup**
 3. The backup appears in your backup list
 </Steps>
 
@@ -43,17 +34,18 @@ Create a backup anytime from the Settings modal:
 ### Viewing Backups
 
 Your backups are displayed with:
-- **Date** shown in calendar format (day and month)
-- **Time** of creation
+- **Reason** such as daily, manual, legacy, pre-restore, pre-import, or pre-migration
+- **Date and time** of creation
+- **Task, project, and space counts**
 - **File size**
 
-### Download Backup
+### Export Backup
 
 Export a backup to save externally or transfer to another computer:
 
 <Steps>
-1. Find the backup you want to download
-2. Click the **Download** button
+1. Select the backup you want to export
+2. Click **Export selected**
 3. Choose a save location
 4. The backup is saved as a `.db` file
 </Steps>
@@ -66,38 +58,62 @@ Restoring a backup will replace your current data. This action cannot be undone.
 
 <Steps>
 1. Select the backup to restore
-2. Click the **Restore** button
-3. Type **RESTORE** in the confirmation dialog to proceed
-4. Restart the app when prompted
+2. Click **Restore selected**
+3. Confirm the restore dialog
 </Steps>
 
-The typing confirmation prevents accidental data replacement.
+Openza Tasks creates a safety copy of the current database before replacing it.
 
 ### Restore from External File
 
 Restore a backup from another computer or external storage:
 
 <Steps>
-1. Open **Settings** > **Backup**
-2. Click **Import Backup**
+1. Open **Settings**
+2. Click **Restore from file**
 3. Select a `.db` file from your computer
-4. Type **RESTORE** in the confirmation dialog
-5. Restart the app when prompted
+4. Confirm the restore dialog
 </Steps>
 
 <Aside type="note">
-External backups are restored directly without being added to your backup list.
+External backups are restored directly. Openza still creates a safety backup before replacing the live database.
 </Aside>
 
 ## Backup Storage
 
-- Backups are stored in your app data folder
-- Up to **7 backups** are retained automatically
-- Oldest backups are deleted when the limit is reached
+- Backups are stored in a stable Openza backup folder outside Windows package `LocalState`
+- Production uses `%LOCALAPPDATA%\Openza\Tasks\Backups`
+- Dev uses `%LOCALAPPDATA%\Openza\Tasks Dev\Backups`
+- Production and dev builds do not share backup folders
+- Retention keeps recent daily, weekly, monthly, and event backups
+- Older package-local backups are copied forward when found, but not deleted automatically
+
+## OneDrive Backup
+
+OneDrive backup is optional and disabled by default. When enabled, Openza uploads backup snapshots to its app folder in the Microsoft account you choose for OneDrive backup.
+
+<Aside type="note">
+OneDrive backup is cloud backup, not multi-device live sync. Your local SQLite database remains the primary database.
+</Aside>
+
+You can enable passphrase encryption so backup files are encrypted before upload. On a new PC, encrypted OneDrive backups require the passphrase.
+
+### OneDrive Actions
+
+In Settings > Backups, you can:
+
+- Enable or disable OneDrive backup
+- Choose or change the Microsoft account used for OneDrive backup
+- Upload a backup now
+- Refresh the cloud backup list
+- Restore from a selected OneDrive backup
+- Add, change, or remove the optional passphrase
+
+Deleting a local backup does not delete the cloud copy. Cloud pruning only removes Openza-owned backup files according to the configured retention policy.
 
 ## Best Practices
 
 - Keep auto-backup enabled for peace of mind
-- Download important backups to external storage
+- Enable OneDrive backup if you want recovery after PC loss, reset, or disk failure
 - After major changes, create a manual backup
-- Before restoring, download your current data first
+- Before restoring, Openza creates a safety backup of the current database

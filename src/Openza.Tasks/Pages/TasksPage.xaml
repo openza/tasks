@@ -1,0 +1,560 @@
+<UserControl
+    x:Class="Openza.Tasks.Pages.TasksPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:Openza.Tasks.Controls"
+    xmlns:models="using:Openza.Tasks.Core.Models"
+    xmlns:vm="using:Openza.Tasks.ViewModels">
+    <UserControl.Resources>
+        <CollectionViewSource
+            x:Key="GroupedTasksSource"
+            IsSourceGrouped="True"
+            ItemsPath="Tasks"
+            Source="{x:Bind ViewModel.TaskGroups, Mode=OneWay}" />
+        <DataTemplate x:Key="TaskRowTemplate" x:DataType="vm:TaskListItemViewModel">
+            <controls:TaskRowControl
+                ToggleCompleteClicked="OnToggleCompleteClicked"
+                DeleteTaskClicked="OnDeleteTaskClicked" />
+        </DataTemplate>
+        <DataTemplate x:Key="TaskGroupHeaderTemplate" x:DataType="vm:TaskGroupViewModel">
+            <StackPanel
+                Margin="0,16,0,6"
+                Padding="10,0"
+                Orientation="Horizontal"
+                Spacing="10">
+                <TextBlock
+                    Text="{Binding Title}"
+                    Style="{StaticResource BodyStrongTextBlockStyle}" />
+                <TextBlock
+                    Margin="0,1,0,0"
+                    Text="{Binding CountText}"
+                    Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
+            </StackPanel>
+        </DataTemplate>
+    </UserControl.Resources>
+    <Grid
+        x:Name="WorkbenchRoot"
+        Background="{ThemeResource OpenzaAppCanvasBrush}"
+        ColumnSpacing="0"
+        SizeChanged="OnWorkbenchSizeChanged">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition x:Name="ProjectsColumn" Width="330" />
+            <ColumnDefinition x:Name="ListColumn" Width="*" MinWidth="420" />
+            <ColumnDefinition x:Name="DetailsColumn" Width="0" />
+        </Grid.ColumnDefinitions>
+
+        <controls:ProjectsPaneControl
+            x:Name="ProjectsPane"
+            ProjectGroups="{x:Bind ViewModel.ProjectGroups, Mode=OneWay}"
+            SearchTextChanged="OnProjectSearchTextChanged"
+            ProjectFilterChanged="OnProjectFilterChanged"
+            ProjectSelected="OnProjectSelected"
+            AddProjectClicked="OnAddProjectClicked"
+            EditProjectClicked="OnEditProjectClicked"
+            DeleteProjectClicked="OnDeleteProjectClicked" />
+
+        <Grid
+            x:Name="ListHost"
+            Grid.Column="1"
+            Padding="{StaticResource PagePadding}"
+            RowDefinitions="Auto,Auto,Auto,*">
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
+                <StackPanel Spacing="4">
+                    <TextBlock
+                        Text="{x:Bind ViewModel.Title, Mode=OneWay}"
+                        Style="{ThemeResource TitleTextBlockStyle}"
+                        MaxLines="2"
+                        TextWrapping="WrapWholeWords"
+                        TextTrimming="CharacterEllipsis" />
+                    <StackPanel Orientation="Horizontal" Spacing="10">
+                        <TextBlock
+                            Text="{x:Bind ViewModel.Subtitle, Mode=OneWay}"
+                            Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
+                        <HyperlinkButton
+                            x:Name="ClearProjectButton"
+                            Padding="0"
+                            Content="All projects"
+                            Visibility="Collapsed"
+                            Click="OnClearProjectClicked" />
+                    </StackPanel>
+                </StackPanel>
+                <CommandBar
+                    Grid.Column="1"
+                    Background="Transparent"
+                    DefaultLabelPosition="Right">
+                    <AppBarButton
+                        x:Name="ProjectsCommand"
+                        Icon="Folder"
+                        Label="Projects"
+                        Visibility="Collapsed"
+                        Click="OnProjectsCommandClicked" />
+                    <AppBarButton
+                        x:Name="ConnectedTasksCommand"
+                        Icon="Sync"
+                        Label="Review"
+                        Visibility="Collapsed"
+                        Click="OnReviewConnectedTasksClicked" />
+                    <AppBarButton
+                        Icon="Add"
+                        Label="Add task"
+                        Click="OnQuickAddClicked" />
+                    <CommandBar.SecondaryCommands>
+                        <AppBarButton Icon="Import" Label="Import Markdown" Click="OnImportClicked" />
+                        <AppBarButton Icon="Save" Label="Export Markdown" Click="OnExportClicked" />
+                    </CommandBar.SecondaryCommands>
+                </CommandBar>
+            </Grid>
+
+            <Grid
+                x:Name="FilterGrid"
+                Grid.Row="1"
+                Margin="0,22,0,16"
+                ColumnSpacing="10"
+                RowSpacing="10">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <AutoSuggestBox
+                    x:Name="SearchBox"
+                    Width="460"
+                    MinWidth="280"
+                    HorizontalAlignment="Left"
+                    PlaceholderText="Search tasks"
+                    QueryIcon="Find"
+                    TextChanged="OnSearchTextChanged" />
+                <DropDownButton
+                    x:Name="SortButton"
+                    Grid.Column="1"
+                    MinWidth="132">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon Glyph="&#xE8CB;" FontSize="14" />
+                        <TextBlock x:Name="SortButtonText" Text="Sort: Priority" />
+                    </StackPanel>
+                    <DropDownButton.Flyout>
+                        <MenuFlyout>
+                            <MenuFlyoutItem Text="Priority" Tag="priority" Click="OnSortMenuItemClicked" />
+                            <MenuFlyoutItem Text="Date" Tag="date" Click="OnSortMenuItemClicked" />
+                            <MenuFlyoutItem Text="Newest" Tag="created" Click="OnSortMenuItemClicked" />
+                            <MenuFlyoutItem Text="Title" Tag="title" Click="OnSortMenuItemClicked" />
+                        </MenuFlyout>
+                    </DropDownButton.Flyout>
+                </DropDownButton>
+                <DropDownButton
+                    x:Name="GroupButton"
+                    Grid.Column="2"
+                    MinWidth="132">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon Glyph="&#xE8EC;" FontSize="14" />
+                        <TextBlock x:Name="GroupButtonText" Text="Group: None" />
+                    </StackPanel>
+                    <DropDownButton.Flyout>
+                        <MenuFlyout>
+                            <MenuFlyoutItem Text="None" Tag="none" Click="OnGroupMenuItemClicked" />
+                            <MenuFlyoutItem Text="Date" Tag="date" Click="OnGroupMenuItemClicked" />
+                            <MenuFlyoutItem Text="Project" Tag="project" Click="OnGroupMenuItemClicked" />
+                            <MenuFlyoutItem Text="Status" Tag="status" Click="OnGroupMenuItemClicked" />
+                            <MenuFlyoutItem Text="Priority" Tag="priority" Click="OnGroupMenuItemClicked" />
+                            <MenuFlyoutItem Text="Label" Tag="label" Click="OnGroupMenuItemClicked" />
+                            <MenuFlyoutItem Text="Source" Tag="source" Click="OnGroupMenuItemClicked" />
+                            <MenuFlyoutItem Text="Repeating" Tag="repeating" Click="OnGroupMenuItemClicked" />
+                            <MenuFlyoutItem Text="Created date" Tag="created-date" Click="OnGroupMenuItemClicked" />
+                            <MenuFlyoutItem Text="Completed date" Tag="completed-date" Click="OnGroupMenuItemClicked" />
+                        </MenuFlyout>
+                    </DropDownButton.Flyout>
+                </DropDownButton>
+                <Button
+                    x:Name="FilterButton"
+                    Grid.Column="3"
+                    MinWidth="104">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon Glyph="&#xE71C;" FontSize="14" />
+                        <TextBlock x:Name="FilterButtonText" Text="Filters" />
+                    </StackPanel>
+                    <Button.Flyout>
+                        <Flyout>
+                            <Grid
+                                Width="500"
+                                MaxHeight="430"
+                                ColumnSpacing="14"
+                                RowSpacing="14">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="*" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="148" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock
+                                    Grid.ColumnSpan="2"
+                                    Text="Filters"
+                                    Style="{StaticResource OpenzaFormSectionHeaderTextBlockStyle}" />
+                                <ListView
+                                    x:Name="FilterCategoryList"
+                                    Grid.Row="1"
+                                    SelectionMode="Single"
+                                    SelectedIndex="0"
+                                    SelectionChanged="OnFilterCategorySelectionChanged">
+                                    <ListView.ItemContainerStyle>
+                                        <Style TargetType="ListViewItem">
+                                            <Setter Property="Padding" Value="0" />
+                                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                        </Style>
+                                    </ListView.ItemContainerStyle>
+                                    <ListViewItem Tag="priority">
+                                        <Grid
+                                            Padding="12,8"
+                                            ColumnDefinitions="*,Auto">
+                                            <TextBlock
+                                                x:Name="PriorityFilterCategoryText"
+                                                Text="Priority"
+                                                TextTrimming="CharacterEllipsis" />
+                                            <TextBlock
+                                                x:Name="PriorityFilterCategoryCount"
+                                                Grid.Column="1"
+                                                Style="{StaticResource OpenzaMetadataTextBlockStyle}"
+                                                Visibility="Collapsed" />
+                                        </Grid>
+                                    </ListViewItem>
+                                    <ListViewItem Tag="repeating">
+                                        <Grid
+                                            Padding="12,8"
+                                            ColumnDefinitions="*,Auto">
+                                            <TextBlock
+                                                x:Name="RepeatFilterCategoryText"
+                                                Text="Repeating"
+                                                TextTrimming="CharacterEllipsis" />
+                                            <TextBlock
+                                                x:Name="RepeatFilterCategoryCount"
+                                                Grid.Column="1"
+                                                Style="{StaticResource OpenzaMetadataTextBlockStyle}"
+                                                Visibility="Collapsed" />
+                                        </Grid>
+                                    </ListViewItem>
+                                    <ListViewItem Tag="label">
+                                        <Grid
+                                            Padding="12,8"
+                                            ColumnDefinitions="*,Auto">
+                                            <TextBlock
+                                                x:Name="LabelFilterCategoryText"
+                                                Text="Label"
+                                                TextTrimming="CharacterEllipsis" />
+                                            <TextBlock
+                                                x:Name="LabelFilterCategoryCount"
+                                                Grid.Column="1"
+                                                Style="{StaticResource OpenzaMetadataTextBlockStyle}"
+                                                Visibility="Collapsed" />
+                                        </Grid>
+                                    </ListViewItem>
+                                </ListView>
+                                <Grid
+                                    Grid.Row="1"
+                                    Grid.Column="1">
+                                    <StackPanel
+                                        x:Name="PriorityFilterPane"
+                                        Spacing="6">
+                                        <TextBlock Text="Priority" Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
+                                        <RadioButton x:Name="PriorityAnyRadio" Content="Any priority" Tag="" IsChecked="True" Checked="OnPriorityRadioChecked" />
+                                        <RadioButton x:Name="PriorityUrgentRadio" Content="Urgent" Tag="1" Checked="OnPriorityRadioChecked" />
+                                        <RadioButton x:Name="PriorityHighRadio" Content="High" Tag="2" Checked="OnPriorityRadioChecked" />
+                                        <RadioButton x:Name="PriorityNormalRadio" Content="Normal" Tag="3" Checked="OnPriorityRadioChecked" />
+                                        <RadioButton x:Name="PriorityLowRadio" Content="Low" Tag="4" Checked="OnPriorityRadioChecked" />
+                                    </StackPanel>
+                                    <StackPanel
+                                        x:Name="RepeatFilterPane"
+                                        Spacing="6"
+                                        Visibility="Collapsed">
+                                        <TextBlock Text="Repeating" Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
+                                        <RadioButton x:Name="RepeatIncludeRadio" Content="Include repeating" Tag="include" IsChecked="True" Checked="OnRepeatScopeRadioChecked" />
+                                        <RadioButton x:Name="RepeatExcludeRadio" Content="Exclude repeating" Tag="exclude" Checked="OnRepeatScopeRadioChecked" />
+                                        <RadioButton x:Name="RepeatOnlyRadio" Content="Only repeating" Tag="only" Checked="OnRepeatScopeRadioChecked" />
+                                    </StackPanel>
+                                    <StackPanel
+                                        x:Name="LabelFilterPane"
+                                        Spacing="8"
+                                        Visibility="Collapsed">
+                                        <TextBlock Text="Label" Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
+                                        <AutoSuggestBox
+                                            x:Name="LabelFilterSearchBox"
+                                            PlaceholderText="Find label"
+                                            QueryIcon="Find"
+                                            TextChanged="OnLabelFilterSearchTextChanged" />
+                                        <ListView
+                                            x:Name="LabelFilterList"
+                                            MaxHeight="280"
+                                            SelectionMode="Single"
+                                            SelectionChanged="OnLabelFilterListSelectionChanged" />
+                                    </StackPanel>
+                                </Grid>
+                                <Button
+                                    x:Name="ClearFiltersButton"
+                                    Grid.Row="2"
+                                    Grid.ColumnSpan="2"
+                                    Content="Reset filters"
+                                    HorizontalAlignment="Left"
+                                    Visibility="Collapsed"
+                                    Click="OnClearFiltersClicked" />
+                            </Grid>
+                        </Flyout>
+                    </Button.Flyout>
+                </Button>
+                <StackPanel
+                    x:Name="ActiveFiltersPanel"
+                    Grid.Row="1"
+                    Grid.ColumnSpan="6"
+                    Orientation="Horizontal"
+                    Spacing="8"
+                    Visibility="Collapsed" />
+            </Grid>
+
+            <Border
+                x:Name="GetStartedPanel"
+                Grid.Row="2"
+                Margin="0,0,0,16"
+                Padding="18"
+                Background="{ThemeResource OpenzaElevatedSurfaceBrush}"
+                BorderBrush="{ThemeResource OpenzaBorderBrush}"
+                BorderThickness="1"
+                CornerRadius="8"
+                Visibility="Collapsed">
+                <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto" RowSpacing="14">
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="Get started" Style="{StaticResource OpenzaFormSectionHeaderTextBlockStyle}" />
+                        <TextBlock
+                            Text="Start local, connect a task app when you are ready, or explore sync routes for automation."
+                            Style="{StaticResource OpenzaMetadataTextBlockStyle}"
+                            TextWrapping="Wrap" />
+                    </StackPanel>
+                    <Button
+                        Grid.Column="1"
+                        Width="32"
+                        Height="32"
+                        Padding="0"
+                        Click="OnDismissGetStartedClicked"
+                        ToolTipService.ToolTip="Hide get started">
+                        <FontIcon Glyph="&#xE711;" FontSize="12" />
+                    </Button>
+                    <StackPanel Grid.Row="1" Grid.ColumnSpan="2" Orientation="Horizontal" Spacing="8">
+                        <Button Content="Add task" Style="{StaticResource OpenzaAccentButtonStyle}" Click="OnQuickAddClicked" />
+                        <Button Content="Connect integrations" Click="OnConnectProvidersClicked" />
+                        <Button Content="Explore sync routes" Click="OnExploreSyncClicked" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <Grid Grid.Row="3">
+                <ListView
+                    x:Name="TaskList"
+                    ItemsSource="{x:Bind ViewModel.Tasks, Mode=OneWay}"
+                    ItemTemplate="{StaticResource TaskRowTemplate}"
+                    SelectionChanged="OnTaskSelectionChanged"
+                    Visibility="{x:Bind ViewModel.UngroupedListVisibility, Mode=OneWay}">
+                    <ListView.Resources>
+                        <StaticResource x:Key="ListViewItemBackgroundPointerOver" ResourceKey="OpenzaRowHoverBrush" />
+                        <StaticResource x:Key="ListViewItemBackgroundSelected" ResourceKey="OpenzaRowSelectedBrush" />
+                        <StaticResource x:Key="ListViewItemBackgroundSelectedPointerOver" ResourceKey="OpenzaRowSelectedBrush" />
+                        <StaticResource x:Key="ListViewItemBackgroundPressed" ResourceKey="OpenzaRowSelectedBrush" />
+                        <StaticResource x:Key="ListViewItemForegroundSelected" ResourceKey="OpenzaTextPrimaryBrush" />
+                    </ListView.Resources>
+                    <ListView.ItemContainerStyle>
+                        <Style TargetType="ListViewItem">
+                            <Setter Property="Padding" Value="0" />
+                            <Setter Property="Margin" Value="0" />
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                        </Style>
+                    </ListView.ItemContainerStyle>
+                </ListView>
+                <ListView
+                    x:Name="GroupedTaskList"
+                    ItemsSource="{Binding Source={StaticResource GroupedTasksSource}}"
+                    ItemTemplate="{StaticResource TaskRowTemplate}"
+                    SelectionChanged="OnTaskSelectionChanged"
+                    Visibility="{x:Bind ViewModel.GroupedListVisibility, Mode=OneWay}">
+                    <ListView.Resources>
+                        <StaticResource x:Key="ListViewItemBackgroundPointerOver" ResourceKey="OpenzaRowHoverBrush" />
+                        <StaticResource x:Key="ListViewItemBackgroundSelected" ResourceKey="OpenzaRowSelectedBrush" />
+                        <StaticResource x:Key="ListViewItemBackgroundSelectedPointerOver" ResourceKey="OpenzaRowSelectedBrush" />
+                        <StaticResource x:Key="ListViewItemBackgroundPressed" ResourceKey="OpenzaRowSelectedBrush" />
+                        <StaticResource x:Key="ListViewItemForegroundSelected" ResourceKey="OpenzaTextPrimaryBrush" />
+                    </ListView.Resources>
+                    <ListView.GroupStyle>
+                        <GroupStyle HeaderTemplate="{StaticResource TaskGroupHeaderTemplate}" />
+                    </ListView.GroupStyle>
+                    <ListView.ItemContainerStyle>
+                        <Style TargetType="ListViewItem">
+                            <Setter Property="Padding" Value="0" />
+                            <Setter Property="Margin" Value="0" />
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                        </Style>
+                    </ListView.ItemContainerStyle>
+                </ListView>
+                <controls:EmptyStateControl
+                    x:Name="EmptyState"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    ActionClicked="OnEmptyStateActionClicked"
+                    Visibility="{x:Bind ViewModel.EmptyVisibility, Mode=OneWay}" />
+            </Grid>
+        </Grid>
+
+        <Border
+            x:Name="DetailsHost"
+            Grid.Column="2"
+            Visibility="Collapsed"
+            BorderBrush="{ThemeResource OpenzaBorderBrush}"
+            BorderThickness="1,0,0,0">
+            <controls:TaskDetailsPaneControl
+                x:Name="TaskDetailsPanel"
+                AutoSaveRequested="OnDetailsAutoSaveRequested"
+                ToggleCompleteClicked="OnDetailsToggleCompleteClicked"
+                SubtaskToggleCompleteClicked="OnDetailsSubtaskToggleCompleteClicked"
+                CreateProjectRequested="OnDetailsCreateProjectRequested"
+                DeleteTaskClicked="OnDetailsDeleteTaskClicked"
+                CancelEditClicked="OnDetailsCancelEditClicked" />
+        </Border>
+
+        <Border
+            x:Name="IntakeDrawerHost"
+            Grid.Column="2"
+            Visibility="Collapsed"
+            Background="{ThemeResource OpenzaDetailPaneBackgroundBrush}"
+            BorderBrush="{ThemeResource OpenzaBorderBrush}"
+            BorderThickness="1,0,0,0">
+            <Grid RowDefinitions="Auto,*,Auto">
+                <Grid Padding="24,26,18,18" ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                    <StackPanel Spacing="10">
+                        <TextBlock Text="Connected app tasks" Style="{ThemeResource SubtitleTextBlockStyle}" />
+                        <TextBlock
+                            x:Name="ConnectedTasksDrawerText"
+                            Style="{StaticResource OpenzaMetadataTextBlockStyle}"
+                            TextWrapping="Wrap" />
+                        <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="*,*" ColumnSpacing="8" RowSpacing="8">
+                            <AutoSuggestBox
+                                x:Name="ConnectedTasksSearchBox"
+                                Grid.ColumnSpan="2"
+                                PlaceholderText="Search"
+                                QueryIcon="Find"
+                                TextChanged="OnConnectedTasksSearchChanged" />
+                            <ComboBox
+                                x:Name="ConnectedTasksSourceFilter"
+                                Grid.Row="1"
+                                SelectionChanged="OnConnectedTasksSourceChanged" />
+                            <ComboBox
+                                x:Name="ConnectedTasksListFilter"
+                                Grid.Row="1"
+                                Grid.Column="1"
+                                SelectionChanged="OnConnectedTasksListChanged" />
+                        </Grid>
+                        <ToggleSwitch
+                            x:Name="ShowSkippedConnectedTasksToggle"
+                            Header="Show skipped"
+                            OffContent="Hidden"
+                            OnContent="Visible"
+                            Toggled="OnShowSkippedConnectedTasksToggled" />
+                    </StackPanel>
+                    <Button
+                        Grid.Column="1"
+                        Width="44"
+                        Height="44"
+                        Padding="0"
+                        Click="OnCloseConnectedTasksDrawerClicked"
+                        ToolTipService.ToolTip="Close">
+                        <FontIcon Glyph="&#xE711;" FontSize="14" />
+                    </Button>
+                </Grid>
+
+                <ListView
+                    x:Name="ConnectedTasksDrawerList"
+                    Grid.Row="1"
+                    Padding="18,0"
+                    SelectionMode="None">
+                    <ListView.ItemContainerStyle>
+                        <Style TargetType="ListViewItem">
+                            <Setter Property="Padding" Value="0" />
+                            <Setter Property="Margin" Value="0" />
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                        </Style>
+                    </ListView.ItemContainerStyle>
+                    <ListView.ItemTemplate>
+                        <DataTemplate x:DataType="models:ProviderSourceItem">
+                            <Grid
+                                ColumnDefinitions="*,Auto"
+                                ColumnSpacing="14"
+                                Padding="6,11">
+                                <StackPanel Spacing="3">
+                                    <TextBlock
+                                        Text="{Binding Title}"
+                                        Style="{StaticResource BodyStrongTextBlockStyle}"
+                                        MaxLines="3"
+                                        TextTrimming="CharacterEllipsis"
+                                        TextWrapping="WrapWholeWords" />
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <Border
+                                            Padding="7,1"
+                                            CornerRadius="8"
+                                            Background="{ThemeResource OpenzaChipBackgroundBrush}">
+                                            <TextBlock
+                                                Text="{Binding SourceName}"
+                                                Style="{StaticResource OpenzaCaptionTextBlockStyle}" />
+                                        </Border>
+                                        <TextBlock
+                                            Text="{Binding IntakeMetadataText}"
+                                            Style="{StaticResource OpenzaMetadataTextBlockStyle}"
+                                            MaxLines="1"
+                                            TextTrimming="CharacterEllipsis" />
+                                    </StackPanel>
+                                    <TextBlock
+                                        Text="{Binding Description}"
+                                        Style="{StaticResource OpenzaMetadataTextBlockStyle}"
+                                        MaxLines="2"
+                                        TextWrapping="WrapWholeWords"
+                                        TextTrimming="CharacterEllipsis" />
+                                </StackPanel>
+                                <StackPanel
+                                    Grid.Column="1"
+                                    Orientation="Horizontal"
+                                    Spacing="8"
+                                    VerticalAlignment="Center">
+                                    <Button
+                                        Content="{Binding IntakeActionText}"
+                                        Tag="{Binding Id}"
+                                        Click="OnPrimaryConnectedTaskActionClicked" />
+                                    <Button
+                                        Content="{Binding SecondaryIntakeActionText}"
+                                        Tag="{Binding Id}"
+                                        IsEnabled="{Binding CanSkip}"
+                                        Click="OnSkipConnectedTaskClicked"
+                                        ToolTipService.ToolTip="Hide from Inbox intake" />
+                                </StackPanel>
+                            </Grid>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+
+                <Border
+                    Grid.Row="2"
+                    Padding="24,14"
+                    BorderBrush="{ThemeResource OpenzaBorderBrush}"
+                    BorderThickness="0,1,0,0">
+                    <Button
+                        x:Name="AddAllConnectedTasksDrawerButton"
+                        Content="Add all to Inbox"
+                        Style="{StaticResource OpenzaAccentButtonStyle}"
+                        HorizontalAlignment="Right"
+                        Click="OnAddAllConnectedTasksClicked" />
+                </Border>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

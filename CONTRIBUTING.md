@@ -1,117 +1,49 @@
 # Contributing to Openza Tasks
 
-Thank you for your interest in contributing! This guide covers the development workflow and PR review process.
+Thank you for helping with Openza Tasks. The active app is a Windows-native WinUI 3 application.
 
 ## Development Setup
 
-1. Install Linux dependencies:
-   ```bash
-   sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libstdc++-12-dev
+1. Install the Windows/WinUI toolchain:
+
+   ```powershell
+   winget configure -f https://aka.ms/winui-config
    ```
 
-2. Configure OAuth credentials:
-   ```bash
-   cp .env.example .env.local
-   # Edit .env.local with your credentials from Todoist/Microsoft developer portals
+2. Restore, test, and build:
+
+   ```powershell
+   dotnet restore Openza.Tasks.slnx
+   dotnet test src\Openza.Tasks.Tests\Openza.Tasks.Tests.csproj -c Release
+   dotnet build src\Openza.Tasks\Openza.Tasks.csproj -c Release --no-restore
    ```
 
-3. Install and generate:
-   ```bash
-   flutter pub get
-   flutter pub run build_runner build --delete-conflicting-outputs
-   ```
-
-4. Run: `./dev.sh`
-
-See `docs/development/environment.md` for toolchain versions and optional local hooks.
+3. Run from Visual Studio using the `Openza Tasks` MSIX launch profile with `x64` selected and deploy enabled.
 
 ## Making Changes
 
-1. Create a feature branch:
-   ```bash
-   git checkout -b feature/your-feature-name
-   ```
+1. Create a feature branch.
+2. Keep changes scoped and use existing WinUI/Core patterns.
+3. Add tests for data migration, sync, backup, import/export, and provider mapping changes.
+4. Run secret scanning before committing:
 
-2. Make your changes following the patterns in [CLAUDE.md](CLAUDE.md)
-
-3. Regenerate code if you modified models/providers:
-   ```bash
-   flutter pub run build_runner build --delete-conflicting-outputs
-   ```
-
-4. Verify your changes:
-   ```bash
-   flutter analyze
-   flutter test
-   ```
-
-5. Optional local hooks (recommended):
-   ```bash
-   git config core.hooksPath .githooks
-   ```
-
-6. Run secret scanning before committing:
-   ```bash
+   ```powershell
    gitleaks detect --source . --verbose
    ```
 
-7. Commit using conventional commits:
-   ```bash
-   git commit -m "feat: add new feature"
-   # Types: feat, fix, chore, docs, refactor, test
-   ```
+## Quality Checklist
 
-## PR Review Workflow
+- WinUI app builds directly, not only the core library.
+- XAML compiles in Release.
+- No certificates, tokens, package outputs, or Store-private data are committed.
+- SQLite migrations are backward compatible with legacy Flutter databases.
+- Provider tokens go through the credential-store abstraction.
+- User-visible errors use native WinUI surfaces such as InfoBar or ContentDialog.
 
-### Before Starting Review
+## Style
 
-```bash
-# Fetch and checkout the PR branch
-git fetch origin pull/<PR_NUMBER>/head:pr-<PR_NUMBER>
-git checkout pr-<PR_NUMBER>
+- C#: nullable enabled, implicit usings enabled, concise records/models where useful.
+- UI: native WinUI controls and Fluent spacing; avoid custom-looking web-style widgets.
+- Sync: keep provider adapters separate from sync orchestration and local data writes.
 
-# Install and generate
-flutter pub get
-flutter pub run build_runner build --delete-conflicting-outputs
-```
-
-### Code Quality Checklist
-
-- [ ] Follows Clean Architecture (domain/data/presentation layers)
-- [ ] Uses existing patterns (Riverpod, Freezed, GoRouter)
-- [ ] Naming conventions followed (PascalCase classes, snake_case files)
-- [ ] No unnecessary code duplication
-- [ ] Error handling with user feedback (toasts)
-
-### Security Checklist
-
-- [ ] No hardcoded secrets, API keys, or credentials
-- [ ] No sensitive data in logs or error messages
-- [ ] Input validation on user-provided data
-- [ ] API errors handled gracefully
-- [ ] OAuth tokens use secure storage
-
-### Build Verification
-
-```bash
-flutter analyze
-flutter test
-flutter build linux
-```
-
-### Approval Criteria
-
-- **Approve:** All checklists pass, tests pass
-- **Request Changes:** Security issues, broken tests, architectural violations
-- **Block:** Committed secrets, malicious code, license violations
-
-## Code Style
-
-- **Dart:** Follow standard Dart conventions (PascalCase classes, snake_case files)
-- **Models:** Use `@freezed` for entities, `@JsonSerializable()` for serialization
-- **State:** Use Riverpod with `ConsumerWidget` and `ref.watch()`
-- **Errors:** Use `ApiErrorHandler` and show user feedback via toasts
-
-## Questions?
-
-Open an issue or reach out to [@solankydev](https://github.com/solankydev).
+Questions are welcome through GitHub issues or discussions.
