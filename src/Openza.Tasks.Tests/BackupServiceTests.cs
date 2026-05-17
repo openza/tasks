@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.Data.Sqlite;
 using Openza.Tasks.Core.Data;
 using Openza.Tasks.Core.Models;
 using Openza.Tasks.Core.Services;
@@ -222,6 +223,7 @@ public sealed class BackupServiceTests : IDisposable
             });
         }
 
+        SqliteConnection.ClearAllPools();
         return databasePath;
     }
 
