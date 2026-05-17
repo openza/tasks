@@ -121,7 +121,8 @@ public sealed class TaskSyncEngineTests : IDisposable
         Assert.True(result.Success);
         Assert.Equal(1, result.TasksUpdated);
         Assert.NotNull(task);
-        Assert.Equal("Remote task updated", task.Title);
+        Assert.Equal("Old title", task.Title);
+        Assert.Equal("Remote task updated", task.SourceTitle);
         Assert.Null(task.Description);
         Assert.Equal("Remote description updated", task.SourceDescription);
         Assert.Equal("proj_local", task.ProjectId);

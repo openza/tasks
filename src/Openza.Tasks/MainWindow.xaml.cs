@@ -21,7 +21,8 @@ public sealed partial class MainWindow : Window
         ICredentialStore credentials,
         BackupService backupService,
         AppSettingsService settings,
-        MicrosoftToDoAuthService microsoftAuth)
+        MicrosoftToDoAuthService microsoftAuth,
+        BackupInfo? startupRecoveryCandidate = null)
     {
         _settings = settings;
 
@@ -36,7 +37,7 @@ public sealed partial class MainWindow : Window
         RestoreWindowState();
         Closed += OnClosed;
 
-        _shell = new AppShell(this, store, syncEngine, credentials, backupService, settings, microsoftAuth);
+        _shell = new AppShell(this, store, syncEngine, credentials, backupService, settings, microsoftAuth, startupRecoveryCandidate);
         Root.Children.Add(_shell);
     }
 

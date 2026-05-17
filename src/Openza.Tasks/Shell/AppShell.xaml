@@ -208,6 +208,7 @@
                             CreateBackupClicked="OnCreateBackupClicked"
                             RestoreBackupClicked="OnRestoreBackupClicked"
                             RefreshBackupsClicked="OnRefreshBackupsClicked"
+                            OpenBackupFolderClicked="OnOpenBackupFolderClicked"
                             ExportBackupClicked="OnExportBackupClicked"
                             RestoreSelectedBackupClicked="OnRestoreSelectedBackupClicked"
                             DeleteBackupClicked="OnDeleteBackupClicked"

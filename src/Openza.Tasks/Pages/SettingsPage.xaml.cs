@@ -17,6 +17,7 @@ public sealed partial class SettingsPage : UserControl
     public event RoutedEventHandler? CreateBackupClicked;
     public event RoutedEventHandler? RestoreBackupClicked;
     public event RoutedEventHandler? RefreshBackupsClicked;
+    public event RoutedEventHandler? OpenBackupFolderClicked;
     public event RoutedEventHandler? ExportBackupClicked;
     public event RoutedEventHandler? RestoreSelectedBackupClicked;
     public event RoutedEventHandler? DeleteBackupClicked;
@@ -107,6 +108,11 @@ public sealed partial class SettingsPage : UserControl
         }
     }
 
+    public void SetBackupFolder(string path)
+    {
+        BackupFolderText.Text = path;
+    }
+
     public void SetSpaces(IEnumerable<SpaceSettingsItemViewModel> spaces)
     {
         Spaces.Clear();
@@ -189,6 +195,8 @@ public sealed partial class SettingsPage : UserControl
     private void OnRestoreBackupClicked(object sender, RoutedEventArgs e) => RestoreBackupClicked?.Invoke(sender, e);
 
     private void OnRefreshBackupsClicked(object sender, RoutedEventArgs e) => RefreshBackupsClicked?.Invoke(sender, e);
+
+    private void OnOpenBackupFolderClicked(object sender, RoutedEventArgs e) => OpenBackupFolderClicked?.Invoke(sender, e);
 
     private void OnExportBackupClicked(object sender, RoutedEventArgs e) => ExportBackupClicked?.Invoke(sender, e);
 

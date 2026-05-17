@@ -26,6 +26,7 @@ public sealed partial class AppShell : UserControl
     private readonly BackupService _backupService;
     private readonly AppSettingsService _settings;
     private readonly MicrosoftToDoAuthService _microsoftAuth;
+    private readonly BackupInfo? _startupRecoveryCandidate;
     private readonly Window _ownerWindow;
     private readonly HttpClient _httpClient = new();
     private readonly List<SpaceItem> _spaces = [];
@@ -63,7 +64,8 @@ public sealed partial class AppShell : UserControl
         ICredentialStore credentials,
         BackupService backupService,
         AppSettingsService settings,
-        MicrosoftToDoAuthService microsoftAuth)
+        MicrosoftToDoAuthService microsoftAuth,
+        BackupInfo? startupRecoveryCandidate = null)
     {
         _ownerWindow = ownerWindow;
         _store = store;
@@ -72,6 +74,7 @@ public sealed partial class AppShell : UserControl
         _backupService = backupService;
         _settings = settings;
         _microsoftAuth = microsoftAuth;
+        _startupRecoveryCandidate = startupRecoveryCandidate;
         InitializeComponent();
         ShellNav.ItemInvoked += OnNavigationItemInvoked;
         AddKeyboardShortcuts();
@@ -88,6 +91,11 @@ public sealed partial class AppShell : UserControl
         SettingsPage.SetMicrosoftConfig(GetMicrosoftClientId(), GetMicrosoftTenantId());
         _suppressSettingsEvents = false;
         ApplyTheme(_settings.Settings.Theme);
+        if (_startupRecoveryCandidate is not null)
+        {
+            await ShowStartupRecoveryPromptAsync(_startupRecoveryCandidate).ConfigureAwait(true);
+        }
+
         if (_settings.Settings.AutoBackupEnabled)
         {
             await TryCreateStartupBackupAsync().ConfigureAwait(true);

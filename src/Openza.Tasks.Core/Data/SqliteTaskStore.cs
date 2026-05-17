@@ -7,6 +7,8 @@ namespace Openza.Tasks.Core.Data;
 
 public sealed class SqliteTaskStore(string databasePath) : ITaskStore
 {
+    public const int CurrentSchemaVersion = 3;
+
     private sealed record ParentTaskContext(string Id, string SpaceId, string? ProjectId, TaskWorkflowStatus WorkflowStatus);
 
     public string DatabasePath { get; } = databasePath;
@@ -1300,8 +1302,7 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         var command = connection.CreateCommand();
         command.CommandText = """
             UPDATE tasks
-            SET title = @title,
-                source_description = @source_description,
+            SET source_description = @source_description,
                 space_id = CASE
                     WHEN @parent_id IS NOT NULL AND TRIM(@parent_id) != '' THEN @parent_space_id
                     ELSE space_id
@@ -1354,7 +1355,6 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
             WHERE id = @task_id
             """;
         command.Parameters.AddWithValue("@task_id", source.AdoptedTaskId);
-        command.Parameters.AddWithValue("@title", source.Title);
         command.Parameters.AddWithValue("@source_description", ToDbValue(source.Description));
         command.Parameters.AddWithValue("@parent_id", ToDbValue(parent?.Id));
         command.Parameters.AddWithValue("@parent_space_id", ToDbValue(parent?.SpaceId));
@@ -1438,7 +1438,7 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
                    t.source_url, t.completion_state, t.workflow_status, t.planned_on, t.planned_at,
                    t.deadline_on, t.deadline_at, t.scheduled_start, t.scheduled_end, t.duration_minutes, t.recurrence_rule,
                    t.notes, t.provider_metadata, t.source_metadata, t.local_metadata,
-                   t.created_at, t.updated_at, t.completed_at, t.provider_connection_id, psi.source_project_name,
+                   t.created_at, t.updated_at, t.completed_at, t.provider_connection_id, psi.title, psi.source_project_name,
                    psi.priority, psi.planned_on, psi.planned_at, psi.deadline_on, psi.deadline_at
             FROM tasks t
             LEFT JOIN provider_source_items psi
@@ -1486,12 +1486,13 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
                 UpdatedAt = ReadDate(reader, 30),
                 CompletedAt = ReadDate(reader, 31),
                 ProviderConnectionId = GetNullableString(reader, 32),
-                SourceProjectName = GetNullableString(reader, 33),
-                SourcePriority = reader.IsDBNull(34) ? null : reader.GetInt32(34),
-                SourcePlannedOn = ReadDateOnly(reader, 35),
-                SourcePlannedAt = ReadDate(reader, 36),
-                SourceDeadlineOn = ReadDateOnly(reader, 37),
-                SourceDeadlineAt = ReadDate(reader, 38),
+                SourceTitle = GetNullableString(reader, 33),
+                SourceProjectName = GetNullableString(reader, 34),
+                SourcePriority = reader.IsDBNull(35) ? null : reader.GetInt32(35),
+                SourcePlannedOn = ReadDateOnly(reader, 36),
+                SourcePlannedAt = ReadDate(reader, 37),
+                SourceDeadlineOn = ReadDateOnly(reader, 38),
+                SourceDeadlineAt = ReadDate(reader, 39),
                 Labels = labelsByTask.GetValueOrDefault(id, []),
             });
         }
@@ -1801,7 +1802,7 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         command.CommandText = SchemaSql;
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         await EnsurePendingCompletionsTableAsync(connection, cancellationToken).ConfigureAwait(false);
-        await ExecutePragmaAsync(connection, "PRAGMA user_version = 3", cancellationToken).ConfigureAwait(false);
+        await ExecutePragmaAsync(connection, $"PRAGMA user_version = {CurrentSchemaVersion}", cancellationToken).ConfigureAwait(false);
     }
 
     private static async Task EnsureLegacySchemaCompatibilityAsync(SqliteConnection connection, CancellationToken cancellationToken)

@@ -11,6 +11,6 @@ public sealed class TaskEditorViewModel
     public bool CanEditProviderFields => IsNew || !IsProviderOwned;
     public string SourceText => Task is null ? "Openza Tasks" : TaskListItemViewModel.SourceName(Task.SourceIntegrationId ?? Task.IntegrationId);
     public string ProviderOwnershipText => IsProviderOwned
-        ? $"{SourceText} owns the source task. Openza Tasks keeps status, project, date, deadline, priority, labels, notes, and completion state local."
+        ? $"{SourceText} owns the source task. Openza Tasks keeps title, status, project, date, deadline, priority, labels, notes, and completion state local."
         : "This is a local Openza task. All fields are editable.";
 }

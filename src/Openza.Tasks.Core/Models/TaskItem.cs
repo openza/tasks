@@ -20,6 +20,7 @@ public sealed record TaskItem
     public string? SourceExternalId { get; init; }
     public string? SourceProviderTaskId { get; init; }
     public string? SourceUrl { get; init; }
+    public string? SourceTitle { get; init; }
     public string? SourceDescription { get; init; }
     public string? SourceProjectName { get; init; }
     public int? SourcePriority { get; init; }

@@ -28,6 +28,19 @@ public sealed partial class AppShell
 
         var text = await FileIO.ReadTextAsync(file);
         var parsed = MarkdownTaskParser.Parse(text);
+        if (parsed.Count > 0)
+        {
+            try
+            {
+                await _backupService.CreateBackupAsync(BackupReasons.PreImport).ConfigureAwait(true);
+            }
+            catch (Exception exception)
+            {
+                ShowInfo("Import blocked", $"A safety backup could not be created: {exception.Message}", InfoBarSeverity.Error);
+                return;
+            }
+        }
+
         foreach (var imported in parsed)
         {
             await _store.UpsertTaskAsync(new TaskItem
@@ -220,9 +233,23 @@ public sealed partial class AppShell
 
     private async void OnCreateBackupClicked(object sender, RoutedEventArgs e)
     {
-        var path = await _backupService.CreateBackupAsync().ConfigureAwait(true);
+        var path = await _backupService.CreateBackupAsync(BackupReasons.Manual).ConfigureAwait(true);
         await RefreshBackupListAsync().ConfigureAwait(true);
         ShowInfo("Backup created", path, InfoBarSeverity.Success);
+    }
+
+    private async void OnOpenBackupFolderClicked(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            Directory.CreateDirectory(_backupService.BackupDirectory);
+            var folder = await StorageFolder.GetFolderFromPathAsync(_backupService.BackupDirectory);
+            await Windows.System.Launcher.LaunchFolderAsync(folder);
+        }
+        catch (Exception exception)
+        {
+            ShowInfo("Could not open backup folder", exception.Message, InfoBarSeverity.Error);
+        }
     }
 
     private async void OnRestoreBackupClicked(object sender, RoutedEventArgs e)
@@ -407,6 +434,7 @@ public sealed partial class AppShell
 
     private Task RefreshBackupListAsync()
     {
+        SettingsPage.SetBackupFolder(_backupService.BackupDirectory);
         SettingsPage.SetBackups(_backupService.ListBackupInfo());
         return Task.CompletedTask;
     }
@@ -420,13 +448,41 @@ public sealed partial class AppShell
 
         try
         {
-            await _backupService.CreateBackupAsync().ConfigureAwait(true);
+            await _backupService.CreateBackupAsync(BackupReasons.Daily).ConfigureAwait(true);
             _settings.Settings.LastAutoBackupAt = DateTimeOffset.Now;
             await _settings.SaveAsync().ConfigureAwait(true);
         }
         catch (Exception exception)
         {
             AppLog.Write(exception);
+        }
+    }
+
+    private async Task ShowStartupRecoveryPromptAsync(BackupInfo backup)
+    {
+        var dialog = new ContentDialog
+        {
+            Title = "Restore available backup?",
+            Content = $"This app data looks new or empty, but a backup is available:\n\n{backup.DisplayName}\n\nRestore it before continuing?",
+            PrimaryButtonText = "Restore backup",
+            CloseButtonText = "Keep current data",
+            XamlRoot = XamlRoot,
+        };
+
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+        {
+            return;
+        }
+
+        try
+        {
+            await _backupService.RestoreBackupAsync(backup.Path).ConfigureAwait(true);
+            await _store.InitializeAsync().ConfigureAwait(true);
+            ShowInfo("Backup restored", backup.Path, InfoBarSeverity.Success);
+        }
+        catch (Exception exception)
+        {
+            ShowInfo("Restore failed", exception.Message, InfoBarSeverity.Error);
         }
     }
 

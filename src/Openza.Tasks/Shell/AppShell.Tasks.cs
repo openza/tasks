@@ -416,7 +416,7 @@ public sealed partial class AppShell
         var task = existing is not null
             ? existing with
             {
-                Title = isLinkedProviderTask ? existing.Title : draft.Title,
+                Title = existing.IsProviderTask && !existing.HasProviderSource ? existing.Title : draft.Title,
                 Status = existing.IsCompleted ? existing.Status : draft.Status,
                 ProjectId = draft.ProjectId,
                 Priority = draft.Priority,

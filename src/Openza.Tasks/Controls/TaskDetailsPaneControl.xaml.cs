@@ -245,7 +245,7 @@ public sealed partial class TaskDetailsPaneControl : UserControl
 
     private void SetProviderFieldEditability(bool canEditProviderContent)
     {
-        TitleEditor.IsReadOnly = !canEditProviderContent;
+        TitleEditor.IsReadOnly = false;
         ProviderTaskSection.Visibility = canEditProviderContent ? Visibility.Collapsed : Visibility.Visible;
         WorkflowEditor.Visibility = Visibility.Collapsed;
         DateEditor.Visibility = Visibility.Collapsed;
@@ -328,7 +328,7 @@ public sealed partial class TaskDetailsPaneControl : UserControl
         }
 
         ProviderTaskHeaderText.Text = $"Source: {editor.SourceText}";
-        ProviderTitleText.Text = task.Title;
+        ProviderTitleText.Text = string.IsNullOrWhiteSpace(task.SourceTitle) ? task.Title : task.SourceTitle;
         SourceDescriptionText.Text = task.SourceDescription ?? string.Empty;
         SourceDescriptionHintText.Text = $"From {editor.SourceText}";
         var hasSourceDescription = !string.IsNullOrWhiteSpace(task.SourceDescription);
