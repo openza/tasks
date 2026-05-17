@@ -82,7 +82,7 @@ public static class TaskStatusExtensions
         "completed" => TaskItemStatus.Completed,
         "done" => TaskItemStatus.Completed,
         "cancelled" => TaskItemStatus.Cancelled,
-        // Legacy Openza/Flutter rows and provider "in progress" rows are open tasks
+        // Historical Openza rows and provider "in progress" rows are open tasks.
         // without a GTD workflow list until the user clarifies them.
         "pending" or "active" or "in_progress" or "inProgress" or null or "" => TaskItemStatus.Inbox,
         _ => TaskItemStatus.None,

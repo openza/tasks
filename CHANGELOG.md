@@ -4,12 +4,16 @@ All notable changes to Openza Tasks will be documented in this file.
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-05-17
+
 ### Changed
 - Rebuilt the active app as a Windows-native WinUI 3/.NET 10 application.
 - Replaced the Rust FFI sync path with a C# sync engine in `Openza.Tasks.Core`.
 - Switched active release validation from Flutter/Linux artifacts to WinUI build and tests.
 - Marked Flutter/Linux packages as legacy release artifacts.
 - Microsoft To Do and OneDrive backup now keep separate Microsoft account selections.
+- Cleaned `main` so the WinUI app is the only active app codebase; Flutter-era code is preserved on the `legacy-flutter-app` branch.
+- Started the WinUI production release line at MSIX package version `1.0.0.0`.
 
 ### Added
 - Windows Credential Locker abstraction for Todoist tokens and OneDrive backup passphrases.
@@ -17,6 +21,9 @@ All notable changes to Openza Tasks will be documented in this file.
 - Optional OneDrive cloud backup for restorable backup snapshots, including optional passphrase encryption.
 - Safety behavior for provider-linked tasks, including clearer linked-delete handling and local title overrides.
 - Unit tests for Markdown parsing, SQLite storage, backup/export, sync behavior, and cloud backup bundles.
+
+### Removed
+- Removed legacy Flutter/Dart app sources, platform runners, Flatpak/AppImage packaging, and Flutter build scripts from `main`.
 
 ## [0.5.0] - 2026-01-25
 

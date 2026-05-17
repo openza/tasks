@@ -6,7 +6,7 @@ Also follow the shared Openza guidance in `../AGENTS.md`. Keep this file limited
 - `src/Openza.Tasks/` holds the active WinUI 3 app. Keep `MainWindow` as a thin host; put app shell behavior under `Shell/`, reusable UI in `Controls/`, settings/pages in `Pages/`, and Windows-only helpers in `Services/`.
 - `src/Openza.Tasks.Core/` holds SQLite data access, migration, import/export, provider sync, credentials abstractions, and testable business logic.
 - `src/Openza.Tasks.Tests/` holds xUnit tests for the WinUI migration.
-- `lib/` holds the legacy Flutter app for history/reference only.
+- The legacy Flutter app is preserved on the `legacy-flutter-app` branch only; `main` is the active WinUI codebase.
 - `legacy/rust-sync-reference/` contains the old Rust sync engine reference. Do not ship a Rust DLL in the WinUI app.
 - `assets/` stores icons, images, and bundled resources used at runtime.
 - `docs/`, `website/`, and `scripts/` provide supporting documentation and tooling.
@@ -28,7 +28,7 @@ Also follow the shared Openza guidance in `../AGENTS.md`. Keep this file limited
 - Prefer user-defined labels, filters, and saved views over hardcoded concepts such as context, area, energy, person, or review ritual.
 - Do not add a separate methodology-specific page or signal when the same outcome can be achieved through transparent data, project selection, labels, filters, and custom views.
 - Treat Spaces as user-owned visibility scopes, not provider-specific concepts. Do not hardcode Work/Personal or any user's routing logic in app code; put one-off routing in explicit import/setup scripts or future user-configurable rules.
-- Store V1 is a fresh-start WinUI product. Do not auto-migrate legacy Flutter databases or old local app stores unless the user explicitly changes that product decision.
+- Store V1 is a fresh-start WinUI product. Do not auto-migrate old local app stores unless the user explicitly changes that product decision.
 
 ## Testing Guidelines
 - Prefer unit tests for repositories, migration, backup/restore, import/export, provider mappers, and sync jobs.

@@ -21,7 +21,7 @@ Openza Tasks is maintained by Deependra Solanky as a personal open-source projec
 
 V1 is Store-first. Until the Microsoft Store listing is public, install and test from Visual Studio or an MSIX package created locally.
 
-Legacy Flutter/Linux packages remain available in older GitHub releases, but they are no longer the active product line. Store V1 does not auto-migrate legacy Flutter databases; users start with a clean WinUI workspace and can reconnect integrations.
+Legacy Flutter/Linux packages remain available in older GitHub releases, but they are no longer the active product line. Store V1 starts with a clean WinUI workspace and can reconnect integrations.
 
 ## Building From Source
 
@@ -69,7 +69,7 @@ The sync engine is C# in `Openza.Tasks.Core`. The previous Rust FFI engine is no
 
 ## Legacy Flutter App
 
-The last Flutter-era mainline is preserved on the [`legacy-flutter-app`](https://github.com/openza/tasks/tree/legacy-flutter-app) branch. New development, issues, and releases target the Windows-native WinUI codebase in `src/Openza.Tasks/`. Any Flutter-era files left in `main` are historical leftovers and are not built, packaged, or maintained as the active Openza Tasks app.
+The last Flutter-era mainline is preserved on the [`legacy-flutter-app`](https://github.com/openza/tasks/tree/legacy-flutter-app) branch. New development, issues, and releases target the Windows-native WinUI codebase in `src/Openza.Tasks/`.
 
 See [docs/architecture.md](docs/architecture.md) for the V3 task model, provider wrapper pattern, and future sync-route design.
 See [docs/design-guidelines.md](docs/design-guidelines.md) for the Openza Calm Fluent production UI language.
