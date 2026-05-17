@@ -45,15 +45,36 @@ public sealed class TaskSyncEngine(ITaskStore store, ConflictPolicy? conflictPol
                 sourceItemsAdded++;
             }
 
-            var tasksDeleted = 0;
-            _ = _conflictPolicy.DeleteOrphans;
-            foreach (var orphan in existingByExternalId.Values.Where(t =>
-                t.AdoptionState != ProviderSourceAdoptionStates.Ignored &&
-                !remoteExternalIds.Contains(t.ExternalId)))
+            foreach (var incomingCompletedTask in snapshot.CompletedTasks)
             {
-                // Direction 2 keeps provider removals non-destructive: the Openza task stays,
-                // but the stale source link is detached so local cleanup can proceed.
-                await store.DetachProviderSourceItemAsync(orphan.Id, cancellationToken).ConfigureAwait(false);
+                var completedTask = string.IsNullOrWhiteSpace(incomingCompletedTask.ProviderConnectionId)
+                    ? incomingCompletedTask with { ProviderConnectionId = providerConnectionId }
+                    : incomingCompletedTask;
+                if (string.IsNullOrWhiteSpace(completedTask.ExternalId) ||
+                    remoteExternalIds.Contains(completedTask.ExternalId) ||
+                    !existingByExternalId.TryGetValue(completedTask.ExternalId, out var existingSource) ||
+                    existingSource.AdoptionState != ProviderSourceAdoptionStates.Adopted)
+                {
+                    continue;
+                }
+
+                var mergedTask = MergeCompletedTask(completedTask, existingSource, providerConnectionId);
+                await store.UpsertProviderSourceItemAsync(ToProviderSourceItem(mergedTask, providerConnectionId, projectNames), cancellationToken).ConfigureAwait(false);
+                remoteExternalIds.Add(completedTask.ExternalId);
+                sourceItemsUpdated++;
+            }
+
+            var tasksDeleted = 0;
+            if (_conflictPolicy.DeleteOrphans)
+            {
+                foreach (var orphan in existingByExternalId.Values.Where(t =>
+                    t.AdoptionState != ProviderSourceAdoptionStates.Ignored &&
+                    !remoteExternalIds.Contains(t.ExternalId)))
+                {
+                    // Direction 2 keeps provider removals non-destructive: the Openza task stays,
+                    // but the stale source link is detached so local cleanup can proceed.
+                    await store.DetachProviderSourceItemAsync(orphan.Id, cancellationToken).ConfigureAwait(false);
+                }
             }
 
             await store.UpdateIntegrationSyncAsync(provider.IntegrationId, DateTimeOffset.UtcNow, snapshot.SyncToken, cancellationToken).ConfigureAwait(false);
@@ -72,6 +93,28 @@ public sealed class TaskSyncEngine(ITaskStore store, ConflictPolicy? conflictPol
         {
             return SyncSummary.Failed(provider.IntegrationId, exception);
         }
+    }
+
+    private static TaskItem MergeCompletedTask(TaskItem completedTask, ProviderSourceItem existingSource, string providerConnectionId)
+    {
+        var title = string.IsNullOrWhiteSpace(completedTask.Title) ? existingSource.Title : completedTask.Title;
+        return completedTask with
+        {
+            IntegrationId = string.IsNullOrWhiteSpace(completedTask.IntegrationId) ? existingSource.IntegrationId : completedTask.IntegrationId,
+            ProviderConnectionId = providerConnectionId,
+            Title = title,
+            Description = completedTask.Description ?? existingSource.Description,
+            ProjectId = completedTask.ProjectId ?? existingSource.SourceProjectId,
+            ParentId = completedTask.ParentId,
+            Priority = completedTask.Priority,
+            CompletionState = TaskCompletionState.Completed,
+            PlannedOn = completedTask.PlannedOn ?? existingSource.PlannedOn,
+            PlannedAt = completedTask.PlannedAt ?? existingSource.PlannedAt,
+            DeadlineOn = completedTask.DeadlineOn ?? existingSource.DeadlineOn,
+            DeadlineAt = completedTask.DeadlineAt ?? existingSource.DeadlineAt,
+            RecurrenceRule = completedTask.RecurrenceRule ?? existingSource.RecurrenceRule,
+            ProviderMetadataJson = completedTask.ProviderMetadataJson ?? existingSource.SnapshotJson,
+        };
     }
 
     public async Task<int> SyncPendingCompletionsAsync(ISyncProvider provider, CancellationToken cancellationToken = default)

@@ -15,6 +15,7 @@ public sealed class TodoistProvider(HttpClient httpClient, string accessToken, s
     public async Task<ProviderSnapshot> FetchSnapshotAsync(CancellationToken cancellationToken = default)
     {
         using var tasksJson = await SendPagedJsonAsync("/tasks", cancellationToken).ConfigureAwait(false);
+        using var completedTasksJson = await SendPagedJsonAsync(BuildCompletedTasksPath(), cancellationToken).ConfigureAwait(false);
         using var projectsJson = await SendPagedJsonAsync("/projects", cancellationToken).ConfigureAwait(false);
         using var labelsJson = await SendPagedJsonAsync("/labels", cancellationToken).ConfigureAwait(false);
 
@@ -22,8 +23,12 @@ public sealed class TodoistProvider(HttpClient httpClient, string accessToken, s
         var labels = MapLabels(labelsJson.RootElement, providerConnectionId);
         var projectNames = projects.Where(p => p.ExternalId is not null).ToDictionary(p => p.ExternalId!, p => p.Name, StringComparer.Ordinal);
         var tasks = MapTasks(tasksJson.RootElement, projectNames);
+        var completedTasks = MapCompletedTasks(completedTasksJson.RootElement, projectNames);
 
-        return new ProviderSnapshot(tasks, projects, labels);
+        return new ProviderSnapshot(tasks, projects, labels)
+        {
+            CompletedTasks = completedTasks,
+        };
     }
 
     public async Task CompleteTaskAsync(PendingCompletion completion, CancellationToken cancellationToken = default)
@@ -72,13 +77,14 @@ public sealed class TodoistProvider(HttpClient httpClient, string accessToken, s
 
     private static string BuildPagedPath(string path, string? cursor)
     {
+        var separator = path.Contains('?', StringComparison.Ordinal) ? "&" : "?";
         var query = $"limit={PageSize.ToString(CultureInfo.InvariantCulture)}";
         if (!string.IsNullOrWhiteSpace(cursor))
         {
             query += $"&cursor={Uri.EscapeDataString(cursor)}";
         }
 
-        return $"{path}?{query}";
+        return $"{path}{separator}{query}";
     }
 
     private static string? CopyPageResults(JsonElement root, Utf8JsonWriter writer)
@@ -98,7 +104,7 @@ public sealed class TodoistProvider(HttpClient httpClient, string accessToken, s
             return null;
         }
 
-        if (root.TryGetProperty("results", out var results) && results.ValueKind == JsonValueKind.Array)
+        if (TryGetPageItems(root, out var results))
         {
             foreach (var item in results.EnumerateArray())
             {
@@ -108,6 +114,16 @@ public sealed class TodoistProvider(HttpClient httpClient, string accessToken, s
 
         var nextCursor = GetString(root, "next_cursor");
         return string.IsNullOrWhiteSpace(nextCursor) ? null : nextCursor;
+    }
+
+    private static bool TryGetPageItems(JsonElement root, out JsonElement items)
+    {
+        if (root.TryGetProperty("results", out items) && items.ValueKind == JsonValueKind.Array)
+        {
+            return true;
+        }
+
+        return root.TryGetProperty("items", out items) && items.ValueKind == JsonValueKind.Array;
     }
 
     private static IReadOnlyList<ProjectItem> MapProjects(JsonElement root, string providerConnectionId)
@@ -176,6 +192,31 @@ public sealed class TodoistProvider(HttpClient httpClient, string accessToken, s
                 CreatedAt = ParseDate(GetString(task, "created_at")) ?? ParseDate(GetString(task, "added_at")) ?? DateTimeOffset.UtcNow,
                 CompletedAt = ParseDate(GetString(task, "completed_at")),
                 Labels = MapTaskLabels(task, providerConnectionId),
+                ProviderMetadataJson = BuildTodoistMetadata(task, projectNames),
+            };
+        }).ToList();
+    }
+
+    private IReadOnlyList<TaskItem> MapCompletedTasks(JsonElement root, IReadOnlyDictionary<string, string> projectNames)
+    {
+        return root.EnumerateArray().Select(task =>
+        {
+            var id = GetString(task, "task_id") ?? GetString(task, "id") ?? Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture);
+            var completedAt = ParseDate(GetString(task, "completed_at")) ?? ParseDate(GetString(task, "completed_date"));
+            return new TaskItem
+            {
+                Id = $"todoist_{id}",
+                ExternalId = id,
+                IntegrationId = IntegrationIds.Todoist,
+                ProviderConnectionId = providerConnectionId,
+                Title = GetString(task, "content") ?? GetString(task, "task_content") ?? string.Empty,
+                Description = GetString(task, "description"),
+                ProjectId = PrefixOrNull("todoist_", GetString(task, "project_id")),
+                ParentId = PrefixOrNull("todoist_", GetString(task, "parent_id")),
+                Priority = 5 - Math.Clamp(GetInt(task, "priority", defaultValue: 1), 1, 4),
+                CompletionState = TaskCompletionState.Completed,
+                CreatedAt = ParseDate(GetString(task, "created_at")) ?? ParseDate(GetString(task, "added_at")) ?? completedAt ?? DateTimeOffset.UtcNow,
+                CompletedAt = completedAt,
                 ProviderMetadataJson = BuildTodoistMetadata(task, projectNames),
             };
         }).ToList();
@@ -267,6 +308,15 @@ public sealed class TodoistProvider(HttpClient httpClient, string accessToken, s
     }
 
     private static string? PrefixOrNull(string prefix, string? value) => string.IsNullOrWhiteSpace(value) ? null : $"{prefix}{value}";
+
+    private static string BuildCompletedTasksPath()
+    {
+        var until = DateTimeOffset.UtcNow;
+        var since = until.AddDays(-89);
+        return string.Create(
+            CultureInfo.InvariantCulture,
+            $"/tasks/completed/by_completion_date?since={Uri.EscapeDataString(since.ToString("O", CultureInfo.InvariantCulture))}&until={Uri.EscapeDataString(until.ToString("O", CultureInfo.InvariantCulture))}");
+    }
 
     private static string? GetString(JsonElement element, string property) =>
         element.TryGetProperty(property, out var value) && value.ValueKind != JsonValueKind.Null ? value.ToString() : null;

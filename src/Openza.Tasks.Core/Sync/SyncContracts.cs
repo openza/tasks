@@ -20,7 +20,10 @@ public sealed record ProviderSnapshot(
     IReadOnlyList<TaskItem> Tasks,
     IReadOnlyList<ProjectItem> Projects,
     IReadOnlyList<LabelItem> Labels,
-    string? SyncToken = null);
+    string? SyncToken = null)
+{
+    public IReadOnlyList<TaskItem> CompletedTasks { get; init; } = [];
+}
 
 public sealed record SyncSummary(
     string Provider,
