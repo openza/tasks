@@ -11,18 +11,23 @@ internal static class TestDirectory
             return;
         }
 
-        SqliteConnection.ClearAllPools();
-        for (var attempt = 0; attempt < 5; attempt++)
+        for (var attempt = 0; attempt < 30; attempt++)
         {
             try
             {
+                SqliteConnection.ClearAllPools();
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
                 Directory.Delete(path, recursive: true);
                 return;
             }
-            catch (IOException) when (attempt < 4)
+            catch (IOException) when (attempt < 29)
             {
-                Thread.Sleep(50);
-                SqliteConnection.ClearAllPools();
+                Thread.Sleep(100);
+            }
+            catch (UnauthorizedAccessException) when (attempt < 29)
+            {
+                Thread.Sleep(100);
             }
         }
     }
