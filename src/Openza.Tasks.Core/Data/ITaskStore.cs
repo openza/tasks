@@ -17,6 +17,7 @@ public interface ITaskStore
     Task UpsertProviderConnectionAsync(ProviderConnectionInfo connection, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<ProviderSourceItem>> GetProviderSourceItemsAsync(string? integrationId = null, string? spaceId = null, bool includeAdopted = false, bool includeIgnored = false, CancellationToken cancellationToken = default);
     Task UpsertProviderSourceItemAsync(ProviderSourceItem item, CancellationToken cancellationToken = default);
+    Task DetachProviderSourceItemAsync(string sourceItemId, CancellationToken cancellationToken = default);
     Task<TaskItem?> AdoptProviderSourceItemAsync(string sourceItemId, string spaceId = SpaceIds.Default, CancellationToken cancellationToken = default);
     Task<bool> SkipProviderSourceItemAsync(string sourceItemId, CancellationToken cancellationToken = default);
     Task<bool> UnskipProviderSourceItemAsync(string sourceItemId, CancellationToken cancellationToken = default);

@@ -121,6 +121,70 @@ public sealed class SqliteTaskStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task UpsertTask_clears_stale_planned_time_when_planned_date_disagrees()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        var today = DateOnly.FromDateTime(DateTimeOffset.Now.LocalDateTime);
+
+        await store.UpsertTaskAsync(new TaskItem
+        {
+            Id = "task_future_date_stale_time",
+            Title = "Future date with stale time",
+            PlannedOn = today.AddDays(5),
+            PlannedAt = DateTimeOffset.Now.AddDays(-1),
+        });
+
+        var task = await store.GetTaskAsync("task_future_date_stale_time");
+        var overdueTasks = await store.GetTasksAsync(new TaskQuery { Kind = TaskListKind.Overdue });
+
+        Assert.NotNull(task);
+        Assert.Equal(today.AddDays(5), task.PlannedOn);
+        Assert.Null(task.PlannedAt);
+        Assert.Empty(overdueTasks);
+    }
+
+    [Fact]
+    public async Task Initialize_cleans_existing_stale_planned_time_when_planned_date_disagrees()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        var today = DateOnly.FromDateTime(DateTimeOffset.Now.LocalDateTime);
+
+        await store.UpsertTaskAsync(new TaskItem
+        {
+            Id = "task_existing_stale_time",
+            Title = "Existing stale time",
+            PlannedOn = today.AddDays(5),
+        });
+        await using (var connection = new SqliteConnection(new SqliteConnectionStringBuilder
+        {
+            DataSource = store.DatabasePath,
+            Mode = SqliteOpenMode.ReadWrite,
+            Pooling = false,
+        }.ToString()))
+        {
+            await connection.OpenAsync();
+            var command = connection.CreateCommand();
+            command.CommandText = "UPDATE tasks SET planned_at = @planned_at WHERE id = 'task_existing_stale_time'";
+            command.Parameters.AddWithValue("@planned_at", DateTimeOffset.Now.AddDays(-1).ToUnixTimeSeconds());
+            await command.ExecuteNonQueryAsync();
+        }
+
+        await store.InitializeAsync();
+
+        var task = await store.GetTaskAsync("task_existing_stale_time");
+        var overdueTasks = await store.GetTasksAsync(new TaskQuery { Kind = TaskListKind.Overdue });
+        var counts = await store.GetTaskCountsAsync();
+
+        Assert.NotNull(task);
+        Assert.Equal(today.AddDays(5), task.PlannedOn);
+        Assert.Null(task.PlannedAt);
+        Assert.Empty(overdueTasks);
+        Assert.Equal(0, counts.Overdue);
+    }
+
+    [Fact]
     public async Task UpsertTask_roundtrips_completion_workflow_and_planner_fields()
     {
         var store = CreateStore();
@@ -469,6 +533,70 @@ public sealed class SqliteTaskStoreTests : IDisposable
         Assert.Equal(source.AdoptedTaskId, task.Id);
         Assert.Equal(TaskWorkflowStatus.Someday, task.WorkflowStatus);
         Assert.Equal("every 6th", task.RecurrenceRule);
+    }
+
+    [Fact]
+    public async Task DeleteTask_deletes_local_only_task()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        await store.UpsertTaskAsync(new TaskItem
+        {
+            Id = "task_local_delete",
+            Title = "Local delete",
+        });
+
+        await store.DeleteTaskAsync("task_local_delete");
+
+        Assert.Null(await store.GetTaskAsync("task_local_delete"));
+    }
+
+    [Fact]
+    public async Task DeleteTask_blocks_adopted_provider_link()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        await store.UpsertProviderSourceItemAsync(new ProviderSourceItem
+        {
+            Id = "source_linked_delete",
+            IntegrationId = IntegrationIds.Todoist,
+            ProviderConnectionId = "todoist_default",
+            ExternalId = "remote_linked_delete",
+            ProviderTaskId = "remote_linked_delete",
+            Title = "Linked delete",
+        });
+        var task = await store.AdoptProviderSourceItemAsync("source_linked_delete");
+        Assert.NotNull(task);
+
+        var exception = await Assert.ThrowsAsync<ProviderLinkedTaskDeleteException>(() => store.DeleteTaskAsync(task.Id));
+
+        Assert.Equal(task.Id, exception.TaskId);
+        Assert.Equal(IntegrationIds.Todoist, exception.Provider);
+        Assert.NotNull(await store.GetTaskAsync(task.Id));
+    }
+
+    [Fact]
+    public async Task DeleteTask_allows_delete_after_stale_provider_link_is_detached()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        await store.UpsertProviderSourceItemAsync(new ProviderSourceItem
+        {
+            Id = "source_stale_delete",
+            IntegrationId = IntegrationIds.Todoist,
+            ProviderConnectionId = "todoist_default",
+            ExternalId = "remote_stale_delete",
+            ProviderTaskId = "remote_stale_delete",
+            Title = "Stale delete",
+        });
+        var task = await store.AdoptProviderSourceItemAsync("source_stale_delete");
+        Assert.NotNull(task);
+
+        await store.DetachProviderSourceItemAsync("source_stale_delete");
+        await store.DeleteTaskAsync(task.Id);
+
+        Assert.Null(await store.GetTaskAsync(task.Id));
+        Assert.Empty(await store.GetProviderSourceItemsAsync(IntegrationIds.Todoist, includeAdopted: true, includeIgnored: true));
     }
 
     [Fact]

@@ -471,8 +471,16 @@ public sealed partial class AppShell
         return true;
     }
 
-    private static DateTimeOffset? PreserveExactTime(DateOnly? selectedDate, DateOnly? existingDate, DateTimeOffset? existingDateTime) =>
-        selectedDate == TaskDateValues.PreferredDate(existingDate, existingDateTime) ? existingDateTime : null;
+    private static DateTimeOffset? PreserveExactTime(DateOnly? selectedDate, DateOnly? existingDate, DateTimeOffset? existingDateTime)
+    {
+        if (selectedDate is null || existingDateTime is null)
+        {
+            return null;
+        }
+
+        var exactDate = TaskDateValues.FromDateTimeOffset(existingDateTime);
+        return existingDate == selectedDate && exactDate == selectedDate ? existingDateTime : null;
+    }
 
     private static string? WithSourceDateMismatchAcknowledgement(string? localMetadataJson, string? acknowledgementKey)
     {
@@ -697,7 +705,27 @@ public sealed partial class AppShell
             return;
         }
 
-        await _store.DeleteTaskAsync(id).ConfigureAwait(true);
+        try
+        {
+            await _store.DeleteTaskAsync(id).ConfigureAwait(true);
+        }
+        catch (ProviderLinkedTaskDeleteException exception)
+        {
+            ShowInfo(
+                "Task is linked",
+                exception.Message,
+                InfoBarSeverity.Warning);
+            return;
+        }
+        catch (Exception exception)
+        {
+            ShowInfo(
+                "Could not delete task",
+                exception.Message,
+                InfoBarSeverity.Error);
+            return;
+        }
+
         if (_selectedTaskId == id)
         {
             _selectedTaskId = null;

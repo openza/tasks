@@ -71,8 +71,8 @@ public sealed record TaskItem
     public bool IsOpen => CompletionState == TaskCompletionState.Open;
     public bool IsProviderTask => IntegrationId != IntegrationIds.Local;
     public bool HasProviderSource => !string.IsNullOrWhiteSpace(SourceIntegrationId) && !string.IsNullOrWhiteSpace(SourceExternalId);
-    public DateTimeOffset? PlannedMoment => TaskDateValues.PreferredMoment(PlannedOn, PlannedAt);
-    public DateTimeOffset? DeadlineMoment => TaskDateValues.PreferredMoment(DeadlineOn, DeadlineAt);
-    public DateTimeOffset? SourcePlannedMoment => TaskDateValues.PreferredMoment(SourcePlannedOn, SourcePlannedAt);
-    public DateTimeOffset? SourceDeadlineMoment => TaskDateValues.PreferredMoment(SourceDeadlineOn, SourceDeadlineAt);
+    public DateTimeOffset? PlannedMoment => TaskDateValues.CanonicalMoment(PlannedOn, PlannedAt);
+    public DateTimeOffset? DeadlineMoment => TaskDateValues.CanonicalMoment(DeadlineOn, DeadlineAt);
+    public DateTimeOffset? SourcePlannedMoment => TaskDateValues.CanonicalMoment(SourcePlannedOn, SourcePlannedAt);
+    public DateTimeOffset? SourceDeadlineMoment => TaskDateValues.CanonicalMoment(SourceDeadlineOn, SourceDeadlineAt);
 }

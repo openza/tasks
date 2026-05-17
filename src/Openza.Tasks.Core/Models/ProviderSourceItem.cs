@@ -110,4 +110,5 @@ public static class ProviderSourceAdoptionStates
     public const string NotAdopted = "not_adopted";
     public const string Adopted = "adopted";
     public const string Ignored = "ignored";
+    public const string Missing = "missing";
 }

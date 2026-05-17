@@ -46,15 +46,14 @@ public sealed class TaskSyncEngine(ITaskStore store, ConflictPolicy? conflictPol
             }
 
             var tasksDeleted = 0;
-            if (_conflictPolicy.DeleteOrphans)
+            _ = _conflictPolicy.DeleteOrphans;
+            foreach (var orphan in existingByExternalId.Values.Where(t =>
+                t.AdoptionState != ProviderSourceAdoptionStates.Ignored &&
+                !remoteExternalIds.Contains(t.ExternalId)))
             {
-                foreach (var orphan in existingByExternalId.Values.Where(t => !remoteExternalIds.Contains(t.ExternalId)))
-                {
-                    // Direction 2 keeps provider removals non-destructive by default. Even with
-                    // orphan cleanup enabled, adopted Openza tasks stay intact; the source item can
-                    // be hidden/ignored in a later route-specific cleanup policy.
-                    _ = orphan;
-                }
+                // Direction 2 keeps provider removals non-destructive: the Openza task stays,
+                // but the stale source link is detached so local cleanup can proceed.
+                await store.DetachProviderSourceItemAsync(orphan.Id, cancellationToken).ConfigureAwait(false);
             }
 
             await store.UpdateIntegrationSyncAsync(provider.IntegrationId, DateTimeOffset.UtcNow, snapshot.SyncToken, cancellationToken).ConfigureAwait(false);

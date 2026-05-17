@@ -18,7 +18,22 @@ public static class TaskDateValues
         exactTime ?? ToLocalDateTime(date);
 
     public static DateOnly? PreferredDate(DateOnly? date, DateTimeOffset? exactTime) =>
-        FromDateTimeOffset(PreferredMoment(date, exactTime));
+        date ?? FromDateTimeOffset(exactTime);
+
+    public static DateTimeOffset? CanonicalMoment(DateOnly? date, DateTimeOffset? exactTime)
+    {
+        if (date is null)
+        {
+            return exactTime;
+        }
+
+        if (exactTime is not null && FromDateTimeOffset(exactTime) == date)
+        {
+            return exactTime;
+        }
+
+        return ToLocalDateTime(date);
+    }
 
     public static string? ToStorageValue(DateOnly? value) =>
         value?.ToString(IsoDateFormat, CultureInfo.InvariantCulture);

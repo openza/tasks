@@ -142,6 +142,61 @@ public sealed class TaskSyncEngineTests : IDisposable
     }
 
     [Fact]
+    public async Task Sync_detaches_adopted_source_item_missing_from_provider_snapshot()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        var engine = new TaskSyncEngine(store);
+
+        var firstSync = await engine.SyncAsync(new FakeProvider());
+        var source = Assert.Single(await store.GetProviderSourceItemsAsync(IntegrationIds.Todoist));
+        var adopted = await store.AdoptProviderSourceItemAsync(source.Id);
+        Assert.True(firstSync.Success);
+        Assert.NotNull(adopted);
+
+        var secondSync = await engine.SyncAsync(new EmptyProvider());
+
+        var detached = await store.GetTaskAsync(adopted.Id);
+        Assert.True(secondSync.Success);
+        Assert.NotNull(detached);
+        Assert.False(detached.HasProviderSource);
+        Assert.Empty(await store.GetProviderSourceItemsAsync(IntegrationIds.Todoist, includeAdopted: true, includeIgnored: true));
+
+        await store.DeleteTaskAsync(adopted.Id);
+        Assert.Null(await store.GetTaskAsync(adopted.Id));
+    }
+
+    [Fact]
+    public async Task Sync_preserves_ignored_source_item_missing_from_provider_snapshot()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        var engine = new TaskSyncEngine(store);
+
+        var firstSync = await engine.SyncAsync(new FakeProvider());
+        var source = Assert.Single(await store.GetProviderSourceItemsAsync(IntegrationIds.Todoist));
+        var skipped = await store.SkipProviderSourceItemAsync(source.Id);
+        Assert.True(firstSync.Success);
+        Assert.True(skipped);
+
+        var emptySync = await engine.SyncAsync(new EmptyProvider());
+        var ignoredAfterEmptySync = Assert.Single(await store.GetProviderSourceItemsAsync(
+            IntegrationIds.Todoist,
+            includeIgnored: true));
+        var returnedSync = await engine.SyncAsync(new FakeProvider());
+        var ignoredAfterReturnedSync = Assert.Single(await store.GetProviderSourceItemsAsync(
+            IntegrationIds.Todoist,
+            includeIgnored: true));
+        var intake = await store.GetProviderSourceItemsAsync(IntegrationIds.Todoist);
+
+        Assert.True(emptySync.Success);
+        Assert.Equal(ProviderSourceAdoptionStates.Ignored, ignoredAfterEmptySync.AdoptionState);
+        Assert.True(returnedSync.Success);
+        Assert.Equal(ProviderSourceAdoptionStates.Ignored, ignoredAfterReturnedSync.AdoptionState);
+        Assert.Empty(intake);
+    }
+
+    [Fact]
     public async Task Sync_reopens_completed_recurring_provider_task_with_next_source_date()
     {
         var store = CreateStore();
