@@ -384,6 +384,11 @@ public sealed partial class AppShell
 
     private void UpdateNavigationCounts(TaskCountSummary counts)
     {
+        if (_deferNavigationCountUpdates)
+        {
+            return;
+        }
+
         SetBadge(InboxBadge, counts.Inbox);
         SetBadge(NextBadge, counts.NextActions);
         SetBadge(WaitingBadge, counts.Waiting);

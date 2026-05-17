@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Text.Json;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
@@ -38,6 +39,7 @@ public sealed partial class TaskDetailsPaneControl : UserControl
     private ProjectItem? _selectedProject;
     private bool _showAllSubtasks;
     private bool _syncingCalendarSelection;
+    private string? _sourceDateMismatchAcknowledgementKey;
 
     public event RoutedEventHandler? AutoSaveRequested;
     public event RoutedEventHandler? ToggleCompleteClicked;
@@ -87,6 +89,8 @@ public sealed partial class TaskDetailsPaneControl : UserControl
 
     public bool IsEditingExistingProviderTask => _loadedTask?.IsProviderTask == true || _loadedTask?.HasProviderSource == true;
 
+    public string? SourceDateMismatchAcknowledgementKey => _sourceDateMismatchAcknowledgementKey;
+
     public string Snapshot => CurrentSnapshot();
 
     public bool HasUnsavedChanges => !_loading && CurrentSnapshot() != _originalSnapshot;
@@ -117,6 +121,7 @@ public sealed partial class TaskDetailsPaneControl : UserControl
     {
         _loading = true;
         _loadedTask = task;
+        _sourceDateMismatchAcknowledgementKey = ReadSourceDateMismatchAcknowledgementKey(task.LocalMetadataJson);
         var editor = new TaskEditorViewModel { Task = task, Project = project };
         HeaderCompleteBox.IsChecked = task.IsCompleted;
         HeaderCompleteBox.IsEnabled = true;
@@ -149,6 +154,7 @@ public sealed partial class TaskDetailsPaneControl : UserControl
     {
         _loading = true;
         _loadedTask = null;
+        _sourceDateMismatchAcknowledgementKey = null;
         HeaderCompleteBox.IsChecked = false;
         HeaderCompleteBox.IsEnabled = false;
         SourceText.Text = HeaderContextText("Openza Tasks", defaultProject);
@@ -499,7 +505,8 @@ public sealed partial class TaskDetailsPaneControl : UserControl
         }
 
         var key = BuildSourceDateMismatchKey(_loadedTask.Id, localDate, sourceDate, localDeadline, sourceDeadline);
-        if (_dismissedSourceDateMismatchKeys.Contains(key))
+        if (_dismissedSourceDateMismatchKeys.Contains(key) ||
+            string.Equals(_sourceDateMismatchAcknowledgementKey, key, StringComparison.Ordinal))
         {
             HideSourceDateMismatchNotice();
             return;
@@ -565,6 +572,30 @@ public sealed partial class TaskDetailsPaneControl : UserControl
     private static string BuildSourceDateMismatchKey(DateOnly? localDate, DateOnly? sourceDate, DateOnly? localDeadline, DateOnly? sourceDeadline) =>
         string.Join('|', localDate?.ToString("O") ?? "", sourceDate?.ToString("O") ?? "", localDeadline?.ToString("O") ?? "", sourceDeadline?.ToString("O") ?? "");
 
+    private static string? ReadSourceDateMismatchAcknowledgementKey(string? localMetadataJson)
+    {
+        if (string.IsNullOrWhiteSpace(localMetadataJson))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(localMetadataJson);
+            if (document.RootElement.TryGetProperty("openza", out var openza) &&
+                openza.TryGetProperty("sourceDateMismatchAcknowledgementKey", out var value) &&
+                value.ValueKind == JsonValueKind.String)
+            {
+                return value.GetString();
+            }
+        }
+        catch (JsonException)
+        {
+        }
+
+        return null;
+    }
+
     private static DateOnly? DateOnlyFrom(DateTimeOffset? value) => TaskDateValues.FromDateTimeOffset(value);
 
     private static DateOnly? DateOnlyFrom(DateOnly? date, DateTimeOffset? moment) => TaskDateValues.PreferredDate(date, moment);
@@ -607,7 +638,8 @@ public sealed partial class TaskDetailsPaneControl : UserControl
             DeadlineDateEditor.Date?.ToString("O", System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty,
             SelectedStatus.ToStorageValue(),
             SelectedProject?.Id ?? string.Empty,
-            SelectedPriority.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            SelectedPriority.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            _sourceDateMismatchAcknowledgementKey ?? string.Empty);
 
     private void OnEditorChanged(object sender, TextChangedEventArgs e)
     {
@@ -840,6 +872,7 @@ public sealed partial class TaskDetailsPaneControl : UserControl
         _loading = true;
         DateEditor.Date = TaskDateValues.PreferredMoment(_loadedTask.SourcePlannedOn, _loadedTask.SourcePlannedAt);
         DeadlineDateEditor.Date = TaskDateValues.PreferredMoment(_loadedTask.SourceDeadlineOn, _loadedTask.SourceDeadlineAt);
+        _sourceDateMismatchAcknowledgementKey = null;
         _loading = wasLoading;
         RefreshInspectorValues();
         RequestImmediateAutoSave();
@@ -847,8 +880,10 @@ public sealed partial class TaskDetailsPaneControl : UserControl
 
     private void OnKeepOpenzaDateClicked(object sender, RoutedEventArgs e)
     {
-        _dismissedSourceDateMismatchKeys.Add(BuildSourceDateMismatchKey());
+        _sourceDateMismatchAcknowledgementKey = BuildSourceDateMismatchKey();
+        _dismissedSourceDateMismatchKeys.Add(_sourceDateMismatchAcknowledgementKey);
         HideSourceDateMismatchNotice();
+        RequestImmediateAutoSave();
     }
 
     private void OnLabelPickerClicked(object sender, RoutedEventArgs e)

@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using System.Text.Json.Nodes;
 using Openza.Tasks.Controls;
 using Openza.Tasks.Core.Data;
 using Openza.Tasks.Core.Models;
@@ -315,7 +316,8 @@ public sealed partial class AppShell
         DateOnly? DeadlineOn,
         string? ProjectId,
         TaskItemStatus Status,
-        int Priority);
+        int Priority,
+        string? SourceDateMismatchAcknowledgementKey);
 
     private TaskDetailsDraft CaptureTaskDetailsDraft()
     {
@@ -329,7 +331,8 @@ public sealed partial class AppShell
             panel.SelectedDeadlineOn,
             panel.SelectedProject?.Id,
             panel.SelectedStatus,
-            panel.SelectedPriority);
+            panel.SelectedPriority,
+            panel.SourceDateMismatchAcknowledgementKey);
     }
 
     private async void OnDetailsAutoSaveRequested(object sender, RoutedEventArgs e)
@@ -422,6 +425,7 @@ public sealed partial class AppShell
                 DeadlineOn = draft.DeadlineOn,
                 DeadlineAt = PreserveExactTime(draft.DeadlineOn, existing.DeadlineOn, existing.DeadlineAt),
                 Notes = EmptyToNull(draft.Notes),
+                LocalMetadataJson = WithSourceDateMismatchAcknowledgement(existing.LocalMetadataJson, draft.SourceDateMismatchAcknowledgementKey),
                 UpdatedAt = DateTimeOffset.UtcNow,
                 Labels = BuildLabels(draft.LabelsText, labelsIntegration),
             }
@@ -440,6 +444,7 @@ public sealed partial class AppShell
                 DeadlineOn = draft.DeadlineOn,
                 Notes = EmptyToNull(draft.Notes),
                 ProviderMetadataJson = existing?.ProviderMetadataJson,
+                LocalMetadataJson = WithSourceDateMismatchAcknowledgement(existing?.LocalMetadataJson, draft.SourceDateMismatchAcknowledgementKey),
                 CreatedAt = existing?.CreatedAt ?? DateTimeOffset.UtcNow,
                 UpdatedAt = DateTimeOffset.UtcNow,
                 CompletedAt = existing?.CompletedAt,
@@ -468,6 +473,44 @@ public sealed partial class AppShell
 
     private static DateTimeOffset? PreserveExactTime(DateOnly? selectedDate, DateOnly? existingDate, DateTimeOffset? existingDateTime) =>
         selectedDate == TaskDateValues.PreferredDate(existingDate, existingDateTime) ? existingDateTime : null;
+
+    private static string? WithSourceDateMismatchAcknowledgement(string? localMetadataJson, string? acknowledgementKey)
+    {
+        JsonObject root;
+        try
+        {
+            root = string.IsNullOrWhiteSpace(localMetadataJson)
+                ? new JsonObject()
+                : JsonNode.Parse(localMetadataJson)?.AsObject() ?? new JsonObject();
+        }
+        catch
+        {
+            root = new JsonObject();
+        }
+
+        var openza = root["openza"] as JsonObject;
+        if (openza is null)
+        {
+            openza = new JsonObject();
+            root["openza"] = openza;
+        }
+
+        if (string.IsNullOrWhiteSpace(acknowledgementKey))
+        {
+            openza.Remove("sourceDateMismatchAcknowledgementKey");
+        }
+        else
+        {
+            openza["sourceDateMismatchAcknowledgementKey"] = acknowledgementKey;
+        }
+
+        if (openza.Count == 0)
+        {
+            root.Remove("openza");
+        }
+
+        return root.Count == 0 ? null : root.ToJsonString();
+    }
 
     private static Dictionary<string, string> BuildSubtaskProgress(IReadOnlyList<TaskItem> tasks)
     {

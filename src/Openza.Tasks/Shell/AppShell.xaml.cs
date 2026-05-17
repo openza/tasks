@@ -50,6 +50,7 @@ public sealed partial class AppShell : UserControl
     private bool _uiReady;
     private bool _suppressNavigationSelection;
     private bool _suppressSettingsEvents;
+    private bool _deferNavigationCountUpdates;
     private bool _taskDetailsAutoSaveQueued;
     private Task<bool>? _taskDetailsAutoSaveTask;
 
@@ -92,10 +93,24 @@ public sealed partial class AppShell : UserControl
             await TryCreateStartupBackupAsync().ConfigureAwait(true);
         }
 
-        await LoadSpacesAsync().ConfigureAwait(true);
-        await LoadProjectsAsync().ConfigureAwait(true);
-        await LoadLabelsAsync().ConfigureAwait(true);
-        await RefreshSettingsStateAsync().ConfigureAwait(true);
+        _deferNavigationCountUpdates = _settings.Settings.AutoSyncEnabled;
+        try
+        {
+            await LoadSpacesAsync().ConfigureAwait(true);
+            await LoadProjectsAsync().ConfigureAwait(true);
+            await LoadLabelsAsync().ConfigureAwait(true);
+            await RefreshSettingsStateAsync().ConfigureAwait(true);
+            if (_settings.Settings.AutoSyncEnabled)
+            {
+                await RunAutomaticSyncAsync().ConfigureAwait(true);
+            }
+        }
+        finally
+        {
+            _deferNavigationCountUpdates = false;
+        }
+
+        await RefreshProjectListAsync().ConfigureAwait(true);
         var counts = await _store.GetTaskCountsAsync(_currentSpaceId).ConfigureAwait(true);
         var startView = _settings.Settings.ShowGetStarted && counts.All == 0
             ? "inbox"
@@ -107,7 +122,6 @@ public sealed partial class AppShell : UserControl
         }
 
         StartAutoSyncTimer();
-        _ = RunAutomaticSyncAsync();
     }
 
     private void SelectNavigation(string tag)

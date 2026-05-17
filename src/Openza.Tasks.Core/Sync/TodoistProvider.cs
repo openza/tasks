@@ -241,8 +241,19 @@ public sealed class TodoistProvider(HttpClient httpClient, string accessToken, s
             return new TodoistDateValue(TaskDateValues.FromDateTimeOffset(exactTime), exactTime);
         }
 
-        var date = TaskDateValues.FromStorageValue(GetString(value, "date"));
-        return new TodoistDateValue(date, null);
+        var rawDate = GetString(value, "date");
+        var date = TaskDateValues.FromStorageValue(rawDate);
+        if (date is not null)
+        {
+            return new TodoistDateValue(date, null);
+        }
+
+        if (ParseTodoistDateField(rawDate) is { } parsedDate)
+        {
+            return new TodoistDateValue(TaskDateValues.FromDateTimeOffset(parsedDate), parsedDate);
+        }
+
+        return default;
     }
 
     private static string? ParseTodoistRecurrence(JsonElement task)
@@ -268,6 +279,23 @@ public sealed class TodoistProvider(HttpClient httpClient, string accessToken, s
 
     private static DateTimeOffset? ParseDate(string? value) =>
         DateTimeOffset.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var parsed) ? parsed : null;
+
+    private static DateTimeOffset? ParseTodoistDateField(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        if (value.EndsWith('Z') || value.Contains('+') || value.LastIndexOf('-') > "yyyy-MM-dd".Length - 1)
+        {
+            return ParseDate(value);
+        }
+
+        return DateTime.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var parsed)
+            ? new DateTimeOffset(parsed)
+            : null;
+    }
 
     private readonly record struct TodoistDateValue(DateOnly? Date, DateTimeOffset? ExactTime);
 

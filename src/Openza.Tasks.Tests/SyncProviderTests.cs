@@ -77,6 +77,38 @@ public sealed class SyncProviderTests
     }
 
     [Fact]
+    public async Task TodoistProvider_maps_floating_due_datetime_from_date_field()
+    {
+        var handler = new FakeHttpMessageHandler(request => request.RequestUri?.PathAndQuery switch
+        {
+            "/api/v1/tasks?limit=200" => Json("""
+                {
+                  "results": [
+                    {
+                      "id": "task1",
+                      "content": "Evening Chores",
+                      "priority": 1,
+                      "due": { "date": "2026-05-16T23:00:00", "is_recurring": true, "string": "every day at 23:00" }
+                    }
+                  ],
+                  "next_cursor": null
+                }
+                """),
+            "/api/v1/projects?limit=200" => Json("""{ "results": [], "next_cursor": null }"""),
+            "/api/v1/labels?limit=200" => Json("""{ "results": [], "next_cursor": null }"""),
+            _ => Empty(HttpStatusCode.NotFound),
+        });
+        var provider = new TodoistProvider(new HttpClient(handler), "token");
+
+        var task = Assert.Single((await provider.FetchSnapshotAsync()).Tasks);
+
+        Assert.Equal(new DateOnly(2026, 5, 16), task.PlannedOn);
+        Assert.NotNull(task.PlannedAt);
+        Assert.Equal(new DateTimeOffset(2026, 5, 16, 23, 0, 0, TimeZoneInfo.Local.GetUtcOffset(new DateTime(2026, 5, 16, 23, 0, 0))), task.PlannedAt);
+        Assert.Equal("every day at 23:00", task.RecurrenceRule);
+    }
+
+    [Fact]
     public async Task MicrosoftToDoProvider_maps_lists_categories_tasks_and_completion_endpoint()
     {
         var handler = new FakeHttpMessageHandler(request => request.RequestUri?.PathAndQuery switch
