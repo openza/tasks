@@ -129,6 +129,7 @@ public sealed class CloudBackupServiceTests : IDisposable
 
         var cloudBackup = Assert.Single(uploaded);
         Assert.True(CloudBackupService.IsAvailableForAppFlavor(BackupPaths.DevFlavor));
+        Assert.True(CloudBackupService.IsAvailableForAppFlavor(BackupPaths.PreviewFlavor));
         Assert.StartsWith("v1/dev/backups/", cloudBackup.CloudPath, StringComparison.Ordinal);
         Assert.DoesNotContain("/production/", cloudBackup.CloudPath, StringComparison.OrdinalIgnoreCase);
     }
@@ -141,6 +142,7 @@ public sealed class CloudBackupServiceTests : IDisposable
         Assert.Equal("v1/production/manifest.json", CloudBackupPaths.ManifestPath(BackupPaths.ProductionFlavor));
         Assert.Equal("v1/production/backups", CloudBackupPaths.BackupDirectory(BackupPaths.ProductionFlavor));
         Assert.Equal("v1/dev/backups", CloudBackupPaths.BackupDirectory(BackupPaths.DevFlavor));
+        Assert.Equal("v1/preview/backups", CloudBackupPaths.BackupDirectory(BackupPaths.PreviewFlavor));
     }
 
     private async Task<BackupInfo> CreateBackupAsync(string databaseFileName, string taskId)

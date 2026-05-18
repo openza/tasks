@@ -7,6 +7,7 @@ using Openza.Tasks.Core.Services;
 using Openza.Tasks.Core.Sync;
 using Openza.Tasks.Services;
 using Openza.Tasks.Shell;
+using WindowsPackage = Windows.ApplicationModel.Package;
 
 namespace Openza.Tasks;
 
@@ -30,7 +31,9 @@ public sealed partial class MainWindow : Window
 #if DEBUG
         Title = "Openza Tasks Dev";
 #else
-        Title = "Openza Tasks";
+        Title = WindowsPackage.Current.Id.Name.EndsWith(".Preview", StringComparison.OrdinalIgnoreCase)
+            ? "Openza Tasks Preview"
+            : "Openza Tasks";
 #endif
         TryEnableMica();
         AppWindow.Resize(new Windows.Graphics.SizeInt32((int)_settings.Settings.WindowWidth, (int)_settings.Settings.WindowHeight));

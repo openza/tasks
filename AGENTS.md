@@ -29,6 +29,9 @@ Also follow the shared Openza guidance in `../AGENTS.md`. Keep this file limited
 - Do not add a separate methodology-specific page or signal when the same outcome can be achieved through transparent data, project selection, labels, filters, and custom views.
 - Treat Spaces as user-owned visibility scopes, not provider-specific concepts. Do not hardcode Work/Personal or any user's routing logic in app code; put one-off routing in explicit import/setup scripts or future user-configurable rules.
 - Store V1 is a fresh-start WinUI product. Do not auto-migrate old local app stores unless the user explicitly changes that product decision.
+- Package-local SQLite copies are restore points, not durable backups. Durable backup means OneDrive app-folder backup or explicit user export.
+- Do not fight MSIX AppData virtualization to place automatic restore points under `%LOCALAPPDATA%\Openza`; use package `LocalState` for restore points.
+- Preserve channel identities and version lanes: Dev `Openza.OpenzaTasks.Dev` / `0.0.N.0`, Preview `Openza.OpenzaTasks.Preview` / `0.N.B.0`, Production `Openza.OpenzaTasks` / `1.N.P.0`.
 
 ## Testing Guidelines
 - Prefer unit tests for repositories, migration, backup/restore, import/export, provider mappers, and sync jobs.

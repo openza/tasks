@@ -61,13 +61,18 @@ public partial class App : Application
 
             var backupService = new BackupService(
                 databasePath,
-                BackupPaths.GetStableBackupDirectory(packageIdentity),
+                BackupPaths.GetRestorePointDirectory(appData),
                 BackupRetentionPolicy.Default,
                 new BackupContext(
                     packageIdentity,
                     BackupPaths.GetAppFlavor(packageIdentity),
                     packageVersion));
-            await backupService.MigrateLegacyBackupsAsync(BackupPaths.GetLegacyPackageBackupDirectory(appData)).ConfigureAwait(true);
+            var legacyRestorePointDirectories = new[]
+                {
+                    BackupPaths.GetLegacyPackageBackupDirectory(appData),
+                }
+                .Concat(BackupPaths.GetRedirectedStableBackupDirectories(appData, packageIdentity));
+            await backupService.MigrateLegacyBackupsAsync(legacyRestorePointDirectories).ConfigureAwait(true);
             if (await backupService.ShouldCreatePreMigrationBackupAsync(SqliteTaskStore.CurrentSchemaVersion).ConfigureAwait(true))
             {
                 await backupService.CreateBackupAsync(BackupReasons.PreMigration).ConfigureAwait(true);

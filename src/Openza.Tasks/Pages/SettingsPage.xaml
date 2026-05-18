@@ -42,7 +42,7 @@
                 <ListViewItem Tag="backups">
                     <StackPanel Orientation="Horizontal" Spacing="10">
                         <FontIcon Glyph="&#xE777;" FontSize="14" />
-                        <TextBlock Text="Backups" />
+                        <TextBlock Text="Protection" />
                     </StackPanel>
                 </ListViewItem>
                 <ListViewItem Tag="about">
@@ -323,20 +323,20 @@
                     Spacing="12"
                     Visibility="Collapsed">
                     <StackPanel Spacing="4" Margin="0,0,0,18">
-                        <TextBlock Text="Backups" Style="{ThemeResource TitleTextBlockStyle}" />
+                        <TextBlock Text="Protection" Style="{ThemeResource TitleTextBlockStyle}" />
                         <TextBlock
-                            Text="Create, export, and restore local SQLite database backups."
+                            Text="Use restore points for local rollback and OneDrive or export for durable backups."
                             Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
                     </StackPanel>
 
-                    <toolkit:SettingsCard Header="Automatic backup" Description="Create a local backup when the app starts.">
+                    <toolkit:SettingsCard Header="Automatic restore point" Description="Create a package-local restore point when the app starts. Restore points do not reliably survive uninstall or reset.">
                         <toolkit:SettingsCard.HeaderIcon>
                             <FontIcon Glyph="&#xE777;" />
                         </toolkit:SettingsCard.HeaderIcon>
                         <ToggleSwitch x:Name="AutoBackupSwitch" Toggled="OnAutoBackupToggled" />
                     </toolkit:SettingsCard>
 
-                    <toolkit:SettingsExpander Header="Backup files" Description="Manage local backup files.">
+                    <toolkit:SettingsExpander Header="Restore points" Description="Manage package-local rollback copies. Export one for a durable file backup.">
                         <toolkit:SettingsExpander.HeaderIcon>
                             <FontIcon Glyph="&#xE8F1;" />
                         </toolkit:SettingsExpander.HeaderIcon>
@@ -346,7 +346,7 @@
                                 TextWrapping="WrapWholeWords"
                                 Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
                             <CommandBar Background="Transparent" DefaultLabelPosition="Right">
-                                <AppBarButton Icon="Save" Label="Create backup" Click="OnCreateBackupClicked" />
+                                <AppBarButton Icon="Save" Label="Create restore point" Click="OnCreateBackupClicked" />
                                 <AppBarButton Icon="Refresh" Label="Refresh" Click="OnRefreshBackupsClicked" />
                                 <AppBarButton Label="Open folder" Click="OnOpenBackupFolderClicked">
                                     <AppBarButton.Icon>
@@ -371,8 +371,8 @@
 
                     <toolkit:SettingsExpander
                         x:Name="OneDriveBackupExpander"
-                        Header="OneDrive backup"
-                        Description="Optional cloud backup for restoring this local-first database if this PC is lost or reset.">
+                        Header="OneDrive backups"
+                        Description="Recommended durable backup for reinstall, reset, device loss, or package removal.">
                         <toolkit:SettingsExpander.HeaderIcon>
                             <FontIcon Glyph="&#xE753;" />
                         </toolkit:SettingsExpander.HeaderIcon>
@@ -390,7 +390,7 @@
                             </Border>
                         </StackPanel>
                         <toolkit:SettingsExpander.Items>
-                            <toolkit:SettingsCard Header="Cloud backup" Description="Backups stay local unless this is turned on.">
+                            <toolkit:SettingsCard Header="Durable backup" Description="Recommended for a local-first app with no Openza server-side backup.">
                                 <ToggleSwitch
                                     x:Name="OneDriveBackupSwitch"
                                     OnContent="On"
@@ -398,7 +398,7 @@
                                     AutomationProperties.Name="OneDrive cloud backup"
                                     Toggled="OnOneDriveBackupToggled" />
                             </toolkit:SettingsCard>
-                            <toolkit:SettingsCard Header="Passphrase encryption" Description="Encrypt backup files before they leave this PC. Restore on a new PC requires the passphrase.">
+                            <toolkit:SettingsCard Header="Passphrase encryption" Description="Encrypt OneDrive backup files before they leave this PC. Restore on a new PC requires the passphrase.">
                                 <ToggleSwitch
                                     x:Name="OneDriveEncryptionSwitch"
                                     OnContent="Encrypted"
@@ -420,7 +420,7 @@
                                         TextWrapping="Wrap" />
                                 </StackPanel>
                             </toolkit:SettingsCard>
-                            <toolkit:SettingsCard Header="Cloud backups" Description="Upload a fresh backup, refresh OneDrive, or restore a selected cloud backup.">
+                            <toolkit:SettingsCard Header="OneDrive backups" Description="Upload a fresh backup, refresh OneDrive, or restore a selected cloud backup.">
                                 <StackPanel Spacing="12" Width="560">
                                     <CommandBar Background="Transparent" DefaultLabelPosition="Right">
                                         <AppBarButton Icon="Upload" Label="Upload now" Click="OnUploadOneDriveBackupClicked" />

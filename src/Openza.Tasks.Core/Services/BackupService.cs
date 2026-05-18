@@ -63,40 +63,49 @@ public sealed class BackupService(
 
     public async Task<int> MigrateLegacyBackupsAsync(string legacyDirectory, CancellationToken cancellationToken = default)
     {
-        cancellationToken.ThrowIfCancellationRequested();
-        if (!Directory.Exists(legacyDirectory) ||
-            string.Equals(
-                Path.GetFullPath(legacyDirectory).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
-                Path.GetFullPath(BackupDirectory).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
-                StringComparison.OrdinalIgnoreCase))
-        {
-            return 0;
-        }
+        return await MigrateLegacyBackupsAsync([legacyDirectory], cancellationToken).ConfigureAwait(false);
+    }
 
+    public async Task<int> MigrateLegacyBackupsAsync(IEnumerable<string> legacyDirectories, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
         Directory.CreateDirectory(BackupDirectory);
         var knownHashes = new HashSet<string>(
             ListBackups().Select(path => ComputeFileHash(path)),
             StringComparer.OrdinalIgnoreCase);
         var copied = 0;
-        foreach (var sourcePath in Directory.GetFiles(legacyDirectory, "*.db"))
+        foreach (var legacyDirectory in legacyDirectories.Distinct(StringComparer.OrdinalIgnoreCase))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (!TryValidateSqliteFile(sourcePath, out _))
+            if (!Directory.Exists(legacyDirectory) || IsSameDirectory(legacyDirectory, BackupDirectory))
             {
                 continue;
             }
 
-            var hash = ComputeFileHash(sourcePath);
-            if (!knownHashes.Add(hash))
+            foreach (var sourcePath in Directory.GetFiles(legacyDirectory, "*.db"))
             {
-                continue;
-            }
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!TryValidateSqliteFile(sourcePath, out _))
+                {
+                    continue;
+                }
 
-            var destinationPath = CreateUniqueBackupPath(BackupDirectory, Path.GetFileName(sourcePath));
-            File.Copy(sourcePath, destinationPath, overwrite: false);
-            var createdAt = new DateTimeOffset(File.GetLastWriteTime(destinationPath));
-            await WriteMetadataAsync(destinationPath, BackupReasons.Legacy, createdAt, cancellationToken).ConfigureAwait(false);
-            copied++;
+                var hash = ComputeFileHash(sourcePath);
+                if (!knownHashes.Add(hash))
+                {
+                    continue;
+                }
+
+                var destinationPath = CreateUniqueBackupPath(BackupDirectory, Path.GetFileName(sourcePath));
+                File.Copy(sourcePath, destinationPath, overwrite: false);
+                if (!TryCopyMetadata(sourcePath, destinationPath))
+                {
+                    var createdAt = new DateTimeOffset(File.GetLastWriteTime(destinationPath));
+                    await WriteMetadataAsync(destinationPath, BackupReasons.Legacy, createdAt, cancellationToken).ConfigureAwait(false);
+                }
+
+                copied++;
+            }
         }
 
         PruneOldBackups();
@@ -528,6 +537,35 @@ public sealed class BackupService(
     {
         using var stream = File.OpenRead(path);
         return Convert.ToHexString(SHA256.HashData(stream));
+    }
+
+    private static bool IsSameDirectory(string left, string right) =>
+        string.Equals(
+            Path.GetFullPath(left).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+            Path.GetFullPath(right).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+            StringComparison.OrdinalIgnoreCase);
+
+    private static bool TryCopyMetadata(string sourcePath, string destinationPath)
+    {
+        var sourceMetadataPath = MetadataPath(sourcePath);
+        if (!File.Exists(sourceMetadataPath))
+        {
+            return false;
+        }
+
+        try
+        {
+            File.Copy(sourceMetadataPath, MetadataPath(destinationPath), overwrite: false);
+            return true;
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return false;
+        }
     }
 
     private static string MetadataPath(string backupPath) => $"{backupPath}.json";
