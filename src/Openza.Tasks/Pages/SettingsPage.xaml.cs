@@ -331,12 +331,12 @@ public sealed partial class SettingsPage : UserControl
 
     private async void OnExportBackupFileClicked(object sender, RoutedEventArgs e)
     {
-        await ShowRestorePointDialogAsync(exportFirst: true);
+        await ShowExportBackupDialogAsync();
     }
 
     private async void OnManageRestorePointsClicked(object sender, RoutedEventArgs e)
     {
-        await ShowRestorePointDialogAsync(exportFirst: false);
+        await ShowManageRestorePointsDialogAsync();
     }
 
     private async void OnShowOneDriveRestoreDialogClicked(object sender, RoutedEventArgs e)
@@ -344,14 +344,52 @@ public sealed partial class SettingsPage : UserControl
         await ShowOneDriveRestoreDialogAsync();
     }
 
-    private async Task ShowRestorePointDialogAsync(bool exportFirst)
+    private async Task ShowExportBackupDialogAsync()
     {
-        var selectedDetails = new TextBlock
+        _restorePointDialogList = new ListView
         {
-            Text = "Select a restore point to restore, export, or delete.",
-            TextWrapping = TextWrapping.Wrap,
+            ItemsSource = Backups,
+            DisplayMemberPath = nameof(BackupInfo.DisplayName),
+            SelectionMode = ListViewSelectionMode.Single,
+            MinHeight = 180,
+            MaxHeight = 280,
+        };
+        if (Backups.Count > 0)
+        {
+            _restorePointDialogList.SelectedIndex = 0;
+        }
+
+        var dialog = new ContentDialog
+        {
+            Title = "Export backup file",
+            PrimaryButtonText = "Export",
+            CloseButtonText = "Cancel",
+            XamlRoot = XamlRoot,
         };
 
+        dialog.Content = new StackPanel
+        {
+            Spacing = 16,
+            Width = 560,
+            Children =
+            {
+                new TextBlock
+                {
+                    Text = "Choose a restore point to save as a durable backup file outside this app.",
+                    TextWrapping = TextWrapping.Wrap,
+                },
+                _restorePointDialogList,
+            },
+        };
+
+        if (await dialog.ShowAsync() == ContentDialogResult.Primary)
+        {
+            ExportBackupClicked?.Invoke(this, new RoutedEventArgs());
+        }
+    }
+
+    private async Task ShowManageRestorePointsDialogAsync()
+    {
         _restorePointDialogList = new ListView
         {
             ItemsSource = Backups,
@@ -363,23 +401,14 @@ public sealed partial class SettingsPage : UserControl
         if (Backups.Count > 0)
         {
             _restorePointDialogList.SelectedIndex = 0;
-            selectedDetails.Text = Backups[0].DisplayName;
         }
-
-        _restorePointDialogList.SelectionChanged += (_, _) =>
-        {
-            selectedDetails.Text = SelectedBackup?.DisplayName ?? "Select a restore point to restore, export, or delete.";
-        };
 
         var dialog = new ContentDialog
         {
-            Title = exportFirst ? "Export backup file" : "Manage restore points",
+            Title = "Manage restore points",
             CloseButtonText = "Done",
             XamlRoot = XamlRoot,
         };
-
-        var createButton = new Button { Content = "Create" };
-        createButton.Click += (_, args) => CreateBackupClicked?.Invoke(createButton, args);
 
         var refreshButton = new Button { Content = "Refresh" };
         refreshButton.Click += (_, args) => RefreshBackupsClicked?.Invoke(refreshButton, args);
@@ -399,27 +428,21 @@ public sealed partial class SettingsPage : UserControl
         dialog.Content = new StackPanel
         {
             Spacing = 16,
-            Width = 720,
+            Width = 640,
             Children =
             {
                 new TextBlock
                 {
-                    Text = "Restore points live inside this app package and are meant for rollback. Export one when you need a durable backup file.",
+                    Text = "Restore points are local rollback copies inside this app package.",
                     TextWrapping = TextWrapping.Wrap,
-                },
-                new TextBlock
-                {
-                    Text = string.IsNullOrWhiteSpace(_backupFolderPath) ? "Restore point folder has not been loaded yet." : _backupFolderPath,
-                    TextWrapping = TextWrapping.WrapWholeWords,
                 },
                 new StackPanel
                 {
                     Orientation = Orientation.Horizontal,
                     Spacing = 8,
-                    Children = { createButton, refreshButton, openFolderButton },
+                    Children = { refreshButton, openFolderButton },
                 },
                 _restorePointDialogList,
-                selectedDetails,
                 new StackPanel
                 {
                     Orientation = Orientation.Horizontal,
