@@ -128,6 +128,11 @@ public sealed partial class AppShell
             return;
         }
 
+        await SelectProjectAsync(id).ConfigureAwait(true);
+    }
+
+    private async Task SelectProjectAsync(string? id)
+    {
         _selectedProjectId = string.IsNullOrWhiteSpace(id) ? null : id;
         if (!string.Equals(_currentView, "tasks", StringComparison.Ordinal))
         {

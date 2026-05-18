@@ -2,6 +2,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using System.Collections.ObjectModel;
 using Openza.Tasks.Core.Credentials;
 using Openza.Tasks.Core.Data;
 using Openza.Tasks.Core.Models;
@@ -33,6 +34,8 @@ public sealed partial class AppShell : UserControl
     private readonly List<SpaceItem> _spaces = [];
     private readonly List<ProjectItem> _allProjects = [];
     private readonly List<LabelItem> _allLabels = [];
+    private readonly ObservableCollection<GlobalSearchResultViewModel> _globalTaskSearchResults = [];
+    private readonly ObservableCollection<GlobalSearchResultViewModel> _globalProjectSearchResults = [];
     private readonly Dictionary<string, string> _projectIdByName = new(StringComparer.Ordinal);
     private string _currentView = "inbox";
     private string _currentSpaceId = SpaceIds.Default;
@@ -77,6 +80,8 @@ public sealed partial class AppShell : UserControl
         _microsoftAuth = microsoftAuth;
         _startupRecoveryCandidate = startupRecoveryCandidate;
         InitializeComponent();
+        GlobalSearchTaskResults.ItemsSource = _globalTaskSearchResults;
+        GlobalSearchProjectResults.ItemsSource = _globalProjectSearchResults;
         ShellNav.ItemInvoked += OnNavigationItemInvoked;
         AddKeyboardShortcuts();
         _uiReady = true;
@@ -175,6 +180,13 @@ public sealed partial class AppShell : UserControl
         }
 
         var nextView = item.Tag.ToString() ?? "next";
+        if (string.Equals(nextView, "global-search", StringComparison.Ordinal) ||
+            string.Equals(nextView, "space-switcher", StringComparison.Ordinal))
+        {
+            SelectNavigationSilently(_currentView);
+            return;
+        }
+
         if (string.Equals(nextView, "add-task", StringComparison.Ordinal))
         {
             var targetView = IsTaskView(_currentView) ? _currentView : "inbox";
@@ -232,14 +244,27 @@ public sealed partial class AppShell : UserControl
 
     private void OnNavigationItemInvoked(NavigationView sender, NavigationViewItemInvokedEventArgs args)
     {
-        if (args.InvokedItemContainer is not NavigationViewItem { Tag: "add-task" })
+        if (args.InvokedItemContainer is not NavigationViewItem item)
         {
             return;
         }
 
-        var targetView = IsTaskView(_currentView) ? _currentView : "inbox";
-        SelectNavigationSilently(targetView);
-        OnQuickAddClicked(sender, new RoutedEventArgs());
+        switch (item.Tag?.ToString())
+        {
+            case "add-task":
+                var targetView = IsTaskView(_currentView) ? _currentView : "inbox";
+                SelectNavigationSilently(targetView);
+                OnQuickAddClicked(sender, new RoutedEventArgs());
+                break;
+            case "global-search":
+                SelectNavigationSilently(_currentView);
+                OpenGlobalSearchOverlay();
+                break;
+            case "space-switcher":
+                SelectNavigationSilently(_currentView);
+                ShowSpaceSwitcherFlyout();
+                break;
+        }
     }
 
     private IEnumerable<NavigationViewItem> GetNavigationItems() =>
@@ -463,10 +488,43 @@ public sealed partial class AppShell : UserControl
             _spaces.FirstOrDefault(space => space.Id == _currentSpaceId) ??
             _spaces.First();
         _currentSpaceId = selected.Id;
-        SpaceSelector.ItemsSource = null;
-        SpaceSelector.ItemsSource = _spaces;
-        SpaceSelector.SelectedItem = selected;
+        UpdateSpaceSwitcher();
         await RefreshSettingsSpacesAsync().ConfigureAwait(true);
+    }
+
+    private void UpdateSpaceSwitcher()
+    {
+        var currentSpace = _spaces.FirstOrDefault(space => string.Equals(space.Id, _currentSpaceId, StringComparison.Ordinal));
+        SpaceSwitcherNavItem.Content = currentSpace?.Name ?? "Space";
+        ToolTipService.SetToolTip(SpaceSwitcherNavItem, currentSpace is null ? "Switch space" : $"Current space: {currentSpace.Name}");
+    }
+
+    private void ShowSpaceSwitcherFlyout()
+    {
+        var flyout = new MenuFlyout();
+        foreach (var space in _spaces.OrderBy(item => item.SortOrder).ThenBy(item => item.Name, StringComparer.CurrentCultureIgnoreCase))
+        {
+            var item = new MenuFlyoutItem
+            {
+                Text = space.Name,
+                Tag = space.Id,
+                Icon = string.Equals(space.Id, _currentSpaceId, StringComparison.Ordinal)
+                    ? new FontIcon { Glyph = "\uE73E" }
+                    : null,
+            };
+            item.Click += OnSpaceSwitcherItemClicked;
+            flyout.Items.Add(item);
+        }
+
+        flyout.ShowAt(SpaceSwitcherNavItem);
+    }
+
+    private async void OnSpaceSwitcherItemClicked(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is string spaceId)
+        {
+            await SwitchSpaceAsync(spaceId, savePendingEdits: true, refreshTasks: true).ConfigureAwait(true);
+        }
     }
 
     private async Task RefreshSettingsSpacesAsync()
@@ -609,17 +667,23 @@ public sealed partial class AppShell : UserControl
         SettingsPage.ShowSpacesMessage("Space archived", $"{space.Name} is hidden but its data is kept.", InfoBarSeverity.Success);
     }
 
-    private async void OnSpaceSelectionChanged(object sender, SelectionChangedEventArgs e)
+    private async Task<bool> SwitchSpaceAsync(string spaceId, bool savePendingEdits, bool refreshTasks)
     {
-        if (!_uiReady || SpaceSelector.SelectedItem is not SpaceItem space || space.Id == _currentSpaceId)
+        if (string.Equals(spaceId, _currentSpaceId, StringComparison.Ordinal))
         {
-            return;
+            UpdateSpaceSwitcher();
+            return true;
         }
 
-        if (!await SavePendingTaskDetailsAsync().ConfigureAwait(true))
+        var space = _spaces.FirstOrDefault(item => string.Equals(item.Id, spaceId, StringComparison.Ordinal));
+        if (space is null)
         {
-            SpaceSelector.SelectedItem = _spaces.FirstOrDefault(item => item.Id == _currentSpaceId);
-            return;
+            return false;
+        }
+
+        if (savePendingEdits && !await SavePendingTaskDetailsAsync().ConfigureAwait(true))
+        {
+            return false;
         }
 
         _currentSpaceId = space.Id;
@@ -627,13 +691,21 @@ public sealed partial class AppShell : UserControl
         await _settings.SaveAsync().ConfigureAwait(true);
         _selectedTaskId = null;
         _selectedProjectId = null;
+        UpdateSpaceSwitcher();
         ApplyTaskViewPreferences();
         TasksPage.HideDetailsPane();
         TasksPage.HideConnectedTasksDrawer();
         TasksPage.ClearTaskSelection();
         await LoadProjectsAsync().ConfigureAwait(true);
-        await RefreshTasksAsync().ConfigureAwait(true);
+        await LoadLabelsAsync().ConfigureAwait(true);
+        if (refreshTasks && IsTaskView(_currentView))
+        {
+            await RefreshTasksAsync().ConfigureAwait(true);
+        }
+
         await RefreshSourceItemsAsync().ConfigureAwait(true);
+        await RefreshSettingsSpacesAsync().ConfigureAwait(true);
+        return true;
     }
 
     private void ShowInfo(string title, string message, InfoBarSeverity severity)
@@ -718,6 +790,11 @@ public sealed partial class AppShell : UserControl
 
             args.Handled = true;
         });
+        AddKeyboardShortcut(VirtualKey.K, VirtualKeyModifiers.Control, (_, args) =>
+        {
+            OpenGlobalSearchOverlay();
+            args.Handled = true;
+        });
         AddKeyboardShortcut(VirtualKey.S, VirtualKeyModifiers.Control, async (_, args) =>
         {
             if (IsTaskView(_currentView) && TasksPage.IsDetailsPaneOpen)
@@ -734,6 +811,13 @@ public sealed partial class AppShell : UserControl
         });
         AddKeyboardShortcut(VirtualKey.Escape, VirtualKeyModifiers.None, async (_, args) =>
         {
+            if (GlobalSearchOverlay.Visibility == Visibility.Visible)
+            {
+                CloseGlobalSearchOverlay();
+                args.Handled = true;
+                return;
+            }
+
             if (IsTaskView(_currentView))
             {
                 if (!await SavePendingTaskDetailsAsync().ConfigureAwait(true))

@@ -40,6 +40,10 @@ public sealed partial class SettingsPage : UserControl
 
     public ObservableCollection<SpaceSettingsItemViewModel> Spaces { get; } = [];
 
+    private string _backupFolderPath = string.Empty;
+    private ListView? _restorePointDialogList;
+    private ListView? _oneDriveBackupDialogList;
+
     public SettingsPage()
     {
         InitializeComponent();
@@ -49,9 +53,9 @@ public sealed partial class SettingsPage : UserControl
 
     public string TodoistToken => TodoistTokenBox.Password;
 
-    public BackupInfo? SelectedBackup => BackupsList.SelectedItem as BackupInfo;
+    public BackupInfo? SelectedBackup => _restorePointDialogList?.SelectedItem as BackupInfo;
 
-    public CloudBackupInfo? SelectedCloudBackup => OneDriveBackupsList.SelectedItem as CloudBackupInfo;
+    public CloudBackupInfo? SelectedCloudBackup => _oneDriveBackupDialogList?.SelectedItem as CloudBackupInfo;
 
     public bool AutoBackupEnabled
     {
@@ -126,16 +130,26 @@ public sealed partial class SettingsPage : UserControl
         {
             Backups.Add(backup);
         }
+
+        LatestRestorePointText.Text = Backups.FirstOrDefault()?.DisplayName ?? "No restore points yet.";
+        RestorePointCountText.Text = Backups.Count == 1
+            ? "1 restore point"
+            : $"{Backups.Count} restore points";
     }
 
     public void SetBackupFolder(string path)
     {
-        BackupFolderText.Text = path;
+        _backupFolderPath = path;
     }
 
     public void SetCloudBackupAvailable(bool available)
     {
-        OneDriveBackupExpander.Visibility = available ? Visibility.Visible : Visibility.Collapsed;
+        var visibility = available ? Visibility.Visible : Visibility.Collapsed;
+        OneDriveBackupCard.Visibility = visibility;
+        AdvancedOneDriveBackupCard.Visibility = visibility;
+        AdvancedOneDriveEncryptionCard.Visibility = visibility;
+        AdvancedOneDriveAccountCard.Visibility = visibility;
+        AdvancedOneDrivePassphraseCard.Visibility = visibility;
     }
 
     public void SetCloudBackupStatus(
@@ -148,39 +162,51 @@ public sealed partial class SettingsPage : UserControl
     {
         var hasAccount = !string.IsNullOrWhiteSpace(accountUsername);
         var accountText = hasAccount
-            ? $"Backup account: {accountUsername}."
+            ? $"Signed in as {accountUsername}."
             : "No backup account selected.";
+        OneDriveBackupAccountText.Text = hasAccount ? accountUsername : "No account selected.";
+        OneDriveRestoreButton.IsEnabled = enabled || hasAccount;
         if (isBusy)
         {
             OneDriveBackupStatusText.Text = "Uploading";
-            OneDriveBackupSummaryText.Text = $"{accountText} Openza is updating OneDrive backups.";
+            OneDriveBackupSummaryText.Text = $"{accountText} Openza is updating your OneDrive backup.";
+            OneDrivePrimaryButton.Content = "Backing up";
+            OneDrivePrimaryButton.IsEnabled = false;
         }
         else if (!enabled)
         {
             OneDriveBackupStatusText.Text = "Off";
-            OneDriveBackupSummaryText.Text = $"{accountText} OneDrive backup is off. Turn it on for durable protection beyond this app install.";
+            OneDriveBackupSummaryText.Text = $"{accountText} Turn on OneDrive backup to keep a copy outside this app.";
+            OneDrivePrimaryButton.Content = "Turn on";
+            OneDrivePrimaryButton.IsEnabled = true;
         }
         else if (!hasAccount)
         {
             OneDriveBackupStatusText.Text = "Sign in required";
             OneDriveBackupSummaryText.Text = "Choose a Microsoft account for OneDrive backup.";
+            OneDrivePrimaryButton.Content = "Turn on";
+            OneDrivePrimaryButton.IsEnabled = true;
         }
         else if (!string.IsNullOrWhiteSpace(error))
         {
             OneDriveBackupStatusText.Text = "Needs attention";
             OneDriveBackupSummaryText.Text = $"{accountText} {error}";
+            OneDrivePrimaryButton.Content = "Back up now";
+            OneDrivePrimaryButton.IsEnabled = true;
         }
         else
         {
             OneDriveBackupStatusText.Text = encrypted ? "Encrypted" : "Connected";
             OneDriveBackupSummaryText.Text = lastBackupAt is null
                 ? $"{accountText} OneDrive backup is ready."
-                : $"{accountText} Last OneDrive backup: {lastBackupAt.Value.LocalDateTime:g}.";
+                : $"{accountText} Last backup: {lastBackupAt.Value.LocalDateTime:g}.";
+            OneDrivePrimaryButton.Content = "Back up now";
+            OneDrivePrimaryButton.IsEnabled = true;
         }
 
         OneDriveBackupDetailText.Text = encrypted
             ? "Backups are encrypted before upload. Restore on a new PC requires the passphrase."
-            : "Files are protected by your Microsoft account and OneDrive, not by Openza end-to-end encryption.";
+            : "Stored in your OneDrive. Openza does not add extra encryption unless passphrase encryption is on.";
     }
 
     public void SetCloudBackups(IEnumerable<CloudBackupInfo> backups)
@@ -245,6 +271,10 @@ public sealed partial class SettingsPage : UserControl
         SetSectionVisibility("SpacesPanel", section == "spaces");
         SetSectionVisibility("BackupsPanel", section == "backups");
         SetSectionVisibility("AboutPanel", section == "about");
+        if (FindName("SettingsContentScrollViewer") is ScrollViewer scrollViewer)
+        {
+            scrollViewer.ChangeView(null, 0, null, disableAnimation: true);
+        }
     }
 
     private void SetSectionVisibility(string name, bool isVisible)
@@ -292,6 +322,214 @@ public sealed partial class SettingsPage : UserControl
     private void OnChangeOneDriveAccountClicked(object sender, RoutedEventArgs e) => ChangeOneDriveAccountClicked?.Invoke(sender, e);
 
     private void OnChangeOneDrivePassphraseClicked(object sender, RoutedEventArgs e) => ChangeOneDrivePassphraseClicked?.Invoke(sender, e);
+
+    private void OnOneDriveBackupPrimaryClicked(object sender, RoutedEventArgs e)
+    {
+        if (CloudBackupEnabled)
+        {
+            UploadOneDriveBackupClicked?.Invoke(sender, e);
+            return;
+        }
+
+        OneDriveBackupSwitch.IsOn = true;
+    }
+
+    private async void OnExportBackupFileClicked(object sender, RoutedEventArgs e)
+    {
+        await ShowExportBackupDialogAsync();
+    }
+
+    private async void OnManageRestorePointsClicked(object sender, RoutedEventArgs e)
+    {
+        await ShowManageRestorePointsDialogAsync();
+    }
+
+    private async void OnShowOneDriveRestoreDialogClicked(object sender, RoutedEventArgs e)
+    {
+        await ShowOneDriveRestoreDialogAsync();
+    }
+
+    private async Task ShowExportBackupDialogAsync()
+    {
+        _restorePointDialogList = new ListView
+        {
+            ItemsSource = Backups,
+            DisplayMemberPath = nameof(BackupInfo.DisplayName),
+            SelectionMode = ListViewSelectionMode.Single,
+            MinHeight = 180,
+            MaxHeight = 280,
+        };
+        if (Backups.Count > 0)
+        {
+            _restorePointDialogList.SelectedIndex = 0;
+        }
+
+        var dialog = new ContentDialog
+        {
+            Title = "Export backup file",
+            PrimaryButtonText = "Export",
+            CloseButtonText = "Cancel",
+            XamlRoot = XamlRoot,
+        };
+
+        dialog.Content = new StackPanel
+        {
+            Spacing = 16,
+            Width = 560,
+            Children =
+            {
+                new TextBlock
+                {
+                    Text = "Choose a restore point to save as a backup file outside Openza Tasks.",
+                    TextWrapping = TextWrapping.Wrap,
+                },
+                _restorePointDialogList,
+            },
+        };
+
+        if (await dialog.ShowAsync() == ContentDialogResult.Primary)
+        {
+            ExportBackupClicked?.Invoke(this, new RoutedEventArgs());
+        }
+    }
+
+    private async Task ShowManageRestorePointsDialogAsync()
+    {
+        _restorePointDialogList = new ListView
+        {
+            ItemsSource = Backups,
+            DisplayMemberPath = nameof(BackupInfo.DisplayName),
+            SelectionMode = ListViewSelectionMode.Single,
+            MinHeight = 220,
+            MaxHeight = 360,
+        };
+        if (Backups.Count > 0)
+        {
+            _restorePointDialogList.SelectedIndex = 0;
+        }
+
+        var dialog = new ContentDialog
+        {
+            Title = "Manage restore points",
+            CloseButtonText = "Done",
+            XamlRoot = XamlRoot,
+        };
+
+        var refreshButton = new Button { Content = "Refresh" };
+        refreshButton.Click += (_, args) => RefreshBackupsClicked?.Invoke(refreshButton, args);
+
+        var openFolderButton = new Button { Content = "Open folder" };
+        openFolderButton.Click += (_, args) => OpenBackupFolderClicked?.Invoke(openFolderButton, args);
+
+        var restoreButton = new Button { Content = "Restore" };
+        restoreButton.Click += (_, args) => InvokeAfterDialog(dialog, RestoreSelectedBackupClicked, restoreButton, args);
+
+        var exportButton = new Button { Content = "Export" };
+        exportButton.Click += (_, args) => InvokeAfterDialog(dialog, ExportBackupClicked, exportButton, args);
+
+        var deleteButton = new Button { Content = "Delete" };
+        deleteButton.Click += (_, args) => InvokeAfterDialog(dialog, DeleteBackupClicked, deleteButton, args);
+
+        dialog.Content = new StackPanel
+        {
+            Spacing = 16,
+            Width = 640,
+            Children =
+            {
+                new TextBlock
+                {
+                    Text = "Restore points are local copies for undoing recent changes on this PC.",
+                    TextWrapping = TextWrapping.Wrap,
+                },
+                new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    Spacing = 8,
+                    Children = { refreshButton, openFolderButton },
+                },
+                _restorePointDialogList,
+                new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    Spacing = 8,
+                    Children = { restoreButton, exportButton, deleteButton },
+                },
+            },
+        };
+
+        await dialog.ShowAsync();
+    }
+
+    private async Task ShowOneDriveRestoreDialogAsync()
+    {
+        var selectedDetails = new TextBlock
+        {
+            Text = "Select a OneDrive backup to restore.",
+            TextWrapping = TextWrapping.Wrap,
+        };
+
+        _oneDriveBackupDialogList = new ListView
+        {
+            ItemsSource = CloudBackups,
+            DisplayMemberPath = nameof(CloudBackupInfo.DisplayName),
+            SelectionMode = ListViewSelectionMode.Single,
+            MinHeight = 220,
+            MaxHeight = 360,
+        };
+        if (CloudBackups.Count > 0)
+        {
+            _oneDriveBackupDialogList.SelectedIndex = 0;
+            selectedDetails.Text = CloudBackups[0].DisplayName;
+        }
+
+        _oneDriveBackupDialogList.SelectionChanged += (_, _) =>
+        {
+            selectedDetails.Text = SelectedCloudBackup?.DisplayName ?? "Select a OneDrive backup to restore.";
+        };
+
+        var dialog = new ContentDialog
+        {
+            Title = "Restore from OneDrive",
+            CloseButtonText = "Done",
+            XamlRoot = XamlRoot,
+        };
+
+        var refreshButton = new Button { Content = "Refresh" };
+        refreshButton.Click += (_, args) => RefreshOneDriveBackupsClicked?.Invoke(refreshButton, args);
+
+        var restoreButton = new Button { Content = "Restore" };
+        restoreButton.Click += (_, args) => InvokeAfterDialog(dialog, RestoreOneDriveBackupClicked, restoreButton, args);
+
+        dialog.Content = new StackPanel
+        {
+            Spacing = 16,
+            Width = 720,
+            Children =
+            {
+                new TextBlock
+                {
+                    Text = "Choose a OneDrive backup to restore after reinstall, reset, or device loss.",
+                    TextWrapping = TextWrapping.Wrap,
+                },
+                new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    Spacing = 8,
+                    Children = { refreshButton, restoreButton },
+                },
+                _oneDriveBackupDialogList,
+                selectedDetails,
+            },
+        };
+
+        await dialog.ShowAsync();
+    }
+
+    private void InvokeAfterDialog(ContentDialog dialog, RoutedEventHandler? handler, object sender, RoutedEventArgs e)
+    {
+        dialog.Hide();
+        DispatcherQueue.TryEnqueue(() => handler?.Invoke(sender, e));
+    }
 
     private void OnAutoSyncToggled(object sender, RoutedEventArgs e) => AutoSyncToggled?.Invoke(sender, e);
 

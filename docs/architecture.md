@@ -12,7 +12,7 @@ The SQLite schema is internal to the app. It is not a public plugin contract yet
 
 Spaces are Openza-owned scopes for separating a person's work contexts, such as Work and Personal. A space is not a provider account, not a workspace account, and not a Todoist/Microsoft list. It is the boundary for what the app shows.
 
-V1 intentionally does not include an "All spaces" mode or global cross-space search. The selected space scopes:
+V1 defaults task and project discovery to the selected space. The selected space scopes:
 
 - smart lists and task counts
 - projects
@@ -20,7 +20,7 @@ V1 intentionally does not include an "All spaces" mode or global cross-space sea
 - connected-app intake
 - import/export surfaces
 
-This keeps Openza safe for practical use cases such as screen sharing at work without accidentally showing personal tasks. User-specific routing, such as mapping Todoist labels to spaces, belongs in import/setup scripts or future configurable rules, not hardcoded app behavior.
+Global search is available as a temporary navigation overlay. It starts in Current Space and only searches across spaces when the user explicitly switches the scope to All Spaces. This keeps Openza safe for practical use cases such as screen sharing at work without accidentally showing personal tasks. User-specific routing, such as mapping Todoist labels to spaces, belongs in import/setup scripts or future configurable rules, not hardcoded app behavior.
 
 For a clean new database, Openza creates one default space. If setup/import tooling creates spaces first, the app does not add an extra empty default space.
 
