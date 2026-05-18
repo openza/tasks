@@ -26,6 +26,19 @@ public sealed class TaskSyncEngine(ITaskStore store, ConflictPolicy? conflictPol
                 await store.GetSyncRoutesAsync(cancellationToken).ConfigureAwait(false),
                 providerConnectionId,
                 provider.IntegrationId);
+            var projectsSynced = 0;
+            foreach (var project in snapshot.Projects)
+            {
+                await store.UpsertProjectAsync(WithProviderConnection(project, providerConnectionId), cancellationToken).ConfigureAwait(false);
+                projectsSynced++;
+            }
+
+            var labelsSynced = 0;
+            foreach (var label in snapshot.Labels)
+            {
+                await store.UpsertLabelAsync(WithProviderConnection(label, providerConnectionId), cancellationToken).ConfigureAwait(false);
+                labelsSynced++;
+            }
 
             var sourceItemsAdded = 0;
             var sourceItemsUpdated = 0;
@@ -90,8 +103,8 @@ public sealed class TaskSyncEngine(ITaskStore store, ConflictPolicy? conflictPol
                 sourceItemsAdded,
                 sourceItemsUpdated,
                 tasksDeleted,
-                0,
-                0,
+                projectsSynced,
+                labelsSynced,
                 completionsSynced,
                 NewSyncToken: snapshot.SyncToken);
         }
@@ -127,6 +140,20 @@ public sealed class TaskSyncEngine(ITaskStore store, ConflictPolicy? conflictPol
     {
         var match = routingPolicy.Match(task);
         return string.IsNullOrWhiteSpace(match.SpaceId) ? task : task with { SpaceId = match.SpaceId };
+    }
+
+    private static ProjectItem WithProviderConnection(ProjectItem project, string providerConnectionId)
+    {
+        return string.IsNullOrWhiteSpace(project.ProviderConnectionId)
+            ? project with { ProviderConnectionId = providerConnectionId }
+            : project;
+    }
+
+    private static LabelItem WithProviderConnection(LabelItem label, string providerConnectionId)
+    {
+        return string.IsNullOrWhiteSpace(label.ProviderConnectionId)
+            ? label with { ProviderConnectionId = providerConnectionId }
+            : label;
     }
 
     public async Task<int> SyncPendingCompletionsAsync(ISyncProvider provider, CancellationToken cancellationToken = default)

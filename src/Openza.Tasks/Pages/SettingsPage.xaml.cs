@@ -47,6 +47,7 @@ public sealed partial class SettingsPage : UserControl
     private string _backupFolderPath = string.Empty;
     private ListView? _restorePointDialogList;
     private ListView? _oneDriveBackupDialogList;
+    private IReadOnlyList<TodoistRoutingChoice> _todoistLabelChoices = [];
     private IReadOnlyList<TodoistRoutingChoice> _todoistRuleSpaces = [];
     private IReadOnlyList<TodoistRoutingChoice> _todoistMoveProjects = [];
 
@@ -234,9 +235,11 @@ public sealed partial class SettingsPage : UserControl
     }
 
     public void SetTodoistRuleOptions(
+        IEnumerable<TodoistRoutingChoice> labels,
         IEnumerable<TodoistRoutingChoice> spaces,
         IEnumerable<TodoistRoutingChoice> moveProjects)
     {
+        _todoistLabelChoices = labels.ToList();
         _todoistRuleSpaces = spaces.ToList();
         _todoistMoveProjects = moveProjects.ToList();
     }
@@ -599,12 +602,36 @@ public sealed partial class SettingsPage : UserControl
 
     private async Task ShowTodoistRuleDialogAsync(TodoistRoutingRuleViewModel? existing)
     {
-        var labelBox = new TextBox
+        var labelBox = new AutoSuggestBox
         {
             Header = "Todoist label",
-            PlaceholderText = "Example: work",
+            PlaceholderText = _todoistLabelChoices.Count == 0 ? "Sync Todoist to load labels" : "Choose a Todoist label",
             Text = existing?.Label ?? string.Empty,
+            ItemsSource = _todoistLabelChoices,
+            DisplayMemberPath = nameof(TodoistRoutingChoice.Name),
         };
+        labelBox.SuggestionChosen += (_, args) =>
+        {
+            if (args.SelectedItem is TodoistRoutingChoice choice)
+            {
+                labelBox.Text = choice.Id;
+            }
+        };
+        labelBox.TextChanged += (_, args) =>
+        {
+            if (args.Reason != AutoSuggestionBoxTextChangeReason.UserInput)
+            {
+                return;
+            }
+
+            var query = NormalizeTodoistLabel(labelBox.Text);
+            labelBox.ItemsSource = string.IsNullOrWhiteSpace(query)
+                ? _todoistLabelChoices
+                : _todoistLabelChoices
+                    .Where(label => label.Id.Contains(query, StringComparison.CurrentCultureIgnoreCase))
+                    .ToList();
+        };
+
         var spaceBox = new ComboBox
         {
             Header = "Send to Space",
@@ -629,7 +656,7 @@ public sealed partial class SettingsPage : UserControl
 
         var message = new TextBlock
         {
-            Text = "Enter one Todoist label. Openza will route matching new Todoist tasks without showing that label in your task list.",
+            Text = "Choose a Todoist label. Openza will route matching new Todoist tasks without showing that label in your task list.",
             TextWrapping = TextWrapping.Wrap,
         };
 

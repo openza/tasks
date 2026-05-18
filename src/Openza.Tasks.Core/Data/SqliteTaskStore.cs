@@ -472,6 +472,54 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         return labels;
     }
 
+    public async Task<IReadOnlyList<ProjectItem>> GetProviderProjectsAsync(string integrationId, bool includeArchived = false, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT id, external_id, space_id, integration_id, provider_connection_id, name, description, color, icon, parent_id,
+                   sort_order, is_favorite, is_archived, status, provider_metadata, created_at, updated_at
+            FROM projects
+            WHERE integration_id = @integration_id
+              AND (@include_archived = 1 OR (is_archived = 0 AND COALESCE(status, 'active') != 'archived'))
+            ORDER BY is_favorite DESC, sort_order, name
+            """;
+        command.Parameters.AddWithValue("@integration_id", integrationId);
+        command.Parameters.AddWithValue("@include_archived", includeArchived ? 1 : 0);
+
+        var projects = new List<ProjectItem>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            projects.Add(ReadProject(reader));
+        }
+
+        return projects;
+    }
+
+    public async Task<IReadOnlyList<LabelItem>> GetProviderLabelsAsync(string integrationId, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT id, external_id, integration_id, provider_connection_id, name, color, description, sort_order,
+                   is_favorite, provider_metadata, created_at
+            FROM labels
+            WHERE integration_id = @integration_id
+            ORDER BY sort_order, name
+            """;
+        command.Parameters.AddWithValue("@integration_id", integrationId);
+
+        var labels = new List<LabelItem>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            labels.Add(ReadLabel(reader));
+        }
+
+        return labels;
+    }
+
     public async Task<IReadOnlyList<IntegrationInfo>> GetIntegrationsAsync(CancellationToken cancellationToken = default)
     {
         await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);

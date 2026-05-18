@@ -13,6 +13,8 @@ public interface ITaskStore
     Task<TaskItem?> GetTaskAsync(string id, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<ProjectItem>> GetProjectsAsync(string? spaceId = null, bool includeArchived = false, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<LabelItem>> GetLabelsAsync(CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<ProjectItem>> GetProviderProjectsAsync(string integrationId, bool includeArchived = false, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<LabelItem>> GetProviderLabelsAsync(string integrationId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<IntegrationInfo>> GetIntegrationsAsync(CancellationToken cancellationToken = default);
     Task<IReadOnlyList<ProviderConnectionInfo>> GetProviderConnectionsAsync(CancellationToken cancellationToken = default);
     Task UpsertProviderConnectionAsync(ProviderConnectionInfo connection, CancellationToken cancellationToken = default);

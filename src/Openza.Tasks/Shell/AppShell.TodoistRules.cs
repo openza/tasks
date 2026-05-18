@@ -22,15 +22,21 @@ public sealed partial class AppShell
             .ThenBy(space => space.Name, StringComparer.CurrentCultureIgnoreCase)
             .Select(space => new TodoistRoutingChoice(space.Id, space.Name))
             .ToList();
-        var todoistProjects = _allProjects
-            .Where(project => project.IntegrationId == IntegrationIds.Todoist && !string.IsNullOrWhiteSpace(project.ExternalId) && !project.IsArchived)
+        var providerProjects = await _store.GetProviderProjectsAsync(IntegrationIds.Todoist).ConfigureAwait(true);
+        var providerLabels = await _store.GetProviderLabelsAsync(IntegrationIds.Todoist).ConfigureAwait(true);
+        var todoistProjects = providerProjects
+            .Where(project => !string.IsNullOrWhiteSpace(project.ExternalId))
             .OrderBy(project => project.Name, StringComparer.CurrentCultureIgnoreCase)
             .Select(project => new TodoistRoutingChoice(project.ExternalId!, project.Name))
+            .ToList();
+        var todoistLabels = providerLabels
+            .OrderBy(label => label.Name, StringComparer.CurrentCultureIgnoreCase)
+            .Select(label => new TodoistRoutingChoice(label.Name, $"@{label.Name}"))
             .ToList();
         var spaceNames = activeSpaces.ToDictionary(space => space.Id, space => space.Name, StringComparer.Ordinal);
         var projectNames = todoistProjects.ToDictionary(project => project.Id, project => project.Name, StringComparer.Ordinal);
 
-        SettingsPage.SetTodoistRuleOptions(activeSpaces, todoistProjects);
+        SettingsPage.SetTodoistRuleOptions(todoistLabels, activeSpaces, todoistProjects);
         SettingsPage.SetTodoistRules(rules.Select(rule => new TodoistRoutingRuleViewModel
         {
             Id = rule.Id,

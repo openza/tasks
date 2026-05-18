@@ -153,6 +153,48 @@ public sealed class TaskSyncEngineTests : IDisposable
     }
 
     [Fact]
+    public async Task Sync_stores_provider_projects_and_labels_for_rule_pickers()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        var provider = new FakeProvider
+        {
+            Projects =
+            [
+                new ProjectItem
+                {
+                    Id = "todoist_project_inbox",
+                    ExternalId = "project_inbox",
+                    IntegrationId = IntegrationIds.Todoist,
+                    Name = "Inbox",
+                },
+            ],
+            SnapshotLabels =
+            [
+                new LabelItem
+                {
+                    Id = "todoist_label_home",
+                    ExternalId = "home",
+                    IntegrationId = IntegrationIds.Todoist,
+                    Name = "home",
+                },
+            ],
+        };
+        var engine = new TaskSyncEngine(store);
+
+        var result = await engine.SyncAsync(provider);
+
+        var project = Assert.Single(await store.GetProviderProjectsAsync(IntegrationIds.Todoist));
+        var label = Assert.Single(await store.GetProviderLabelsAsync(IntegrationIds.Todoist));
+        Assert.Equal(1, result.ProjectsSynced);
+        Assert.Equal(1, result.LabelsSynced);
+        Assert.Equal("todoist_default", project.ProviderConnectionId);
+        Assert.Equal("todoist_default", label.ProviderConnectionId);
+        Assert.DoesNotContain(await store.GetProjectsAsync(), project => project.IntegrationId == IntegrationIds.Todoist);
+        Assert.DoesNotContain(await store.GetLabelsAsync(), label => label.IntegrationId == IntegrationIds.Todoist);
+    }
+
+    [Fact]
     public async Task Sync_preserves_provider_tasks_missing_from_snapshot_by_default()
     {
         var store = CreateStore();
@@ -504,6 +546,8 @@ public sealed class TaskSyncEngineTests : IDisposable
         public DateOnly? PlannedOn { get; set; }
         public string? RecurrenceRule { get; set; }
         public IReadOnlyList<LabelItem> Labels { get; set; } = [];
+        public IReadOnlyList<ProjectItem> Projects { get; set; } = [];
+        public IReadOnlyList<LabelItem> SnapshotLabels { get; set; } = [];
         public bool IncludeActiveTask { get; set; } = true;
         public bool IncludeCompletedTask { get; set; }
         public bool IncludeChildTask { get; set; }
@@ -555,8 +599,8 @@ public sealed class TaskSyncEngineTests : IDisposable
 
             return Task.FromResult(new ProviderSnapshot(
                 tasks,
-                [],
-                [])
+                Projects,
+                SnapshotLabels)
             {
                 CompletedTasks = completedTasks,
             });
