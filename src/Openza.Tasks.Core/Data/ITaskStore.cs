@@ -8,6 +8,7 @@ public interface ITaskStore
     Task<IReadOnlyList<SpaceItem>> GetSpacesAsync(bool includeArchived = false, CancellationToken cancellationToken = default);
     Task UpsertSpaceAsync(SpaceItem space, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<TaskItem>> GetTasksAsync(TaskQuery query, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<GlobalSearchResult>> SearchAsync(GlobalSearchQuery query, CancellationToken cancellationToken = default);
     Task<TaskCountSummary> GetTaskCountsAsync(string? spaceId = null, CancellationToken cancellationToken = default);
     Task<TaskItem?> GetTaskAsync(string id, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<ProjectItem>> GetProjectsAsync(string? spaceId = null, bool includeArchived = false, CancellationToken cancellationToken = default);

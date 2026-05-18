@@ -52,4 +52,5 @@ Also follow the shared Openza guidance in `../AGENTS.md`. Keep this file limited
 ## Agent-Specific Instructions
 - Never work on `main`/`master`; always use a feature/fix branch.
 - Obsidian is out of scope for the WinUI V1 unless explicitly brought back into scope.
-- Do not reinstall, update, or relaunch the user's actual daily app package (`Openza.OpenzaTasks`) unless explicitly asked. Test builds, installs, and launches against the dev package (`Openza.OpenzaTasks.Dev`) first by default.
+- Treat both Production (`Openza.OpenzaTasks`) and Preview (`Openza.OpenzaTasks.Preview`) as the user's live daily apps. Do not close, stop, build over, install, update, relaunch, or otherwise disrupt either package unless the user explicitly confirms that specific action.
+- Test builds, installs, and launches against the dev package (`Openza.OpenzaTasks.Dev`) first by default. If Preview validation is needed and the app is running or may be in use, stop and ask before proceeding.

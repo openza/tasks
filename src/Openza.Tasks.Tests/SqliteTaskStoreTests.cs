@@ -1161,6 +1161,245 @@ public sealed class SqliteTaskStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task Search_finds_open_tasks_by_title_notes_and_source_description()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        await store.UpsertTaskAsync(new TaskItem
+        {
+            Id = "task_title",
+            Title = "Prepare vendor call",
+            Notes = "General notes",
+        });
+        await store.UpsertTaskAsync(new TaskItem
+        {
+            Id = "task_notes",
+            Title = "Plan admin work",
+            Notes = "Confirm vendor contract details",
+        });
+        await store.UpsertTaskAsync(new TaskItem
+        {
+            Id = "task_source",
+            Title = "Imported follow-up",
+            SourceDescription = "Vendor invoice came from Todoist",
+        });
+
+        var results = await store.SearchAsync(new GlobalSearchQuery { SearchText = "vendor" });
+
+        var taskIds = results.Where(result => result.Kind == GlobalSearchResultKind.Task).Select(result => result.Id).ToArray();
+        Assert.Equal("task_title", taskIds.First());
+        Assert.Equal(new[] { "task_notes", "task_source", "task_title" }, taskIds.OrderBy(id => id).ToArray());
+    }
+
+    [Fact]
+    public async Task Search_finds_projects_by_name_and_description()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        await store.UpsertProjectAsync(new ProjectItem
+        {
+            Id = "project_title",
+            Name = "Renovation",
+            IntegrationId = IntegrationIds.Local,
+        });
+        await store.UpsertProjectAsync(new ProjectItem
+        {
+            Id = "project_description",
+            Name = "Home",
+            Description = "Renovation paperwork",
+            IntegrationId = IntegrationIds.Local,
+        });
+
+        var results = await store.SearchAsync(new GlobalSearchQuery { SearchText = "renovation" });
+
+        Assert.Equal(
+            new[] { "project_title", "project_description" },
+            results.Where(result => result.Kind == GlobalSearchResultKind.Project).Select(result => result.Id).ToArray());
+    }
+
+    [Fact]
+    public async Task Search_current_space_excludes_other_spaces()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        await store.UpsertSpaceAsync(new SpaceItem { Id = "space_work", Name = "Work" });
+        await store.UpsertSpaceAsync(new SpaceItem { Id = "space_home", Name = "Home" });
+        await store.UpsertTaskAsync(new TaskItem
+        {
+            Id = "task_work",
+            SpaceId = "space_work",
+            Title = "Budget review",
+        });
+        await store.UpsertTaskAsync(new TaskItem
+        {
+            Id = "task_home",
+            SpaceId = "space_home",
+            Title = "Budget review",
+        });
+
+        var results = await store.SearchAsync(new GlobalSearchQuery
+        {
+            SearchText = "budget",
+            SpaceId = "space_work",
+        });
+
+        var task = Assert.Single(results);
+        Assert.Equal("task_work", task.Id);
+        Assert.Equal("space_work", task.SpaceId);
+    }
+
+    [Fact]
+    public async Task Search_all_spaces_includes_other_spaces_and_returns_space_id()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        await store.UpsertSpaceAsync(new SpaceItem { Id = "space_work", Name = "Work" });
+        await store.UpsertSpaceAsync(new SpaceItem { Id = "space_home", Name = "Home" });
+        await store.UpsertTaskAsync(new TaskItem
+        {
+            Id = "task_work",
+            SpaceId = "space_work",
+            Title = "Budget review",
+        });
+        await store.UpsertTaskAsync(new TaskItem
+        {
+            Id = "task_home",
+            SpaceId = "space_home",
+            Title = "Budget review",
+        });
+
+        var results = await store.SearchAsync(new GlobalSearchQuery
+        {
+            SearchText = "budget",
+            SpaceId = "space_work",
+            IncludeAllSpaces = true,
+        });
+
+        Assert.Equal(new[] { "space_home", "space_work" }, results.Select(result => result.SpaceId).OrderBy(id => id).ToArray());
+    }
+
+    [Fact]
+    public async Task Search_all_spaces_excludes_archived_spaces()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        await store.UpsertSpaceAsync(new SpaceItem { Id = "space_active", Name = "Active" });
+        await store.UpsertSpaceAsync(new SpaceItem { Id = "space_archived", Name = "Archived", IsArchived = true });
+        await store.UpsertProjectAsync(new ProjectItem
+        {
+            Id = "project_active",
+            SpaceId = "space_active",
+            Name = "Budget planning",
+            IntegrationId = IntegrationIds.Local,
+        });
+        await store.UpsertProjectAsync(new ProjectItem
+        {
+            Id = "project_archived_space",
+            SpaceId = "space_archived",
+            Name = "Budget archive",
+            IntegrationId = IntegrationIds.Local,
+        });
+        await store.UpsertTaskAsync(new TaskItem
+        {
+            Id = "task_active",
+            SpaceId = "space_active",
+            Title = "Budget review",
+        });
+        await store.UpsertTaskAsync(new TaskItem
+        {
+            Id = "task_archived_space",
+            SpaceId = "space_archived",
+            Title = "Budget review hidden",
+        });
+
+        var results = await store.SearchAsync(new GlobalSearchQuery
+        {
+            SearchText = "budget",
+            IncludeAllSpaces = true,
+        });
+
+        Assert.Contains(results, result => result.Id == "task_active");
+        Assert.Contains(results, result => result.Id == "project_active");
+        Assert.DoesNotContain(results, result => result.SpaceId == "space_archived");
+    }
+
+    [Fact]
+    public async Task Search_excludes_completed_tasks_until_requested()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        await store.UpsertTaskAsync(new TaskItem
+        {
+            Id = "task_open",
+            Title = "Archive receipts",
+        });
+        await store.UpsertTaskAsync(new TaskItem
+        {
+            Id = "task_completed",
+            Title = "Archive receipts from April",
+            Status = TaskItemStatus.Completed,
+        });
+
+        var defaultResults = await store.SearchAsync(new GlobalSearchQuery { SearchText = "archive receipts" });
+        var withCompleted = await store.SearchAsync(new GlobalSearchQuery
+        {
+            SearchText = "archive receipts",
+            IncludeCompletedTasks = true,
+        });
+
+        Assert.Equal("task_open", Assert.Single(defaultResults).Id);
+        Assert.Equal(new[] { "task_open", "task_completed" }, withCompleted.Select(result => result.Id).ToArray());
+    }
+
+    [Fact]
+    public async Task Search_excludes_archived_projects()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        await store.UpsertProjectAsync(new ProjectItem
+        {
+            Id = "project_active",
+            Name = "Compliance archive",
+            IntegrationId = IntegrationIds.Local,
+            Status = ProjectLifecycleStates.Active,
+        });
+        await store.UpsertProjectAsync(new ProjectItem
+        {
+            Id = "project_archived",
+            Name = "Compliance archive old",
+            IntegrationId = IntegrationIds.Local,
+            Status = ProjectLifecycleStates.Archived,
+            IsArchived = true,
+        });
+
+        var results = await store.SearchAsync(new GlobalSearchQuery { SearchText = "compliance archive" });
+
+        Assert.Equal("project_active", Assert.Single(results).Id);
+    }
+
+    [Fact]
+    public async Task Search_ranks_title_prefix_before_note_only_matches()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        await store.UpsertTaskAsync(new TaskItem
+        {
+            Id = "task_notes",
+            Title = "General planning",
+            Notes = "Quarterly review agenda",
+        });
+        await store.UpsertTaskAsync(new TaskItem
+        {
+            Id = "task_title",
+            Title = "Review quarterly plan",
+        });
+
+        var results = await store.SearchAsync(new GlobalSearchQuery { SearchText = "review" });
+
+        Assert.Equal("task_title", results.First().Id);
+    }
+
+    [Fact]
     public async Task QueueCompletion_roundtrips_and_mark_synced_removes()
     {
         var store = CreateStore();
