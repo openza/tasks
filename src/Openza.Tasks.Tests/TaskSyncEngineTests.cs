@@ -67,6 +67,46 @@ public sealed class TaskSyncEngineTests : IDisposable
     }
 
     [Fact]
+    public async Task Sync_routes_todoist_source_items_by_configured_labels()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        await store.UpsertSpaceAsync(new SpaceItem { Id = "space_work", Name = "Work" });
+        await store.UpsertSyncRouteAsync(new SyncRouteInfo
+        {
+            Id = "route_todoist_work",
+            Name = "Todoist Work",
+            SourceConnectionId = "todoist_default",
+            IsEnabled = true,
+            SettingsJson = """
+                {
+                  "labelRoutes": [
+                    { "labels": ["work"], "spaceId": "space_work" }
+                  ]
+                }
+                """,
+        });
+        var provider = new FakeProvider
+        {
+            Labels =
+            [
+                new LabelItem
+                {
+                    Id = "todoist_label_work",
+                    IntegrationId = IntegrationIds.Todoist,
+                    Name = "work",
+                },
+            ],
+        };
+        var engine = new TaskSyncEngine(store);
+
+        await engine.SyncAsync(provider);
+
+        var source = Assert.Single(await store.GetProviderSourceItemsAsync(IntegrationIds.Todoist, spaceId: "space_work"));
+        Assert.Equal("space_work", source.SuggestedSpaceId);
+    }
+
+    [Fact]
     public async Task Sync_preserves_provider_tasks_missing_from_snapshot_by_default()
     {
         var store = CreateStore();

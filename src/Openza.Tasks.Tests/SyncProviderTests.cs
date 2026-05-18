@@ -133,6 +133,24 @@ public sealed class SyncProviderTests
     }
 
     [Fact]
+    public async Task TodoistProvider_moves_task_to_configured_project()
+    {
+        var handler = new FakeHttpMessageHandler(request => request.RequestUri?.PathAndQuery switch
+        {
+            "/api/v1/tasks/task1/move" => Empty(HttpStatusCode.OK),
+            _ => Empty(HttpStatusCode.NotFound),
+        });
+        var provider = new TodoistProvider(new HttpClient(handler), "token");
+
+        await provider.MoveTaskAsync("task1", "processed_project");
+
+        var request = Assert.Single(handler.Requests);
+        Assert.Equal(HttpMethod.Post, request.Method);
+        Assert.Equal("/api/v1/tasks/task1/move", request.Uri.AbsolutePath);
+        Assert.Contains("\"project_id\":\"processed_project\"", request.Content);
+    }
+
+    [Fact]
     public async Task TodoistProvider_maps_floating_due_datetime_from_date_field()
     {
         var handler = new FakeHttpMessageHandler(request =>

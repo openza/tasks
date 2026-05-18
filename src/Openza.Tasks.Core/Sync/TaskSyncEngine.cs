@@ -1,7 +1,7 @@
-using Openza.Tasks.Core.Data;
-using Openza.Tasks.Core.Models;
 using System.Globalization;
 using System.Text;
+using Openza.Tasks.Core.Data;
+using Openza.Tasks.Core.Models;
 
 namespace Openza.Tasks.Core.Sync;
 
@@ -22,6 +22,10 @@ public sealed class TaskSyncEngine(ITaskStore store, ConflictPolicy? conflictPol
                 .ToDictionary(t => t.ExternalId, StringComparer.Ordinal);
             var projectNames = snapshot.Projects.ToDictionary(project => project.Id, project => project.Name, StringComparer.Ordinal);
             var remoteExternalIds = new HashSet<string>(StringComparer.Ordinal);
+            var routingPolicy = ProviderSourceRoutingPolicy.FromRoutes(
+                await store.GetSyncRoutesAsync(cancellationToken).ConfigureAwait(false),
+                providerConnectionId,
+                provider.IntegrationId);
 
             var sourceItemsAdded = 0;
             var sourceItemsUpdated = 0;
@@ -37,7 +41,7 @@ public sealed class TaskSyncEngine(ITaskStore store, ConflictPolicy? conflictPol
                 }
 
                 remoteExternalIds.Add(task.ExternalId);
-                await store.UpsertProviderSourceItemAsync(ToProviderSourceItem(task, providerConnectionId, projectNames), cancellationToken).ConfigureAwait(false);
+                await store.UpsertProviderSourceItemAsync(ToProviderSourceItem(ApplyRouting(task, routingPolicy), providerConnectionId, projectNames), cancellationToken).ConfigureAwait(false);
                 if (existingByExternalId.ContainsKey(task.ExternalId))
                 {
                     sourceItemsUpdated++;
@@ -117,6 +121,12 @@ public sealed class TaskSyncEngine(ITaskStore store, ConflictPolicy? conflictPol
             RecurrenceRule = completedTask.RecurrenceRule ?? existingSource.RecurrenceRule,
             ProviderMetadataJson = completedTask.ProviderMetadataJson ?? existingSource.SnapshotJson,
         };
+    }
+
+    private static TaskItem ApplyRouting(TaskItem task, ProviderSourceRoutingPolicy routingPolicy)
+    {
+        var match = routingPolicy.Match(task);
+        return string.IsNullOrWhiteSpace(match.SpaceId) ? task : task with { SpaceId = match.SpaceId };
     }
 
     public async Task<int> SyncPendingCompletionsAsync(ISyncProvider provider, CancellationToken cancellationToken = default)

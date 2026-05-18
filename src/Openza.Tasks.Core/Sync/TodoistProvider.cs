@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Net.Http.Headers;
+using System.Text;
 using System.Text.Json;
 using Openza.Tasks.Core.Models;
 
@@ -35,6 +36,17 @@ public sealed class TodoistProvider(HttpClient httpClient, string accessToken, s
     {
         var suffix = completion.Completed ? "close" : "reopen";
         using var request = CreateRequest(HttpMethod.Post, $"/tasks/{completion.ProviderTaskId}/{suffix}");
+        using var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        response.EnsureSuccessStatusCode();
+    }
+
+    public async Task MoveTaskAsync(string taskId, string projectId, CancellationToken cancellationToken = default)
+    {
+        using var request = CreateRequest(HttpMethod.Post, $"/tasks/{Uri.EscapeDataString(taskId)}/move");
+        request.Content = new StringContent(
+            JsonSerializer.Serialize(new { project_id = projectId }),
+            Encoding.UTF8,
+            "application/json");
         using var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
     }
