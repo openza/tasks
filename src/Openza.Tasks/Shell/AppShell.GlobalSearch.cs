@@ -1,8 +1,10 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using Openza.Tasks.Core.Data;
 using Openza.Tasks.Core.Models;
 using Openza.Tasks.ViewModels;
+using Windows.System;
 
 namespace Openza.Tasks.Shell;
 
@@ -20,7 +22,7 @@ public sealed partial class AppShell
         GlobalSearchIncludeCompletedBox.IsChecked = false;
         GlobalSearchBox.Text = string.Empty;
         UpdateGlobalSearchState(showPrompt: true);
-        GlobalSearchBox.Focus(FocusState.Programmatic);
+        FocusGlobalSearchBox();
     }
 
     private void OnGlobalSearchCloseClicked(object sender, RoutedEventArgs e)
@@ -35,6 +37,26 @@ public sealed partial class AppShell
         _globalTaskSearchResults.Clear();
         _globalProjectSearchResults.Clear();
         UpdateGlobalSearchState(showPrompt: true);
+    }
+
+    private void FocusGlobalSearchBox()
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            if (GlobalSearchOverlay.Visibility == Visibility.Visible)
+            {
+                GlobalSearchBox.Focus(FocusState.Programmatic);
+            }
+        });
+    }
+
+    private void OnGlobalSearchPreviewKeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (e.Key == VirtualKey.Escape && GlobalSearchOverlay.Visibility == Visibility.Visible)
+        {
+            CloseGlobalSearchOverlay();
+            e.Handled = true;
+        }
     }
 
     private async void OnGlobalSearchTextChanged(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args)
