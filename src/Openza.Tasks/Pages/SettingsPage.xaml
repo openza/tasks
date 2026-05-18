@@ -326,7 +326,7 @@
                     <StackPanel Spacing="4" Margin="0,0,0,18">
                         <TextBlock Text="Backups" Style="{ThemeResource TitleTextBlockStyle}" />
                         <TextBlock
-                            Text="Use OneDrive or an exported file to keep a backup outside this app. Restore points are only for undoing recent changes on this PC."
+                            Text="Use OneDrive or an exported file to keep a backup outside this app."
                             Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
                     </StackPanel>
 
@@ -398,46 +398,6 @@
                         </StackPanel>
                     </toolkit:SettingsCard>
 
-                    <toolkit:SettingsCard Header="Restore points" Description="Local copies for undoing recent changes on this PC. They may be removed if Windows resets or uninstalls the app.">
-                        <toolkit:SettingsCard.HeaderIcon>
-                            <FontIcon Glyph="&#xE777;" />
-                        </toolkit:SettingsCard.HeaderIcon>
-                        <Grid Width="520" RowSpacing="12">
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />
-                            </Grid.RowDefinitions>
-                            <StackPanel Spacing="4">
-                                <TextBlock
-                                    x:Name="LatestRestorePointText"
-                                    Text="No restore points yet."
-                                    Style="{StaticResource OpenzaMetadataTextBlockStyle}"
-                                    TextWrapping="Wrap" />
-                                <TextBlock
-                                    x:Name="RestorePointCountText"
-                                    Text="0 restore points"
-                                    Style="{StaticResource OpenzaCaptionTextBlockStyle}" />
-                            </StackPanel>
-                            <Grid Grid.Row="1" ColumnDefinitions="*,Auto" ColumnSpacing="16">
-                                <TextBlock
-                                    Text="Create restore points automatically"
-                                    Style="{StaticResource OpenzaMetadataTextBlockStyle}"
-                                    TextWrapping="Wrap"
-                                    VerticalAlignment="Center" />
-                                <ToggleSwitch
-                                    x:Name="AutoBackupSwitch"
-                                    Grid.Column="1"
-                                    AutomationProperties.Name="Automatic restore point"
-                                    Toggled="OnAutoBackupToggled" />
-                            </Grid>
-                            <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="8">
-                                <Button Content="Create restore point" Click="OnCreateBackupClicked" />
-                                <Button Content="Manage" Click="OnManageRestorePointsClicked" />
-                            </StackPanel>
-                        </Grid>
-                    </toolkit:SettingsCard>
-
                     <Border
                         CornerRadius="8"
                         BorderBrush="{ThemeResource OpenzaBorderBrush}"
@@ -453,13 +413,52 @@
                                     <StackPanel Grid.Column="1" Spacing="2">
                                         <TextBlock Text="Advanced" Style="{StaticResource BodyStrongTextBlockStyle}" />
                                         <TextBlock
-                                            Text="Account and optional passphrase settings."
+                                            Text="Local safety copies, account, and optional passphrase settings."
                                             Style="{StaticResource OpenzaMetadataTextBlockStyle}"
                                             TextWrapping="Wrap" />
                                     </StackPanel>
                                 </Grid>
                             </Expander.Header>
                             <StackPanel Spacing="12" Padding="16,8,16,16">
+                                <toolkit:SettingsCard Header="Restore points" Description="Local copies for undoing recent changes on this PC. They may be removed if Windows resets or uninstalls the app.">
+                                    <toolkit:SettingsCard.HeaderIcon>
+                                        <FontIcon Glyph="&#xE777;" />
+                                    </toolkit:SettingsCard.HeaderIcon>
+                                    <Grid Width="520" RowSpacing="12">
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                        </Grid.RowDefinitions>
+                                        <StackPanel Spacing="4">
+                                            <TextBlock
+                                                x:Name="LatestRestorePointText"
+                                                Text="No restore points yet."
+                                                Style="{StaticResource OpenzaMetadataTextBlockStyle}"
+                                                TextWrapping="Wrap" />
+                                            <TextBlock
+                                                x:Name="RestorePointCountText"
+                                                Text="0 restore points"
+                                                Style="{StaticResource OpenzaCaptionTextBlockStyle}" />
+                                        </StackPanel>
+                                        <Grid Grid.Row="1" ColumnDefinitions="*,Auto" ColumnSpacing="16">
+                                            <TextBlock
+                                                Text="Create restore points automatically"
+                                                Style="{StaticResource OpenzaMetadataTextBlockStyle}"
+                                                TextWrapping="Wrap"
+                                                VerticalAlignment="Center" />
+                                            <ToggleSwitch
+                                                x:Name="AutoBackupSwitch"
+                                                Grid.Column="1"
+                                                AutomationProperties.Name="Automatic restore point"
+                                                Toggled="OnAutoBackupToggled" />
+                                        </Grid>
+                                        <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="8">
+                                            <Button Content="Create restore point" Click="OnCreateBackupClicked" />
+                                            <Button Content="Manage" Click="OnManageRestorePointsClicked" />
+                                        </StackPanel>
+                                    </Grid>
+                                </toolkit:SettingsCard>
                                 <toolkit:SettingsCard Header="OneDrive backup" Description="Keep a backup in OneDrive. Recommended for a local-first app with no Openza account backup.">
                                     <ToggleSwitch
                                         x:Name="OneDriveBackupSwitch"
