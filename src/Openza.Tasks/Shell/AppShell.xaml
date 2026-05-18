@@ -233,7 +233,9 @@
                             AutoSyncToggled="OnAutoSyncToggled"
                             AddSpaceClicked="OnAddSpaceClicked"
                             RenameSpaceClicked="OnRenameSpaceClicked"
-                            ArchiveSpaceClicked="OnArchiveSpaceClicked" />
+                            ArchiveSpaceClicked="OnArchiveSpaceClicked"
+                            SaveTodoistRuleRequested="OnSaveTodoistRuleRequested"
+                            DeleteTodoistRuleRequested="OnDeleteTodoistRuleRequested" />
                     </Grid>
 
                     <ScrollViewer

@@ -171,6 +171,72 @@
                                         Click="OnDisconnectTodoistClicked" />
                                 </Grid>
                             </toolkit:SettingsCard>
+                            <toolkit:SettingsCard Header="Rules" Description="Use Todoist labels to send new tasks to the right Space.">
+                                <Grid Width="620" RowSpacing="12">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <TextBlock
+                                        Text="Rules run when Todoist tasks arrive in Openza. Todoist labels stay hidden from your normal task labels."
+                                        Style="{StaticResource OpenzaMetadataTextBlockStyle}"
+                                        TextWrapping="Wrap" />
+                                    <ListView
+                                        x:Name="TodoistRulesList"
+                                        Grid.Row="1"
+                                        MinHeight="72"
+                                        MaxHeight="260"
+                                        ItemsSource="{x:Bind TodoistRules, Mode=OneWay}"
+                                        SelectionMode="None">
+                                        <ListView.ItemContainerStyle>
+                                            <Style TargetType="ListViewItem">
+                                                <Setter Property="Padding" Value="0" />
+                                                <Setter Property="Margin" Value="0,0,0,8" />
+                                                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                            </Style>
+                                        </ListView.ItemContainerStyle>
+                                        <ListView.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:TodoistRoutingRuleViewModel">
+                                                <Border
+                                                    Padding="12"
+                                                    CornerRadius="8"
+                                                    BorderBrush="{ThemeResource OpenzaBorderBrush}"
+                                                    BorderThickness="1">
+                                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                                                        <StackPanel Spacing="2">
+                                                            <TextBlock Text="{x:Bind LabelText}" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                                            <TextBlock
+                                                                Text="{x:Bind SummaryText}"
+                                                                Style="{StaticResource OpenzaMetadataTextBlockStyle}"
+                                                                TextWrapping="Wrap" />
+                                                        </StackPanel>
+                                                        <StackPanel
+                                                            Grid.Column="1"
+                                                            Orientation="Horizontal"
+                                                            Spacing="8"
+                                                            VerticalAlignment="Center">
+                                                            <Button
+                                                                Content="Edit"
+                                                                Tag="{x:Bind Id}"
+                                                                Click="OnEditTodoistRuleClicked" />
+                                                            <Button
+                                                                Content="Delete"
+                                                                Tag="{x:Bind Id}"
+                                                                Click="OnDeleteTodoistRuleClicked" />
+                                                        </StackPanel>
+                                                    </Grid>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ListView.ItemTemplate>
+                                    </ListView>
+                                    <Button
+                                        Grid.Row="2"
+                                        Content="Add rule"
+                                        HorizontalAlignment="Left"
+                                        Click="OnAddTodoistRuleClicked" />
+                                </Grid>
+                            </toolkit:SettingsCard>
                         </toolkit:SettingsExpander.Items>
                     </toolkit:SettingsExpander>
 

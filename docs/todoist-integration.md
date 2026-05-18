@@ -18,7 +18,7 @@ Todoist labels are preserved as source metadata under `sourceTask.labels` in the
 
 ## Label Routing
 
-Label routing is configured through enabled `sync_routes` rows. Route settings use JSON so the user's Todoist workflow can change without app code changes.
+Label routing is configured from **Settings > Integrations > Todoist > Rules**. The UI writes enabled `sync_routes` settings behind the scenes so the user's Todoist workflow can change without app code changes.
 
 Example:
 
@@ -42,7 +42,7 @@ Rules are evaluated in route order. A rule with `match: "all"` requires every li
 
 ## Post-Import Filing
 
-Post-import filing is optional. It can move a Todoist task after the user imports the source item into Openza, but sync must not depend on that move. If the user later changes Todoist workflow or disables filing, Openza should still sync the task by provider ID.
+Post-import filing is optional and configured from the same Todoist rule editor. It can move a Todoist task after the user imports the source item into Openza, but sync must not depend on that move. If the user later changes Todoist workflow or disables filing, Openza should still sync the task by provider ID.
 
 Example:
 

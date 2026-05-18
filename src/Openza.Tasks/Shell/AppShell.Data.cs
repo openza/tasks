@@ -139,6 +139,7 @@ public sealed partial class AppShell
             }
 
             await LoadProjectsAsync().ConfigureAwait(true);
+            await RefreshTodoistRulesAsync().ConfigureAwait(true);
             if (IsTaskView(_currentView))
             {
                 await RefreshTasksAsync().ConfigureAwait(true);
@@ -1007,6 +1008,7 @@ public sealed partial class AppShell
         var microsoftConnected = _settings.Settings.MicrosoftToDoAccount.IsConnected;
         SettingsPage.SetProviderStatus(todoistConnected, _settings.Settings.MicrosoftToDoAccount.Username);
         SyncPage.SetProviderStatus(todoistConnected, microsoftConnected);
+        await RefreshTodoistRulesAsync().ConfigureAwait(true);
         await RefreshBackupListAsync().ConfigureAwait(true);
         RefreshCloudBackupStatus(isBusy: false);
         await RefreshSourceItemsAsync().ConfigureAwait(true);
