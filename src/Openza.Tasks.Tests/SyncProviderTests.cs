@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text;
+using System.Text.Json;
 using Openza.Tasks.Core.Models;
 using Openza.Tasks.Core.Sync;
 
@@ -78,6 +79,9 @@ public sealed class SyncProviderTests
         Assert.Null(task.PlannedAt);
         Assert.Equal("every 12th", task.RecurrenceRule);
         Assert.Equal("release", Assert.Single(task.Labels).Name);
+        using var metadata = JsonDocument.Parse(task.ProviderMetadataJson!);
+        var labels = metadata.RootElement.GetProperty("sourceTask").GetProperty("labels").EnumerateArray().Select(label => label.GetString()).ToList();
+        Assert.Equal(["release"], labels);
         Assert.Contains(handler.Requests, request => request.Method == HttpMethod.Get && request.Uri.PathAndQuery == "/api/v1/tasks?limit=200");
         Assert.Contains(handler.Requests, request => request.Method == HttpMethod.Get && request.Uri.PathAndQuery == "/api/v1/tasks?limit=200&cursor=next-page");
         Assert.Contains(handler.Requests, request => request.Method == HttpMethod.Get && request.Uri.AbsolutePath == "/api/v1/tasks/completed/by_completion_date");

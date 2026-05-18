@@ -1,5 +1,7 @@
 using Openza.Tasks.Core.Data;
 using Openza.Tasks.Core.Models;
+using System.Globalization;
+using System.Text;
 
 namespace Openza.Tasks.Core.Sync;
 
@@ -199,8 +201,39 @@ public sealed class TaskSyncEngine(ITaskStore store, ConflictPolicy? conflictPol
     private static string? BuildSourceUrl(TaskItem task)
     {
         return task.IntegrationId == IntegrationIds.Todoist && !string.IsNullOrWhiteSpace(task.ExternalId)
-            ? $"https://todoist.com/showTask?id={Uri.EscapeDataString(task.ExternalId)}"
+            ? $"https://app.todoist.com/app/task/{BuildTodoistTaskSlug(task.Title)}-{Uri.EscapeDataString(task.ExternalId)}"
             : null;
+    }
+
+    private static string BuildTodoistTaskSlug(string? title)
+    {
+        if (string.IsNullOrWhiteSpace(title))
+        {
+            return "task";
+        }
+
+        var builder = new StringBuilder(title.Length);
+        var previousWasSeparator = false;
+        foreach (var character in title.ToLower(CultureInfo.InvariantCulture).Normalize(NormalizationForm.FormD))
+        {
+            if (CharUnicodeInfo.GetUnicodeCategory(character) == UnicodeCategory.NonSpacingMark)
+            {
+                continue;
+            }
+
+            if (char.IsAsciiLetterOrDigit(character))
+            {
+                builder.Append(character);
+                previousWasSeparator = false;
+            }
+            else if (!previousWasSeparator && builder.Length > 0)
+            {
+                builder.Append('-');
+                previousWasSeparator = true;
+            }
+        }
+
+        return builder.ToString().Trim('-') is { Length: > 0 } slug ? slug : "task";
     }
 
     private static string? BuildParentExternalId(TaskItem task)

@@ -248,10 +248,11 @@ public sealed class TodoistProvider(HttpClient httpClient, string accessToken, s
     {
         var projectId = GetString(task, "project_id");
         var projectName = projectId is not null && projectNames.TryGetValue(projectId, out var name) ? name : null;
+        var labels = GetStringArray(task, "labels");
         return JsonSerializer.Serialize(new
         {
             todoist = new { id = GetString(task, "id"), synced_at = DateTimeOffset.UtcNow },
-            sourceTask = new { projectId, projectName, parentId = GetString(task, "parent_id") },
+            sourceTask = new { projectId, projectName, parentId = GetString(task, "parent_id"), labels },
         });
     }
 
@@ -320,6 +321,21 @@ public sealed class TodoistProvider(HttpClient httpClient, string accessToken, s
 
     private static string? GetString(JsonElement element, string property) =>
         element.TryGetProperty(property, out var value) && value.ValueKind != JsonValueKind.Null ? value.ToString() : null;
+
+    private static IReadOnlyList<string> GetStringArray(JsonElement element, string property)
+    {
+        if (!element.TryGetProperty(property, out var value) || value.ValueKind != JsonValueKind.Array)
+        {
+            return [];
+        }
+
+        return value.EnumerateArray()
+            .Where(item => item.ValueKind == JsonValueKind.String)
+            .Select(item => item.GetString())
+            .Where(label => !string.IsNullOrWhiteSpace(label))
+            .Select(label => label!)
+            .ToList();
+    }
 
     private static int GetInt(JsonElement element, string property, int defaultValue = 0) =>
         element.TryGetProperty(property, out var value) && value.TryGetInt32(out var result) ? result : defaultValue;

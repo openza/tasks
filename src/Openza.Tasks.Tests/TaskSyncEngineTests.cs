@@ -36,6 +36,37 @@ public sealed class TaskSyncEngineTests : IDisposable
     }
 
     [Fact]
+    public async Task Sync_uses_modern_todoist_urls_without_promoting_source_labels()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        var provider = new FakeProvider
+        {
+            Title = "Repair Ovi cycle",
+            Labels =
+            [
+                new LabelItem
+                {
+                    Id = "todoist_label_home",
+                    IntegrationId = IntegrationIds.Todoist,
+                    Name = "home",
+                },
+            ],
+        };
+        var engine = new TaskSyncEngine(store);
+
+        await engine.SyncAsync(provider);
+        var source = Assert.Single(await store.GetProviderSourceItemsAsync(IntegrationIds.Todoist));
+        var adopted = await store.AdoptProviderSourceItemAsync(source.Id);
+
+        Assert.Equal("https://app.todoist.com/app/task/repair-ovi-cycle-remote_1", source.SourceUrl);
+        Assert.NotNull(adopted);
+        var task = await store.GetTaskAsync(adopted.Id);
+        Assert.NotNull(task);
+        Assert.Empty(task.Labels);
+    }
+
+    [Fact]
     public async Task Sync_preserves_provider_tasks_missing_from_snapshot_by_default()
     {
         var store = CreateStore();
@@ -386,6 +417,7 @@ public sealed class TaskSyncEngineTests : IDisposable
         public string? Description { get; set; }
         public DateOnly? PlannedOn { get; set; }
         public string? RecurrenceRule { get; set; }
+        public IReadOnlyList<LabelItem> Labels { get; set; } = [];
         public bool IncludeActiveTask { get; set; } = true;
         public bool IncludeCompletedTask { get; set; }
         public bool IncludeChildTask { get; set; }
@@ -405,6 +437,7 @@ public sealed class TaskSyncEngineTests : IDisposable
                     Description = Description,
                     PlannedOn = PlannedOn,
                     RecurrenceRule = RecurrenceRule,
+                    Labels = Labels,
                 });
             }
 
