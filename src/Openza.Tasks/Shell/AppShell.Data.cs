@@ -37,7 +37,7 @@ public sealed partial class AppShell
             }
             catch (Exception exception)
             {
-                ShowInfo("Import blocked", $"A safety backup could not be created: {exception.Message}", InfoBarSeverity.Error);
+                ShowInfo("Import blocked", $"A safety restore point could not be created: {exception.Message}", InfoBarSeverity.Error);
                 return;
             }
         }
@@ -256,7 +256,7 @@ public sealed partial class AppShell
         await TryUploadCloudBackupAsync(path, interactive: true, showResult: true).ConfigureAwait(true);
         if (!_settings.Settings.OneDriveBackupEnabled)
         {
-            ShowInfo("Backup created", path, InfoBarSeverity.Success);
+            ShowInfo("Restore point created", path, InfoBarSeverity.Success);
         }
     }
 
@@ -270,7 +270,7 @@ public sealed partial class AppShell
         }
         catch (Exception exception)
         {
-            ShowInfo("Could not open backup folder", exception.Message, InfoBarSeverity.Error);
+            ShowInfo("Could not open restore point folder", exception.Message, InfoBarSeverity.Error);
         }
     }
 
@@ -299,7 +299,7 @@ public sealed partial class AppShell
         var backup = SettingsPage.SelectedBackup;
         if (backup is null)
         {
-            ShowInfo("Select a backup", "Choose a backup to export.", InfoBarSeverity.Warning);
+            ShowInfo("Select a restore point", "Choose a restore point to export as a durable backup file.", InfoBarSeverity.Warning);
             return;
         }
 
@@ -322,7 +322,7 @@ public sealed partial class AppShell
         var backup = SettingsPage.SelectedBackup;
         if (backup is null)
         {
-            ShowInfo("Select a backup", "Choose a backup to restore.", InfoBarSeverity.Warning);
+            ShowInfo("Select a restore point", "Choose a restore point to restore.", InfoBarSeverity.Warning);
             return;
         }
 
@@ -334,13 +334,13 @@ public sealed partial class AppShell
         var backup = SettingsPage.SelectedBackup;
         if (backup is null)
         {
-            ShowInfo("Select a backup", "Choose a backup to delete.", InfoBarSeverity.Warning);
+            ShowInfo("Select a restore point", "Choose a restore point to delete.", InfoBarSeverity.Warning);
             return;
         }
 
         var dialog = new ContentDialog
         {
-            Title = "Delete backup",
+            Title = "Delete restore point",
             Content = backup.FileName,
             PrimaryButtonText = "Delete",
             CloseButtonText = "Cancel",
@@ -354,7 +354,7 @@ public sealed partial class AppShell
 
         await _backupService.DeleteBackupAsync(backup.Path).ConfigureAwait(true);
         await RefreshBackupListAsync().ConfigureAwait(true);
-        ShowInfo("Backup deleted", backup.FileName, InfoBarSeverity.Success);
+        ShowInfo("Restore point deleted", backup.FileName, InfoBarSeverity.Success);
     }
 
     private async void OnAutoBackupToggled(object sender, RoutedEventArgs e)
@@ -387,7 +387,7 @@ public sealed partial class AppShell
             _settings.Settings.OneDriveBackupEnabled = false;
             await _settings.SaveAsync().ConfigureAwait(true);
             RefreshCloudBackupStatus(isBusy: false);
-            ShowInfo("OneDrive backup off", "Local backups continue to work normally.", InfoBarSeverity.Informational);
+            ShowInfo("OneDrive backup off", "Local restore points continue to work normally.", InfoBarSeverity.Informational);
             return;
         }
 
@@ -504,7 +504,7 @@ public sealed partial class AppShell
         var dialog = new ContentDialog
         {
             Title = "Restore OneDrive backup",
-            Content = "This will download the selected backup and replace the current local database. A local pre-restore backup is created first.",
+            Content = "This will download the selected backup and replace the current local database. A local pre-restore restore point is created first.",
             PrimaryButtonText = "Restore",
             CloseButtonText = "Cancel",
             XamlRoot = XamlRoot,
@@ -686,7 +686,7 @@ public sealed partial class AppShell
             AppLog.Write(exception);
             if (showResult)
             {
-                ShowInfo("Local backup created", $"OneDrive upload failed: {exception.Message}", InfoBarSeverity.Warning);
+                ShowInfo("Restore point created", $"OneDrive upload failed: {exception.Message}", InfoBarSeverity.Warning);
             }
         }
         finally
@@ -721,7 +721,7 @@ public sealed partial class AppShell
             {
                 ShowInfo(
                     "OneDrive backup ready",
-                    uploaded.Count == 0 ? "No new local backups needed uploading." : $"Uploaded {uploaded.Count} backup{(uploaded.Count == 1 ? string.Empty : "s")}.",
+                    uploaded.Count == 0 ? "No new restore points needed uploading." : $"Uploaded {uploaded.Count} backup{(uploaded.Count == 1 ? string.Empty : "s")}.",
                     InfoBarSeverity.Success);
             }
         }
@@ -971,8 +971,8 @@ public sealed partial class AppShell
     {
         var dialog = new ContentDialog
         {
-            Title = "Restore backup",
-            Content = "This will replace the current local database. A safety copy of the current database is created first.",
+            Title = "Restore database",
+            Content = "This will replace the current local database. A safety restore point of the current database is created first.",
             PrimaryButtonText = "Restore",
             CloseButtonText = "Cancel",
             XamlRoot = XamlRoot,
@@ -993,7 +993,7 @@ public sealed partial class AppShell
             await RefreshTasksAsync().ConfigureAwait(true);
             await RefreshBackupListAsync().ConfigureAwait(true);
             await TryUploadNewestPreRestoreBackupAsync(restoreStartedAt, interactive: false).ConfigureAwait(true);
-            ShowInfo("Backup restored", path, InfoBarSeverity.Success);
+            ShowInfo("Database restored", path, InfoBarSeverity.Success);
         }
         catch (Exception exception)
         {
@@ -1043,9 +1043,9 @@ public sealed partial class AppShell
     {
         var dialog = new ContentDialog
         {
-            Title = "Restore available backup?",
-            Content = $"This app data looks new or empty, but a backup is available:\n\n{backup.DisplayName}\n\nRestore it before continuing?",
-            PrimaryButtonText = "Restore backup",
+            Title = "Restore available restore point?",
+            Content = $"This app data looks new or empty, but a local restore point is available:\n\n{backup.DisplayName}\n\nRestore it before continuing?",
+            PrimaryButtonText = "Restore",
             CloseButtonText = "Keep current data",
             XamlRoot = XamlRoot,
         };
@@ -1061,7 +1061,7 @@ public sealed partial class AppShell
             await _backupService.RestoreBackupAsync(backup.Path).ConfigureAwait(true);
             await _store.InitializeAsync().ConfigureAwait(true);
             await TryUploadNewestPreRestoreBackupAsync(restoreStartedAt, interactive: false).ConfigureAwait(true);
-            ShowInfo("Backup restored", backup.Path, InfoBarSeverity.Success);
+            ShowInfo("Database restored", backup.Path, InfoBarSeverity.Success);
         }
         catch (Exception exception)
         {

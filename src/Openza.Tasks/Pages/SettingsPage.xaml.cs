@@ -153,12 +153,12 @@ public sealed partial class SettingsPage : UserControl
         if (isBusy)
         {
             OneDriveBackupStatusText.Text = "Uploading";
-            OneDriveBackupSummaryText.Text = $"{accountText} Openza is updating OneDrive backup.";
+            OneDriveBackupSummaryText.Text = $"{accountText} Openza is updating OneDrive backups.";
         }
         else if (!enabled)
         {
             OneDriveBackupStatusText.Text = "Off";
-            OneDriveBackupSummaryText.Text = $"{accountText} OneDrive backup is off.";
+            OneDriveBackupSummaryText.Text = $"{accountText} OneDrive backup is off. Turn it on for durable protection beyond this app install.";
         }
         else if (!hasAccount)
         {

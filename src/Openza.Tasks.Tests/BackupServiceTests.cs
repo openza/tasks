@@ -11,15 +11,32 @@ public sealed class BackupServiceTests : IDisposable
     private readonly string _directory = Path.Combine(Path.GetTempPath(), "openza-backup-tests", Guid.NewGuid().ToString("N"));
 
     [Fact]
-    public void Stable_backup_paths_separate_production_and_dev()
+    public void Restore_point_path_stays_under_package_local_state()
     {
-        var production = BackupPaths.GetStableBackupDirectory(BackupPaths.ProductionPackageIdentity);
-        var dev = BackupPaths.GetStableBackupDirectory(BackupPaths.DevPackageIdentity);
+        var localState = Path.Combine("package-root", "LocalState");
 
-        Assert.EndsWith(Path.Combine("Openza", "Tasks", "Backups"), production, StringComparison.OrdinalIgnoreCase);
-        Assert.EndsWith(Path.Combine("Openza", "Tasks Dev", "Backups"), dev, StringComparison.OrdinalIgnoreCase);
-        Assert.NotEqual(production, dev, StringComparer.OrdinalIgnoreCase);
-        Assert.Equal(Path.Combine("local", "backups"), BackupPaths.GetLegacyPackageBackupDirectory("local"));
+        Assert.Equal(Path.Combine(localState, "restore-points"), BackupPaths.GetRestorePointDirectory(localState));
+        Assert.Equal(Path.Combine(localState, "backups"), BackupPaths.GetLegacyPackageBackupDirectory(localState));
+    }
+
+    [Fact]
+    public void Redirected_stable_backup_path_resolves_inside_package_cache()
+    {
+        var localState = Path.Combine(_directory, "Packages", "Openza.OpenzaTasks.Preview_rt595jwp8ay6e", "LocalState");
+        var candidates = BackupPaths.GetRedirectedStableBackupDirectories(localState, BackupPaths.PreviewPackageIdentity);
+
+        var candidate = Assert.Single(candidates);
+        Assert.Equal(
+            Path.Combine(
+                _directory,
+                "Packages",
+                "Openza.OpenzaTasks.Preview_rt595jwp8ay6e",
+                "LocalCache",
+                "Local",
+                "Openza",
+                "Tasks Preview",
+                "Backups"),
+            candidate);
     }
 
     [Fact]
@@ -63,8 +80,30 @@ public sealed class BackupServiceTests : IDisposable
         var copied = Assert.Single(service.ListBackupInfo());
         Assert.Equal(1, firstCopyCount);
         Assert.Equal(0, secondCopyCount);
-        Assert.Equal(BackupReasons.Legacy, copied.Reason);
+        Assert.Equal(BackupReasons.Manual, copied.Reason);
         Assert.NotEqual(legacyBackup, copied.Path);
+    }
+
+    [Fact]
+    public async Task MigrateLegacyBackups_copies_legacy_and_redirected_restore_points_once()
+    {
+        var databasePath = await CreateDatabaseAsync("legacy-source.db", taskId: "task_legacy");
+        var legacyDirectory = Path.Combine(_directory, "LocalState", "backups");
+        var redirectedDirectory = Path.Combine(_directory, "LocalCache", "Local", "Openza", "Tasks Preview", "Backups");
+        var restorePointDirectory = Path.Combine(_directory, "LocalState", "restore-points");
+        var legacyBackup = await CreateService(databasePath, legacyDirectory).CreateBackupAsync(BackupReasons.Manual);
+        Directory.CreateDirectory(redirectedDirectory);
+        File.Copy(legacyBackup, Path.Combine(redirectedDirectory, Path.GetFileName(legacyBackup)));
+        await File.WriteAllTextAsync(Path.Combine(redirectedDirectory, "not-a-database.db"), "not sqlite");
+        var service = CreateService(databasePath, restorePointDirectory);
+
+        var copied = await service.MigrateLegacyBackupsAsync([legacyDirectory, redirectedDirectory]);
+
+        Assert.Equal(1, copied);
+        var restorePoint = Assert.Single(service.ListBackupInfo());
+        Assert.Equal(BackupReasons.Manual, restorePoint.Reason);
+        Assert.Equal(1, restorePoint.TaskCount);
+        Assert.DoesNotContain($"{Path.DirectorySeparatorChar}Openza{Path.DirectorySeparatorChar}", restorePoint.Path, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

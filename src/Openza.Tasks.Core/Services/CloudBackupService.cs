@@ -34,7 +34,8 @@ public sealed class CloudBackupService(
 
     public static bool IsAvailableForAppFlavor(string appFlavor) =>
         string.Equals(appFlavor, BackupPaths.ProductionFlavor, StringComparison.OrdinalIgnoreCase) ||
-        string.Equals(appFlavor, BackupPaths.DevFlavor, StringComparison.OrdinalIgnoreCase);
+        string.Equals(appFlavor, BackupPaths.DevFlavor, StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(appFlavor, BackupPaths.PreviewFlavor, StringComparison.OrdinalIgnoreCase);
 
     public async Task<CloudBackupInfo?> UploadBackupAsync(
         BackupInfo backup,
@@ -434,9 +435,12 @@ public static class CloudBackupPaths
         $"{BackupDirectory(appFlavor)}/{Path.GetFileName(fileName)}";
 
     private static string NormalizeAppFlavor(string appFlavor) =>
-        string.Equals(appFlavor, BackupPaths.DevFlavor, StringComparison.OrdinalIgnoreCase)
-            ? BackupPaths.DevFlavor
-            : BackupPaths.ProductionFlavor;
+        appFlavor switch
+        {
+            var value when string.Equals(value, BackupPaths.DevFlavor, StringComparison.OrdinalIgnoreCase) => BackupPaths.DevFlavor,
+            var value when string.Equals(value, BackupPaths.PreviewFlavor, StringComparison.OrdinalIgnoreCase) => BackupPaths.PreviewFlavor,
+            _ => BackupPaths.ProductionFlavor,
+        };
 }
 
 public sealed record CloudBackupOptions(
