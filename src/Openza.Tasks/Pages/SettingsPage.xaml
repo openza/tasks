@@ -42,7 +42,7 @@
                 <ListViewItem Tag="backups">
                     <StackPanel Orientation="Horizontal" Spacing="10">
                         <FontIcon Glyph="&#xE777;" FontSize="14" />
-                        <TextBlock Text="Protection" />
+                        <TextBlock Text="Backups" />
                     </StackPanel>
                 </ListViewItem>
                 <ListViewItem Tag="about">
@@ -55,6 +55,7 @@
         </StackPanel>
 
         <ScrollViewer
+            x:Name="SettingsContentScrollViewer"
             Grid.Column="1"
             HorizontalScrollBarVisibility="Disabled"
             VerticalScrollBarVisibility="Auto">
@@ -323,9 +324,9 @@
                     Spacing="12"
                     Visibility="Collapsed">
                     <StackPanel Spacing="4" Margin="0,0,0,18">
-                        <TextBlock Text="Protection" Style="{ThemeResource TitleTextBlockStyle}" />
+                        <TextBlock Text="Backups" Style="{ThemeResource TitleTextBlockStyle}" />
                         <TextBlock
-                            Text="Use restore points for local rollback and OneDrive or export for durable backups."
+                            Text="Use restore points for local rollback, and OneDrive or export for durable backups."
                             Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
                     </StackPanel>
 

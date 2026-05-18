@@ -245,6 +245,7 @@ public sealed partial class SettingsPage : UserControl
         SetSectionVisibility("SpacesPanel", section == "spaces");
         SetSectionVisibility("BackupsPanel", section == "backups");
         SetSectionVisibility("AboutPanel", section == "about");
+        SettingsContentScrollViewer.ChangeView(null, 0, null, disableAnimation: true);
     }
 
     private void SetSectionVisibility(string name, bool isVisible)
