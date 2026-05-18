@@ -326,14 +326,14 @@
                     <StackPanel Spacing="4" Margin="0,0,0,18">
                         <TextBlock Text="Backups" Style="{ThemeResource TitleTextBlockStyle}" />
                         <TextBlock
-                            Text="OneDrive backups and exported files survive reinstall or device loss. Restore points are local rollback only."
+                            Text="Use OneDrive or an exported file to keep a backup outside this app. Restore points are only for undoing recent changes on this PC."
                             Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
                     </StackPanel>
 
                     <toolkit:SettingsCard
                         x:Name="OneDriveBackupCard"
                         Header="OneDrive backup"
-                        Description="Recommended durable backup for reinstall, reset, device loss, or package removal.">
+                        Description="Recommended backup that can help after reinstall, reset, or device loss.">
                         <toolkit:SettingsCard.HeaderIcon>
                             <FontIcon Glyph="&#xE753;" />
                         </toolkit:SettingsCard.HeaderIcon>
@@ -372,7 +372,7 @@
                             <TextBlock
                                 x:Name="OneDriveBackupDetailText"
                                 Grid.Row="2"
-                                Text="Files are protected by your Microsoft account and OneDrive, not by Openza end-to-end encryption."
+                                Text="Stored in your OneDrive. Openza does not add extra encryption unless passphrase encryption is on."
                                 Style="{StaticResource OpenzaCaptionTextBlockStyle}"
                                 TextWrapping="Wrap" />
                             <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="8">
@@ -388,7 +388,7 @@
                         </Grid>
                     </toolkit:SettingsCard>
 
-                    <toolkit:SettingsCard Header="Backup file" Description="Create or restore a user-owned durable backup file.">
+                    <toolkit:SettingsCard Header="Backup file" Description="Save a copy you control, or restore from one.">
                         <toolkit:SettingsCard.HeaderIcon>
                             <FontIcon Glyph="&#xE8E5;" />
                         </toolkit:SettingsCard.HeaderIcon>
@@ -398,35 +398,40 @@
                         </StackPanel>
                     </toolkit:SettingsCard>
 
-                    <toolkit:SettingsCard Header="Restore points" Description="Package-local rollback copies. They do not reliably survive uninstall or reset.">
+                    <toolkit:SettingsCard Header="Restore points" Description="Local copies for undoing recent changes on this PC. They may be removed if Windows resets or uninstalls the app.">
                         <toolkit:SettingsCard.HeaderIcon>
                             <FontIcon Glyph="&#xE777;" />
                         </toolkit:SettingsCard.HeaderIcon>
-                        <Grid Width="420" RowSpacing="12">
+                        <Grid Width="520" RowSpacing="12">
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
                             </Grid.RowDefinitions>
-                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
-                                <StackPanel Spacing="4">
-                                    <TextBlock
-                                        x:Name="LatestRestorePointText"
-                                        Text="No restore points yet."
-                                        Style="{StaticResource OpenzaMetadataTextBlockStyle}"
-                                        TextWrapping="Wrap" />
-                                    <TextBlock
-                                        x:Name="RestorePointCountText"
-                                        Text="0 restore points"
-                                        Style="{StaticResource OpenzaCaptionTextBlockStyle}" />
-                                </StackPanel>
+                            <StackPanel Spacing="4">
+                                <TextBlock
+                                    x:Name="LatestRestorePointText"
+                                    Text="No restore points yet."
+                                    Style="{StaticResource OpenzaMetadataTextBlockStyle}"
+                                    TextWrapping="Wrap" />
+                                <TextBlock
+                                    x:Name="RestorePointCountText"
+                                    Text="0 restore points"
+                                    Style="{StaticResource OpenzaCaptionTextBlockStyle}" />
+                            </StackPanel>
+                            <Grid Grid.Row="1" ColumnDefinitions="*,Auto" ColumnSpacing="16">
+                                <TextBlock
+                                    Text="Create restore points automatically"
+                                    Style="{StaticResource OpenzaMetadataTextBlockStyle}"
+                                    TextWrapping="Wrap"
+                                    VerticalAlignment="Center" />
                                 <ToggleSwitch
                                     x:Name="AutoBackupSwitch"
                                     Grid.Column="1"
-                                    Header="Automatic"
                                     AutomationProperties.Name="Automatic restore point"
                                     Toggled="OnAutoBackupToggled" />
                             </Grid>
-                            <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8">
+                            <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="8">
                                 <Button Content="Create restore point" Click="OnCreateBackupClicked" />
                                 <Button Content="Manage" Click="OnManageRestorePointsClicked" />
                             </StackPanel>
@@ -438,21 +443,24 @@
                         BorderBrush="{ThemeResource OpenzaBorderBrush}"
                         BorderThickness="1"
                         Background="{ThemeResource OpenzaElevatedSurfaceBrush}">
-                        <Expander IsExpanded="False">
+                        <Expander
+                            IsExpanded="False"
+                            HorizontalAlignment="Stretch"
+                            HorizontalContentAlignment="Stretch">
                             <Expander.Header>
                                 <Grid ColumnDefinitions="Auto,*" ColumnSpacing="14" Padding="4">
                                     <FontIcon Glyph="&#xE713;" FontSize="20" VerticalAlignment="Center" />
                                     <StackPanel Grid.Column="1" Spacing="2">
                                         <TextBlock Text="Advanced" Style="{StaticResource BodyStrongTextBlockStyle}" />
                                         <TextBlock
-                                            Text="Optional OneDrive account and passphrase controls."
+                                            Text="Account and optional passphrase settings."
                                             Style="{StaticResource OpenzaMetadataTextBlockStyle}"
                                             TextWrapping="Wrap" />
                                     </StackPanel>
                                 </Grid>
                             </Expander.Header>
                             <StackPanel Spacing="12" Padding="16,8,16,16">
-                                <toolkit:SettingsCard Header="Durable backup" Description="Recommended for a local-first app with no Openza server-side backup.">
+                                <toolkit:SettingsCard Header="OneDrive backup" Description="Keep a backup in OneDrive. Recommended for a local-first app with no Openza account backup.">
                                     <ToggleSwitch
                                         x:Name="OneDriveBackupSwitch"
                                         OnContent="On"
@@ -464,14 +472,14 @@
                                     <ToggleSwitch
                                         x:Name="OneDriveEncryptionSwitch"
                                         OnContent="Encrypted"
-                                        OffContent="OneDrive protected"
+                                        OffContent="OneDrive only"
                                         AutomationProperties.Name="OneDrive backup passphrase encryption"
                                         Toggled="OnOneDriveEncryptionToggled" />
                                 </toolkit:SettingsCard>
-                                <toolkit:SettingsCard Header="OneDrive account" Description="Change the Microsoft account used for durable backups.">
+                                <toolkit:SettingsCard Header="OneDrive account" Description="Change the Microsoft account used for OneDrive backups.">
                                     <Button Content="Account" Click="OnChangeOneDriveAccountClicked" />
                                 </toolkit:SettingsCard>
-                                <toolkit:SettingsCard Header="Passphrase" Description="Change the passphrase used for encrypted OneDrive backups.">
+                                <toolkit:SettingsCard Header="Passphrase" Description="Change the passphrase for encrypted OneDrive backups.">
                                     <Button Content="Passphrase" Click="OnChangeOneDrivePassphraseClicked" />
                                 </toolkit:SettingsCard>
                             </StackPanel>

@@ -157,21 +157,21 @@ public sealed partial class SettingsPage : UserControl
     {
         var hasAccount = !string.IsNullOrWhiteSpace(accountUsername);
         var accountText = hasAccount
-            ? $"Backup account: {accountUsername}."
+            ? $"Signed in as {accountUsername}."
             : "No backup account selected.";
         OneDriveBackupAccountText.Text = hasAccount ? accountUsername : "No account selected.";
         OneDriveRestoreButton.IsEnabled = enabled || hasAccount;
         if (isBusy)
         {
             OneDriveBackupStatusText.Text = "Uploading";
-            OneDriveBackupSummaryText.Text = $"{accountText} Openza is updating OneDrive backups.";
+            OneDriveBackupSummaryText.Text = $"{accountText} Openza is updating your OneDrive backup.";
             OneDrivePrimaryButton.Content = "Backing up";
             OneDrivePrimaryButton.IsEnabled = false;
         }
         else if (!enabled)
         {
             OneDriveBackupStatusText.Text = "Off";
-            OneDriveBackupSummaryText.Text = $"{accountText} OneDrive backup is off. Turn it on for durable protection beyond this app install.";
+            OneDriveBackupSummaryText.Text = $"{accountText} Turn on OneDrive backup to keep a copy outside this app.";
             OneDrivePrimaryButton.Content = "Turn on";
             OneDrivePrimaryButton.IsEnabled = true;
         }
@@ -194,14 +194,14 @@ public sealed partial class SettingsPage : UserControl
             OneDriveBackupStatusText.Text = encrypted ? "Encrypted" : "Connected";
             OneDriveBackupSummaryText.Text = lastBackupAt is null
                 ? $"{accountText} OneDrive backup is ready."
-                : $"{accountText} Last OneDrive backup: {lastBackupAt.Value.LocalDateTime:g}.";
+                : $"{accountText} Last backup: {lastBackupAt.Value.LocalDateTime:g}.";
             OneDrivePrimaryButton.Content = "Back up now";
             OneDrivePrimaryButton.IsEnabled = true;
         }
 
         OneDriveBackupDetailText.Text = encrypted
             ? "Backups are encrypted before upload. Restore on a new PC requires the passphrase."
-            : "Files are protected by your Microsoft account and OneDrive, not by Openza end-to-end encryption.";
+            : "Stored in your OneDrive. Openza does not add extra encryption unless passphrase encryption is on.";
     }
 
     public void SetCloudBackups(IEnumerable<CloudBackupInfo> backups)
@@ -375,7 +375,7 @@ public sealed partial class SettingsPage : UserControl
             {
                 new TextBlock
                 {
-                    Text = "Choose a restore point to save as a durable backup file outside this app.",
+                    Text = "Choose a restore point to save as a backup file outside Openza Tasks.",
                     TextWrapping = TextWrapping.Wrap,
                 },
                 _restorePointDialogList,
@@ -433,7 +433,7 @@ public sealed partial class SettingsPage : UserControl
             {
                 new TextBlock
                 {
-                    Text = "Restore points are local rollback copies inside this app package.",
+                    Text = "Restore points are local copies for undoing recent changes on this PC.",
                     TextWrapping = TextWrapping.Wrap,
                 },
                 new StackPanel
@@ -503,7 +503,7 @@ public sealed partial class SettingsPage : UserControl
             {
                 new TextBlock
                 {
-                    Text = "OneDrive backups are durable copies for reinstall, reset, device loss, or package removal.",
+                    Text = "Choose a OneDrive backup to restore after reinstall, reset, or device loss.",
                     TextWrapping = TextWrapping.Wrap,
                 },
                 new StackPanel
