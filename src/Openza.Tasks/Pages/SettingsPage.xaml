@@ -459,7 +459,10 @@
                                         </StackPanel>
                                     </Grid>
                                 </toolkit:SettingsCard>
-                                <toolkit:SettingsCard Header="OneDrive backup" Description="Keep a backup in OneDrive. Recommended for a local-first app with no Openza account backup.">
+                                <toolkit:SettingsCard
+                                    x:Name="AdvancedOneDriveBackupCard"
+                                    Header="OneDrive backup"
+                                    Description="Keep a backup in OneDrive. Recommended for a local-first app with no Openza account backup.">
                                     <ToggleSwitch
                                         x:Name="OneDriveBackupSwitch"
                                         OnContent="On"
@@ -467,7 +470,10 @@
                                         AutomationProperties.Name="OneDrive cloud backup"
                                         Toggled="OnOneDriveBackupToggled" />
                                 </toolkit:SettingsCard>
-                                <toolkit:SettingsCard Header="Passphrase encryption" Description="Encrypt OneDrive backup files before they leave this PC. Restore on a new PC requires the passphrase.">
+                                <toolkit:SettingsCard
+                                    x:Name="AdvancedOneDriveEncryptionCard"
+                                    Header="Passphrase encryption"
+                                    Description="Encrypt OneDrive backup files before they leave this PC. Restore on a new PC requires the passphrase.">
                                     <ToggleSwitch
                                         x:Name="OneDriveEncryptionSwitch"
                                         OnContent="Encrypted"
@@ -475,10 +481,16 @@
                                         AutomationProperties.Name="OneDrive backup passphrase encryption"
                                         Toggled="OnOneDriveEncryptionToggled" />
                                 </toolkit:SettingsCard>
-                                <toolkit:SettingsCard Header="OneDrive account" Description="Change the Microsoft account used for OneDrive backups.">
+                                <toolkit:SettingsCard
+                                    x:Name="AdvancedOneDriveAccountCard"
+                                    Header="OneDrive account"
+                                    Description="Change the Microsoft account used for OneDrive backups.">
                                     <Button Content="Account" Click="OnChangeOneDriveAccountClicked" />
                                 </toolkit:SettingsCard>
-                                <toolkit:SettingsCard Header="Passphrase" Description="Change the passphrase for encrypted OneDrive backups.">
+                                <toolkit:SettingsCard
+                                    x:Name="AdvancedOneDrivePassphraseCard"
+                                    Header="Passphrase"
+                                    Description="Change the passphrase for encrypted OneDrive backups.">
                                     <Button Content="Passphrase" Click="OnChangeOneDrivePassphraseClicked" />
                                 </toolkit:SettingsCard>
                             </StackPanel>

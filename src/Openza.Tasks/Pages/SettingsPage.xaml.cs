@@ -144,7 +144,12 @@ public sealed partial class SettingsPage : UserControl
 
     public void SetCloudBackupAvailable(bool available)
     {
-        OneDriveBackupCard.Visibility = available ? Visibility.Visible : Visibility.Collapsed;
+        var visibility = available ? Visibility.Visible : Visibility.Collapsed;
+        OneDriveBackupCard.Visibility = visibility;
+        AdvancedOneDriveBackupCard.Visibility = visibility;
+        AdvancedOneDriveEncryptionCard.Visibility = visibility;
+        AdvancedOneDriveAccountCard.Visibility = visibility;
+        AdvancedOneDrivePassphraseCard.Visibility = visibility;
     }
 
     public void SetCloudBackupStatus(
