@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text;
+using System.Text.Json;
 using Openza.Tasks.Core.Models;
 using Openza.Tasks.Core.Sync;
 
@@ -78,6 +79,9 @@ public sealed class SyncProviderTests
         Assert.Null(task.PlannedAt);
         Assert.Equal("every 12th", task.RecurrenceRule);
         Assert.Equal("release", Assert.Single(task.Labels).Name);
+        using var metadata = JsonDocument.Parse(task.ProviderMetadataJson!);
+        var labels = metadata.RootElement.GetProperty("sourceTask").GetProperty("labels").EnumerateArray().Select(label => label.GetString()).ToList();
+        Assert.Equal(["release"], labels);
         Assert.Contains(handler.Requests, request => request.Method == HttpMethod.Get && request.Uri.PathAndQuery == "/api/v1/tasks?limit=200");
         Assert.Contains(handler.Requests, request => request.Method == HttpMethod.Get && request.Uri.PathAndQuery == "/api/v1/tasks?limit=200&cursor=next-page");
         Assert.Contains(handler.Requests, request => request.Method == HttpMethod.Get && request.Uri.AbsolutePath == "/api/v1/tasks/completed/by_completion_date");
@@ -126,6 +130,24 @@ public sealed class SyncProviderTests
         Assert.Equal("todoist_project1", task.ProjectId);
         Assert.Equal(TaskCompletionState.Completed, task.CompletionState);
         Assert.Equal(new DateTimeOffset(2026, 5, 17, 10, 0, 0, TimeSpan.Zero), task.CompletedAt);
+    }
+
+    [Fact]
+    public async Task TodoistProvider_moves_task_to_configured_project()
+    {
+        var handler = new FakeHttpMessageHandler(request => request.RequestUri?.PathAndQuery switch
+        {
+            "/api/v1/tasks/task1/move" => Empty(HttpStatusCode.OK),
+            _ => Empty(HttpStatusCode.NotFound),
+        });
+        var provider = new TodoistProvider(new HttpClient(handler), "token");
+
+        await provider.MoveTaskAsync("task1", "processed_project");
+
+        var request = Assert.Single(handler.Requests);
+        Assert.Equal(HttpMethod.Post, request.Method);
+        Assert.Equal("/api/v1/tasks/task1/move", request.Uri.AbsolutePath);
+        Assert.Contains("\"project_id\":\"processed_project\"", request.Content);
     }
 
     [Fact]

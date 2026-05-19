@@ -33,6 +33,8 @@ public sealed partial class SettingsPage : UserControl
     public event RoutedEventHandler? AddSpaceClicked;
     public event TypedEventHandler<SettingsPage, string>? RenameSpaceClicked;
     public event TypedEventHandler<SettingsPage, string>? ArchiveSpaceClicked;
+    public event TypedEventHandler<SettingsPage, TodoistRoutingRuleDraft>? SaveTodoistRuleRequested;
+    public event TypedEventHandler<SettingsPage, string>? DeleteTodoistRuleRequested;
 
     public ObservableCollection<BackupInfo> Backups { get; } = [];
 
@@ -40,9 +42,14 @@ public sealed partial class SettingsPage : UserControl
 
     public ObservableCollection<SpaceSettingsItemViewModel> Spaces { get; } = [];
 
+    public ObservableCollection<TodoistRoutingRuleViewModel> TodoistRules { get; } = [];
+
     private string _backupFolderPath = string.Empty;
     private ListView? _restorePointDialogList;
     private ListView? _oneDriveBackupDialogList;
+    private IReadOnlyList<TodoistRoutingChoice> _todoistLabelChoices = [];
+    private IReadOnlyList<TodoistRoutingChoice> _todoistRuleSpaces = [];
+    private IReadOnlyList<TodoistRoutingChoice> _todoistMoveProjects = [];
 
     public SettingsPage()
     {
@@ -225,6 +232,32 @@ public sealed partial class SettingsPage : UserControl
         {
             Spaces.Add(space);
         }
+
+        SpacesCountText.Text = Spaces.Count == 1
+            ? "1 space"
+            : $"{Spaces.Count} spaces";
+    }
+
+    public void SetTodoistRuleOptions(
+        IEnumerable<TodoistRoutingChoice> labels,
+        IEnumerable<TodoistRoutingChoice> spaces,
+        IEnumerable<TodoistRoutingChoice> moveProjects)
+    {
+        _todoistLabelChoices = labels.ToList();
+        _todoistRuleSpaces = spaces.ToList();
+        _todoistMoveProjects = moveProjects.ToList();
+    }
+
+    public void SetTodoistRules(IEnumerable<TodoistRoutingRuleViewModel> rules)
+    {
+        TodoistRules.Clear();
+        foreach (var rule in rules)
+        {
+            TodoistRules.Add(rule);
+        }
+
+        TodoistRulesList.Visibility = TodoistRules.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+        TodoistRulesEmptyText.Visibility = TodoistRules.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
     public void SelectTheme(string theme)
@@ -255,35 +288,6 @@ public sealed partial class SettingsPage : UserControl
     }
 
     private void OnThemeChanged(object sender, SelectionChangedEventArgs e) => ThemeChanged?.Invoke(sender, e);
-
-    private void OnSettingsSectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (SettingsSectionList.SelectedItem is ListViewItem item)
-        {
-            ShowSection(item.Tag?.ToString() ?? "appearance");
-        }
-    }
-
-    private void ShowSection(string section)
-    {
-        SetSectionVisibility("AppearancePanel", section == "appearance");
-        SetSectionVisibility("IntegrationsPanel", section == "integrations");
-        SetSectionVisibility("SpacesPanel", section == "spaces");
-        SetSectionVisibility("BackupsPanel", section == "backups");
-        SetSectionVisibility("AboutPanel", section == "about");
-        if (FindName("SettingsContentScrollViewer") is ScrollViewer scrollViewer)
-        {
-            scrollViewer.ChangeView(null, 0, null, disableAnimation: true);
-        }
-    }
-
-    private void SetSectionVisibility(string name, bool isVisible)
-    {
-        if (FindName(name) is FrameworkElement section)
-        {
-            section.Visibility = isVisible ? Visibility.Visible : Visibility.Collapsed;
-        }
-    }
 
     private void OnConnectTodoistClicked(object sender, RoutedEventArgs e) => ConnectTodoistClicked?.Invoke(sender, e);
 
@@ -549,5 +553,129 @@ public sealed partial class SettingsPage : UserControl
         {
             ArchiveSpaceClicked?.Invoke(this, id);
         }
+    }
+
+    private async void OnAddTodoistRuleClicked(object sender, RoutedEventArgs e)
+    {
+        await ShowTodoistRuleDialogAsync(null);
+    }
+
+    private async void OnEditTodoistRuleClicked(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag?.ToString() is not { Length: > 0 } id)
+        {
+            return;
+        }
+
+        await ShowTodoistRuleDialogAsync(TodoistRules.FirstOrDefault(rule => string.Equals(rule.Id, id, StringComparison.Ordinal)));
+    }
+
+    private void OnDeleteTodoistRuleClicked(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag?.ToString() is { Length: > 0 } id)
+        {
+            DeleteTodoistRuleRequested?.Invoke(this, id);
+        }
+    }
+
+    private async Task ShowTodoistRuleDialogAsync(TodoistRoutingRuleViewModel? existing)
+    {
+        var labelBox = new AutoSuggestBox
+        {
+            Header = "Todoist label",
+            PlaceholderText = _todoistLabelChoices.Count == 0 ? "Sync Todoist to load labels" : "Choose a Todoist label",
+            Text = existing?.Label ?? string.Empty,
+            ItemsSource = _todoistLabelChoices,
+            DisplayMemberPath = nameof(TodoistRoutingChoice.Name),
+        };
+        labelBox.SuggestionChosen += (_, args) =>
+        {
+            if (args.SelectedItem is TodoistRoutingChoice choice)
+            {
+                labelBox.Text = choice.Id;
+            }
+        };
+        labelBox.TextChanged += (_, args) =>
+        {
+            if (args.Reason != AutoSuggestionBoxTextChangeReason.UserInput)
+            {
+                return;
+            }
+
+            var query = NormalizeTodoistLabel(labelBox.Text);
+            labelBox.ItemsSource = string.IsNullOrWhiteSpace(query)
+                ? _todoistLabelChoices
+                : _todoistLabelChoices
+                    .Where(label => label.Id.Contains(query, StringComparison.CurrentCultureIgnoreCase))
+                    .ToList();
+        };
+
+        var spaceBox = new ComboBox
+        {
+            Header = "Send to Space",
+            DisplayMemberPath = nameof(TodoistRoutingChoice.Name),
+            ItemsSource = _todoistRuleSpaces,
+            MinWidth = 260,
+        };
+        spaceBox.SelectedItem = _todoistRuleSpaces.FirstOrDefault(space => string.Equals(space.Id, existing?.SpaceId, StringComparison.Ordinal)) ??
+            _todoistRuleSpaces.FirstOrDefault();
+
+        var moveChoices = new List<TodoistRoutingChoice> { new(string.Empty, "Do not move in Todoist") };
+        moveChoices.AddRange(_todoistMoveProjects);
+        var moveBox = new ComboBox
+        {
+            Header = "After adding to Openza",
+            DisplayMemberPath = nameof(TodoistRoutingChoice.Name),
+            ItemsSource = moveChoices,
+            MinWidth = 260,
+        };
+        moveBox.SelectedItem = moveChoices.FirstOrDefault(project => string.Equals(project.Id, existing?.MoveToProjectId ?? string.Empty, StringComparison.Ordinal)) ??
+            moveChoices[0];
+
+        var message = new TextBlock
+        {
+            Text = "Choose a Todoist label. Openza will route matching new Todoist tasks without showing that label in your task list.",
+            TextWrapping = TextWrapping.Wrap,
+        };
+
+        var dialog = new ContentDialog
+        {
+            Title = existing is null ? "Add Todoist rule" : "Edit Todoist rule",
+            PrimaryButtonText = "Save",
+            CloseButtonText = "Cancel",
+            XamlRoot = XamlRoot,
+            Content = new StackPanel
+            {
+                Spacing = 14,
+                Width = 420,
+                Children = { message, labelBox, spaceBox, moveBox },
+            },
+        };
+
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+        {
+            return;
+        }
+
+        var label = NormalizeTodoistLabel(labelBox.Text);
+        if (string.IsNullOrWhiteSpace(label) || spaceBox.SelectedItem is not TodoistRoutingChoice space)
+        {
+            return;
+        }
+
+        var moveProject = moveBox.SelectedItem as TodoistRoutingChoice;
+        SaveTodoistRuleRequested?.Invoke(
+            this,
+            new TodoistRoutingRuleDraft(
+                existing?.Id,
+                label,
+                space.Id,
+                string.IsNullOrWhiteSpace(moveProject?.Id) ? null : moveProject.Id));
+    }
+
+    private static string NormalizeTodoistLabel(string value)
+    {
+        var label = value.Trim();
+        return label.StartsWith('@') ? label[1..].Trim() : label;
     }
 }

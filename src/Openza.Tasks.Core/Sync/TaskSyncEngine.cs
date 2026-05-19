@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Text;
 using Openza.Tasks.Core.Data;
 using Openza.Tasks.Core.Models;
 
@@ -20,6 +22,23 @@ public sealed class TaskSyncEngine(ITaskStore store, ConflictPolicy? conflictPol
                 .ToDictionary(t => t.ExternalId, StringComparer.Ordinal);
             var projectNames = snapshot.Projects.ToDictionary(project => project.Id, project => project.Name, StringComparer.Ordinal);
             var remoteExternalIds = new HashSet<string>(StringComparer.Ordinal);
+            var routingPolicy = ProviderSourceRoutingPolicy.FromRoutes(
+                await store.GetSyncRoutesAsync(cancellationToken).ConfigureAwait(false),
+                providerConnectionId,
+                provider.IntegrationId);
+            var projectsSynced = 0;
+            foreach (var project in snapshot.Projects)
+            {
+                await store.UpsertProjectAsync(WithProviderConnection(project, providerConnectionId), cancellationToken).ConfigureAwait(false);
+                projectsSynced++;
+            }
+
+            var labelsSynced = 0;
+            foreach (var label in snapshot.Labels)
+            {
+                await store.UpsertLabelAsync(WithProviderConnection(label, providerConnectionId), cancellationToken).ConfigureAwait(false);
+                labelsSynced++;
+            }
 
             var sourceItemsAdded = 0;
             var sourceItemsUpdated = 0;
@@ -35,7 +54,7 @@ public sealed class TaskSyncEngine(ITaskStore store, ConflictPolicy? conflictPol
                 }
 
                 remoteExternalIds.Add(task.ExternalId);
-                await store.UpsertProviderSourceItemAsync(ToProviderSourceItem(task, providerConnectionId, projectNames), cancellationToken).ConfigureAwait(false);
+                await store.UpsertProviderSourceItemAsync(ToProviderSourceItem(ApplyRouting(task, routingPolicy), providerConnectionId, projectNames), cancellationToken).ConfigureAwait(false);
                 if (existingByExternalId.ContainsKey(task.ExternalId))
                 {
                     sourceItemsUpdated++;
@@ -84,8 +103,8 @@ public sealed class TaskSyncEngine(ITaskStore store, ConflictPolicy? conflictPol
                 sourceItemsAdded,
                 sourceItemsUpdated,
                 tasksDeleted,
-                0,
-                0,
+                projectsSynced,
+                labelsSynced,
                 completionsSynced,
                 NewSyncToken: snapshot.SyncToken);
         }
@@ -115,6 +134,26 @@ public sealed class TaskSyncEngine(ITaskStore store, ConflictPolicy? conflictPol
             RecurrenceRule = completedTask.RecurrenceRule ?? existingSource.RecurrenceRule,
             ProviderMetadataJson = completedTask.ProviderMetadataJson ?? existingSource.SnapshotJson,
         };
+    }
+
+    private static TaskItem ApplyRouting(TaskItem task, ProviderSourceRoutingPolicy routingPolicy)
+    {
+        var match = routingPolicy.Match(task);
+        return string.IsNullOrWhiteSpace(match.SpaceId) ? task : task with { SpaceId = match.SpaceId };
+    }
+
+    private static ProjectItem WithProviderConnection(ProjectItem project, string providerConnectionId)
+    {
+        return string.IsNullOrWhiteSpace(project.ProviderConnectionId)
+            ? project with { ProviderConnectionId = providerConnectionId }
+            : project;
+    }
+
+    private static LabelItem WithProviderConnection(LabelItem label, string providerConnectionId)
+    {
+        return string.IsNullOrWhiteSpace(label.ProviderConnectionId)
+            ? label with { ProviderConnectionId = providerConnectionId }
+            : label;
     }
 
     public async Task<int> SyncPendingCompletionsAsync(ISyncProvider provider, CancellationToken cancellationToken = default)
@@ -199,8 +238,39 @@ public sealed class TaskSyncEngine(ITaskStore store, ConflictPolicy? conflictPol
     private static string? BuildSourceUrl(TaskItem task)
     {
         return task.IntegrationId == IntegrationIds.Todoist && !string.IsNullOrWhiteSpace(task.ExternalId)
-            ? $"https://todoist.com/showTask?id={Uri.EscapeDataString(task.ExternalId)}"
+            ? $"https://app.todoist.com/app/task/{BuildTodoistTaskSlug(task.Title)}-{Uri.EscapeDataString(task.ExternalId)}"
             : null;
+    }
+
+    private static string BuildTodoistTaskSlug(string? title)
+    {
+        if (string.IsNullOrWhiteSpace(title))
+        {
+            return "task";
+        }
+
+        var builder = new StringBuilder(title.Length);
+        var previousWasSeparator = false;
+        foreach (var character in title.ToLower(CultureInfo.InvariantCulture).Normalize(NormalizationForm.FormD))
+        {
+            if (CharUnicodeInfo.GetUnicodeCategory(character) == UnicodeCategory.NonSpacingMark)
+            {
+                continue;
+            }
+
+            if (char.IsAsciiLetterOrDigit(character))
+            {
+                builder.Append(character);
+                previousWasSeparator = false;
+            }
+            else if (!previousWasSeparator && builder.Length > 0)
+            {
+                builder.Append('-');
+                previousWasSeparator = true;
+            }
+        }
+
+        return builder.ToString().Trim('-') is { Length: > 0 } slug ? slug : "task";
     }
 
     private static string? BuildParentExternalId(TaskItem task)

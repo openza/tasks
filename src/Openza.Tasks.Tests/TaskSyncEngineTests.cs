@@ -36,6 +36,165 @@ public sealed class TaskSyncEngineTests : IDisposable
     }
 
     [Fact]
+    public async Task Sync_uses_modern_todoist_urls_without_promoting_source_labels()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        var provider = new FakeProvider
+        {
+            Title = "Repair Ovi cycle",
+            Labels =
+            [
+                new LabelItem
+                {
+                    Id = "todoist_label_home",
+                    IntegrationId = IntegrationIds.Todoist,
+                    Name = "home",
+                },
+            ],
+        };
+        var engine = new TaskSyncEngine(store);
+
+        await engine.SyncAsync(provider);
+        var source = Assert.Single(await store.GetProviderSourceItemsAsync(IntegrationIds.Todoist));
+        var adopted = await store.AdoptProviderSourceItemAsync(source.Id);
+
+        Assert.Equal("https://app.todoist.com/app/task/repair-ovi-cycle-remote_1", source.SourceUrl);
+        Assert.NotNull(adopted);
+        var task = await store.GetTaskAsync(adopted.Id);
+        Assert.NotNull(task);
+        Assert.Empty(task.Labels);
+    }
+
+    [Fact]
+    public async Task Sync_routes_todoist_source_items_by_configured_labels()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        await store.UpsertSpaceAsync(new SpaceItem { Id = "space_work", Name = "Work" });
+        await store.UpsertSyncRouteAsync(new SyncRouteInfo
+        {
+            Id = "route_todoist_work",
+            Name = "Todoist Work",
+            SourceConnectionId = "todoist_default",
+            IsEnabled = true,
+            SettingsJson = """
+                {
+                  "labelRoutes": [
+                    { "labels": ["work"], "spaceId": "space_work" }
+                  ]
+                }
+                """,
+        });
+        var provider = new FakeProvider
+        {
+            Labels =
+            [
+                new LabelItem
+                {
+                    Id = "todoist_label_work",
+                    IntegrationId = IntegrationIds.Todoist,
+                    Name = "work",
+                },
+            ],
+        };
+        var engine = new TaskSyncEngine(store);
+
+        await engine.SyncAsync(provider);
+
+        var source = Assert.Single(await store.GetProviderSourceItemsAsync(IntegrationIds.Todoist, spaceId: "space_work"));
+        Assert.Equal("space_work", source.SuggestedSpaceId);
+    }
+
+    [Fact]
+    public async Task Sync_routes_todoist_source_items_from_settings_rule_shape()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        await store.UpsertSpaceAsync(new SpaceItem { Id = "space_personal", Name = "Personal" });
+        await store.UpsertSyncRouteAsync(new SyncRouteInfo
+        {
+            Id = "route_todoist_label_routing",
+            Name = "Todoist label rules",
+            SourceConnectionId = "todoist_default",
+            IsEnabled = true,
+            SettingsJson = """
+                {
+                  "labelRoutes": [
+                    {
+                      "id": "todoist_rule_home",
+                      "label": "home",
+                      "labels": ["home"],
+                      "spaceId": "space_personal",
+                      "postImport": { "moveToProjectId": "processed_project" }
+                    }
+                  ]
+                }
+                """,
+        });
+        var provider = new FakeProvider
+        {
+            Labels =
+            [
+                new LabelItem
+                {
+                    Id = "todoist_label_home",
+                    IntegrationId = IntegrationIds.Todoist,
+                    Name = "home",
+                },
+            ],
+        };
+        var engine = new TaskSyncEngine(store);
+
+        await engine.SyncAsync(provider);
+
+        var source = Assert.Single(await store.GetProviderSourceItemsAsync(IntegrationIds.Todoist, spaceId: "space_personal"));
+        Assert.Equal("space_personal", source.SuggestedSpaceId);
+    }
+
+    [Fact]
+    public async Task Sync_stores_provider_projects_and_labels_for_rule_pickers()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        var provider = new FakeProvider
+        {
+            Projects =
+            [
+                new ProjectItem
+                {
+                    Id = "todoist_project_inbox",
+                    ExternalId = "project_inbox",
+                    IntegrationId = IntegrationIds.Todoist,
+                    Name = "Inbox",
+                },
+            ],
+            SnapshotLabels =
+            [
+                new LabelItem
+                {
+                    Id = "todoist_label_home",
+                    ExternalId = "home",
+                    IntegrationId = IntegrationIds.Todoist,
+                    Name = "home",
+                },
+            ],
+        };
+        var engine = new TaskSyncEngine(store);
+
+        var result = await engine.SyncAsync(provider);
+
+        var project = Assert.Single(await store.GetProviderProjectsAsync(IntegrationIds.Todoist));
+        var label = Assert.Single(await store.GetProviderLabelsAsync(IntegrationIds.Todoist));
+        Assert.Equal(1, result.ProjectsSynced);
+        Assert.Equal(1, result.LabelsSynced);
+        Assert.Equal("todoist_default", project.ProviderConnectionId);
+        Assert.Equal("todoist_default", label.ProviderConnectionId);
+        Assert.DoesNotContain(await store.GetProjectsAsync(), project => project.IntegrationId == IntegrationIds.Todoist);
+        Assert.DoesNotContain(await store.GetLabelsAsync(), label => label.IntegrationId == IntegrationIds.Todoist);
+    }
+
+    [Fact]
     public async Task Sync_preserves_provider_tasks_missing_from_snapshot_by_default()
     {
         var store = CreateStore();
@@ -386,6 +545,9 @@ public sealed class TaskSyncEngineTests : IDisposable
         public string? Description { get; set; }
         public DateOnly? PlannedOn { get; set; }
         public string? RecurrenceRule { get; set; }
+        public IReadOnlyList<LabelItem> Labels { get; set; } = [];
+        public IReadOnlyList<ProjectItem> Projects { get; set; } = [];
+        public IReadOnlyList<LabelItem> SnapshotLabels { get; set; } = [];
         public bool IncludeActiveTask { get; set; } = true;
         public bool IncludeCompletedTask { get; set; }
         public bool IncludeChildTask { get; set; }
@@ -405,6 +567,7 @@ public sealed class TaskSyncEngineTests : IDisposable
                     Description = Description,
                     PlannedOn = PlannedOn,
                     RecurrenceRule = RecurrenceRule,
+                    Labels = Labels,
                 });
             }
 
@@ -436,8 +599,8 @@ public sealed class TaskSyncEngineTests : IDisposable
 
             return Task.FromResult(new ProviderSnapshot(
                 tasks,
-                [],
-                [])
+                Projects,
+                SnapshotLabels)
             {
                 CompletedTasks = completedTasks,
             });

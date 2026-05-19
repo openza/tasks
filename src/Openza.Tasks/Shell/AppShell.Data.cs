@@ -139,6 +139,7 @@ public sealed partial class AppShell
             }
 
             await LoadProjectsAsync().ConfigureAwait(true);
+            await RefreshTodoistRulesAsync().ConfigureAwait(true);
             if (IsTaskView(_currentView))
             {
                 await RefreshTasksAsync().ConfigureAwait(true);
@@ -1007,6 +1008,7 @@ public sealed partial class AppShell
         var microsoftConnected = _settings.Settings.MicrosoftToDoAccount.IsConnected;
         SettingsPage.SetProviderStatus(todoistConnected, _settings.Settings.MicrosoftToDoAccount.Username);
         SyncPage.SetProviderStatus(todoistConnected, microsoftConnected);
+        await RefreshTodoistRulesAsync().ConfigureAwait(true);
         await RefreshBackupListAsync().ConfigureAwait(true);
         RefreshCloudBackupStatus(isBusy: false);
         await RefreshSourceItemsAsync().ConfigureAwait(true);
@@ -1165,7 +1167,47 @@ public sealed partial class AppShell
 
     private async Task<TaskItem?> AddSourceItemToOpenzaAsync(string sourceItemId)
     {
-        return await _store.AdoptProviderSourceItemAsync(sourceItemId, _currentSpaceId).ConfigureAwait(true);
+        var task = await _store.AdoptProviderSourceItemAsync(sourceItemId, _currentSpaceId).ConfigureAwait(true);
+        if (task is not null)
+        {
+            await TryApplyPostImportFilingAsync(sourceItemId).ConfigureAwait(true);
+        }
+
+        return task;
+    }
+
+    private async Task TryApplyPostImportFilingAsync(string sourceItemId)
+    {
+        var source = (await _store.GetProviderSourceItemsAsync(includeAdopted: true, includeIgnored: true).ConfigureAwait(true))
+            .FirstOrDefault(item => string.Equals(item.Id, sourceItemId, StringComparison.Ordinal));
+        if (source is null || source.IntegrationId != IntegrationIds.Todoist)
+        {
+            return;
+        }
+
+        var routes = await _store.GetSyncRoutesAsync().ConfigureAwait(true);
+        var routingPolicy = ProviderSourceRoutingPolicy.FromRoutes(routes, source.ProviderConnectionId, source.IntegrationId);
+        var action = routingPolicy.Match(source).PostImportAction;
+        if (action is null)
+        {
+            return;
+        }
+
+        var todoistToken = await _credentials.GetAsync(TodoistTokenKey).ConfigureAwait(true);
+        if (string.IsNullOrWhiteSpace(todoistToken))
+        {
+            return;
+        }
+
+        try
+        {
+            var provider = new TodoistProvider(_httpClient, todoistToken, source.ProviderConnectionId);
+            await provider.MoveTaskAsync(source.ProviderTaskId, action.MoveToProjectId).ConfigureAwait(true);
+        }
+        catch (Exception exception)
+        {
+            ShowInfo("Todoist filing failed", exception.Message, InfoBarSeverity.Warning);
+        }
     }
 
     private async Task RefreshAfterAddingSourceItemsAsync()
