@@ -251,6 +251,9 @@ public sealed partial class SettingsPage : UserControl
         {
             TodoistRules.Add(rule);
         }
+
+        TodoistRulesList.Visibility = TodoistRules.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+        TodoistRulesEmptyText.Visibility = TodoistRules.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
     public void SelectTheme(string theme)

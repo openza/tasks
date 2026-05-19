@@ -171,12 +171,11 @@
                                         Click="OnDisconnectTodoistClicked" />
                                 </Grid>
                             </toolkit:SettingsCard>
-                            <toolkit:SettingsCard Header="Rules" Description="Send Todoist tasks to a Space by label.">
-                                <toolkit:SettingsCard.Resources>
-                                    <x:Double x:Key="SettingsCardWrapThreshold">2000</x:Double>
-                                    <x:Double x:Key="SettingsCardWrapNoIconThreshold">2000</x:Double>
-                                </toolkit:SettingsCard.Resources>
-                                <Grid Width="620" RowSpacing="12">
+                            <toolkit:SettingsCard
+                                Header="Rules"
+                                Description="Send Todoist tasks to a Space by label."
+                                ContentAlignment="Left">
+                                <Grid MinWidth="520" MaxWidth="760" RowSpacing="12">
                                     <Grid.RowDefinitions>
                                         <RowDefinition Height="Auto" />
                                         <RowDefinition Height="Auto" />
@@ -186,10 +185,14 @@
                                         Text="Rules run when Todoist tasks arrive in Openza. Todoist labels stay hidden from your normal task labels."
                                         Style="{StaticResource OpenzaMetadataTextBlockStyle}"
                                         TextWrapping="Wrap" />
+                                    <TextBlock
+                                        x:Name="TodoistRulesEmptyText"
+                                        Grid.Row="1"
+                                        Text="No rules yet."
+                                        Style="{StaticResource OpenzaCaptionTextBlockStyle}" />
                                     <ListView
                                         x:Name="TodoistRulesList"
                                         Grid.Row="1"
-                                        MinHeight="72"
                                         MaxHeight="260"
                                         ItemsSource="{x:Bind TodoistRules, Mode=OneWay}"
                                         SelectionMode="None">
