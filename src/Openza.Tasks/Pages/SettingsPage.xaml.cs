@@ -232,6 +232,10 @@ public sealed partial class SettingsPage : UserControl
         {
             Spaces.Add(space);
         }
+
+        SpacesCountText.Text = Spaces.Count == 1
+            ? "1 space"
+            : $"{Spaces.Count} spaces";
     }
 
     public void SetTodoistRuleOptions(
@@ -284,35 +288,6 @@ public sealed partial class SettingsPage : UserControl
     }
 
     private void OnThemeChanged(object sender, SelectionChangedEventArgs e) => ThemeChanged?.Invoke(sender, e);
-
-    private void OnSettingsSectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (SettingsSectionList.SelectedItem is ListViewItem item)
-        {
-            ShowSection(item.Tag?.ToString() ?? "appearance");
-        }
-    }
-
-    private void ShowSection(string section)
-    {
-        SetSectionVisibility("AppearancePanel", section == "appearance");
-        SetSectionVisibility("IntegrationsPanel", section == "integrations");
-        SetSectionVisibility("SpacesPanel", section == "spaces");
-        SetSectionVisibility("BackupsPanel", section == "backups");
-        SetSectionVisibility("AboutPanel", section == "about");
-        if (FindName("SettingsContentScrollViewer") is ScrollViewer scrollViewer)
-        {
-            scrollViewer.ChangeView(null, 0, null, disableAnimation: true);
-        }
-    }
-
-    private void SetSectionVisibility(string name, bool isVisible)
-    {
-        if (FindName(name) is FrameworkElement section)
-        {
-            section.Visibility = isVisible ? Visibility.Visible : Visibility.Collapsed;
-        }
-    }
 
     private void OnConnectTodoistClicked(object sender, RoutedEventArgs e) => ConnectTodoistClicked?.Invoke(sender, e);
 

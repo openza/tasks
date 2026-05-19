@@ -4,79 +4,52 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:toolkit="using:CommunityToolkit.WinUI.Controls"
     xmlns:vm="using:Openza.Tasks.ViewModels">
-    <Grid
-        ColumnDefinitions="220,*"
-        ColumnSpacing="28"
-        Background="{ThemeResource OpenzaAppCanvasBrush}">
-        <StackPanel Spacing="16">
-            <StackPanel Spacing="4">
-                <TextBlock Text="Settings" Style="{ThemeResource TitleTextBlockStyle}" />
-                <TextBlock
-                    Text="Configure Openza Tasks."
-                    Style="{StaticResource OpenzaMetadataTextBlockStyle}"
-                    TextWrapping="Wrap" />
-            </StackPanel>
+    <UserControl.Resources>
+        <x:Double x:Key="SettingsCardSpacing">4</x:Double>
+        <Style
+            x:Key="SettingsSectionHeaderTextBlockStyle"
+            BasedOn="{StaticResource BodyStrongTextBlockStyle}"
+            TargetType="TextBlock">
+            <Setter Property="Margin" Value="1,30,0,6" />
+        </Style>
+    </UserControl.Resources>
 
-            <ListView
-                x:Name="SettingsSectionList"
-                SelectionMode="Single"
-                SelectionChanged="OnSettingsSectionChanged">
-                <ListViewItem Tag="appearance" IsSelected="True">
-                    <StackPanel Orientation="Horizontal" Spacing="10">
-                        <FontIcon Glyph="&#xE771;" FontSize="14" />
-                        <TextBlock Text="Appearance" />
-                    </StackPanel>
-                </ListViewItem>
-                <ListViewItem Tag="integrations">
-                    <StackPanel Orientation="Horizontal" Spacing="10">
-                        <FontIcon Glyph="&#xE8A7;" FontSize="14" />
-                        <TextBlock Text="Integrations" />
-                    </StackPanel>
-                </ListViewItem>
-                <ListViewItem Tag="spaces">
-                    <StackPanel Orientation="Horizontal" Spacing="10">
-                        <FontIcon Glyph="&#xE8B7;" FontSize="14" />
-                        <TextBlock Text="Spaces" />
-                    </StackPanel>
-                </ListViewItem>
-                <ListViewItem Tag="backups">
-                    <StackPanel Orientation="Horizontal" Spacing="10">
-                        <FontIcon Glyph="&#xE777;" FontSize="14" />
-                        <TextBlock Text="Backups" />
-                    </StackPanel>
-                </ListViewItem>
-                <ListViewItem Tag="about">
-                    <StackPanel Orientation="Horizontal" Spacing="10">
-                        <FontIcon Glyph="&#xE946;" FontSize="14" />
-                        <TextBlock Text="About" />
-                    </StackPanel>
-                </ListViewItem>
-            </ListView>
-        </StackPanel>
+    <Grid Background="{ThemeResource OpenzaAppCanvasBrush}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <TextBlock
+            MaxWidth="1064"
+            Margin="36,24,36,0"
+            AutomationProperties.HeadingLevel="Level1"
+            Style="{StaticResource TitleTextBlockStyle}"
+            Text="Settings" />
 
         <ScrollViewer
             x:Name="SettingsContentScrollViewer"
-            Grid.Column="1"
+            Grid.Row="1"
+            Padding="36,0,36,0"
             HorizontalScrollBarVisibility="Disabled"
             VerticalScrollBarVisibility="Auto">
-            <Grid MaxWidth="980" HorizontalAlignment="Stretch">
-                <StackPanel
-                    x:Name="AppearancePanel"
-                    Spacing="12">
-                    <StackPanel Spacing="4" Margin="0,0,0,18">
-                        <TextBlock Text="Appearance" Style="{ThemeResource TitleTextBlockStyle}" />
-                        <TextBlock
-                            Text="Choose how Openza Tasks follows Windows."
-                            Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
-                    </StackPanel>
+            <StackPanel
+                MaxWidth="1064"
+                HorizontalAlignment="Stretch"
+                Spacing="{StaticResource SettingsCardSpacing}">
+                <StackPanel.ChildrenTransitions>
+                    <RepositionThemeTransition />
+                </StackPanel.ChildrenTransitions>
 
-                    <toolkit:SettingsCard Header="Theme" Description="Follow Windows by default, or choose a fixed app theme.">
+                <TextBlock Style="{StaticResource SettingsSectionHeaderTextBlockStyle}" Text="Appearance" />
+                <StackPanel x:Name="AppearancePanel" Spacing="{StaticResource SettingsCardSpacing}">
+                    <toolkit:SettingsCard Header="Theme" Description="Choose how Openza Tasks follows Windows.">
                         <toolkit:SettingsCard.HeaderIcon>
                             <FontIcon Glyph="&#xE771;" />
                         </toolkit:SettingsCard.HeaderIcon>
                         <ComboBox
                             x:Name="ThemeCombo"
-                            Width="180"
+                            MinWidth="180"
                             SelectionChanged="OnThemeChanged">
                             <ComboBoxItem Content="System" Tag="System" IsSelected="True" />
                             <ComboBoxItem Content="Light" Tag="Light" />
@@ -85,29 +58,19 @@
                     </toolkit:SettingsCard>
                 </StackPanel>
 
-                <StackPanel
-                    x:Name="IntegrationsPanel"
-                    Spacing="12"
-                    Visibility="Collapsed">
-                    <StackPanel Spacing="4" Margin="0,0,0,18">
-                        <TextBlock Text="Integrations" Style="{ThemeResource TitleTextBlockStyle}" />
-                        <TextBlock
-                            Text="Connect external task apps. Integration tokens stay in Windows credential storage."
-                            Style="{StaticResource OpenzaMetadataTextBlockStyle}"
-                            TextWrapping="Wrap" />
-                    </StackPanel>
-
-                    <toolkit:SettingsCard Header="How integrations work" Description="Connected apps are source systems. Openza stays your local execution planner.">
+                <TextBlock Style="{StaticResource SettingsSectionHeaderTextBlockStyle}" Text="Integrations" />
+                <StackPanel x:Name="IntegrationsPanel" Spacing="{StaticResource SettingsCardSpacing}">
+                    <toolkit:SettingsCard Header="How integrations work" Description="Connected apps bring tasks into Openza. Your Openza planning stays in Openza.">
                         <toolkit:SettingsCard.HeaderIcon>
                             <FontIcon Glyph="&#xE946;" />
                         </toolkit:SettingsCard.HeaderIcon>
-                        <StackPanel Spacing="4" Width="420">
+                        <StackPanel Spacing="4">
                             <TextBlock
                                 Text="Imported tasks wait in Inbox review before they become Openza tasks."
                                 Style="{StaticResource OpenzaMetadataTextBlockStyle}"
                                 TextWrapping="Wrap" />
                             <TextBlock
-                                Text="In V1, Openza can sync completion/reopen back when a provider supports it. Planning fields stay local."
+                                Text="When supported, completing a task in Openza can complete it in the connected app too."
                                 Style="{StaticResource OpenzaCaptionTextBlockStyle}"
                                 TextWrapping="Wrap" />
                         </StackPanel>
@@ -129,24 +92,23 @@
                         <toolkit:SettingsExpander.HeaderIcon>
                             <FontIcon Glyph="&#xE73E;" />
                         </toolkit:SettingsExpander.HeaderIcon>
-                        <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                            <Border
-                                MinWidth="112"
-                                Padding="12,5"
-                                CornerRadius="14"
-                                Background="{ThemeResource OpenzaChipBackgroundBrush}">
-                                <TextBlock
-                                    x:Name="TodoistStatusText"
-                                    Text="Not connected"
-                                    Style="{StaticResource OpenzaCaptionTextBlockStyle}"
-                                    TextAlignment="Center" />
-                            </Border>
-                        </StackPanel>
+                        <Border
+                            MinWidth="112"
+                            Padding="12,5"
+                            CornerRadius="14"
+                            Background="{ThemeResource OpenzaChipBackgroundBrush}">
+                            <TextBlock
+                                x:Name="TodoistStatusText"
+                                Text="Not connected"
+                                Style="{StaticResource OpenzaCaptionTextBlockStyle}"
+                                TextAlignment="Center" />
+                        </Border>
                         <toolkit:SettingsExpander.Items>
-                            <toolkit:SettingsCard Header="API token" Description="Stored in Windows credential storage.">
-                                <Grid ColumnDefinitions="340,Auto" ColumnSpacing="10">
+                            <toolkit:SettingsCard Header="API token" Description="Saved securely in Windows.">
+                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
                                     <PasswordBox
                                         x:Name="TodoistTokenBox"
+                                        MinWidth="260"
                                         PlaceholderText="Paste Todoist token"
                                         AutomationProperties.Name="Todoist API token" />
                                     <Button
@@ -157,8 +119,8 @@
                                         Click="OnConnectTodoistClicked" />
                                 </Grid>
                             </toolkit:SettingsCard>
-                            <toolkit:SettingsCard Header="Sync boundary" Description="Todoist owns the original source item. Openza owns local planning fields.">
-                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12" Width="520">
+                            <toolkit:SettingsCard Header="Connection" Description="Openza keeps Todoist task details linked for sync.">
+                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
                                     <TextBlock
                                         x:Name="TodoistSummaryText"
                                         Text="Paste a Todoist API token to connect your account."
@@ -173,16 +135,16 @@
                             </toolkit:SettingsCard>
                             <toolkit:SettingsCard
                                 Header="Rules"
-                                Description="Send Todoist tasks to a Space by label."
+                                Description="Send new Todoist tasks to a Space by label."
                                 ContentAlignment="Left">
-                                <Grid MinWidth="520" MaxWidth="760" RowSpacing="12">
+                                <Grid RowSpacing="12">
                                     <Grid.RowDefinitions>
                                         <RowDefinition Height="Auto" />
                                         <RowDefinition Height="Auto" />
                                         <RowDefinition Height="Auto" />
                                     </Grid.RowDefinitions>
                                     <TextBlock
-                                        Text="Rules run when Todoist tasks arrive in Openza. Todoist labels stay hidden from your normal task labels."
+                                        Text="Todoist labels stay hidden from your normal task labels."
                                         Style="{StaticResource OpenzaMetadataTextBlockStyle}"
                                         TextWrapping="Wrap" />
                                     <TextBlock
@@ -251,22 +213,20 @@
                         <toolkit:SettingsExpander.HeaderIcon>
                             <FontIcon Glyph="&#xE787;" />
                         </toolkit:SettingsExpander.HeaderIcon>
-                        <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                            <Border
-                                MinWidth="112"
-                                Padding="12,5"
-                                CornerRadius="14"
-                                Background="{ThemeResource OpenzaChipBackgroundBrush}">
-                                <TextBlock
-                                    x:Name="MicrosoftStatusText"
-                                    Text="Not connected"
-                                    Style="{StaticResource OpenzaCaptionTextBlockStyle}"
-                                    TextAlignment="Center" />
-                            </Border>
-                        </StackPanel>
+                        <Border
+                            MinWidth="112"
+                            Padding="12,5"
+                            CornerRadius="14"
+                            Background="{ThemeResource OpenzaChipBackgroundBrush}">
+                            <TextBlock
+                                x:Name="MicrosoftStatusText"
+                                Text="Not connected"
+                                Style="{StaticResource OpenzaCaptionTextBlockStyle}"
+                                TextAlignment="Center" />
+                        </Border>
                         <toolkit:SettingsExpander.Items>
-                            <toolkit:SettingsCard Header="Sync boundary" Description="Microsoft To Do source fields stay separate from Openza planning fields.">
-                                <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10" Width="560">
+                            <toolkit:SettingsCard Header="Connection" Description="Openza keeps Microsoft To Do task details linked for sync.">
+                                <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
                                     <TextBlock
                                         x:Name="MicrosoftSummaryText"
                                         Text="Choose a Microsoft account for Microsoft To Do."
@@ -289,31 +249,22 @@
                     </toolkit:SettingsExpander>
                 </StackPanel>
 
-                <StackPanel
-                    x:Name="SpacesPanel"
-                    Spacing="12"
-                    Visibility="Collapsed">
-                    <StackPanel Spacing="4" Margin="0,0,0,18">
-                        <TextBlock Text="Spaces" Style="{ThemeResource TitleTextBlockStyle}" />
-                        <TextBlock
-                            Text="Keep work contexts separate without mixing private and shared task lists."
-                            Style="{StaticResource OpenzaMetadataTextBlockStyle}"
-                            TextWrapping="Wrap" />
-                    </StackPanel>
-
+                <TextBlock Style="{StaticResource SettingsSectionHeaderTextBlockStyle}" Text="Spaces" />
+                <StackPanel x:Name="SpacesPanel" Spacing="{StaticResource SettingsCardSpacing}">
                     <InfoBar
                         x:Name="SpacesInfo"
                         IsOpen="False"
                         IsClosable="True"
                         Severity="Informational" />
 
-                    <toolkit:SettingsCard Header="Add space" Description="Create another visibility scope for tasks and projects.">
+                    <toolkit:SettingsCard Header="Add space" Description="Create another place to keep tasks and projects separate.">
                         <toolkit:SettingsCard.HeaderIcon>
                             <FontIcon Glyph="&#xE710;" />
                         </toolkit:SettingsCard.HeaderIcon>
-                        <Grid ColumnDefinitions="260,Auto" ColumnSpacing="8">
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
                             <TextBox
                                 x:Name="NewSpaceNameBox"
+                                MinWidth="220"
                                 PlaceholderText="Space name"
                                 AutomationProperties.Name="New space name" />
                             <Button
@@ -324,93 +275,91 @@
                         </Grid>
                     </toolkit:SettingsCard>
 
-                    <toolkit:SettingsExpander Header="Manage spaces" Description="Rename or archive existing spaces. Archiving hides a space but keeps its tasks.">
+                    <toolkit:SettingsExpander Header="Manage spaces" Description="Rename or archive spaces. Archiving hides a space but keeps its tasks.">
                         <toolkit:SettingsExpander.HeaderIcon>
                             <FontIcon Glyph="&#xE8B7;" />
                         </toolkit:SettingsExpander.HeaderIcon>
-                        <ListView
-                            x:Name="SpacesList"
-                            MinHeight="140"
-                            MaxHeight="420"
-                            Padding="0,8,0,0"
-                            ItemsSource="{x:Bind Spaces, Mode=OneWay}"
-                            SelectionMode="None">
-                            <ListView.ItemContainerStyle>
-                                <Style TargetType="ListViewItem">
-                                    <Setter Property="Padding" Value="0" />
-                                    <Setter Property="Margin" Value="0,0,0,8" />
-                                    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-                                </Style>
-                            </ListView.ItemContainerStyle>
-                            <ListView.ItemTemplate>
-                                <DataTemplate x:DataType="vm:SpaceSettingsItemViewModel">
-                                    <Border
-                                        Padding="12"
-                                        CornerRadius="8"
-                                        BorderBrush="{ThemeResource OpenzaBorderBrush}"
-                                        BorderThickness="1">
-                                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                                            <StackPanel Spacing="6">
-                                                <TextBox
-                                                    Text="{x:Bind Name, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                                    AutomationProperties.Name="Space name" />
-                                                <StackPanel Orientation="Horizontal" Spacing="8">
-                                                    <TextBlock
-                                                        Text="{x:Bind DetailText, Mode=OneWay}"
-                                                        Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
-                                                    <Border
-                                                        Padding="7,1"
-                                                        CornerRadius="8"
-                                                        Background="{ThemeResource OpenzaChipBackgroundBrush}"
-                                                        Visibility="{x:Bind CurrentVisibility, Mode=OneWay}">
-                                                        <TextBlock
-                                                            Text="Current"
-                                                            Style="{StaticResource OpenzaCaptionTextBlockStyle}" />
-                                                    </Border>
-                                                </StackPanel>
-                                            </StackPanel>
-                                            <StackPanel
-                                                Grid.Column="1"
-                                                Orientation="Horizontal"
-                                                Spacing="8"
-                                                VerticalAlignment="Center">
-                                                <Button
-                                                    Content="Rename"
-                                                    Tag="{x:Bind Id, Mode=OneWay}"
-                                                    Click="OnRenameSpaceClicked" />
-                                                <Button
-                                                    Content="Archive"
-                                                    Tag="{x:Bind Id, Mode=OneWay}"
-                                                    IsEnabled="{x:Bind CanArchive, Mode=OneWay}"
-                                                    Click="OnArchiveSpaceClicked" />
-                                            </StackPanel>
-                                        </Grid>
-                                    </Border>
-                                </DataTemplate>
-                            </ListView.ItemTemplate>
-                        </ListView>
+                        <TextBlock
+                            x:Name="SpacesCountText"
+                            Text="0 spaces"
+                            Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
+                        <toolkit:SettingsExpander.Items>
+                            <toolkit:SettingsCard ContentAlignment="Left">
+                                <ListView
+                                    x:Name="SpacesList"
+                                    MaxHeight="420"
+                                    ItemsSource="{x:Bind Spaces, Mode=OneWay}"
+                                    SelectionMode="None">
+                                    <ListView.ItemContainerStyle>
+                                        <Style TargetType="ListViewItem">
+                                            <Setter Property="Padding" Value="0" />
+                                            <Setter Property="Margin" Value="0,0,0,8" />
+                                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                        </Style>
+                                    </ListView.ItemContainerStyle>
+                                    <ListView.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:SpaceSettingsItemViewModel">
+                                            <Border
+                                                Padding="12"
+                                                CornerRadius="8"
+                                                BorderBrush="{ThemeResource OpenzaBorderBrush}"
+                                                BorderThickness="1">
+                                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                                                    <StackPanel Spacing="6">
+                                                        <TextBox
+                                                            Text="{x:Bind Name, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                            AutomationProperties.Name="Space name" />
+                                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                                            <TextBlock
+                                                                Text="{x:Bind DetailText, Mode=OneWay}"
+                                                                Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
+                                                            <Border
+                                                                Padding="7,1"
+                                                                CornerRadius="8"
+                                                                Background="{ThemeResource OpenzaChipBackgroundBrush}"
+                                                                Visibility="{x:Bind CurrentVisibility, Mode=OneWay}">
+                                                                <TextBlock
+                                                                    Text="Current"
+                                                                    Style="{StaticResource OpenzaCaptionTextBlockStyle}" />
+                                                            </Border>
+                                                        </StackPanel>
+                                                    </StackPanel>
+                                                    <StackPanel
+                                                        Grid.Column="1"
+                                                        Orientation="Horizontal"
+                                                        Spacing="8"
+                                                        VerticalAlignment="Center">
+                                                        <Button
+                                                            Content="Rename"
+                                                            Tag="{x:Bind Id, Mode=OneWay}"
+                                                            Click="OnRenameSpaceClicked" />
+                                                        <Button
+                                                            Content="Archive"
+                                                            Tag="{x:Bind Id, Mode=OneWay}"
+                                                            IsEnabled="{x:Bind CanArchive, Mode=OneWay}"
+                                                            Click="OnArchiveSpaceClicked" />
+                                                    </StackPanel>
+                                                </Grid>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ListView.ItemTemplate>
+                                </ListView>
+                            </toolkit:SettingsCard>
+                        </toolkit:SettingsExpander.Items>
                     </toolkit:SettingsExpander>
                 </StackPanel>
 
-                <StackPanel
-                    x:Name="BackupsPanel"
-                    Spacing="12"
-                    Visibility="Collapsed">
-                    <StackPanel Spacing="4" Margin="0,0,0,18">
-                        <TextBlock Text="Backups" Style="{ThemeResource TitleTextBlockStyle}" />
-                        <TextBlock
-                            Text="Use OneDrive or an exported file to keep a backup outside this app."
-                            Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
-                    </StackPanel>
-
+                <TextBlock Style="{StaticResource SettingsSectionHeaderTextBlockStyle}" Text="Backups" />
+                <StackPanel x:Name="BackupsPanel" Spacing="{StaticResource SettingsCardSpacing}">
                     <toolkit:SettingsCard
                         x:Name="OneDriveBackupCard"
                         Header="OneDrive backup"
-                        Description="Recommended backup that can help after reinstall, reset, or device loss.">
+                        Description="Recommended backup that can help if this PC is lost or you reinstall the app."
+                        ContentAlignment="Left">
                         <toolkit:SettingsCard.HeaderIcon>
                             <FontIcon Glyph="&#xE753;" />
                         </toolkit:SettingsCard.HeaderIcon>
-                        <Grid Width="420" RowSpacing="12">
+                        <Grid RowSpacing="12">
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
@@ -445,7 +394,7 @@
                             <TextBlock
                                 x:Name="OneDriveBackupDetailText"
                                 Grid.Row="2"
-                                Text="Stored in your OneDrive. Openza does not add extra encryption unless passphrase encryption is on."
+                                Text="Stored in your OneDrive. You can add a passphrase in Advanced."
                                 Style="{StaticResource OpenzaCaptionTextBlockStyle}"
                                 TextWrapping="Wrap" />
                             <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="8">
@@ -461,7 +410,7 @@
                         </Grid>
                     </toolkit:SettingsCard>
 
-                    <toolkit:SettingsCard Header="Backup file" Description="Save a copy you control, or restore from one.">
+                    <toolkit:SettingsCard Header="Backup file" Description="Save a backup file yourself, or restore from one.">
                         <toolkit:SettingsCard.HeaderIcon>
                             <FontIcon Glyph="&#xE8E5;" />
                         </toolkit:SettingsCard.HeaderIcon>
@@ -471,124 +420,94 @@
                         </StackPanel>
                     </toolkit:SettingsCard>
 
-                    <Border
-                        CornerRadius="8"
-                        BorderBrush="{ThemeResource OpenzaBorderBrush}"
-                        BorderThickness="1"
-                        Background="{ThemeResource OpenzaElevatedSurfaceBrush}">
-                        <Expander
-                            IsExpanded="False"
-                            HorizontalAlignment="Stretch"
-                            HorizontalContentAlignment="Stretch">
-                            <Expander.Header>
-                                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="14" Padding="4">
-                                    <FontIcon Glyph="&#xE713;" FontSize="20" VerticalAlignment="Center" />
-                                    <StackPanel Grid.Column="1" Spacing="2">
-                                        <TextBlock Text="Advanced" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                    <toolkit:SettingsExpander Header="Advanced" Description="Restore points, OneDrive account, and passphrase settings.">
+                        <toolkit:SettingsExpander.HeaderIcon>
+                            <FontIcon Glyph="&#xE713;" />
+                        </toolkit:SettingsExpander.HeaderIcon>
+                        <TextBlock Text="Optional" Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
+                        <toolkit:SettingsExpander.Items>
+                            <toolkit:SettingsCard Header="Restore points" Description="Local snapshots for undoing recent changes on this PC. Use backup files or OneDrive for long-term backup." ContentAlignment="Left">
+                                <Grid RowSpacing="12">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <StackPanel Spacing="4">
                                         <TextBlock
-                                            Text="Local safety copies, account, and optional passphrase settings."
+                                            x:Name="LatestRestorePointText"
+                                            Text="No restore points yet."
                                             Style="{StaticResource OpenzaMetadataTextBlockStyle}"
                                             TextWrapping="Wrap" />
+                                        <TextBlock
+                                            x:Name="RestorePointCountText"
+                                            Text="0 restore points"
+                                            Style="{StaticResource OpenzaCaptionTextBlockStyle}" />
+                                    </StackPanel>
+                                    <Grid Grid.Row="1" ColumnDefinitions="*,Auto" ColumnSpacing="16">
+                                        <TextBlock
+                                            Text="Create restore points automatically"
+                                            Style="{StaticResource OpenzaMetadataTextBlockStyle}"
+                                            TextWrapping="Wrap"
+                                            VerticalAlignment="Center" />
+                                        <ToggleSwitch
+                                            x:Name="AutoBackupSwitch"
+                                            Grid.Column="1"
+                                            AutomationProperties.Name="Automatic restore point"
+                                            Toggled="OnAutoBackupToggled" />
+                                    </Grid>
+                                    <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="8">
+                                        <Button Content="Create restore point" Click="OnCreateBackupClicked" />
+                                        <Button Content="Manage" Click="OnManageRestorePointsClicked" />
                                     </StackPanel>
                                 </Grid>
-                            </Expander.Header>
-                            <StackPanel Spacing="12" Padding="16,8,16,16">
-                                <toolkit:SettingsCard Header="Restore points" Description="Local copies for undoing recent changes on this PC. They may be removed if Windows resets or uninstalls the app.">
-                                    <toolkit:SettingsCard.HeaderIcon>
-                                        <FontIcon Glyph="&#xE777;" />
-                                    </toolkit:SettingsCard.HeaderIcon>
-                                    <Grid Width="520" RowSpacing="12">
-                                        <Grid.RowDefinitions>
-                                            <RowDefinition Height="Auto" />
-                                            <RowDefinition Height="Auto" />
-                                            <RowDefinition Height="Auto" />
-                                        </Grid.RowDefinitions>
-                                        <StackPanel Spacing="4">
-                                            <TextBlock
-                                                x:Name="LatestRestorePointText"
-                                                Text="No restore points yet."
-                                                Style="{StaticResource OpenzaMetadataTextBlockStyle}"
-                                                TextWrapping="Wrap" />
-                                            <TextBlock
-                                                x:Name="RestorePointCountText"
-                                                Text="0 restore points"
-                                                Style="{StaticResource OpenzaCaptionTextBlockStyle}" />
-                                        </StackPanel>
-                                        <Grid Grid.Row="1" ColumnDefinitions="*,Auto" ColumnSpacing="16">
-                                            <TextBlock
-                                                Text="Create restore points automatically"
-                                                Style="{StaticResource OpenzaMetadataTextBlockStyle}"
-                                                TextWrapping="Wrap"
-                                                VerticalAlignment="Center" />
-                                            <ToggleSwitch
-                                                x:Name="AutoBackupSwitch"
-                                                Grid.Column="1"
-                                                AutomationProperties.Name="Automatic restore point"
-                                                Toggled="OnAutoBackupToggled" />
-                                        </Grid>
-                                        <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="8">
-                                            <Button Content="Create restore point" Click="OnCreateBackupClicked" />
-                                            <Button Content="Manage" Click="OnManageRestorePointsClicked" />
-                                        </StackPanel>
-                                    </Grid>
-                                </toolkit:SettingsCard>
-                                <toolkit:SettingsCard
-                                    x:Name="AdvancedOneDriveBackupCard"
-                                    Header="OneDrive backup"
-                                    Description="Keep a backup in OneDrive. Recommended for a local-first app with no Openza account backup.">
-                                    <ToggleSwitch
-                                        x:Name="OneDriveBackupSwitch"
-                                        OnContent="On"
-                                        OffContent="Off"
-                                        AutomationProperties.Name="OneDrive cloud backup"
-                                        Toggled="OnOneDriveBackupToggled" />
-                                </toolkit:SettingsCard>
-                                <toolkit:SettingsCard
-                                    x:Name="AdvancedOneDriveEncryptionCard"
-                                    Header="Passphrase encryption"
-                                    Description="Encrypt OneDrive backup files before they leave this PC. Restore on a new PC requires the passphrase.">
-                                    <ToggleSwitch
-                                        x:Name="OneDriveEncryptionSwitch"
-                                        OnContent="Encrypted"
-                                        OffContent="OneDrive only"
-                                        AutomationProperties.Name="OneDrive backup passphrase encryption"
-                                        Toggled="OnOneDriveEncryptionToggled" />
-                                </toolkit:SettingsCard>
-                                <toolkit:SettingsCard
-                                    x:Name="AdvancedOneDriveAccountCard"
-                                    Header="OneDrive account"
-                                    Description="Change the Microsoft account used for OneDrive backups.">
-                                    <Button Content="Account" Click="OnChangeOneDriveAccountClicked" />
-                                </toolkit:SettingsCard>
-                                <toolkit:SettingsCard
-                                    x:Name="AdvancedOneDrivePassphraseCard"
-                                    Header="Passphrase"
-                                    Description="Change the passphrase for encrypted OneDrive backups.">
-                                    <Button Content="Passphrase" Click="OnChangeOneDrivePassphraseClicked" />
-                                </toolkit:SettingsCard>
-                            </StackPanel>
-                        </Expander>
-                    </Border>
+                            </toolkit:SettingsCard>
+                            <toolkit:SettingsCard
+                                x:Name="AdvancedOneDriveBackupCard"
+                                Header="OneDrive backup"
+                                Description="Keep a backup in OneDrive. Recommended because Openza stores your tasks on this PC.">
+                                <ToggleSwitch
+                                    x:Name="OneDriveBackupSwitch"
+                                    OnContent="On"
+                                    OffContent="Off"
+                                    AutomationProperties.Name="OneDrive cloud backup"
+                                    Toggled="OnOneDriveBackupToggled" />
+                            </toolkit:SettingsCard>
+                            <toolkit:SettingsCard
+                                x:Name="AdvancedOneDriveEncryptionCard"
+                                Header="Passphrase encryption"
+                                Description="Add your own passphrase to OneDrive backup files. Restore on a new PC requires the passphrase.">
+                                <ToggleSwitch
+                                    x:Name="OneDriveEncryptionSwitch"
+                                    OnContent="Encrypted"
+                                    OffContent="OneDrive only"
+                                    AutomationProperties.Name="OneDrive backup passphrase encryption"
+                                    Toggled="OnOneDriveEncryptionToggled" />
+                            </toolkit:SettingsCard>
+                            <toolkit:SettingsCard
+                                x:Name="AdvancedOneDriveAccountCard"
+                                Header="OneDrive account"
+                                Description="Change the Microsoft account used for OneDrive backups.">
+                                <Button Content="Account" Click="OnChangeOneDriveAccountClicked" />
+                            </toolkit:SettingsCard>
+                            <toolkit:SettingsCard
+                                x:Name="AdvancedOneDrivePassphraseCard"
+                                Header="Passphrase"
+                                Description="Change the passphrase for encrypted OneDrive backups.">
+                                <Button Content="Passphrase" Click="OnChangeOneDrivePassphraseClicked" />
+                            </toolkit:SettingsCard>
+                        </toolkit:SettingsExpander.Items>
+                    </toolkit:SettingsExpander>
                 </StackPanel>
 
-                <StackPanel
-                    x:Name="AboutPanel"
-                    Spacing="12"
-                    Visibility="Collapsed">
-                    <StackPanel Spacing="4" Margin="0,0,0,18">
-                        <TextBlock Text="About" Style="{ThemeResource TitleTextBlockStyle}" />
-                        <TextBlock
-                            Text="Openza Tasks is a local-first open-source task app by Deependra Solanky."
-                            Style="{StaticResource OpenzaMetadataTextBlockStyle}"
-                            TextWrapping="Wrap" />
-                    </StackPanel>
-
-                    <toolkit:SettingsCard Header="Openza Tasks" Description="Windows-native task management under the Openza umbrella.">
+                <TextBlock Style="{StaticResource SettingsSectionHeaderTextBlockStyle}" Text="About" />
+                <StackPanel x:Name="AboutPanel" Spacing="{StaticResource SettingsCardSpacing}" Margin="0,0,0,36">
+                    <toolkit:SettingsCard Header="Openza Tasks" Description="A local-first task app under the Openza umbrella.">
                         <toolkit:SettingsCard.HeaderIcon>
                             <FontIcon Glyph="&#xE946;" />
                         </toolkit:SettingsCard.HeaderIcon>
                         <StackPanel Spacing="4">
-                            <TextBlock Text="Store V1" Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
+                            <TextBlock Text="Local data format: V1" Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
                             <TextBlock
                                 Text="Maintainer and Microsoft publisher contact: deependra@solanky.dev"
                                 Style="{StaticResource OpenzaCaptionTextBlockStyle}"
@@ -596,7 +515,7 @@
                         </StackPanel>
                     </toolkit:SettingsCard>
                 </StackPanel>
-            </Grid>
+            </StackPanel>
         </ScrollViewer>
     </Grid>
 </UserControl>
