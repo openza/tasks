@@ -19,7 +19,7 @@
     <Grid RowDefinitions="Auto,*,Auto" Background="{ThemeResource OpenzaDetailPaneBackgroundBrush}">
         <Grid
             Padding="20,18"
-            ColumnDefinitions="Auto,*,Auto"
+            ColumnDefinitions="Auto,*,Auto,Auto"
             ColumnSpacing="12"
             BorderBrush="{ThemeResource OpenzaBorderBrush}"
             BorderThickness="0,0,0,1">
@@ -68,6 +68,27 @@
             </StackPanel>
             <Button
                 Grid.Column="2"
+                Width="36"
+                Height="36"
+                Padding="0"
+                ToolTipService.ToolTip="Task actions"
+                AutomationProperties.Name="Task actions">
+                <Button.Flyout>
+                    <MenuFlyout Placement="BottomEdgeAlignedRight">
+                        <MenuFlyoutItem
+                            x:Name="GitHubActionMenuItem"
+                            Text="GitHub issue..."
+                            Click="OnGitHubPrimaryClicked">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE943;" />
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                    </MenuFlyout>
+                </Button.Flyout>
+                <FontIcon Glyph="&#xE712;" FontSize="14" />
+            </Button>
+            <Button
+                Grid.Column="3"
                 Width="36"
                 Height="36"
                 Padding="0"

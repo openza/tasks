@@ -7,7 +7,7 @@ namespace Openza.Tasks.Core.Data;
 
 public sealed class SqliteTaskStore(string databasePath) : ITaskStore
 {
-    public const int CurrentSchemaVersion = 3;
+    public const int CurrentSchemaVersion = 4;
 
     private sealed record ParentTaskContext(string Id, string SpaceId, string? ProjectId, TaskWorkflowStatus WorkflowStatus);
 
@@ -617,6 +617,69 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         command.Parameters.AddWithValue("@last_sync_at", ToDbValue(connectionInfo.LastSyncAt));
         command.Parameters.AddWithValue("@created_at", ToDbDate(connectionInfo.CreatedAt));
         command.Parameters.AddWithValue("@updated_at", ToDbValue(connectionInfo.UpdatedAt));
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<IReadOnlyList<TaskExternalLinkInfo>> GetTaskExternalLinksAsync(string taskId, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT id, task_id, integration_id, connection_id, external_id, kind, display_name, url,
+                   metadata, created_at, updated_at
+            FROM task_external_links
+            WHERE task_id = @task_id
+            ORDER BY created_at DESC, display_name
+            """;
+        command.Parameters.AddWithValue("@task_id", taskId);
+
+        var links = new List<TaskExternalLinkInfo>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            links.Add(ReadTaskExternalLink(reader));
+        }
+
+        return links;
+    }
+
+    public async Task UpsertTaskExternalLinkAsync(TaskExternalLinkInfo link, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO task_external_links (id, task_id, integration_id, connection_id, external_id, kind, display_name, url,
+                                             metadata, created_at, updated_at)
+            VALUES (@id, @task_id, @integration_id, @connection_id, @external_id, @kind, @display_name, @url,
+                    @metadata, @created_at, @updated_at)
+            ON CONFLICT(task_id, integration_id, external_id) DO UPDATE SET
+                connection_id = excluded.connection_id,
+                kind = excluded.kind,
+                display_name = excluded.display_name,
+                url = excluded.url,
+                metadata = excluded.metadata,
+                updated_at = excluded.updated_at
+            """;
+        command.Parameters.AddWithValue("@id", string.IsNullOrWhiteSpace(link.Id) ? $"link_{Guid.NewGuid():N}" : link.Id);
+        command.Parameters.AddWithValue("@task_id", link.TaskId);
+        command.Parameters.AddWithValue("@integration_id", link.IntegrationId);
+        command.Parameters.AddWithValue("@connection_id", ToDbValue(link.ConnectionId));
+        command.Parameters.AddWithValue("@external_id", link.ExternalId);
+        command.Parameters.AddWithValue("@kind", link.Kind);
+        command.Parameters.AddWithValue("@display_name", link.DisplayName);
+        command.Parameters.AddWithValue("@url", link.Url);
+        command.Parameters.AddWithValue("@metadata", ToDbValue(link.MetadataJson));
+        command.Parameters.AddWithValue("@created_at", ToDbDate(link.CreatedAt));
+        command.Parameters.AddWithValue("@updated_at", ToDbValue(link.UpdatedAt));
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task DeleteTaskExternalLinkAsync(string id, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        var command = connection.CreateCommand();
+        command.CommandText = "DELETE FROM task_external_links WHERE id = @id";
+        command.Parameters.AddWithValue("@id", id);
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
@@ -1517,6 +1580,21 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         UpdatedAt = ReadDate(reader, 24),
     };
 
+    private static TaskExternalLinkInfo ReadTaskExternalLink(IDataRecord reader) => new()
+    {
+        Id = reader.GetString(0),
+        TaskId = reader.GetString(1),
+        IntegrationId = reader.GetString(2),
+        ConnectionId = GetNullableString(reader, 3),
+        ExternalId = reader.GetString(4),
+        Kind = reader.GetString(5),
+        DisplayName = reader.GetString(6),
+        Url = reader.GetString(7),
+        MetadataJson = GetNullableString(reader, 8),
+        CreatedAt = ReadDate(reader, 9) ?? DateTimeOffset.UtcNow,
+        UpdatedAt = ReadDate(reader, 10),
+    };
+
     private static string BuildProviderSourceItemId(string providerConnectionId, string externalId) =>
         $"source_{ToStableId(providerConnectionId)}_{ToStableId(externalId)}";
 
@@ -1916,6 +1994,7 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         var command = connection.CreateCommand();
         command.CommandText = SchemaSql;
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        await EnsureTaskExternalLinksTableAsync(connection, cancellationToken).ConfigureAwait(false);
         await EnsurePendingCompletionsTableAsync(connection, cancellationToken).ConfigureAwait(false);
         await ExecutePragmaAsync(connection, $"PRAGMA user_version = {CurrentSchemaVersion}", cancellationToken).ConfigureAwait(false);
     }
@@ -1931,11 +2010,36 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
             await EnsureTasksCompatibilityAsync(connection, cancellationToken).ConfigureAwait(false);
             await EnsureProviderSourceItemsCompatibilityAsync(connection, cancellationToken).ConfigureAwait(false);
             await EnsureLabelsCompatibilityAsync(connection, cancellationToken).ConfigureAwait(false);
+            await EnsureTaskExternalLinksTableAsync(connection, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
             await ExecutePragmaAsync(connection, "PRAGMA foreign_keys = ON", cancellationToken).ConfigureAwait(false);
         }
+    }
+
+    private static async Task EnsureTaskExternalLinksTableAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            CREATE TABLE IF NOT EXISTS task_external_links (
+              id TEXT PRIMARY KEY NOT NULL,
+              task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+              integration_id TEXT NOT NULL REFERENCES integrations(id),
+              connection_id TEXT REFERENCES provider_connections(id),
+              external_id TEXT NOT NULL,
+              kind TEXT NOT NULL DEFAULT 'issue',
+              display_name TEXT NOT NULL,
+              url TEXT NOT NULL,
+              metadata TEXT,
+              created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+              updated_at INTEGER,
+              UNIQUE(task_id, integration_id, external_id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_task_external_links_task ON task_external_links(task_id, integration_id);
+            """;
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
     private static async Task EnsureProviderSourceItemsCompatibilityAsync(SqliteConnection connection, CancellationToken cancellationToken)
@@ -2516,13 +2620,15 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
             VALUES
               ('openza_tasks', 'openza_tasks', 'Openza Tasks', '#6366f1', 'database', NULL, 1, 1, strftime('%s', 'now')),
               ('todoist', 'todoist', 'Todoist', '#E44332', 'check-circle', 'assets/logos/todoist.svg', 0, 0, strftime('%s', 'now')),
-              ('msToDo', 'msToDo', 'Microsoft To Do', '#00A4EF', 'layout-grid', 'assets/logos/microsoft.svg', 0, 0, strftime('%s', 'now'));
+              ('msToDo', 'msToDo', 'Microsoft To Do', '#00A4EF', 'layout-grid', 'assets/logos/microsoft.svg', 0, 0, strftime('%s', 'now')),
+              ('github', 'github', 'GitHub', '#24292f', 'code', NULL, 0, 0, strftime('%s', 'now'));
 
             INSERT OR IGNORE INTO provider_connections (id, workspace_id, integration_id, display_name, status, created_at)
             VALUES
               ('local_default', 'default', 'openza_tasks', 'Openza Tasks', 'connected', strftime('%s', 'now')),
               ('todoist_default', 'default', 'todoist', 'Todoist', 'disconnected', strftime('%s', 'now')),
-              ('mstodo_default', 'default', 'msToDo', 'Microsoft To Do', 'disconnected', strftime('%s', 'now'));
+              ('mstodo_default', 'default', 'msToDo', 'Microsoft To Do', 'disconnected', strftime('%s', 'now')),
+              ('github_default', 'default', 'github', 'GitHub', 'disconnected', strftime('%s', 'now'));
             """;
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
@@ -2881,6 +2987,21 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
           created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
         );
 
+        CREATE TABLE IF NOT EXISTS task_external_links (
+          id TEXT PRIMARY KEY NOT NULL,
+          task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+          integration_id TEXT NOT NULL REFERENCES integrations(id),
+          connection_id TEXT REFERENCES provider_connections(id),
+          external_id TEXT NOT NULL,
+          kind TEXT NOT NULL DEFAULT 'issue',
+          display_name TEXT NOT NULL,
+          url TEXT NOT NULL,
+          metadata TEXT,
+          created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+          updated_at INTEGER,
+          UNIQUE(task_id, integration_id, external_id)
+        );
+
         CREATE TABLE IF NOT EXISTS sync_routes (
           id TEXT PRIMARY KEY NOT NULL,
           workspace_id TEXT NOT NULL DEFAULT 'default' REFERENCES workspaces(id),
@@ -2972,6 +3093,7 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         CREATE INDEX IF NOT EXISTS idx_labels_integration_id ON labels(integration_id);
         CREATE INDEX IF NOT EXISTS idx_provider_source_items_connection ON provider_source_items(provider_connection_id, adoption_state);
         CREATE INDEX IF NOT EXISTS idx_provider_source_items_parent ON provider_source_items(provider_connection_id, parent_external_id);
+        CREATE INDEX IF NOT EXISTS idx_task_external_links_task ON task_external_links(task_id, integration_id);
         CREATE INDEX IF NOT EXISTS idx_sync_item_links_route_source ON sync_item_links(route_id, source_external_id);
         """;
 }

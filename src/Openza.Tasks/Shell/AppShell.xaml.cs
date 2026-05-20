@@ -31,6 +31,7 @@ public sealed partial class AppShell : UserControl
     private readonly BackupInfo? _startupRecoveryCandidate;
     private readonly Window _ownerWindow;
     private readonly HttpClient _httpClient = new();
+    private readonly GitHubIssueService _gitHubIssueService;
     private readonly List<SpaceItem> _spaces = [];
     private readonly List<ProjectItem> _allProjects = [];
     private readonly List<LabelItem> _allLabels = [];
@@ -79,6 +80,7 @@ public sealed partial class AppShell : UserControl
         _settings = settings;
         _microsoftAuth = microsoftAuth;
         _startupRecoveryCandidate = startupRecoveryCandidate;
+        _gitHubIssueService = new GitHubIssueService(_httpClient);
         InitializeComponent();
         GlobalSearchTaskResults.ItemsSource = _globalTaskSearchResults;
         GlobalSearchProjectResults.ItemsSource = _globalProjectSearchResults;
@@ -109,7 +111,7 @@ public sealed partial class AppShell : UserControl
             await TryCreateStartupBackupAsync().ConfigureAwait(true);
         }
 
-        _deferNavigationCountUpdates = _settings.Settings.AutoSyncEnabled;
+        _deferNavigationCountUpdates = false;
         try
         {
             await LoadSpacesAsync().ConfigureAwait(true);

@@ -12,6 +12,9 @@ public sealed partial class SettingsPage : UserControl
     public event SelectionChangedEventHandler? ThemeChanged;
     public event RoutedEventHandler? ConnectTodoistClicked;
     public event RoutedEventHandler? ConnectMicrosoftClicked;
+    public event RoutedEventHandler? SignInGitHubClicked;
+    public event RoutedEventHandler? ConnectGitHubClicked;
+    public event RoutedEventHandler? DisconnectGitHubClicked;
     public event RoutedEventHandler? DisconnectTodoistClicked;
     public event RoutedEventHandler? DisconnectMicrosoftClicked;
     public event RoutedEventHandler? CreateBackupClicked;
@@ -60,6 +63,8 @@ public sealed partial class SettingsPage : UserControl
 
     public string TodoistToken => TodoistTokenBox.Password;
 
+    public string GitHubToken => GitHubTokenBox.Password;
+
     public BackupInfo? SelectedBackup => _restorePointDialogList?.SelectedItem as BackupInfo;
 
     public CloudBackupInfo? SelectedCloudBackup => _oneDriveBackupDialogList?.SelectedItem as CloudBackupInfo;
@@ -90,7 +95,7 @@ public sealed partial class SettingsPage : UserControl
 
     public string NewSpaceName => NewSpaceNameBox.Text.Trim();
 
-    public void SetProviderStatus(bool todoistConnected, string? microsoftAccountUsername)
+    public void SetProviderStatus(bool todoistConnected, string? microsoftAccountUsername, bool githubConnected = false, string? githubUsername = null, string? githubDefaultRepository = null)
     {
         var microsoftConnected = !string.IsNullOrWhiteSpace(microsoftAccountUsername);
         SetIntegrationState(
@@ -112,6 +117,19 @@ public sealed partial class SettingsPage : UserControl
             $"Connected as {microsoftAccountUsername}.",
             "Choose a Microsoft account for Microsoft To Do.",
             "Change account");
+
+        SetIntegrationState(
+            GitHubStatusText,
+            GitHubSummaryText,
+            GitHubConnectButton,
+            GitHubDisconnectButton,
+            githubConnected,
+            string.IsNullOrWhiteSpace(githubDefaultRepository)
+                ? (string.IsNullOrWhiteSpace(githubUsername) ? "GitHub is connected." : $"Connected as {githubUsername}.")
+                : (string.IsNullOrWhiteSpace(githubUsername) ? $"Default repository: {githubDefaultRepository}." : $"Connected as {githubUsername}. Default repository: {githubDefaultRepository}."),
+            "Connect GitHub to create issues from tasks.",
+            "Update token");
+        GitHubSignInButton.Content = githubConnected ? "Reconnect GitHub" : "Sign in with GitHub";
     }
 
     private static void SetIntegrationState(
@@ -274,6 +292,8 @@ public sealed partial class SettingsPage : UserControl
 
     public void ClearTodoistToken() => TodoistTokenBox.Password = string.Empty;
 
+    public void ClearGitHubToken() => GitHubTokenBox.Password = string.Empty;
+
     public void ClearNewSpaceName() => NewSpaceNameBox.Text = string.Empty;
 
     public SpaceSettingsItemViewModel? GetSpace(string id) =>
@@ -293,9 +313,15 @@ public sealed partial class SettingsPage : UserControl
 
     private void OnConnectMicrosoftClicked(object sender, RoutedEventArgs e) => ConnectMicrosoftClicked?.Invoke(sender, e);
 
+    private void OnSignInGitHubClicked(object sender, RoutedEventArgs e) => SignInGitHubClicked?.Invoke(sender, e);
+
+    private void OnConnectGitHubClicked(object sender, RoutedEventArgs e) => ConnectGitHubClicked?.Invoke(sender, e);
+
     private void OnDisconnectTodoistClicked(object sender, RoutedEventArgs e) => DisconnectTodoistClicked?.Invoke(sender, e);
 
     private void OnDisconnectMicrosoftClicked(object sender, RoutedEventArgs e) => DisconnectMicrosoftClicked?.Invoke(sender, e);
+
+    private void OnDisconnectGitHubClicked(object sender, RoutedEventArgs e) => DisconnectGitHubClicked?.Invoke(sender, e);
 
     private void OnCreateBackupClicked(object sender, RoutedEventArgs e) => CreateBackupClicked?.Invoke(sender, e);
 

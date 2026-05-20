@@ -5,12 +5,14 @@ public static class IntegrationIds
     public const string Local = "openza_tasks";
     public const string Todoist = "todoist";
     public const string MicrosoftToDo = "msToDo";
+    public const string GitHub = "github";
     public const string Obsidian = "obsidian";
 
     public static string DisplayName(string integrationId) => integrationId switch
     {
         Todoist => "Todoist",
         MicrosoftToDo => "Microsoft To Do",
+        GitHub => "GitHub",
         Obsidian => "Obsidian",
         _ => "Openza Tasks",
     };
