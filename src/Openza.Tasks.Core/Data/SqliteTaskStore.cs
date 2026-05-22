@@ -938,11 +938,47 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
             return null;
         }
 
-        return new ParentTaskContext(
+        var parent = new ParentTaskContext(
             reader.GetString(0),
             reader.GetString(1),
             GetNullableString(reader, 2),
             TaskStatusExtensions.WorkflowFromStorageValue(reader.GetString(3)));
+        return await ShouldPreserveLocalParentDetachAsync(connection, source, parent, cancellationToken).ConfigureAwait(false)
+            ? null
+            : parent;
+    }
+
+    private static async Task<bool> ShouldPreserveLocalParentDetachAsync(
+        SqliteConnection connection,
+        ProviderSourceItem source,
+        ParentTaskContext parent,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(source.AdoptedTaskId) ||
+            string.IsNullOrWhiteSpace(source.SuggestedSpaceId) ||
+            string.Equals(source.SuggestedSpaceId, parent.SpaceId, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT space_id, parent_id
+            FROM tasks
+            WHERE id = @task_id
+            LIMIT 1
+            """;
+        command.Parameters.AddWithValue("@task_id", source.AdoptedTaskId);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            return false;
+        }
+
+        var taskSpaceId = reader.GetString(0);
+        var taskParentId = GetNullableString(reader, 1);
+        return string.IsNullOrWhiteSpace(taskParentId) &&
+            string.Equals(taskSpaceId, source.SuggestedSpaceId, StringComparison.Ordinal);
     }
 
     public async Task<bool> SkipProviderSourceItemAsync(string sourceItemId, CancellationToken cancellationToken = default)

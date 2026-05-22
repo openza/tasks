@@ -259,9 +259,51 @@ public sealed class SqliteTaskStoreTests : IDisposable
         await store.InitializeAsync();
         await store.UpsertSpaceAsync(new SpaceItem { Id = "space_target", Name = "Work" });
         await store.UpsertTaskAsync(new TaskItem { Id = "task_parent", Title = "Parent" });
-        await store.UpsertTaskAsync(new TaskItem { Id = "task_child", Title = "Child", ParentId = "task_parent" });
+        await store.UpsertTaskAsync(new TaskItem
+        {
+            Id = "task_child",
+            Title = "Child",
+            ParentId = "task_parent",
+            SourceIntegrationId = IntegrationIds.Todoist,
+            SourceConnectionId = "todoist_default",
+            SourceExternalId = "remote_child",
+        });
+        await store.UpsertProviderSourceItemAsync(new ProviderSourceItem
+        {
+            Id = "source_parent",
+            IntegrationId = IntegrationIds.Todoist,
+            ProviderConnectionId = "todoist_default",
+            ExternalId = "remote_parent",
+            ProviderTaskId = "remote_parent",
+            Title = "Parent",
+            AdoptionState = ProviderSourceAdoptionStates.Adopted,
+            AdoptedTaskId = "task_parent",
+        });
+        await store.UpsertProviderSourceItemAsync(new ProviderSourceItem
+        {
+            Id = "source_child",
+            IntegrationId = IntegrationIds.Todoist,
+            ProviderConnectionId = "todoist_default",
+            ExternalId = "remote_child",
+            ProviderTaskId = "remote_child",
+            ParentExternalId = "remote_parent",
+            Title = "Child",
+            SuggestedSpaceId = SpaceIds.Default,
+            AdoptionState = ProviderSourceAdoptionStates.Adopted,
+            AdoptedTaskId = "task_child",
+        });
 
         await store.MoveTaskToSpaceAsync("task_child", "space_target");
+        await store.UpsertProviderSourceItemAsync(new ProviderSourceItem
+        {
+            IntegrationId = IntegrationIds.Todoist,
+            ProviderConnectionId = "todoist_default",
+            ExternalId = "remote_child",
+            ProviderTaskId = "remote_child",
+            ParentExternalId = "remote_parent",
+            Title = "Child refreshed",
+            SuggestedSpaceId = SpaceIds.Default,
+        });
 
         var parent = await store.GetTaskAsync("task_parent");
         var child = await store.GetTaskAsync("task_child");
@@ -270,6 +312,10 @@ public sealed class SqliteTaskStoreTests : IDisposable
         Assert.Equal(SpaceIds.Default, parent.SpaceId);
         Assert.Equal("space_target", child.SpaceId);
         Assert.Null(child.ParentId);
+        var childSource = Assert.Single(
+            await store.GetProviderSourceItemsAsync(IntegrationIds.Todoist, includeAdopted: true),
+            source => source.ExternalId == "remote_child");
+        Assert.Equal("space_target", childSource.SuggestedSpaceId);
     }
 
     [Fact]
