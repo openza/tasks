@@ -573,10 +573,25 @@ public sealed partial class AppShell : UserControl
 
     private async void OnAddSpaceClicked(object sender, RoutedEventArgs e)
     {
-        var name = SettingsPage.NewSpaceName;
+        var name = SettingsPage.NewSpaceName.Trim();
         if (!ValidateSpaceName(name, null, out var message))
         {
             SettingsPage.ShowSpacesMessage("Cannot add space", message, InfoBarSeverity.Warning);
+            return;
+        }
+
+        if (GetUntouchedDefaultSpace() is { } defaultSpace)
+        {
+            await _store.UpsertSpaceAsync(defaultSpace with
+            {
+                Name = name,
+                UpdatedAt = DateTimeOffset.UtcNow,
+            }).ConfigureAwait(true);
+            _settings.Settings.LastSpaceId = defaultSpace.Id;
+            await _settings.SaveAsync().ConfigureAwait(true);
+            SettingsPage.ClearNewSpaceName();
+            await LoadSpacesAsync(defaultSpace.Id).ConfigureAwait(true);
+            SettingsPage.ShowSpacesMessage("Space set up", $"{name} is now your space.", InfoBarSeverity.Success);
             return;
         }
 
@@ -591,6 +606,13 @@ public sealed partial class AppShell : UserControl
         await LoadSpacesAsync(_currentSpaceId).ConfigureAwait(true);
         SettingsPage.ShowSpacesMessage("Space added", $"{name} is now available in the space picker.", InfoBarSeverity.Success);
     }
+
+    private SpaceItem? GetUntouchedDefaultSpace() =>
+        _spaces.Count == 1 &&
+        string.Equals(_spaces[0].Id, SpaceIds.Default, StringComparison.Ordinal) &&
+        string.Equals(_spaces[0].Name, "My space", StringComparison.Ordinal)
+            ? _spaces[0]
+            : null;
 
     private async void OnRenameSpaceClicked(SettingsPage sender, string id)
     {

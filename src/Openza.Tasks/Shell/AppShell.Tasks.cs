@@ -1167,6 +1167,123 @@ public sealed partial class AppShell
         await DeleteTaskAsync(_selectedTaskId).ConfigureAwait(true);
     }
 
+    private async void OnDetailsMoveToSpaceClicked(object sender, RoutedEventArgs e)
+    {
+        if (_selectedTaskId is null)
+        {
+            return;
+        }
+
+        if (!await SavePendingTaskDetailsAsync().ConfigureAwait(true))
+        {
+            return;
+        }
+
+        var task = await _store.GetTaskAsync(_selectedTaskId).ConfigureAwait(true);
+        if (task is null)
+        {
+            ShowInfo("Task not found", "The selected task no longer exists.", InfoBarSeverity.Warning);
+            return;
+        }
+
+        var targetSpaces = _spaces
+            .Where(space => !string.Equals(space.Id, _currentSpaceId, StringComparison.Ordinal))
+            .OrderBy(space => space.SortOrder)
+            .ThenBy(space => space.Name, StringComparer.CurrentCultureIgnoreCase)
+            .Select(space => new MoveSpaceOption(space.Id, space.Name))
+            .ToList();
+        if (targetSpaces.Count == 0)
+        {
+            ShowInfo("No other Space", "Create another Space before moving this task.", InfoBarSeverity.Informational);
+            return;
+        }
+
+        var subtasks = await _store.GetTasksAsync(new TaskQuery
+        {
+            ParentId = task.Id,
+            IncludeSubtasks = true,
+            Kind = TaskListKind.All,
+        }).ConfigureAwait(true);
+
+        var spacePicker = new ComboBox
+        {
+            Header = "Move to",
+            DisplayMemberPath = nameof(MoveSpaceOption.Name),
+            ItemsSource = targetSpaces,
+            SelectedIndex = 0,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+
+        var notes = new List<string>
+        {
+            "The task will move out of this Space.",
+        };
+        if (subtasks.Count > 0)
+        {
+            notes.Add($"{subtasks.Count} subtask{(subtasks.Count == 1 ? string.Empty : "s")} will move with it.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(task.ProjectId))
+        {
+            notes.Add("Its project will be cleared because projects belong to one Space.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(task.ParentId))
+        {
+            notes.Add("Its parent link will be cleared because the parent is staying in this Space.");
+        }
+
+        var content = new StackPanel
+        {
+            Spacing = 12,
+            Children =
+            {
+                new TextBlock
+                {
+                    Text = string.Join(" ", notes),
+                    TextWrapping = TextWrapping.Wrap,
+                },
+                spacePicker,
+            },
+        };
+
+        var dialog = new ContentDialog
+        {
+            Title = "Move to Space",
+            Content = content,
+            PrimaryButtonText = "Move",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = XamlRoot,
+        };
+
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary ||
+            spacePicker.SelectedItem is not MoveSpaceOption targetSpace)
+        {
+            return;
+        }
+
+        try
+        {
+            await _store.MoveTaskToSpaceAsync(task.Id, targetSpace.Id).ConfigureAwait(true);
+        }
+        catch (Exception exception)
+        {
+            ShowInfo("Could not move task", exception.Message, InfoBarSeverity.Error);
+            return;
+        }
+
+        _selectedTaskId = null;
+        TasksPage.HideDetailsPane();
+        TasksPage.ClearTaskSelection();
+        TasksPage.DetailsPanel.ClearForNewTask(GetProject(_selectedProjectId), 3, DefaultStatusForCurrentView());
+        await LoadProjectsAsync().ConfigureAwait(true);
+        await RefreshTasksAsync().ConfigureAwait(true);
+        await RefreshSourceItemsAsync().ConfigureAwait(true);
+        await RefreshSettingsSpacesAsync().ConfigureAwait(true);
+        ShowInfo("Task moved", $"Moved to {targetSpace.Name}.", InfoBarSeverity.Success);
+    }
+
     private async Task DeleteTaskAsync(string id)
     {
         var task = await _store.GetTaskAsync(id).ConfigureAwait(true);
@@ -1252,6 +1369,8 @@ public sealed partial class AppShell
         string.Equals(_currentView, "today", StringComparison.Ordinal)
             ? DateTimeOffset.Now.Date
             : null;
+
+    private sealed record MoveSpaceOption(string Id, string Name);
 
     private async Task<bool> SavePendingTaskDetailsAsync()
     {

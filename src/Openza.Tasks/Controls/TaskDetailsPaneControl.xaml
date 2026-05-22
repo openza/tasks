@@ -76,6 +76,14 @@
                 <Button.Flyout>
                     <MenuFlyout Placement="BottomEdgeAlignedRight">
                         <MenuFlyoutItem
+                            x:Name="MoveToSpaceMenuItem"
+                            Text="Move to Space..."
+                            Click="OnMoveToSpaceClicked">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE8B7;" />
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutItem
                             x:Name="GitHubActionMenuItem"
                             Text="GitHub issue..."
                             Click="OnGitHubPrimaryClicked">

@@ -187,6 +187,7 @@
                         DetailsToggleCompleteClicked="OnDetailsToggleCompleteClicked"
                         DetailsSubtaskToggleCompleteClicked="OnToggleCompleteClicked"
                         DetailsCreateProjectRequested="OnDetailsCreateProjectRequested"
+                        DetailsMoveToSpaceClicked="OnDetailsMoveToSpaceClicked"
                         DetailsManageGitHubIssueRequested="OnDetailsManageGitHubIssueRequested"
                         DetailsDeleteTaskClicked="OnDetailsDeleteTaskClicked"
                         DetailsCancelEditClicked="OnDetailsCancelEditClicked"

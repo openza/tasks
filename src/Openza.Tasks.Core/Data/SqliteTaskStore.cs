@@ -698,7 +698,12 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
                 @space_id IS NULL
                 OR suggested_space_id = @space_id
                 OR suggested_space_id IS NULL
-                OR NOT EXISTS (SELECT 1 FROM spaces WHERE spaces.id = provider_source_items.suggested_space_id)
+                OR NOT EXISTS (
+                    SELECT 1
+                    FROM spaces
+                    WHERE spaces.id = provider_source_items.suggested_space_id
+                      AND spaces.is_archived = 0
+                )
               )
               AND (
                 adoption_state = 'not_adopted'
@@ -746,7 +751,9 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
             (parentContext is not null || (string.IsNullOrWhiteSpace(source.ParentExternalId) && ShouldBypassInbox(source))))
         {
             var now = DateTimeOffset.UtcNow;
-            var task = CreateTaskFromSource(source, parentContext?.SpaceId ?? source.SuggestedSpaceId ?? SpaceIds.Default, now, parentContext);
+            var targetSpaceId = parentContext?.SpaceId ??
+                await ResolveTaskCreationSpaceIdAsync(connection, source.SuggestedSpaceId, cancellationToken).ConfigureAwait(false);
+            var task = CreateTaskFromSource(source, targetSpaceId, now, parentContext);
             await UpsertTaskCoreAsync(connection, task, cancellationToken).ConfigureAwait(false);
             await SetTaskLabelsCoreAsync(connection, task.Id, task.Labels, cancellationToken).ConfigureAwait(false);
 
@@ -835,7 +842,9 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
 
         var now = DateTimeOffset.UtcNow;
         var parentContext = await ResolveAdoptedParentTaskContextAsync(connection, source, cancellationToken).ConfigureAwait(false);
-        var targetSpaceId = parentContext?.SpaceId ?? (string.IsNullOrWhiteSpace(spaceId) ? source.SuggestedSpaceId ?? SpaceIds.Default : spaceId);
+        var requestedSpaceId = string.IsNullOrWhiteSpace(spaceId) ? source.SuggestedSpaceId : spaceId;
+        var targetSpaceId = parentContext?.SpaceId ??
+            await ResolveTaskCreationSpaceIdAsync(connection, requestedSpaceId, cancellationToken).ConfigureAwait(false);
         var task = CreateTaskFromSource(source, targetSpaceId, now, parentContext);
 
         await UpsertTaskCoreAsync(connection, task, cancellationToken).ConfigureAwait(false);
@@ -929,11 +938,47 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
             return null;
         }
 
-        return new ParentTaskContext(
+        var parent = new ParentTaskContext(
             reader.GetString(0),
             reader.GetString(1),
             GetNullableString(reader, 2),
             TaskStatusExtensions.WorkflowFromStorageValue(reader.GetString(3)));
+        return await ShouldPreserveLocalParentDetachAsync(connection, source, parent, cancellationToken).ConfigureAwait(false)
+            ? null
+            : parent;
+    }
+
+    private static async Task<bool> ShouldPreserveLocalParentDetachAsync(
+        SqliteConnection connection,
+        ProviderSourceItem source,
+        ParentTaskContext parent,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(source.AdoptedTaskId) ||
+            string.IsNullOrWhiteSpace(source.SuggestedSpaceId) ||
+            string.Equals(source.SuggestedSpaceId, parent.SpaceId, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT space_id, parent_id
+            FROM tasks
+            WHERE id = @task_id
+            LIMIT 1
+            """;
+        command.Parameters.AddWithValue("@task_id", source.AdoptedTaskId);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            return false;
+        }
+
+        var taskSpaceId = reader.GetString(0);
+        var taskParentId = GetNullableString(reader, 1);
+        return string.IsNullOrWhiteSpace(taskParentId) &&
+            string.Equals(taskSpaceId, source.SuggestedSpaceId, StringComparison.Ordinal);
     }
 
     public async Task<bool> SkipProviderSourceItemAsync(string sourceItemId, CancellationToken cancellationToken = default)
@@ -1111,6 +1156,88 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         await UpsertTaskCoreAsync(connection, task, cancellationToken).ConfigureAwait(false);
         await SetTaskLabelsCoreAsync(connection, task.Id, task.Labels, cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task MoveTaskToSpaceAsync(string taskId, string targetSpaceId, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(taskId))
+        {
+            throw new ArgumentException("Task id is required.", nameof(taskId));
+        }
+
+        if (string.IsNullOrWhiteSpace(targetSpaceId))
+        {
+            throw new ArgumentException("Target space id is required.", nameof(targetSpaceId));
+        }
+
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+
+        var spaceCommand = connection.CreateCommand();
+        spaceCommand.CommandText = "SELECT COUNT(*) FROM spaces WHERE id = @id AND is_archived = 0";
+        spaceCommand.Parameters.AddWithValue("@id", targetSpaceId);
+        var availableSpaceCount = (long)(await spaceCommand.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) ?? 0L);
+        if (availableSpaceCount == 0)
+        {
+            throw new InvalidOperationException("The target space is not available.");
+        }
+
+        var taskCommand = connection.CreateCommand();
+        taskCommand.CommandText = "SELECT parent_id FROM tasks WHERE id = @id";
+        taskCommand.Parameters.AddWithValue("@id", taskId);
+        string? parentId;
+        await using (var reader = await taskCommand.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+        {
+            if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                throw new InvalidOperationException("The task no longer exists.");
+            }
+
+            parentId = GetNullableString(reader, 0);
+        }
+
+        var updateCommand = connection.CreateCommand();
+        updateCommand.CommandText = """
+            WITH RECURSIVE moved_tasks(id) AS (
+                SELECT id FROM tasks WHERE id = @task_id
+                UNION ALL
+                SELECT child.id
+                FROM tasks child
+                INNER JOIN moved_tasks parent ON child.parent_id = parent.id
+            )
+            UPDATE tasks
+            SET space_id = @space_id,
+                project_id = NULL,
+                parent_id = CASE WHEN id = @task_id AND @clear_parent = 1 THEN NULL ELSE parent_id END,
+                updated_at = @updated_at
+            WHERE id IN (SELECT id FROM moved_tasks)
+            """;
+        updateCommand.Parameters.AddWithValue("@task_id", taskId);
+        updateCommand.Parameters.AddWithValue("@space_id", targetSpaceId);
+        updateCommand.Parameters.AddWithValue("@clear_parent", string.IsNullOrWhiteSpace(parentId) ? 0 : 1);
+        updateCommand.Parameters.AddWithValue("@updated_at", ToDbDate(DateTimeOffset.UtcNow));
+        await updateCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+
+        var sourceCommand = connection.CreateCommand();
+        sourceCommand.CommandText = """
+            WITH RECURSIVE moved_tasks(id) AS (
+                SELECT id FROM tasks WHERE id = @task_id
+                UNION ALL
+                SELECT child.id
+                FROM tasks child
+                INNER JOIN moved_tasks parent ON child.parent_id = parent.id
+            )
+            UPDATE provider_source_items
+            SET suggested_space_id = @space_id,
+                updated_at = @updated_at
+            WHERE adopted_task_id IN (SELECT id FROM moved_tasks)
+            """;
+        sourceCommand.Parameters.AddWithValue("@task_id", taskId);
+        sourceCommand.Parameters.AddWithValue("@space_id", targetSpaceId);
+        sourceCommand.Parameters.AddWithValue("@updated_at", ToDbDate(DateTimeOffset.UtcNow));
+        await sourceCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
     }
 
@@ -2563,12 +2690,12 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         string? incomingSpaceId,
         CancellationToken cancellationToken)
     {
-        if (await SpaceExistsAsync(connection, existingSpaceId, cancellationToken).ConfigureAwait(false))
+        if (await ActiveSpaceExistsAsync(connection, existingSpaceId, cancellationToken).ConfigureAwait(false))
         {
             return existingSpaceId;
         }
 
-        if (await SpaceExistsAsync(connection, incomingSpaceId, cancellationToken).ConfigureAwait(false))
+        if (await ActiveSpaceExistsAsync(connection, incomingSpaceId, cancellationToken).ConfigureAwait(false))
         {
             return incomingSpaceId;
         }
@@ -2576,7 +2703,17 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         return null;
     }
 
-    private static async Task<bool> SpaceExistsAsync(SqliteConnection connection, string? spaceId, CancellationToken cancellationToken)
+    private static async Task<string> ResolveTaskCreationSpaceIdAsync(SqliteConnection connection, string? requestedSpaceId, CancellationToken cancellationToken)
+    {
+        if (await ActiveSpaceExistsAsync(connection, requestedSpaceId, cancellationToken).ConfigureAwait(false))
+        {
+            return requestedSpaceId!;
+        }
+
+        return await ReadFirstActiveSpaceIdAsync(connection, cancellationToken).ConfigureAwait(false) ?? SpaceIds.Default;
+    }
+
+    private static async Task<bool> ActiveSpaceExistsAsync(SqliteConnection connection, string? spaceId, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(spaceId))
         {
@@ -2584,10 +2721,24 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         }
 
         var command = connection.CreateCommand();
-        command.CommandText = "SELECT COUNT(*) FROM spaces WHERE id = @id";
+        command.CommandText = "SELECT COUNT(*) FROM spaces WHERE id = @id AND is_archived = 0";
         command.Parameters.AddWithValue("@id", spaceId);
         var count = (long)(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) ?? 0L);
         return count > 0;
+    }
+
+    private static async Task<string?> ReadFirstActiveSpaceIdAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT id
+            FROM spaces
+            WHERE is_archived = 0
+            ORDER BY sort_order, name
+            LIMIT 1
+            """;
+
+        return await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) as string;
     }
 
     private static async Task<HashSet<string>> GetColumnNamesAsync(SqliteConnection connection, string tableName, CancellationToken cancellationToken)

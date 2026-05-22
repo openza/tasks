@@ -32,6 +32,7 @@ public interface ITaskStore
     Task RecordSyncRouteRunAsync(SyncRouteRunInfo run, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<SyncRouteRunInfo>> GetSyncRouteRunsAsync(string? routeId = null, CancellationToken cancellationToken = default);
     Task UpsertTaskAsync(TaskItem task, CancellationToken cancellationToken = default);
+    Task MoveTaskToSpaceAsync(string taskId, string targetSpaceId, CancellationToken cancellationToken = default);
     Task UpsertProjectAsync(ProjectItem project, CancellationToken cancellationToken = default);
     Task UpsertLabelAsync(LabelItem label, CancellationToken cancellationToken = default);
     Task SetTaskLabelsAsync(string taskId, IReadOnlyList<LabelItem> labels, CancellationToken cancellationToken = default);
