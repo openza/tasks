@@ -46,6 +46,7 @@ public sealed partial class TaskDetailsPaneControl : UserControl
     public event RoutedEventHandler? ToggleCompleteClicked;
     public event RoutedEventHandler? SubtaskToggleCompleteClicked;
     public event TypedEventHandler<TaskDetailsPaneControl, string>? CreateProjectRequested;
+    public event RoutedEventHandler? MoveToSpaceRequested;
     public event RoutedEventHandler? ManageGitHubIssueRequested;
     public event RoutedEventHandler? DeleteTaskClicked;
     public event RoutedEventHandler? CancelEditClicked;
@@ -148,6 +149,7 @@ public sealed partial class TaskDetailsPaneControl : UserControl
         var isLinkedProviderTask = task.IsProviderTask || task.HasProviderSource;
         CompleteButton.Content = task.IsCompleted ? "Reopen" : "Complete";
         DeleteButton.IsEnabled = true;
+        MoveToSpaceMenuItem.IsEnabled = true;
         _originalSnapshot = CurrentSnapshot();
         SetAutoSaveState(null);
         _loading = false;
@@ -184,6 +186,7 @@ public sealed partial class TaskDetailsPaneControl : UserControl
         CompleteButton.IsEnabled = false;
         CompleteButton.Content = "Complete";
         DeleteButton.IsEnabled = false;
+        MoveToSpaceMenuItem.IsEnabled = false;
         SetGitHubLink(null, false);
         _originalSnapshot = CurrentSnapshot();
         SetAutoSaveState(null);
@@ -1222,6 +1225,8 @@ public sealed partial class TaskDetailsPaneControl : UserControl
     }
 
     private void OnDeleteTaskClicked(object sender, RoutedEventArgs e) => DeleteTaskClicked?.Invoke(sender, e);
+
+    private void OnMoveToSpaceClicked(object sender, RoutedEventArgs e) => MoveToSpaceRequested?.Invoke(sender, e);
 
     private void OnCancelEditClicked(object sender, RoutedEventArgs e) => CancelEditClicked?.Invoke(sender, e);
 }

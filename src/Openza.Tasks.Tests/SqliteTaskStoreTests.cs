@@ -120,6 +120,175 @@ public sealed class SqliteTaskStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task MoveTaskToSpace_moves_task_and_preserves_local_metadata()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        await store.UpsertSpaceAsync(new SpaceItem { Id = "space_target", Name = "Work" });
+        await store.UpsertProjectAsync(new ProjectItem { Id = "project_default", Name = "Default project" });
+        await store.UpsertLabelAsync(new LabelItem { Id = "label_focus", Name = "Focus" });
+        await store.UpsertTaskAsync(new TaskItem
+        {
+            Id = "task_move",
+            Title = "Move me",
+            ProjectId = "project_default",
+            Status = TaskItemStatus.Completed,
+            SourceIntegrationId = IntegrationIds.Todoist,
+            SourceExternalId = "todoist_1",
+            SourceUrl = "https://app.todoist.com/app/task/123",
+            PlannedOn = new DateOnly(2026, 5, 22),
+            DeadlineOn = new DateOnly(2026, 5, 23),
+            Notes = "Keep notes",
+            LocalMetadataJson = """{"ack":"yes"}""",
+            Labels = [new LabelItem { Id = "label_focus", Name = "Focus" }],
+        });
+        await store.UpsertTaskExternalLinkAsync(new TaskExternalLinkInfo
+        {
+            Id = "link_issue",
+            TaskId = "task_move",
+            IntegrationId = IntegrationIds.GitHub,
+            ConnectionId = "github_default",
+            ExternalId = "openza/tasks#1",
+            Kind = TaskExternalLinkKinds.Issue,
+            DisplayName = "openza/tasks#1",
+            Url = "https://github.com/openza/tasks/issues/1",
+            CreatedAt = DateTimeOffset.UtcNow,
+        });
+        await store.UpsertProviderSourceItemAsync(new ProviderSourceItem
+        {
+            Id = "source_todoist_1",
+            IntegrationId = IntegrationIds.Todoist,
+            ProviderConnectionId = "todoist_default",
+            ExternalId = "todoist_1",
+            ProviderTaskId = "todoist_1",
+            Title = "Move me",
+            SourceUrl = "https://app.todoist.com/app/task/123",
+            SuggestedSpaceId = SpaceIds.Default,
+            CompletionState = TaskCompletionState.Completed,
+            AdoptionState = ProviderSourceAdoptionStates.Adopted,
+            AdoptedTaskId = "task_move",
+        });
+
+        await store.MoveTaskToSpaceAsync("task_move", "space_target");
+
+        var moved = Assert.Single(await store.GetTasksAsync(new TaskQuery { SpaceId = "space_target", Kind = TaskListKind.All }));
+        Assert.Equal("task_move", moved.Id);
+        Assert.Null(moved.ProjectId);
+        Assert.Equal(TaskItemStatus.Completed, moved.Status);
+        Assert.Equal(IntegrationIds.Todoist, moved.SourceIntegrationId);
+        Assert.Equal("todoist_1", moved.SourceExternalId);
+        Assert.Equal("https://app.todoist.com/app/task/123", moved.SourceUrl);
+        Assert.Equal(new DateOnly(2026, 5, 22), moved.PlannedOn);
+        Assert.Equal(new DateOnly(2026, 5, 23), moved.DeadlineOn);
+        Assert.Equal("Keep notes", moved.Notes);
+        Assert.Equal("""{"ack":"yes"}""", moved.LocalMetadataJson);
+        Assert.Single(moved.Labels, label => label.Id == "label_focus");
+        Assert.Single(await store.GetTaskExternalLinksAsync("task_move"));
+        var source = Assert.Single(await store.GetProviderSourceItemsAsync(IntegrationIds.Todoist, includeAdopted: true));
+        Assert.Equal("task_move", source.AdoptedTaskId);
+        Assert.Equal("space_target", source.SuggestedSpaceId);
+        Assert.Empty(await store.GetTasksAsync(new TaskQuery { SpaceId = SpaceIds.Default, Kind = TaskListKind.All }));
+    }
+
+    [Fact]
+    public async Task MoveTaskToSpace_moves_parent_with_subtask_tree()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        await store.UpsertSpaceAsync(new SpaceItem { Id = "space_target", Name = "Work" });
+        await store.UpsertProjectAsync(new ProjectItem { Id = "project_default", Name = "Default project" });
+        await store.UpsertTaskAsync(new TaskItem
+        {
+            Id = "task_parent",
+            Title = "Parent",
+            ProjectId = "project_default",
+            Status = TaskItemStatus.Next,
+        });
+        await store.UpsertTaskAsync(new TaskItem
+        {
+            Id = "task_child",
+            Title = "Child",
+            ParentId = "task_parent",
+            ProjectId = "project_default",
+            Status = TaskItemStatus.Waiting,
+        });
+        await store.UpsertTaskAsync(new TaskItem
+        {
+            Id = "task_grandchild",
+            Title = "Grandchild",
+            ParentId = "task_child",
+            ProjectId = "project_default",
+            Status = TaskItemStatus.Someday,
+        });
+        await store.UpsertProviderSourceItemAsync(new ProviderSourceItem
+        {
+            Id = "source_grandchild",
+            IntegrationId = IntegrationIds.Todoist,
+            ProviderConnectionId = "todoist_default",
+            ExternalId = "todoist_grandchild",
+            ProviderTaskId = "todoist_grandchild",
+            Title = "Grandchild",
+            SuggestedSpaceId = SpaceIds.Default,
+            AdoptionState = ProviderSourceAdoptionStates.Adopted,
+            AdoptedTaskId = "task_grandchild",
+        });
+
+        await store.MoveTaskToSpaceAsync("task_parent", "space_target");
+
+        var moved = await store.GetTasksAsync(new TaskQuery { SpaceId = "space_target", Kind = TaskListKind.All, IncludeSubtasks = true });
+        var parent = Assert.Single(moved, task => task.Id == "task_parent");
+        var child = Assert.Single(moved, task => task.Id == "task_child");
+        var grandchild = Assert.Single(moved, task => task.Id == "task_grandchild");
+        Assert.Null(parent.ProjectId);
+        Assert.Null(child.ProjectId);
+        Assert.Null(grandchild.ProjectId);
+        Assert.Null(parent.ParentId);
+        Assert.Equal("task_parent", child.ParentId);
+        Assert.Equal("task_child", grandchild.ParentId);
+        Assert.Equal(TaskItemStatus.Next, parent.Status);
+        Assert.Equal(TaskItemStatus.Waiting, child.Status);
+        Assert.Equal(TaskItemStatus.Someday, grandchild.Status);
+        var source = Assert.Single(await store.GetProviderSourceItemsAsync(IntegrationIds.Todoist, includeAdopted: true));
+        Assert.Equal("space_target", source.SuggestedSpaceId);
+    }
+
+    [Fact]
+    public async Task MoveTaskToSpace_clears_parent_when_moving_subtask_alone()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        await store.UpsertSpaceAsync(new SpaceItem { Id = "space_target", Name = "Work" });
+        await store.UpsertTaskAsync(new TaskItem { Id = "task_parent", Title = "Parent" });
+        await store.UpsertTaskAsync(new TaskItem { Id = "task_child", Title = "Child", ParentId = "task_parent" });
+
+        await store.MoveTaskToSpaceAsync("task_child", "space_target");
+
+        var parent = await store.GetTaskAsync("task_parent");
+        var child = await store.GetTaskAsync("task_child");
+        Assert.NotNull(parent);
+        Assert.NotNull(child);
+        Assert.Equal(SpaceIds.Default, parent.SpaceId);
+        Assert.Equal("space_target", child.SpaceId);
+        Assert.Null(child.ParentId);
+    }
+
+    [Fact]
+    public async Task MoveTaskToSpace_rejects_missing_or_archived_space()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        await store.UpsertTaskAsync(new TaskItem { Id = "task_move", Title = "Move me" });
+        await store.UpsertSpaceAsync(new SpaceItem { Id = "space_archived", Name = "Old", IsArchived = true });
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => store.MoveTaskToSpaceAsync("task_move", "space_missing"));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => store.MoveTaskToSpaceAsync("task_move", "space_archived"));
+
+        var task = await store.GetTaskAsync("task_move");
+        Assert.NotNull(task);
+        Assert.Equal(SpaceIds.Default, task.SpaceId);
+    }
+
+    [Fact]
     public async Task UpsertTask_roundtrips_labels_and_filters_today()
     {
         var store = CreateStore();
@@ -600,6 +769,39 @@ public sealed class SqliteTaskStoreTests : IDisposable
         Assert.Equal(source.AdoptedTaskId, task.Id);
         Assert.Equal(TaskWorkflowStatus.Someday, task.WorkflowStatus);
         Assert.Equal("every 6th", task.RecurrenceRule);
+    }
+
+    [Fact]
+    public async Task UpsertProviderSourceItem_auto_add_uses_active_space_when_default_is_hidden()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        await store.UpsertSpaceAsync(new SpaceItem { Id = SpaceIds.Default, Name = "My space", IsArchived = true });
+        await store.UpsertSpaceAsync(new SpaceItem { Id = "space_work", Name = "Work", SortOrder = 1 });
+
+        await store.UpsertProviderSourceItemAsync(new ProviderSourceItem
+        {
+            Id = "source_todoist_visible_space",
+            IntegrationId = IntegrationIds.Todoist,
+            ProviderConnectionId = "todoist_default",
+            ExternalId = "remote_visible_space",
+            ProviderTaskId = "remote_visible_space",
+            Title = "Visible recurring bill",
+            PlannedOn = new DateOnly(2026, 6, 6),
+            RecurrenceRule = "every 6th",
+        });
+
+        var source = Assert.Single(await store.GetProviderSourceItemsAsync(IntegrationIds.Todoist, includeAdopted: true));
+        var workTasks = await store.GetTasksAsync(new TaskQuery { Kind = TaskListKind.All, SpaceId = "space_work" });
+        var defaultTasks = await store.GetTasksAsync(new TaskQuery { Kind = TaskListKind.All, SpaceId = SpaceIds.Default });
+
+        Assert.Equal(ProviderSourceAdoptionStates.Adopted, source.AdoptionState);
+        Assert.Null(source.SuggestedSpaceId);
+        Assert.Empty(defaultTasks);
+        var task = Assert.Single(workTasks);
+        Assert.Equal(source.AdoptedTaskId, task.Id);
+        Assert.Equal("space_work", task.SpaceId);
+        Assert.Equal(TaskWorkflowStatus.Someday, task.WorkflowStatus);
     }
 
     [Fact]
