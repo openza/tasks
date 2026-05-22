@@ -18,6 +18,9 @@ public interface ITaskStore
     Task<IReadOnlyList<IntegrationInfo>> GetIntegrationsAsync(CancellationToken cancellationToken = default);
     Task<IReadOnlyList<ProviderConnectionInfo>> GetProviderConnectionsAsync(CancellationToken cancellationToken = default);
     Task UpsertProviderConnectionAsync(ProviderConnectionInfo connection, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<TaskExternalLinkInfo>> GetTaskExternalLinksAsync(string taskId, CancellationToken cancellationToken = default);
+    Task UpsertTaskExternalLinkAsync(TaskExternalLinkInfo link, CancellationToken cancellationToken = default);
+    Task DeleteTaskExternalLinkAsync(string id, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<ProviderSourceItem>> GetProviderSourceItemsAsync(string? integrationId = null, string? spaceId = null, bool includeAdopted = false, bool includeIgnored = false, CancellationToken cancellationToken = default);
     Task UpsertProviderSourceItemAsync(ProviderSourceItem item, CancellationToken cancellationToken = default);
     Task DetachProviderSourceItemAsync(string sourceItemId, CancellationToken cancellationToken = default);

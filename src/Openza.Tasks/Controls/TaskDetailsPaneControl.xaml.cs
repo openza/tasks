@@ -40,11 +40,13 @@ public sealed partial class TaskDetailsPaneControl : UserControl
     private bool _showAllSubtasks;
     private bool _syncingCalendarSelection;
     private string? _sourceDateMismatchAcknowledgementKey;
+    private TaskExternalLinkInfo? _gitHubIssueLink;
 
     public event RoutedEventHandler? AutoSaveRequested;
     public event RoutedEventHandler? ToggleCompleteClicked;
     public event RoutedEventHandler? SubtaskToggleCompleteClicked;
     public event TypedEventHandler<TaskDetailsPaneControl, string>? CreateProjectRequested;
+    public event RoutedEventHandler? ManageGitHubIssueRequested;
     public event RoutedEventHandler? DeleteTaskClicked;
     public event RoutedEventHandler? CancelEditClicked;
 
@@ -94,6 +96,8 @@ public sealed partial class TaskDetailsPaneControl : UserControl
     public string Snapshot => CurrentSnapshot();
 
     public bool HasUnsavedChanges => !_loading && CurrentSnapshot() != _originalSnapshot;
+
+    public TaskExternalLinkInfo? GitHubIssueLink => _gitHubIssueLink;
 
     public void SetProjects(IEnumerable<ProjectItem> projects)
     {
@@ -150,6 +154,12 @@ public sealed partial class TaskDetailsPaneControl : UserControl
         ResetScrollPosition();
     }
 
+    public void SetGitHubLink(TaskExternalLinkInfo? link, bool isConnected)
+    {
+        _gitHubIssueLink = link;
+        GitHubActionMenuItem.Text = "GitHub issue...";
+    }
+
     public void ClearForNewTask(ProjectItem? defaultProject, int defaultPriority, TaskItemStatus defaultStatus = TaskItemStatus.Inbox)
     {
         _loading = true;
@@ -174,6 +184,7 @@ public sealed partial class TaskDetailsPaneControl : UserControl
         CompleteButton.IsEnabled = false;
         CompleteButton.Content = "Complete";
         DeleteButton.IsEnabled = false;
+        SetGitHubLink(null, false);
         _originalSnapshot = CurrentSnapshot();
         SetAutoSaveState(null);
         _loading = false;
@@ -242,6 +253,8 @@ public sealed partial class TaskDetailsPaneControl : UserControl
         _autoSaveStateTimer.Stop();
         SetAutoSaveState(null);
     }
+
+    private void OnGitHubPrimaryClicked(object sender, RoutedEventArgs e) => ManageGitHubIssueRequested?.Invoke(this, e);
 
     private void SetProviderFieldEditability(bool canEditProviderContent)
     {

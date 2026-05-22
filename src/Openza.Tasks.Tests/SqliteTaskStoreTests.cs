@@ -21,10 +21,12 @@ public sealed class SqliteTaskStoreTests : IDisposable
         Assert.Empty(projects);
         Assert.Contains(integrations, i => i.Id == IntegrationIds.Todoist);
         Assert.Contains(integrations, i => i.Id == IntegrationIds.MicrosoftToDo);
+        Assert.Contains(integrations, i => i.Id == IntegrationIds.GitHub);
         Assert.DoesNotContain(integrations, i => i.Id == IntegrationIds.Obsidian);
         Assert.Contains(connections, c => c.Id == "local_default" && c.Status == "connected");
         Assert.Contains(connections, c => c.Id == "todoist_default" && c.Status == "disconnected");
         Assert.Contains(connections, c => c.Id == "mstodo_default" && c.Status == "disconnected");
+        Assert.Contains(connections, c => c.Id == "github_default" && c.Status == "disconnected");
     }
 
     [Fact]
@@ -41,15 +43,80 @@ public sealed class SqliteTaskStoreTests : IDisposable
         }.ToString());
         await connection.OpenAsync();
 
-        Assert.Equal(3L, await ExecuteScalarAsync(connection, "PRAGMA user_version"));
+        Assert.Equal(4L, await ExecuteScalarAsync(connection, "PRAGMA user_version"));
         Assert.Equal(1L, await ExecuteScalarAsync(connection, "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'provider_connections'"));
         Assert.Equal(1L, await ExecuteScalarAsync(connection, "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'provider_source_items'"));
         Assert.Equal(1L, await ExecuteScalarAsync(connection, "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'sync_routes'"));
         Assert.Equal(1L, await ExecuteScalarAsync(connection, "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'sync_field_state'"));
         Assert.Equal(1L, await ExecuteScalarAsync(connection, "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'sync_operations'"));
+        Assert.Equal(1L, await ExecuteScalarAsync(connection, "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'task_external_links'"));
         Assert.Equal(1L, await ExecuteScalarAsync(connection, "SELECT COUNT(*) FROM pragma_table_info('tasks') WHERE name = 'source_description'"));
         Assert.Equal("'none'", await ExecuteScalarTextAsync(connection, "SELECT dflt_value FROM pragma_table_info('tasks') WHERE name = 'workflow_status'"));
         Assert.Equal("'active'", await ExecuteScalarTextAsync(connection, "SELECT dflt_value FROM pragma_table_info('projects') WHERE name = 'status'"));
+    }
+
+    [Fact]
+    public async Task Task_external_links_roundtrip_without_changing_task_state()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        await store.UpsertTaskAsync(new TaskItem
+        {
+            Id = "task_linked",
+            Title = "Publish issue",
+            Status = TaskItemStatus.Next,
+        });
+
+        await store.UpsertTaskExternalLinkAsync(new TaskExternalLinkInfo
+        {
+            Id = "link_1",
+            TaskId = "task_linked",
+            IntegrationId = IntegrationIds.GitHub,
+            ConnectionId = "github_default",
+            ExternalId = "openza/tasks#123",
+            Kind = TaskExternalLinkKinds.Issue,
+            DisplayName = "openza/tasks#123",
+            Url = "https://github.com/openza/tasks/issues/123",
+            MetadataJson = """{"number":123}""",
+            CreatedAt = DateTimeOffset.UtcNow,
+        });
+
+        var links = await store.GetTaskExternalLinksAsync("task_linked");
+        var task = await store.GetTaskAsync("task_linked");
+
+        var link = Assert.Single(links);
+        Assert.Equal(IntegrationIds.GitHub, link.IntegrationId);
+        Assert.Equal("openza/tasks#123", link.DisplayName);
+        Assert.Equal(TaskItemStatus.Next, task?.Status);
+        Assert.True(task?.IsOpen);
+    }
+
+    [Fact]
+    public async Task DeleteTaskExternalLink_removes_stored_link()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        await store.UpsertTaskAsync(new TaskItem
+        {
+            Id = "task_link_delete",
+            Title = "Remove issue link",
+        });
+        await store.UpsertTaskExternalLinkAsync(new TaskExternalLinkInfo
+        {
+            Id = "link_delete",
+            TaskId = "task_link_delete",
+            IntegrationId = IntegrationIds.GitHub,
+            ConnectionId = "github_default",
+            ExternalId = "openza/tasks#124",
+            Kind = TaskExternalLinkKinds.Issue,
+            DisplayName = "openza/tasks#124",
+            Url = "https://github.com/openza/tasks/issues/124",
+            CreatedAt = DateTimeOffset.UtcNow,
+        });
+
+        await store.DeleteTaskExternalLinkAsync("link_delete");
+
+        Assert.Empty(await store.GetTaskExternalLinksAsync("task_link_delete"));
     }
 
     [Fact]

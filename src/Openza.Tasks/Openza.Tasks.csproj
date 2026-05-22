@@ -30,6 +30,8 @@
     <MicrosoftGraphClientId Condition="'$(MicrosoftGraphClientId)' == ''">1ee7c73f-5894-4167-8a99-3ee8b2666b8c</MicrosoftGraphClientId>
     <MicrosoftGraphTenantId Condition="'$(MicrosoftGraphTenantId)' == '' and '$(MicrosoftToDoTenantId)' != ''">$(MicrosoftToDoTenantId)</MicrosoftGraphTenantId>
     <MicrosoftGraphTenantId Condition="'$(MicrosoftGraphTenantId)' == ''">common</MicrosoftGraphTenantId>
+    <GitHubClientId Condition="'$(GitHubClientId)' == '' and '$(OpenzaTasksGitHubClientId)' != ''">$(OpenzaTasksGitHubClientId)</GitHubClientId>
+    <GitHubClientId Condition="'$(GitHubClientId)' == ''">Ov23liA6rFJwuT18Zv3m</GitHubClientId>
     <LocalPackageSigningEnabled Condition="'$(LocalPackageSigningEnabled)' == ''">false</LocalPackageSigningEnabled>
     <AppxPackageSigningEnabled Condition="'$(LocalPackageSigningEnabled)' == 'true' and Exists('$(LocalPackageCertificateKeyFile)')">true</AppxPackageSigningEnabled>
     <AppxPackageSigningEnabled Condition="'$(LocalPackageSigningEnabled)' != 'true' or !Exists('$(LocalPackageCertificateKeyFile)')">false</AppxPackageSigningEnabled>
@@ -53,6 +55,13 @@
     <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
       <_Parameter1>MicrosoftGraphTenantId</_Parameter1>
       <_Parameter2>$(MicrosoftGraphTenantId)</_Parameter2>
+    </AssemblyAttribute>
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(GitHubClientId)' != ''">
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>GitHubClientId</_Parameter1>
+      <_Parameter2>$(GitHubClientId)</_Parameter2>
     </AssemblyAttribute>
   </ItemGroup>
 

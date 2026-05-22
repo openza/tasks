@@ -53,6 +53,7 @@ public sealed partial class TasksPage : UserControl
     public event RoutedEventHandler? DetailsToggleCompleteClicked;
     public event RoutedEventHandler? DetailsSubtaskToggleCompleteClicked;
     public event TypedEventHandler<TasksPage, string>? DetailsCreateProjectRequested;
+    public event RoutedEventHandler? DetailsManageGitHubIssueRequested;
     public event RoutedEventHandler? DetailsDeleteTaskClicked;
     public event RoutedEventHandler? DetailsCancelEditClicked;
     public event RoutedEventHandler? QuickAddClicked;
@@ -878,6 +879,8 @@ public sealed partial class TasksPage : UserControl
     private void OnDetailsSubtaskToggleCompleteClicked(object sender, RoutedEventArgs e) => DetailsSubtaskToggleCompleteClicked?.Invoke(sender, e);
 
     private void OnDetailsCreateProjectRequested(TaskDetailsPaneControl sender, string name) => DetailsCreateProjectRequested?.Invoke(this, name);
+
+    private void OnDetailsManageGitHubIssueRequested(object sender, RoutedEventArgs e) => DetailsManageGitHubIssueRequested?.Invoke(sender, e);
 
     private void OnDetailsDeleteTaskClicked(object sender, RoutedEventArgs e) => DetailsDeleteTaskClicked?.Invoke(sender, e);
 

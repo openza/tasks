@@ -401,8 +401,8 @@ public sealed partial class AppShell
         SetBadge(TodayBadge, counts.Today);
         SetBadge(CalendarBadge, counts.Calendar);
         SetBadge(OverdueBadge, counts.Overdue);
-        HideBadge(TasksBadge);
-        HideBadge(CompletedBadge);
+        SetBadge(TasksBadge, counts.All);
+        SetBadge(CompletedBadge, counts.Completed);
     }
 
     private static void SetBadge(InfoBadge badge, int count)

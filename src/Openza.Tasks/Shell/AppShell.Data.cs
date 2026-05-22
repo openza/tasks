@@ -5,8 +5,10 @@ using Openza.Tasks.Core.Models;
 using Openza.Tasks.Core.Services;
 using Openza.Tasks.Core.Sync;
 using Openza.Tasks.Services;
+using Windows.ApplicationModel.DataTransfer;
 using Windows.Storage;
 using Windows.Storage.Pickers;
+using Windows.System;
 using WinRT.Interop;
 
 namespace Openza.Tasks.Shell;
@@ -248,6 +250,138 @@ public sealed partial class AppShell
         await _settings.SaveAsync().ConfigureAwait(true);
         await RefreshSettingsStateAsync().ConfigureAwait(true);
         ShowInfo("Microsoft To Do disconnected", "Existing synced tasks stay in your local database.", InfoBarSeverity.Informational);
+    }
+
+    private async void OnSignInGitHubClicked(object sender, RoutedEventArgs e)
+    {
+        var clientId = _gitHubIssueService.ResolveClientId();
+        if (string.IsNullOrWhiteSpace(clientId))
+        {
+            ShowInfo("GitHub sign-in unavailable", "GitHub app sign-in is not configured. Paste a GitHub token instead.", InfoBarSeverity.Warning);
+            return;
+        }
+
+        try
+        {
+            var deviceCode = await _gitHubIssueService.RequestDeviceCodeAsync(clientId).ConfigureAwait(true);
+            await Launcher.LaunchUriAsync(new Uri(deviceCode.VerificationUri));
+            var copyButton = new Button
+            {
+                Content = "Copy code",
+                HorizontalAlignment = HorizontalAlignment.Center,
+            };
+            copyButton.Click += (_, _) =>
+            {
+                var package = new DataPackage();
+                package.SetText(deviceCode.UserCode);
+                Clipboard.SetContent(package);
+                ShowInfo("GitHub code copied", deviceCode.UserCode, InfoBarSeverity.Success);
+            };
+            var dialog = new ContentDialog
+            {
+                XamlRoot = XamlRoot,
+                Title = "Sign in to GitHub",
+                Content = new StackPanel
+                {
+                    Spacing = 12,
+                    Children =
+                    {
+                        new TextBlock
+                        {
+                            Text = "GitHub opened in your browser. Enter this code there, approve Openza Tasks, then come back here.",
+                            TextWrapping = TextWrapping.Wrap,
+                        },
+                        new TextBlock
+                        {
+                            Text = deviceCode.UserCode,
+                            Style = (Style)Application.Current.Resources["TitleTextBlockStyle"],
+                            TextAlignment = TextAlignment.Center,
+                        },
+                        copyButton,
+                    },
+                },
+                PrimaryButtonText = "I approved",
+                CloseButtonText = "Cancel",
+                DefaultButton = ContentDialogButton.Primary,
+            };
+
+            if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+            {
+                return;
+            }
+
+            var token = await _gitHubIssueService.PollForDeviceTokenAsync(clientId, deviceCode).ConfigureAwait(true);
+            await SaveGitHubTokenAsync(token).ConfigureAwait(true);
+        }
+        catch (Exception exception)
+        {
+            ShowInfo("GitHub sign-in failed", exception.Message, InfoBarSeverity.Error);
+        }
+    }
+
+    private async void OnConnectGitHubClicked(object sender, RoutedEventArgs e)
+    {
+        if (string.IsNullOrWhiteSpace(SettingsPage.GitHubToken))
+        {
+            ShowInfo("GitHub token required", "Paste a GitHub token that can create issues.", InfoBarSeverity.Warning);
+            return;
+        }
+
+        try
+        {
+            await SaveGitHubTokenAsync(SettingsPage.GitHubToken).ConfigureAwait(true);
+        }
+        catch (Exception exception)
+        {
+            ShowInfo("GitHub connection failed", exception.Message, InfoBarSeverity.Error);
+        }
+    }
+
+    private async Task SaveGitHubTokenAsync(string token)
+    {
+        var validation = await _gitHubIssueService.ValidateTokenAsync(token).ConfigureAwait(true);
+        if (!validation.Success)
+        {
+            throw new InvalidOperationException(validation.Error ?? "GitHub could not validate this token.");
+        }
+
+        await _credentials.SaveAsync(GitHubIssueService.TokenKey, token).ConfigureAwait(true);
+        var settings = new GitHubConnectionSettings
+        {
+            Username = validation.Username ?? string.Empty,
+            ConnectedAt = DateTimeOffset.UtcNow,
+            LastStatus = "Connected",
+        };
+        await _store.UpsertProviderConnectionAsync(new ProviderConnectionInfo
+        {
+            Id = GitHubIssueService.DefaultConnectionId,
+            IntegrationId = IntegrationIds.GitHub,
+            DisplayName = "GitHub",
+            AccountKey = validation.Username,
+            Status = "connected",
+            SettingsJson = GitHubIssueService.WriteSettings(settings),
+            UpdatedAt = DateTimeOffset.UtcNow,
+        }).ConfigureAwait(true);
+        await _store.SetIntegrationConfiguredAsync(IntegrationIds.GitHub, true).ConfigureAwait(true);
+        SettingsPage.ClearGitHubToken();
+        await RefreshSettingsStateAsync().ConfigureAwait(true);
+        ShowInfo("GitHub connected", string.IsNullOrWhiteSpace(validation.Username) ? "You can create GitHub issues from tasks." : $"{validation.Username} connected.", InfoBarSeverity.Success);
+    }
+
+    private async void OnDisconnectGitHubClicked(object sender, RoutedEventArgs e)
+    {
+        await _credentials.RemoveAsync(GitHubIssueService.TokenKey).ConfigureAwait(true);
+        await _store.UpsertProviderConnectionAsync(new ProviderConnectionInfo
+        {
+            Id = GitHubIssueService.DefaultConnectionId,
+            IntegrationId = IntegrationIds.GitHub,
+            DisplayName = "GitHub",
+            Status = "disconnected",
+            UpdatedAt = DateTimeOffset.UtcNow,
+        }).ConfigureAwait(true);
+        await _store.SetIntegrationConfiguredAsync(IntegrationIds.GitHub, false).ConfigureAwait(true);
+        await RefreshSettingsStateAsync().ConfigureAwait(true);
+        ShowInfo("GitHub disconnected", "Existing GitHub issue links stay on your tasks.", InfoBarSeverity.Informational);
     }
 
     private async void OnCreateBackupClicked(object sender, RoutedEventArgs e)
@@ -1006,7 +1140,18 @@ public sealed partial class AppShell
     {
         var todoistConnected = !string.IsNullOrWhiteSpace(await _credentials.GetAsync(TodoistTokenKey).ConfigureAwait(true));
         var microsoftConnected = _settings.Settings.MicrosoftToDoAccount.IsConnected;
-        SettingsPage.SetProviderStatus(todoistConnected, _settings.Settings.MicrosoftToDoAccount.Username);
+        var githubToken = await _credentials.GetAsync(GitHubIssueService.TokenKey).ConfigureAwait(true);
+        var githubConnection = (await _store.GetProviderConnectionsAsync().ConfigureAwait(true))
+            .FirstOrDefault(connection => connection.IntegrationId == IntegrationIds.GitHub);
+        var githubSettings = GitHubIssueService.ReadSettings(githubConnection?.SettingsJson);
+        var githubConnected = !string.IsNullOrWhiteSpace(githubToken) &&
+            string.Equals(githubConnection?.Status, "connected", StringComparison.OrdinalIgnoreCase);
+        SettingsPage.SetProviderStatus(
+            todoistConnected,
+            _settings.Settings.MicrosoftToDoAccount.Username,
+            githubConnected,
+            githubSettings.Username,
+            githubSettings.DefaultRepositoryFullName);
         SyncPage.SetProviderStatus(todoistConnected, microsoftConnected);
         await RefreshTodoistRulesAsync().ConfigureAwait(true);
         await RefreshBackupListAsync().ConfigureAwait(true);

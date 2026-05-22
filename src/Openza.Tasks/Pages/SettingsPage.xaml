@@ -247,6 +247,67 @@
                             </toolkit:SettingsCard>
                         </toolkit:SettingsExpander.Items>
                     </toolkit:SettingsExpander>
+
+                    <toolkit:SettingsExpander Header="GitHub" Description="Create GitHub issues from Openza tasks.">
+                        <toolkit:SettingsExpander.HeaderIcon>
+                            <FontIcon Glyph="&#xE943;" />
+                        </toolkit:SettingsExpander.HeaderIcon>
+                        <Border
+                            MinWidth="112"
+                            Padding="12,5"
+                            CornerRadius="14"
+                            Background="{ThemeResource OpenzaChipBackgroundBrush}">
+                            <TextBlock
+                                x:Name="GitHubStatusText"
+                                Text="Not connected"
+                                Style="{StaticResource OpenzaCaptionTextBlockStyle}"
+                                TextAlignment="Center" />
+                        </Border>
+                        <toolkit:SettingsExpander.Items>
+                            <toolkit:SettingsCard Header="GitHub account" Description="Sign in to create issues in repositories you can access.">
+                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                                    <TextBlock
+                                        Text="Recommended. Opens GitHub in your browser and stores the approved token securely in Windows."
+                                        Style="{StaticResource OpenzaMetadataTextBlockStyle}"
+                                        TextWrapping="Wrap" />
+                                    <Button
+                                        x:Name="GitHubSignInButton"
+                                        Grid.Column="1"
+                                        Content="Sign in with GitHub"
+                                        Style="{StaticResource OpenzaAccentButtonStyle}"
+                                        Click="OnSignInGitHubClicked" />
+                                </Grid>
+                            </toolkit:SettingsCard>
+                            <toolkit:SettingsCard Header="Token fallback" Description="Use only when browser sign-in is unavailable.">
+                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                                    <PasswordBox
+                                        x:Name="GitHubTokenBox"
+                                        MinWidth="260"
+                                        PlaceholderText="Paste GitHub token"
+                                        AutomationProperties.Name="GitHub token" />
+                                    <Button
+                                        x:Name="GitHubConnectButton"
+                                        Grid.Column="1"
+                                        Content="Use token"
+                                        Click="OnConnectGitHubClicked" />
+                                </Grid>
+                            </toolkit:SettingsCard>
+                            <toolkit:SettingsCard Header="Status" Description="Openza can publish tasks as GitHub issues. It does not sync issue status in V1.">
+                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                                    <TextBlock
+                                        x:Name="GitHubSummaryText"
+                                        Text="Connect GitHub to create issues from tasks."
+                                        Style="{StaticResource OpenzaMetadataTextBlockStyle}"
+                                        TextWrapping="Wrap" />
+                                    <Button
+                                        x:Name="GitHubDisconnectButton"
+                                        Grid.Column="1"
+                                        Content="Disconnect"
+                                        Click="OnDisconnectGitHubClicked" />
+                                </Grid>
+                            </toolkit:SettingsCard>
+                        </toolkit:SettingsExpander.Items>
+                    </toolkit:SettingsExpander>
                 </StackPanel>
 
                 <TextBlock Style="{StaticResource SettingsSectionHeaderTextBlockStyle}" Text="Spaces" />

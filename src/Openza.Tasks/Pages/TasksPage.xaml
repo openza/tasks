@@ -420,6 +420,7 @@
                 ToggleCompleteClicked="OnDetailsToggleCompleteClicked"
                 SubtaskToggleCompleteClicked="OnDetailsSubtaskToggleCompleteClicked"
                 CreateProjectRequested="OnDetailsCreateProjectRequested"
+                ManageGitHubIssueRequested="OnDetailsManageGitHubIssueRequested"
                 DeleteTaskClicked="OnDetailsDeleteTaskClicked"
                 CancelEditClicked="OnDetailsCancelEditClicked" />
         </Border>

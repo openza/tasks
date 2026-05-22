@@ -1,12 +1,17 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using System.Collections.ObjectModel;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using Openza.Tasks.Controls;
 using Openza.Tasks.Core.Data;
 using Openza.Tasks.Core.Models;
+using Openza.Tasks.Core.Services;
 using Openza.Tasks.Pages;
+using Openza.Tasks.Services;
 using Openza.Tasks.ViewModels;
+using Windows.System;
 
 namespace Openza.Tasks.Shell;
 
@@ -250,8 +255,487 @@ public sealed partial class AppShell
             })
             .ToList();
         TasksPage.DetailsPanel.LoadTask(task, GetProject(task.ProjectId), childItems);
+        var links = await _store.GetTaskExternalLinksAsync(task.Id).ConfigureAwait(true);
+        var githubIssue = links.FirstOrDefault(link =>
+            link.IntegrationId == IntegrationIds.GitHub &&
+            string.Equals(link.Kind, TaskExternalLinkKinds.Issue, StringComparison.Ordinal));
+        TasksPage.DetailsPanel.SetGitHubLink(githubIssue, await IsGitHubConnectedAsync().ConfigureAwait(true));
         TasksPage.SelectTask(task.Id);
         TasksPage.ShowDetailsPane();
+    }
+
+    private async Task<bool> IsGitHubConnectedAsync() =>
+        !string.IsNullOrWhiteSpace(await _credentials.GetAsync(GitHubIssueService.TokenKey).ConfigureAwait(true));
+
+    private async void OnDetailsManageGitHubIssueRequested(object sender, RoutedEventArgs e)
+    {
+        if (string.IsNullOrWhiteSpace(_selectedTaskId))
+        {
+            return;
+        }
+
+        if (!await SavePendingTaskDetailsAsync().ConfigureAwait(true))
+        {
+            return;
+        }
+
+        var task = await _store.GetTaskAsync(_selectedTaskId).ConfigureAwait(true);
+        if (task is null)
+        {
+            return;
+        }
+
+        var link = (await _store.GetTaskExternalLinksAsync(task.Id).ConfigureAwait(true))
+            .FirstOrDefault(item => item.IntegrationId == IntegrationIds.GitHub && item.Kind == TaskExternalLinkKinds.Issue);
+        if (link is null)
+        {
+            await CreateGitHubIssueForTaskAsync(task).ConfigureAwait(true);
+            return;
+        }
+
+        var status = await CheckGitHubIssueStatusAsync(link).ConfigureAwait(true);
+        await ShowManageGitHubIssueDialogAsync(task, link, status).ConfigureAwait(true);
+    }
+
+    private async Task<GitHubIssueStatusResult?> CheckGitHubIssueStatusAsync(TaskExternalLinkInfo link)
+    {
+        var token = await _credentials.GetAsync(GitHubIssueService.TokenKey).ConfigureAwait(true);
+        if (string.IsNullOrWhiteSpace(token) || !TryParseGitHubIssueExternalId(link.ExternalId, out var owner, out var repository, out var number))
+        {
+            return null;
+        }
+
+        try
+        {
+            var status = await _gitHubIssueService.GetIssueStatusAsync(token, owner, repository, number).ConfigureAwait(true);
+            if (!string.IsNullOrWhiteSpace(status.Error))
+            {
+                ShowInfo("GitHub issue not checked", status.Error, InfoBarSeverity.Warning);
+            }
+
+            return status;
+        }
+        catch (Exception exception)
+        {
+            ShowInfo("GitHub issue not checked", exception.Message, InfoBarSeverity.Warning);
+            return null;
+        }
+    }
+
+    private async Task ShowManageGitHubIssueDialogAsync(TaskItem task, TaskExternalLinkInfo link, GitHubIssueStatusResult? status)
+    {
+        var issueUnavailable = status?.Unavailable == true;
+        var removeButton = new Button
+        {
+            Content = "Remove link",
+            HorizontalAlignment = HorizontalAlignment.Left,
+        };
+        ContentDialog? dialog = null;
+        removeButton.Click += async (_, _) =>
+        {
+            await _store.DeleteTaskExternalLinkAsync(link.Id).ConfigureAwait(true);
+            TasksPage.DetailsPanel.SetGitHubLink(null, await IsGitHubConnectedAsync().ConfigureAwait(true));
+            ShowInfo("GitHub link removed", link.DisplayName, InfoBarSeverity.Informational);
+            dialog?.Hide();
+        };
+        var panel = new StackPanel
+        {
+            Spacing = 12,
+            Width = 500,
+            Children =
+            {
+                new TextBlock
+                {
+                    Text = issueUnavailable
+                        ? "Openza cannot access this GitHub issue. It may be deleted, private, or no longer authorized."
+                        : "This task is linked to a GitHub issue.",
+                    TextWrapping = TextWrapping.Wrap,
+                },
+                new Border
+                {
+                    Padding = new Thickness(12),
+                    CornerRadius = new CornerRadius(6),
+                    BorderBrush = (Brush)Application.Current.Resources["OpenzaBorderBrush"],
+                    BorderThickness = new Thickness(1),
+                    Child = new StackPanel
+                    {
+                        Spacing = 4,
+                        Children =
+                        {
+                            new TextBlock { Text = link.DisplayName, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold },
+                            new TextBlock
+                            {
+                                Text = link.Url,
+                                Style = (Style)Application.Current.Resources["OpenzaCaptionTextBlockStyle"],
+                                TextWrapping = TextWrapping.Wrap,
+                            },
+                        },
+                    },
+                },
+                removeButton,
+            },
+        };
+
+        dialog = new ContentDialog
+        {
+            XamlRoot = XamlRoot,
+            Title = "GitHub issue",
+            PrimaryButtonText = issueUnavailable ? "Create issue" : "Open issue",
+            SecondaryButtonText = issueUnavailable ? string.Empty : "Replace link",
+            CloseButtonText = "Done",
+            DefaultButton = ContentDialogButton.Primary,
+            Content = panel,
+        };
+
+        var result = await dialog.ShowAsync();
+        if (result == ContentDialogResult.Primary)
+        {
+            if (issueUnavailable)
+            {
+                await CreateGitHubIssueForTaskAsync(task, replaceExistingLink: link).ConfigureAwait(true);
+                return;
+            }
+
+            if (Uri.TryCreate(link.Url, UriKind.Absolute, out var uri))
+            {
+                await Launcher.LaunchUriAsync(uri);
+            }
+
+            return;
+        }
+
+        if (result == ContentDialogResult.Secondary)
+        {
+            await CreateGitHubIssueForTaskAsync(task, replaceExistingLink: link).ConfigureAwait(true);
+        }
+    }
+
+    private async Task CreateGitHubIssueForTaskAsync(TaskItem task, TaskExternalLinkInfo? replaceExistingLink = null)
+    {
+        var token = await _credentials.GetAsync(GitHubIssueService.TokenKey).ConfigureAwait(true);
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            SelectNavigation("settings");
+            ShowInfo("Connect GitHub", "Connect GitHub in Settings before creating an issue.", InfoBarSeverity.Warning);
+            return;
+        }
+
+        try
+        {
+            var project = GetProject(task.ProjectId);
+            var request = await ShowCreateGitHubIssueDialogAsync(token, task, project).ConfigureAwait(true);
+            if (request is null)
+            {
+                return;
+            }
+
+            var result = await _gitHubIssueService.CreateIssueAsync(token, request).ConfigureAwait(true);
+            if (replaceExistingLink is not null)
+            {
+                await _store.DeleteTaskExternalLinkAsync(replaceExistingLink.Id).ConfigureAwait(true);
+            }
+
+            var metadata = JsonSerializer.Serialize(new
+            {
+                result.Owner,
+                Repository = result.Repository,
+                result.Number,
+                result.State,
+                result.Labels,
+                result.Assignees,
+            });
+            var link = new TaskExternalLinkInfo
+            {
+                Id = $"github_{Guid.NewGuid():N}",
+                TaskId = task.Id,
+                IntegrationId = IntegrationIds.GitHub,
+                ConnectionId = GitHubIssueService.DefaultConnectionId,
+                ExternalId = result.ExternalId,
+                Kind = TaskExternalLinkKinds.Issue,
+                DisplayName = result.DisplayName,
+                Url = result.Url,
+                MetadataJson = metadata,
+                CreatedAt = DateTimeOffset.UtcNow,
+                UpdatedAt = DateTimeOffset.UtcNow,
+            };
+            await _store.UpsertTaskExternalLinkAsync(link).ConfigureAwait(true);
+            await SaveGitHubDefaultRepositoryAsync($"{request.Owner}/{request.Repository}").ConfigureAwait(true);
+            TasksPage.DetailsPanel.SetGitHubLink(link, true);
+            ShowInfo("GitHub issue created", $"{result.DisplayName} is linked to this task.", InfoBarSeverity.Success);
+        }
+        catch (Exception exception)
+        {
+            ShowInfo("GitHub issue failed", exception.Message, InfoBarSeverity.Error);
+        }
+    }
+
+    private async Task<GitHubIssueCreateRequest?> ShowCreateGitHubIssueDialogAsync(string token, TaskItem task, ProjectItem? project)
+    {
+        var connections = await _store.GetProviderConnectionsAsync().ConfigureAwait(true);
+        var settings = GitHubIssueService.ReadSettings(connections.FirstOrDefault(connection => connection.IntegrationId == IntegrationIds.GitHub)?.SettingsJson);
+        var repositories = new List<GitHubRepositoryInfo>();
+        var repositorySuggestions = new ObservableCollection<string>();
+
+        var repositoryBox = new AutoSuggestBox
+        {
+            Header = "Repository",
+            PlaceholderText = "Search repositories",
+            QueryIcon = new SymbolIcon(Symbol.Find),
+            ItemsSource = repositorySuggestions,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+        var repositoryStatusText = new TextBlock
+        {
+            Text = "Loading repositories from your GitHub account.",
+            Style = (Style)Application.Current.Resources["OpenzaCaptionTextBlockStyle"],
+            TextWrapping = TextWrapping.Wrap,
+        };
+        GitHubRepositoryInfo? selectedRepository = null;
+
+        void RefreshRepositorySuggestions(IEnumerable<GitHubRepositoryInfo> source)
+        {
+            repositorySuggestions.Clear();
+            foreach (var repository in source.Select(repository => repository.FullName).Take(50))
+            {
+                repositorySuggestions.Add(repository);
+            }
+        }
+
+        async Task SearchRepositoriesAsync()
+        {
+            var text = repositoryBox.Text.Trim();
+            var localMatches = FilterRepositories(repositories, text);
+            RefreshRepositorySuggestions(localMatches);
+        }
+
+        repositoryBox.TextChanged += async (_, args) =>
+        {
+            if (args.Reason == AutoSuggestionBoxTextChangeReason.UserInput)
+            {
+                await SearchRepositoriesAsync().ConfigureAwait(true);
+            }
+        };
+        repositoryBox.SuggestionChosen += (_, args) =>
+        {
+            if (args.SelectedItem is string fullName &&
+                repositories.FirstOrDefault(repository => string.Equals(repository.FullName, fullName, StringComparison.OrdinalIgnoreCase)) is { } repository)
+            {
+                selectedRepository = repository;
+                repositoryBox.Text = repository.FullName;
+            }
+        };
+        repositoryBox.QuerySubmitted += (_, args) =>
+        {
+            selectedRepository = (args.ChosenSuggestion is string fullName
+                    ? repositories.FirstOrDefault(repository => string.Equals(repository.FullName, fullName, StringComparison.OrdinalIgnoreCase))
+                    : null)
+                ?? repositories.FirstOrDefault(repository => string.Equals(repository.FullName, repositoryBox.Text.Trim(), StringComparison.OrdinalIgnoreCase))
+                ?? selectedRepository;
+            if (selectedRepository is not null)
+            {
+                repositoryBox.Text = selectedRepository.FullName;
+            }
+        };
+        var titleBox = new TextBox
+        {
+            Header = "Issue title",
+            Text = task.Title,
+            AcceptsReturn = true,
+            MinHeight = 72,
+            MaxHeight = 120,
+            TextWrapping = TextWrapping.Wrap,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+        var bodyBox = new TextBox
+        {
+            Header = "Description",
+            Text = GitHubIssueService.BuildIssueBody(task, project),
+            AcceptsReturn = true,
+            MinHeight = 180,
+            TextWrapping = TextWrapping.Wrap,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+        var labelBox = new ComboBox
+        {
+            Header = "Label",
+            PlaceholderText = "No label",
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+
+        async Task LoadLabelsAsync()
+        {
+            labelBox.ItemsSource = null;
+            labelBox.SelectedItem = null;
+            if (selectedRepository is null)
+            {
+                labelBox.ItemsSource = new[] { "No label" };
+                labelBox.SelectedIndex = 0;
+                return;
+            }
+
+            var labels = await _gitHubIssueService.GetLabelsAsync(token, selectedRepository.Owner, selectedRepository.Name).ConfigureAwait(true);
+            labelBox.ItemsSource = labels.Select(label => label.Name).Prepend("No label").ToList();
+            labelBox.SelectedIndex = 0;
+        }
+
+        repositoryBox.QuerySubmitted += async (_, _) =>
+        {
+            try
+            {
+                await LoadLabelsAsync().ConfigureAwait(true);
+            }
+            catch (Exception exception)
+            {
+                AppLog.Write(exception);
+            }
+        };
+        await LoadLabelsAsync().ConfigureAwait(true);
+
+        var panel = new StackPanel
+        {
+            Spacing = 12,
+            Width = 560,
+            Children =
+            {
+                new TextBlock
+                {
+                    Text = "Create a GitHub issue and keep this Openza task open.",
+                    TextWrapping = TextWrapping.Wrap,
+                },
+                repositoryBox,
+                repositoryStatusText,
+                titleBox,
+                bodyBox,
+                labelBox,
+            },
+        };
+
+        _ = LoadRepositoriesForGitHubDialogAsync(
+            token,
+            settings.DefaultRepositoryFullName,
+            repositories,
+            repositoryStatusText,
+            () => RefreshRepositorySuggestions(FilterRepositories(repositories, repositoryBox.Text)));
+
+        var dialog = new ContentDialog
+        {
+            XamlRoot = XamlRoot,
+            Title = "Create GitHub issue",
+            PrimaryButtonText = "Create issue",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+            Content = panel,
+        };
+
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary ||
+            string.IsNullOrWhiteSpace(titleBox.Text))
+        {
+            return null;
+        }
+
+        selectedRepository = repositories.FirstOrDefault(repository =>
+                string.Equals(repository.FullName, repositoryBox.Text.Trim(), StringComparison.OrdinalIgnoreCase))
+            ?? selectedRepository;
+        if (selectedRepository is null)
+        {
+            ShowInfo("Choose a repository", "Choose a repository returned by GitHub for this account.", InfoBarSeverity.Warning);
+            return null;
+        }
+
+        var selectedLabel = labelBox.SelectedItem?.ToString();
+        var labels = string.IsNullOrWhiteSpace(selectedLabel) || selectedLabel == "No label"
+            ? []
+            : new[] { selectedLabel };
+        return new GitHubIssueCreateRequest(
+            selectedRepository.Owner,
+            selectedRepository.Name,
+            titleBox.Text.Trim(),
+            bodyBox.Text.Trim(),
+            labels,
+            []);
+    }
+
+    private async Task LoadRepositoriesForGitHubDialogAsync(
+        string token,
+        string defaultRepositoryFullName,
+        List<GitHubRepositoryInfo> repositories,
+        TextBlock statusText,
+        Action refreshSuggestions)
+    {
+        try
+        {
+            var loaded = await _gitHubIssueService.GetRepositoriesAsync(token).ConfigureAwait(true);
+            repositories.Clear();
+            repositories.AddRange(loaded);
+            refreshSuggestions();
+            var owners = repositories.Select(repository => repository.Owner).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            statusText.Text = repositories.Count == 0
+                ? "No repositories found for this GitHub account."
+                : $"{repositories.Count} repositories loaded from {owners.Count} owner{(owners.Count == 1 ? string.Empty : "s")}. Search by owner or repo name.";
+            if (owners.Count == 1)
+            {
+                statusText.Text += " If an organization is missing, approve Openza Tasks for that organization in GitHub, then reconnect.";
+            }
+
+            if (!string.IsNullOrWhiteSpace(defaultRepositoryFullName) &&
+                repositories.Any(repository => string.Equals(repository.FullName, defaultRepositoryFullName, StringComparison.OrdinalIgnoreCase)))
+            {
+                statusText.Text += $" Last used: {defaultRepositoryFullName}.";
+            }
+        }
+        catch (Exception exception)
+        {
+            statusText.Text = "Could not load repositories from GitHub.";
+            AppLog.Write(exception);
+        }
+    }
+
+    private static IReadOnlyList<GitHubRepositoryInfo> FilterRepositories(IReadOnlyList<GitHubRepositoryInfo> repositories, string text)
+    {
+        var tokens = text
+            .Split(' ', '/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        return repositories
+            .Where(repository => tokens.Length == 0 || tokens.All(token => repository.FullName.Contains(token, StringComparison.CurrentCultureIgnoreCase)))
+            .Take(50)
+            .ToList();
+    }
+
+    private static bool TryParseGitHubIssueExternalId(string externalId, out string owner, out string repository, out int number)
+    {
+        owner = string.Empty;
+        repository = string.Empty;
+        number = 0;
+        var hashIndex = externalId.LastIndexOf('#');
+        var slashIndex = externalId.IndexOf('/');
+        if (hashIndex <= 0 || slashIndex <= 0 || slashIndex >= hashIndex || !int.TryParse(externalId[(hashIndex + 1)..], out number))
+        {
+            return false;
+        }
+
+        owner = externalId[..slashIndex];
+        repository = externalId[(slashIndex + 1)..hashIndex];
+        return !string.IsNullOrWhiteSpace(owner) && !string.IsNullOrWhiteSpace(repository);
+    }
+
+    private async Task SaveGitHubDefaultRepositoryAsync(string fullName)
+    {
+        var connections = await _store.GetProviderConnectionsAsync().ConfigureAwait(true);
+        var connection = connections.FirstOrDefault(item => item.IntegrationId == IntegrationIds.GitHub);
+        var settings = GitHubIssueService.ReadSettings(connection?.SettingsJson) with
+        {
+            DefaultRepositoryFullName = fullName,
+        };
+        await _store.UpsertProviderConnectionAsync((connection ?? new ProviderConnectionInfo
+        {
+            Id = GitHubIssueService.DefaultConnectionId,
+            IntegrationId = IntegrationIds.GitHub,
+            DisplayName = "GitHub",
+            Status = "connected",
+        }) with
+        {
+            SettingsJson = GitHubIssueService.WriteSettings(settings),
+            UpdatedAt = DateTimeOffset.UtcNow,
+        }).ConfigureAwait(true);
     }
 
     private async void OnQuickAddClicked(object sender, RoutedEventArgs e)
