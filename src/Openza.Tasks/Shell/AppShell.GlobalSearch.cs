@@ -201,6 +201,7 @@ public sealed partial class AppShell
     {
         _selectedProjectId = projectId;
         _selectedTaskId = null;
+        _loadedDetailsTaskId = null;
         SelectNavigationSilently(view);
         ApplyTaskViewPreferences();
         TasksPage.HideDetailsPane();

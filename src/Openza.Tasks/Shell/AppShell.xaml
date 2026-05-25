@@ -2,7 +2,8 @@
     x:Class="Openza.Tasks.Shell.AppShell"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    xmlns:pages="using:Openza.Tasks.Pages">
+    xmlns:pages="using:Openza.Tasks.Pages"
+    KeyboardAcceleratorPlacementMode="Hidden">
     <Grid Background="{ThemeResource OpenzaAppCanvasBrush}">
         <NavigationView
             x:Name="ShellNav"
@@ -181,8 +182,8 @@
                         EditProjectClicked="OnEditProjectClicked"
                         DeleteProjectClicked="OnDeleteProjectClicked"
                         TaskSelected="OnTaskSelected"
+                        TaskRowActionRequested="OnTaskRowActionRequested"
                         ToggleCompleteClicked="OnToggleCompleteClicked"
-                        DeleteTaskClicked="OnDeleteTaskClicked"
                         DetailsAutoSaveRequested="OnDetailsAutoSaveRequested"
                         DetailsToggleCompleteClicked="OnDetailsToggleCompleteClicked"
                         DetailsSubtaskToggleCompleteClicked="OnToggleCompleteClicked"

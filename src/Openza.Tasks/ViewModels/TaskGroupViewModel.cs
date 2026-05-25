@@ -8,11 +8,15 @@ public sealed class TaskGroupViewModel
     public string Key { get; set; } = string.Empty;
     public string Title { get; set; } = string.Empty;
     public string SortKey { get; set; } = string.Empty;
+    public bool IsExpanded { get; set; } = true;
     public ObservableCollection<TaskListItemViewModel> Tasks { get; } = [];
     public int Count => Tasks.Count(task => !task.IsSubtask);
     public string CountText => Count == 1 ? "1 task" : $"{Count} tasks";
 
-    public static IReadOnlyList<TaskGroupViewModel> Build(IEnumerable<TaskListItemViewModel> tasks, TaskGroupMode mode)
+    public static IReadOnlyList<TaskGroupViewModel> Build(
+        IEnumerable<TaskListItemViewModel> tasks,
+        TaskGroupMode mode,
+        IReadOnlyDictionary<string, bool>? previousExpansionStates = null)
     {
         if (mode == TaskGroupMode.None)
         {
@@ -53,6 +57,7 @@ public sealed class TaskGroupViewModel
                         Key = assignment.Key,
                         Title = assignment.Title,
                         SortKey = assignment.SortKey,
+                        IsExpanded = previousExpansionStates?.TryGetValue(assignment.Key, out var isExpanded) != true || isExpanded,
                     };
                     groups.Add(assignment.Key, group);
                 }

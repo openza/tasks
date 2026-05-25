@@ -15,6 +15,7 @@ public sealed record TaskQuery
     public TaskRepeatScope RepeatScope { get; init; } = TaskRepeatScope.Include;
     public int? Priority { get; init; }
     public TaskSortMode SortMode { get; init; } = TaskSortMode.PriorityThenDate;
+    public TaskSortDirection SortDirection { get; init; } = TaskSortDirection.Ascending;
     public bool IncludeSubtasks { get; init; }
 }
 
@@ -51,6 +52,12 @@ public enum TaskSortMode
     CreatedNewest,
     Title,
     Project,
+}
+
+public enum TaskSortDirection
+{
+    Ascending,
+    Descending,
 }
 
 public enum TaskGroupMode

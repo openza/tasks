@@ -59,6 +59,7 @@ public sealed class AppSettings
 public sealed class TaskViewSettings
 {
     public string SortMode { get; set; } = "PriorityThenDate";
+    public string SortDirection { get; set; } = "Ascending";
     public string GroupMode { get; set; } = "None";
     public int? Priority { get; set; }
     public string DateScope { get; set; } = "All";

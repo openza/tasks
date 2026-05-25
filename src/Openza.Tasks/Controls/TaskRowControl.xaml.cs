@@ -1,23 +1,25 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using Openza.Tasks.Core.Models;
 using Openza.Tasks.ViewModels;
+using Windows.Foundation;
 
 namespace Openza.Tasks.Controls;
 
 public sealed partial class TaskRowControl : UserControl
 {
-    private readonly TranslateTransform _completionTransform = new();
     private bool _completionInProgress;
 
     public event RoutedEventHandler? ToggleCompleteClicked;
-    public event RoutedEventHandler? DeleteTaskClicked;
+    public event TypedEventHandler<TaskRowControl, TaskListItemViewModel>? TaskInvoked;
+    public event TypedEventHandler<TaskRowControl, TaskRowActionRequestedEventArgs>? TaskRowActionRequested;
 
     public TaskRowControl()
     {
         InitializeComponent();
-        RowSurface.RenderTransform = _completionTransform;
         DataContextChanged += OnDataContextChanged;
     }
 
@@ -39,16 +41,109 @@ public sealed partial class TaskRowControl : UserControl
         CompleteCheckBox.IsEnabled = false;
         CompleteCheckBox.IsChecked = !item.IsCompleted;
 
-        if (!item.IsCompleted)
-        {
-            await PlayCompletionMotionAsync().ConfigureAwait(true);
-        }
-
         ToggleCompleteClicked?.Invoke(sender, e);
-        _ = ResetIfStillVisibleAsync(item.Id);
+        await ResetIfStillVisibleAsync(item.Id).ConfigureAwait(true);
     }
 
-    private void OnDeleteTaskClicked(object sender, RoutedEventArgs e) => DeleteTaskClicked?.Invoke(sender, e);
+    private void OnDeleteButtonClicked(object sender, RoutedEventArgs e)
+    {
+        if (TaskId(sender) is { } id)
+        {
+            TaskRowActionRequested?.Invoke(this, new TaskRowActionRequestedEventArgs(id, TaskRowActionKind.Delete));
+        }
+    }
+
+    private void OnRowTapped(object sender, TappedRoutedEventArgs e)
+    {
+        if (IsInteractiveElement(e.OriginalSource as DependencyObject) ||
+            DataContext is not TaskListItemViewModel item)
+        {
+            return;
+        }
+
+        TaskInvoked?.Invoke(this, item);
+    }
+
+    private void OnRowDateSelected(CalendarView sender, CalendarViewSelectedDatesChangedEventArgs args)
+    {
+        if (args.AddedDates.Count == 0 || DataContext is not TaskListItemViewModel item)
+        {
+            return;
+        }
+
+        TaskRowActionRequested?.Invoke(this, new TaskRowActionRequestedEventArgs(item.Id, TaskRowActionKind.SetDate)
+        {
+            Date = DateOnly.FromDateTime(args.AddedDates[0].LocalDateTime),
+        });
+    }
+
+    private void OnClearDateClicked(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is TaskListItemViewModel item)
+        {
+            TaskRowActionRequested?.Invoke(this, new TaskRowActionRequestedEventArgs(item.Id, TaskRowActionKind.ClearDate));
+        }
+    }
+
+    private void OnChangeProjectClicked(object sender, RoutedEventArgs e)
+    {
+        if (TaskId(sender) is { } id)
+        {
+            TaskRowActionRequested?.Invoke(this, new TaskRowActionRequestedEventArgs(id, TaskRowActionKind.ChangeProject));
+        }
+    }
+
+    private void OnChangeLabelsClicked(object sender, RoutedEventArgs e)
+    {
+        if (TaskId(sender) is { } id)
+        {
+            TaskRowActionRequested?.Invoke(this, new TaskRowActionRequestedEventArgs(id, TaskRowActionKind.ChangeLabels));
+        }
+    }
+
+    private void OnMoveToSpaceClicked(object sender, RoutedEventArgs e)
+    {
+        if (TaskId(sender) is { } id)
+        {
+            TaskRowActionRequested?.Invoke(this, new TaskRowActionRequestedEventArgs(id, TaskRowActionKind.MoveToSpace));
+        }
+    }
+
+    private void OnStatusMenuItemClicked(object sender, RoutedEventArgs e)
+    {
+        if ((sender as MenuFlyoutItem)?.Tag?.ToString() is not { } tag ||
+            DataContext is not TaskListItemViewModel item)
+        {
+            return;
+        }
+
+        var status = tag switch
+        {
+            "next" => TaskItemStatus.Next,
+            "waiting" => TaskItemStatus.Waiting,
+            "someday" => TaskItemStatus.Someday,
+            _ => TaskItemStatus.Inbox,
+        };
+        TaskRowActionRequested?.Invoke(this, new TaskRowActionRequestedEventArgs(item.Id, TaskRowActionKind.SetStatus)
+        {
+            Status = status,
+        });
+    }
+
+    private void OnPriorityMenuItemClicked(object sender, RoutedEventArgs e)
+    {
+        if ((sender as MenuFlyoutItem)?.Tag?.ToString() is not { } tag ||
+            !int.TryParse(tag, out var priority) ||
+            DataContext is not TaskListItemViewModel item)
+        {
+            return;
+        }
+
+        TaskRowActionRequested?.Invoke(this, new TaskRowActionRequestedEventArgs(item.Id, TaskRowActionKind.SetPriority)
+        {
+            Priority = priority,
+        });
+    }
 
     private void OnPointerEntered(object sender, PointerRoutedEventArgs e)
     {
@@ -94,20 +189,9 @@ public sealed partial class TaskRowControl : UserControl
         CompleteCheckBox.IsEnabled = true;
     }
 
-    private async Task PlayCompletionMotionAsync()
-    {
-        const int steps = 6;
-        for (var index = 1; index <= steps; index++)
-        {
-            RowSurface.Opacity = 1 - (0.64 * index / steps);
-            _completionTransform.X = 14d * index / steps;
-            await Task.Delay(24).ConfigureAwait(true);
-        }
-    }
-
     private async Task ResetIfStillVisibleAsync(string id)
     {
-        await Task.Delay(1200).ConfigureAwait(true);
+        await Task.Delay(350).ConfigureAwait(true);
         if (!_completionInProgress ||
             DataContext is not TaskListItemViewModel item ||
             !string.Equals(item.Id, id, StringComparison.Ordinal))
@@ -116,16 +200,32 @@ public sealed partial class TaskRowControl : UserControl
         }
 
         _completionInProgress = false;
-        SyncRowState();
+        CompleteCheckBox.IsEnabled = true;
         ResetRowVisualState();
     }
 
     private void ResetRowVisualState()
     {
         RowSurface.Opacity = 1;
-        _completionTransform.X = 0;
         RowSurface.Background = ResourceBrush("OpenzaRowBackgroundBrush");
     }
 
     private static Brush ResourceBrush(string key) => (Brush)Application.Current.Resources[key];
+
+    private static bool IsInteractiveElement(DependencyObject? element)
+    {
+        while (element is not null)
+        {
+            if (element is ButtonBase or CheckBox or TextBlock { IsTextSelectionEnabled: true })
+            {
+                return true;
+            }
+
+            element = VisualTreeHelper.GetParent(element);
+        }
+
+        return false;
+    }
+
+    private static string? TaskId(object sender) => (sender as FrameworkElement)?.Tag as string;
 }

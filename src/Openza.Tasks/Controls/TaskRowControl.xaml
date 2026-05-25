@@ -11,6 +11,7 @@
         BorderBrush="{ThemeResource OpenzaSeparatorBrush}"
         BorderThickness="0,0,0,1"
         Background="{ThemeResource OpenzaRowBackgroundBrush}"
+        Tapped="OnRowTapped"
         PointerEntered="OnPointerEntered"
         PointerExited="OnPointerExited">
         <Grid
@@ -23,7 +24,7 @@
                 Height="{Binding CheckboxSize}"
                 Padding="0"
                 VerticalAlignment="Top"
-                IsChecked="{Binding Task.IsCompleted, Mode=OneWay}"
+                IsChecked="{Binding IsCompleted, Mode=OneWay}"
                 Tag="{Binding Id}"
                 Click="OnToggleCompleteClicked"
                 AutomationProperties.Name="{Binding CompletionAutomationName}" />
@@ -35,6 +36,7 @@
                     FontWeight="{Binding TitleWeight}"
                     Opacity="{Binding TitleOpacity}"
                     MaxLines="3"
+                    IsTextSelectionEnabled="True"
                     TextWrapping="WrapWholeWords"
                     TextTrimming="CharacterEllipsis" />
                 <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="6">
@@ -56,6 +58,7 @@
                                     <TextBlock
                                         Text="{Binding Text}"
                                         MaxLines="1"
+                                        IsTextSelectionEnabled="True"
                                         TextTrimming="CharacterEllipsis"
                                         Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
                                 </StackPanel>
@@ -90,6 +93,7 @@
             <StackPanel
                 x:Name="ActionsBar"
                 Grid.Column="2"
+                Width="260"
                 Orientation="Horizontal"
                 Spacing="4"
                 Opacity="0"
@@ -99,7 +103,76 @@
                 <Button
                     Style="{StaticResource OpenzaIconOnlyButtonStyle}"
                     Tag="{Binding Id}"
-                    Click="OnDeleteTaskClicked"
+                    ToolTipService.ToolTip="Change date"
+                    AutomationProperties.Name="Change task date">
+                    <Button.Flyout>
+                        <Flyout Placement="Bottom">
+                            <StackPanel Width="300" Spacing="8">
+                                <CalendarView SelectionMode="Single" SelectedDatesChanged="OnRowDateSelected" />
+                                <Button Content="Clear date" HorizontalAlignment="Stretch" Click="OnClearDateClicked" />
+                            </StackPanel>
+                        </Flyout>
+                    </Button.Flyout>
+                    <FontIcon Glyph="&#xE787;" FontSize="14" />
+                </Button>
+                <Button
+                    Style="{StaticResource OpenzaIconOnlyButtonStyle}"
+                    Tag="{Binding Id}"
+                    Click="OnChangeProjectClicked"
+                    ToolTipService.ToolTip="Change project"
+                    AutomationProperties.Name="Change task project">
+                    <FontIcon Glyph="&#xE8B7;" FontSize="14" />
+                </Button>
+                <Button
+                    Style="{StaticResource OpenzaIconOnlyButtonStyle}"
+                    Tag="{Binding Id}"
+                    Click="OnChangeLabelsClicked"
+                    ToolTipService.ToolTip="Change labels"
+                    AutomationProperties.Name="Change task labels">
+                    <FontIcon Glyph="&#xE8EC;" FontSize="14" />
+                </Button>
+                <Button
+                    Style="{StaticResource OpenzaIconOnlyButtonStyle}"
+                    Tag="{Binding Id}"
+                    ToolTipService.ToolTip="Change status"
+                    AutomationProperties.Name="Change task status">
+                    <Button.Flyout>
+                        <MenuFlyout Placement="Bottom">
+                            <MenuFlyoutItem Text="Inbox" Tag="inbox" Click="OnStatusMenuItemClicked" />
+                            <MenuFlyoutItem Text="Next" Tag="next" Click="OnStatusMenuItemClicked" />
+                            <MenuFlyoutItem Text="Waiting For" Tag="waiting" Click="OnStatusMenuItemClicked" />
+                            <MenuFlyoutItem Text="Someday" Tag="someday" Click="OnStatusMenuItemClicked" />
+                        </MenuFlyout>
+                    </Button.Flyout>
+                    <FontIcon Glyph="&#xE8FD;" FontSize="14" />
+                </Button>
+                <Button
+                    Style="{StaticResource OpenzaIconOnlyButtonStyle}"
+                    Tag="{Binding Id}"
+                    ToolTipService.ToolTip="Change priority"
+                    AutomationProperties.Name="Change task priority">
+                    <Button.Flyout>
+                        <MenuFlyout Placement="Bottom">
+                            <MenuFlyoutItem Text="Urgent" Tag="1" Click="OnPriorityMenuItemClicked" />
+                            <MenuFlyoutItem Text="High" Tag="2" Click="OnPriorityMenuItemClicked" />
+                            <MenuFlyoutItem Text="Normal" Tag="3" Click="OnPriorityMenuItemClicked" />
+                            <MenuFlyoutItem Text="Low" Tag="4" Click="OnPriorityMenuItemClicked" />
+                        </MenuFlyout>
+                    </Button.Flyout>
+                    <FontIcon Glyph="&#xE7C1;" FontSize="14" />
+                </Button>
+                <Button
+                    Style="{StaticResource OpenzaIconOnlyButtonStyle}"
+                    Tag="{Binding Id}"
+                    Click="OnMoveToSpaceClicked"
+                    ToolTipService.ToolTip="Move to Space"
+                    AutomationProperties.Name="Move task to another Space">
+                    <FontIcon Glyph="&#xE8AB;" FontSize="14" />
+                </Button>
+                <Button
+                    Style="{StaticResource OpenzaIconOnlyButtonStyle}"
+                    Tag="{Binding Id}"
+                    Click="OnDeleteButtonClicked"
                     ToolTipService.ToolTip="Delete task"
                     AutomationProperties.Name="Delete task">
                     <FontIcon Glyph="&#xE74D;" FontSize="14" />

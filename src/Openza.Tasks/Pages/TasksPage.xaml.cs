@@ -26,6 +26,7 @@ public sealed partial class TasksPage : UserControl
     private bool _suppressTaskSelection;
     private bool _suppressViewControlEvents;
     private string _sortTag = "priority";
+    private string _sortDirectionTag = "asc";
     private string _groupTag = "none";
     private string _priorityTag = string.Empty;
     private string _repeatScopeTag = "include";
@@ -47,8 +48,8 @@ public sealed partial class TasksPage : UserControl
     public event TypedEventHandler<TasksPage, string>? EditProjectClicked;
     public event TypedEventHandler<TasksPage, string>? DeleteProjectClicked;
     public event TypedEventHandler<TasksPage, TaskListItemViewModel>? TaskSelected;
+    public event TypedEventHandler<TasksPage, TaskRowActionRequestedEventArgs>? TaskRowActionRequested;
     public event RoutedEventHandler? ToggleCompleteClicked;
-    public event RoutedEventHandler? DeleteTaskClicked;
     public event RoutedEventHandler? DetailsAutoSaveRequested;
     public event RoutedEventHandler? DetailsToggleCompleteClicked;
     public event RoutedEventHandler? DetailsSubtaskToggleCompleteClicked;
@@ -89,6 +90,10 @@ public sealed partial class TasksPage : UserControl
     public string ProjectSearchText => ProjectsPane.SearchText;
 
     public string SortTag => _sortTag;
+
+    public TaskSortDirection SortDirection => _sortDirectionTag == "desc"
+        ? TaskSortDirection.Descending
+        : TaskSortDirection.Ascending;
 
     public TaskGroupMode GroupMode => _groupTag switch
     {
@@ -179,6 +184,11 @@ public sealed partial class TasksPage : UserControl
     public void SetSortMode(TaskSortMode mode)
     {
         SetSortTag(SortTagForMode(mode), notify: false);
+    }
+
+    public void SetSortDirection(TaskSortDirection direction)
+    {
+        SetSortDirectionTag(direction == TaskSortDirection.Descending ? "desc" : "asc", notify: false);
     }
 
     public void SetPriorityFilter(int? priority)
@@ -322,8 +332,7 @@ public sealed partial class TasksPage : UserControl
     public void SelectTask(string taskId)
     {
         _suppressTaskSelection = true;
-        TaskList.SelectedItem = ViewModel.Tasks.FirstOrDefault(task => task.Id == taskId);
-        GroupedTaskList.SelectedItem = ViewModel.Tasks.FirstOrDefault(task => task.Id == taskId);
+        TaskList.SelectedItem = ViewModel.TaskEntries.FirstOrDefault(entry => entry.Task?.Id == taskId);
         _suppressTaskSelection = false;
     }
 
@@ -354,13 +363,16 @@ public sealed partial class TasksPage : UserControl
 
             if (!string.IsNullOrWhiteSpace(selectedTaskId))
             {
-                var selectedItem = ViewModel.Tasks.FirstOrDefault(task => task.Id == selectedTaskId);
-                if (selectedItem is not null)
-                {
-                    _suppressTaskSelection = true;
-                    list.SelectedItem = selectedItem;
-                    _suppressTaskSelection = false;
-                    list.ScrollIntoView(selectedItem, ScrollIntoViewAlignment.Default);
+                    var selectedItem = ViewModel.TaskEntries.FirstOrDefault(entry => entry.Task?.Id == selectedTaskId);
+                    if (selectedItem is not null)
+                    {
+                    if (list is ListView listView)
+                    {
+                        _suppressTaskSelection = true;
+                        listView.SelectedItem = selectedItem;
+                        _suppressTaskSelection = false;
+                        listView.ScrollIntoView(selectedItem, ScrollIntoViewAlignment.Default);
+                    }
                 }
             }
         });
@@ -370,12 +382,10 @@ public sealed partial class TasksPage : UserControl
     {
         _suppressTaskSelection = true;
         TaskList.SelectedItem = null;
-        GroupedTaskList.SelectedItem = null;
         _suppressTaskSelection = false;
     }
 
-    private ListView? ActiveTaskList() =>
-        ViewModel.IsGrouped ? GroupedTaskList : TaskList;
+    private FrameworkElement? ActiveTaskList() => TaskList;
 
     private static T? FindDescendant<T>(DependencyObject? root)
         where T : DependencyObject
@@ -383,6 +393,11 @@ public sealed partial class TasksPage : UserControl
         if (root is null)
         {
             return null;
+        }
+
+        if (root is T rootMatch)
+        {
+            return rootMatch;
         }
 
         var childCount = VisualTreeHelper.GetChildrenCount(root);
@@ -771,6 +786,14 @@ public sealed partial class TasksPage : UserControl
         }
     }
 
+    private void OnSortDirectionMenuItemClicked(object sender, RoutedEventArgs e)
+    {
+        if (sender is MenuFlyoutItem item)
+        {
+            SetSortDirectionTag(item.Tag?.ToString() ?? "asc", notify: true);
+        }
+    }
+
     private void OnGroupMenuItemClicked(object sender, RoutedEventArgs e)
     {
         if (sender is MenuFlyoutItem item)
@@ -834,6 +857,8 @@ public sealed partial class TasksPage : UserControl
 
     private void OnProjectFilterChanged(ProjectsPaneControl sender, string filter) => ProjectFilterChanged?.Invoke(this, filter);
 
+    private void OnProjectGroupToggled(ProjectsPaneControl sender, string id) => ViewModel.ToggleProjectGroup(id);
+
     private void OnProjectSelected(ProjectsPaneControl sender, string? id)
     {
         ProjectSelected?.Invoke(this, id);
@@ -860,8 +885,8 @@ public sealed partial class TasksPage : UserControl
         }
 
         var selectedItem = sender is ListView listView
-            ? listView.SelectedItem as TaskListItemViewModel
-            : TaskList.SelectedItem as TaskListItemViewModel ?? GroupedTaskList.SelectedItem as TaskListItemViewModel;
+            ? (listView.SelectedItem as TaskListEntryViewModel)?.Task
+            : (TaskList.SelectedItem as TaskListEntryViewModel)?.Task;
 
         if (selectedItem is TaskListItemViewModel item)
         {
@@ -869,9 +894,26 @@ public sealed partial class TasksPage : UserControl
         }
     }
 
+    private void OnGroupedTaskInvoked(TaskRowControl sender, TaskListItemViewModel item)
+    {
+        if (!_suppressTaskSelection)
+        {
+            TaskSelected?.Invoke(this, item);
+        }
+    }
+
+    private void OnTaskGroupHeaderClicked(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is string key && !string.IsNullOrWhiteSpace(key))
+        {
+            ViewModel.ToggleTaskGroup(key);
+        }
+    }
+
     private void OnToggleCompleteClicked(object sender, RoutedEventArgs e) => ToggleCompleteClicked?.Invoke(sender, e);
 
-    private void OnDeleteTaskClicked(object sender, RoutedEventArgs e) => DeleteTaskClicked?.Invoke(sender, e);
+    private void OnTaskRowActionRequested(TaskRowControl sender, TaskRowActionRequestedEventArgs args) =>
+        TaskRowActionRequested?.Invoke(this, args);
 
     private void OnDetailsAutoSaveRequested(object sender, RoutedEventArgs e) => DetailsAutoSaveRequested?.Invoke(sender, e);
 
@@ -1102,6 +1144,22 @@ public sealed partial class TasksPage : UserControl
         }
     }
 
+    private void SetSortDirectionTag(string tag, bool notify)
+    {
+        tag = string.Equals(tag, "desc", StringComparison.Ordinal) ? "desc" : "asc";
+        if (string.Equals(_sortDirectionTag, tag, StringComparison.Ordinal) && notify)
+        {
+            return;
+        }
+
+        _sortDirectionTag = tag;
+        UpdateViewControlText();
+        if (notify)
+        {
+            SortChanged?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
     private void SetGroupTag(string tag, bool notify)
     {
         tag = string.IsNullOrWhiteSpace(tag) ? "none" : tag;
@@ -1225,9 +1283,9 @@ public sealed partial class TasksPage : UserControl
             return;
         }
 
-        SortButtonText.Text = $"Sort: {SortText(_sortTag)}";
+        SortButtonText.Text = $"Sort: {SortText(_sortTag)} {SortDirectionLabel(_sortDirectionTag)}";
         GroupButtonText.Text = $"Group: {GroupText(_groupTag)}";
-        AutomationProperties.SetName(SortButton, $"Sort by {SortText(_sortTag)}");
+        AutomationProperties.SetName(SortButton, $"Sort by {SortText(_sortTag)}, {SortDirectionText(_sortDirectionTag)}");
         AutomationProperties.SetName(GroupButton, $"Group by {GroupText(_groupTag)}");
     }
 
@@ -1250,6 +1308,7 @@ public sealed partial class TasksPage : UserControl
         TaskSortMode.Date => "date",
         TaskSortMode.CreatedNewest => "created",
         TaskSortMode.Title => "title",
+        TaskSortMode.Project => "project",
         _ => "priority",
     };
 
@@ -1265,8 +1324,13 @@ public sealed partial class TasksPage : UserControl
         "date" or "due" => "Date",
         "created" => "Newest",
         "title" => "Title",
+        "project" => "Project",
         _ => "Priority",
     };
+
+    private static string SortDirectionLabel(string tag) => tag == "desc" ? "Desc" : "Asc";
+
+    private static string SortDirectionText(string tag) => tag == "desc" ? "descending" : "ascending";
 
     private static string GroupText(string tag) => tag switch
     {

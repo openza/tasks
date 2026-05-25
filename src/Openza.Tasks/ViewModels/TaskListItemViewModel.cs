@@ -1,3 +1,4 @@
+using CommunityToolkit.Mvvm.ComponentModel;
 using Microsoft.UI.Xaml;
 using Openza.Tasks.Core.Models;
 using FontWeight = Windows.UI.Text.FontWeight;
@@ -5,15 +6,41 @@ using WinUIFontWeights = Microsoft.UI.Text.FontWeights;
 
 namespace Openza.Tasks.ViewModels;
 
-public sealed class TaskListItemViewModel(TaskItem task, ProjectItem? project, string view = "tasks", bool isProjectView = false, int nestingLevel = 0, string subtaskProgressText = "", string matchingSubtaskText = "")
+public sealed class TaskListItemViewModel : ObservableObject
 {
-    public TaskItem Task { get; } = task;
-    public ProjectItem? Project { get; } = project;
-    public string View { get; } = view;
-    public bool IsProjectView { get; } = isProjectView;
-    public int NestingLevel { get; } = nestingLevel;
-    public string SubtaskProgressText { get; } = subtaskProgressText;
-    public string MatchingSubtaskText { get; } = matchingSubtaskText;
+    private TaskItem _task;
+    private ProjectItem? _project;
+    private string _view;
+    private bool _isProjectView;
+    private int _nestingLevel;
+    private string _subtaskProgressText;
+    private string _matchingSubtaskText;
+
+    public TaskListItemViewModel(
+        TaskItem task,
+        ProjectItem? project,
+        string view = "tasks",
+        bool isProjectView = false,
+        int nestingLevel = 0,
+        string subtaskProgressText = "",
+        string matchingSubtaskText = "")
+    {
+        _task = task;
+        _project = project;
+        _view = view;
+        _isProjectView = isProjectView;
+        _nestingLevel = nestingLevel;
+        _subtaskProgressText = subtaskProgressText;
+        _matchingSubtaskText = matchingSubtaskText;
+    }
+
+    public TaskItem Task => _task;
+    public ProjectItem? Project => _project;
+    public string View => _view;
+    public bool IsProjectView => _isProjectView;
+    public int NestingLevel => _nestingLevel;
+    public string SubtaskProgressText => _subtaskProgressText;
+    public string MatchingSubtaskText => _matchingSubtaskText;
 
     public string Id => Task.Id;
     public string Title => Task.Title;
@@ -84,6 +111,100 @@ public sealed class TaskListItemViewModel(TaskItem task, ProjectItem? project, s
     public double MetadataOpacity => IsSubtask ? 0.88 : 1;
 
     public static string SourceName(string integrationId) => IntegrationIds.DisplayName(integrationId);
+
+    public void UpdateFrom(TaskListItemViewModel source)
+    {
+        var changed = false;
+        if (!EqualityComparer<TaskItem>.Default.Equals(_task, source.Task))
+        {
+            _task = source.Task;
+            changed = true;
+        }
+
+        if (!EqualityComparer<ProjectItem?>.Default.Equals(_project, source.Project))
+        {
+            _project = source.Project;
+            changed = true;
+        }
+
+        if (!string.Equals(_view, source.View, StringComparison.Ordinal))
+        {
+            _view = source.View;
+            changed = true;
+        }
+
+        if (_isProjectView != source.IsProjectView)
+        {
+            _isProjectView = source.IsProjectView;
+            changed = true;
+        }
+
+        if (_nestingLevel != source.NestingLevel)
+        {
+            _nestingLevel = source.NestingLevel;
+            changed = true;
+        }
+
+        if (!string.Equals(_subtaskProgressText, source.SubtaskProgressText, StringComparison.Ordinal))
+        {
+            _subtaskProgressText = source.SubtaskProgressText;
+            changed = true;
+        }
+
+        if (!string.Equals(_matchingSubtaskText, source.MatchingSubtaskText, StringComparison.Ordinal))
+        {
+            _matchingSubtaskText = source.MatchingSubtaskText;
+            changed = true;
+        }
+
+        if (changed)
+        {
+            NotifyAllPropertiesChanged();
+        }
+    }
+
+    private void NotifyAllPropertiesChanged()
+    {
+        OnPropertyChanged(nameof(Task));
+        OnPropertyChanged(nameof(Project));
+        OnPropertyChanged(nameof(View));
+        OnPropertyChanged(nameof(IsProjectView));
+        OnPropertyChanged(nameof(NestingLevel));
+        OnPropertyChanged(nameof(SubtaskProgressText));
+        OnPropertyChanged(nameof(MatchingSubtaskText));
+        OnPropertyChanged(nameof(Id));
+        OnPropertyChanged(nameof(Title));
+        OnPropertyChanged(nameof(Notes));
+        OnPropertyChanged(nameof(SourceDescription));
+        OnPropertyChanged(nameof(ProjectName));
+        OnPropertyChanged(nameof(SourceText));
+        OnPropertyChanged(nameof(PriorityText));
+        OnPropertyChanged(nameof(PriorityCueText));
+        OnPropertyChanged(nameof(DateText));
+        OnPropertyChanged(nameof(LabelText));
+        OnPropertyChanged(nameof(LabelSummaryText));
+        OnPropertyChanged(nameof(StatusText));
+        OnPropertyChanged(nameof(SummaryText));
+        OnPropertyChanged(nameof(MetadataItems));
+        OnPropertyChanged(nameof(MetadataText));
+        OnPropertyChanged(nameof(DetailsSubtaskMetadataText));
+        OnPropertyChanged(nameof(HasLabels));
+        OnPropertyChanged(nameof(StatusVisibility));
+        OnPropertyChanged(nameof(PriorityCueVisibility));
+        OnPropertyChanged(nameof(DueVisibility));
+        OnPropertyChanged(nameof(SourceVisibility));
+        OnPropertyChanged(nameof(DetailsSubtaskMetadataVisibility));
+        OnPropertyChanged(nameof(IsCompleted));
+        OnPropertyChanged(nameof(IsSubtask));
+        OnPropertyChanged(nameof(IsProviderTask));
+        OnPropertyChanged(nameof(IsOverdue));
+        OnPropertyChanged(nameof(CompletionAutomationName));
+        OnPropertyChanged(nameof(TitleOpacity));
+        OnPropertyChanged(nameof(RowMinHeight));
+        OnPropertyChanged(nameof(CheckboxSize));
+        OnPropertyChanged(nameof(TitleWeight));
+        OnPropertyChanged(nameof(MetadataOpacity));
+    }
 
     private IReadOnlyList<TaskMetadataPartViewModel> BuildMetadataItems()
     {

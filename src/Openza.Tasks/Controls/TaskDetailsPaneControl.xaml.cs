@@ -6,6 +6,7 @@ using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Openza.Tasks.Core.Models;
 using Openza.Tasks.ViewModels;
+using Windows.ApplicationModel.DataTransfer;
 using Windows.Foundation;
 using Windows.System;
 
@@ -150,6 +151,7 @@ public sealed partial class TaskDetailsPaneControl : UserControl
         CompleteButton.Content = task.IsCompleted ? "Reopen" : "Complete";
         DeleteButton.IsEnabled = true;
         MoveToSpaceMenuItem.IsEnabled = true;
+        SetLocalMetadataPresentation(task);
         _originalSnapshot = CurrentSnapshot();
         SetAutoSaveState(null);
         _loading = false;
@@ -187,6 +189,7 @@ public sealed partial class TaskDetailsPaneControl : UserControl
         CompleteButton.Content = "Complete";
         DeleteButton.IsEnabled = false;
         MoveToSpaceMenuItem.IsEnabled = false;
+        LocalMetadataSection.Visibility = Visibility.Collapsed;
         SetGitHubLink(null, false);
         _originalSnapshot = CurrentSnapshot();
         SetAutoSaveState(null);
@@ -258,6 +261,32 @@ public sealed partial class TaskDetailsPaneControl : UserControl
     }
 
     private void OnGitHubPrimaryClicked(object sender, RoutedEventArgs e) => ManageGitHubIssueRequested?.Invoke(this, e);
+
+    private void OnCopyTitleClicked(object sender, RoutedEventArgs e) =>
+        CopyText(TitleEditor.Text.Trim(), "Title copied");
+
+    private void OnCopyNotesClicked(object sender, RoutedEventArgs e) =>
+        CopyText(NotesEditor.Text.Trim(), "Notes copied");
+
+    private void OnCopySourceClicked(object sender, RoutedEventArgs e) =>
+        CopyText(BuildSourceCopyText(), "Source copied");
+
+    private void OnCopyMetadataClicked(object sender, RoutedEventArgs e) =>
+        CopyText(BuildMetadataCopyText(), "Metadata copied");
+
+    private void CopyText(string text, string statusText)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            SetAutoSaveState("Nothing to copy", autoDismiss: true);
+            return;
+        }
+
+        var package = new DataPackage();
+        package.SetText(text);
+        Clipboard.SetContent(package);
+        SetAutoSaveState(statusText, autoDismiss: true);
+    }
 
     private void SetProviderFieldEditability(bool canEditProviderContent)
     {
@@ -340,6 +369,8 @@ public sealed partial class TaskDetailsPaneControl : UserControl
             ProviderDeadlineText.Text = string.Empty;
             ProviderPriorityText.Text = string.Empty;
             ProviderSourceText.Text = string.Empty;
+            ProviderCreatedText.Text = string.Empty;
+            ProviderRecurringText.Text = string.Empty;
             return;
         }
 
@@ -355,6 +386,17 @@ public sealed partial class TaskDetailsPaneControl : UserControl
         ProviderDeadlineText.Text = FormatDate(task.SourceDeadlineMoment);
         ProviderPriorityText.Text = FormatSourcePriority(task.SourcePriority);
         ProviderSourceText.Text = editor.SourceText;
+        ProviderCreatedText.Text = FormatDate(task.CreatedAt);
+        ProviderRecurringText.Text = FormatRecurrence(task.RecurrenceRule);
+    }
+
+    private void SetLocalMetadataPresentation(TaskItem task)
+    {
+        LocalMetadataSection.Visibility = task.IntegrationId == IntegrationIds.Local
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        LocalCreatedText.Text = FormatDateTime(task.CreatedAt);
+        LocalUpdatedText.Text = task.UpdatedAt is null ? "Not modified" : FormatDateTime(task.UpdatedAt.Value);
     }
 
     private void SetSelectedProject(ProjectItem? project)
@@ -437,6 +479,54 @@ public sealed partial class TaskDetailsPaneControl : UserControl
         }
 
         return date.Value.ToString("MMM d, yyyy", System.Globalization.CultureInfo.CurrentCulture);
+    }
+
+    private static string FormatDateTime(DateTimeOffset date) =>
+        date.LocalDateTime.ToString("MMM d, yyyy h:mm tt", System.Globalization.CultureInfo.CurrentCulture);
+
+    private static string FormatRecurrence(string? recurrenceRule) =>
+        string.IsNullOrWhiteSpace(recurrenceRule) ? "Not recurring" : recurrenceRule;
+
+    private string BuildSourceCopyText()
+    {
+        if (_loadedTask is null)
+        {
+            return string.Empty;
+        }
+
+        return string.Join(Environment.NewLine, new[]
+        {
+            $"Source: {CurrentSourceText()}",
+            $"Title: {ProviderTitleText.Text}",
+            $"Project: {ProviderProjectText.Text}",
+            $"Date: {ProviderDateText.Text}",
+            $"Deadline: {ProviderDeadlineText.Text}",
+            $"Priority: {ProviderPriorityText.Text}",
+            $"Created: {ProviderCreatedText.Text}",
+            $"Recurring: {ProviderRecurringText.Text}",
+            string.IsNullOrWhiteSpace(_loadedTask.SourceUrl) ? string.Empty : $"URL: {_loadedTask.SourceUrl}",
+        }.Where(line => !string.IsNullOrWhiteSpace(line)));
+    }
+
+    private string BuildMetadataCopyText()
+    {
+        if (_loadedTask is null)
+        {
+            return string.Empty;
+        }
+
+        return string.Join(Environment.NewLine, new[]
+        {
+            $"Created: {FormatDateTime(_loadedTask.CreatedAt)}",
+            $"Modified: {(_loadedTask.UpdatedAt is null ? "Not modified" : FormatDateTime(_loadedTask.UpdatedAt.Value))}",
+            $"Status: {StatusValueText.Text}",
+            $"Project: {ProjectPickerText.Text}",
+            $"Date: {DateValueText.Text}",
+            $"Deadline: {DeadlineValueText.Text}",
+            $"Priority: {PriorityValueText.Text}",
+            $"Labels: {(string.IsNullOrWhiteSpace(LabelsText) ? "No labels" : LabelsText)}",
+            $"Source: {CurrentSourceText()}",
+        });
     }
 
     private static string FormatPickerDate(DateTimeOffset? date, string emptyText)

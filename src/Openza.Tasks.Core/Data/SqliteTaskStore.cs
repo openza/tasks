@@ -26,6 +26,26 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
     {
         await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         var tasks = await ReadTasksAsync(connection, cancellationToken).ConfigureAwait(false);
+        return BuildTaskList(tasks, query);
+    }
+
+    public async Task<TaskListRefreshSnapshot> GetTaskListRefreshSnapshotAsync(TaskQuery query, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        var tasks = await ReadTasksAsync(connection, cancellationToken).ConfigureAwait(false);
+        return new TaskListRefreshSnapshot(
+            BuildTaskList(tasks, query),
+            BuildTaskList(tasks, new TaskQuery
+            {
+                SpaceId = query.SpaceId,
+                Kind = TaskListKind.All,
+                IncludeSubtasks = true,
+            }),
+            BuildTaskCounts(tasks, query.SpaceId));
+    }
+
+    private static IReadOnlyList<TaskItem> BuildTaskList(IReadOnlyList<TaskItem> tasks, TaskQuery query)
+    {
         var today = DateOnly.FromDateTime(DateTimeOffset.Now.LocalDateTime);
 
         IEnumerable<TaskItem> filtered = tasks.Where(t => t.IntegrationId == IntegrationIds.Local);
@@ -82,19 +102,68 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
                 Contains(t.SourceDescription, search));
         }
 
-        filtered = query.SortMode switch
-        {
-            TaskSortMode.Date => filtered.OrderBy(t => RelevantDate(t, query.DateScope) is null).ThenBy(t => RelevantDate(t, query.DateScope)),
-            TaskSortMode.CreatedNewest => filtered.OrderByDescending(t => t.CreatedAt),
-            TaskSortMode.Title => filtered.OrderBy(t => t.Title, StringComparer.CurrentCultureIgnoreCase),
-            TaskSortMode.Project => filtered.OrderBy(t => t.ProjectId ?? string.Empty).ThenBy(t => t.Priority),
-            _ => filtered.OrderBy(t => t.IsCompleted).ThenBy(t => t.Priority).ThenBy(t => RelevantDate(t, query.DateScope) is null).ThenBy(t => RelevantDate(t, query.DateScope)).ThenByDescending(t => t.CreatedAt),
-        };
+        filtered = SortTasks(filtered, query);
 
         var sorted = filtered.ToList();
         return query.IncludeSubtasks || !string.IsNullOrWhiteSpace(query.ParentId)
             ? sorted
             : ArrangeWithSubtasks(tasks, sorted, query);
+    }
+
+    private static TaskCountSummary BuildTaskCounts(IReadOnlyList<TaskItem> tasks, string? spaceId)
+    {
+        var today = DateOnly.FromDateTime(DateTimeOffset.Now.LocalDateTime);
+        var topLevelTasks = tasks
+            .Where(task => task.IntegrationId == IntegrationIds.Local)
+            .Where(task => string.IsNullOrWhiteSpace(spaceId) || task.SpaceId == spaceId)
+            .Where(task => string.IsNullOrWhiteSpace(task.ParentId))
+            .ToList();
+
+        var byProject = topLevelTasks
+            .Where(task => task.IsOpen && !string.IsNullOrWhiteSpace(task.ProjectId))
+            .GroupBy(task => task.ProjectId!, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.Count(), StringComparer.Ordinal);
+        var nextByProject = topLevelTasks
+            .Where(task => task.IsOpen && !string.IsNullOrWhiteSpace(task.ProjectId))
+            .GroupBy(task => task.ProjectId!, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.Count(task => task.WorkflowStatus == TaskWorkflowStatus.Next), StringComparer.Ordinal);
+
+        return new TaskCountSummary(
+            topLevelTasks.Count(task => task.IsOpen && task.WorkflowStatus == TaskWorkflowStatus.Inbox && string.IsNullOrWhiteSpace(task.ProjectId)),
+            topLevelTasks.Count(task => task.IsOpen && task.WorkflowStatus == TaskWorkflowStatus.Next),
+            topLevelTasks.Count(task => task.IsOpen && task.WorkflowStatus == TaskWorkflowStatus.Waiting),
+            topLevelTasks.Count(task => task.IsOpen && task.WorkflowStatus == TaskWorkflowStatus.Someday),
+            topLevelTasks.Count(task => task.IsOpen && HasRelevantDateOn(task, today, TaskDateScope.All)),
+            topLevelTasks.Count(task => task.IsOpen && HasRelevantDate(task, TaskDateScope.All)),
+            topLevelTasks.Count(task => task.IsOpen && HasRelevantDateBefore(task, today, TaskDateScope.All)),
+            topLevelTasks.Count(task => task.IsOpen),
+            topLevelTasks.Count,
+            topLevelTasks.Count(task => task.IsCompleted),
+            byProject,
+            nextByProject);
+    }
+
+    private static IEnumerable<TaskItem> SortTasks(IEnumerable<TaskItem> tasks, TaskQuery query)
+    {
+        var descending = query.SortDirection == TaskSortDirection.Descending;
+        return query.SortMode switch
+        {
+            TaskSortMode.Date => descending
+                ? tasks.OrderBy(t => RelevantDate(t, query.DateScope) is null).ThenByDescending(t => RelevantDate(t, query.DateScope)).ThenByDescending(t => t.CreatedAt)
+                : tasks.OrderBy(t => RelevantDate(t, query.DateScope) is null).ThenBy(t => RelevantDate(t, query.DateScope)).ThenByDescending(t => t.CreatedAt),
+            TaskSortMode.CreatedNewest => descending
+                ? tasks.OrderBy(t => t.CreatedAt)
+                : tasks.OrderByDescending(t => t.CreatedAt),
+            TaskSortMode.Title => descending
+                ? tasks.OrderByDescending(t => t.Title, StringComparer.CurrentCultureIgnoreCase)
+                : tasks.OrderBy(t => t.Title, StringComparer.CurrentCultureIgnoreCase),
+            TaskSortMode.Project => descending
+                ? tasks.OrderByDescending(t => t.ProjectId ?? string.Empty, StringComparer.Ordinal).ThenBy(t => t.Priority).ThenBy(t => t.Title, StringComparer.CurrentCultureIgnoreCase)
+                : tasks.OrderBy(t => t.ProjectId ?? string.Empty, StringComparer.Ordinal).ThenBy(t => t.Priority).ThenBy(t => t.Title, StringComparer.CurrentCultureIgnoreCase),
+            _ => descending
+                ? tasks.OrderBy(t => t.IsCompleted).ThenByDescending(t => t.Priority).ThenBy(t => RelevantDate(t, query.DateScope) is null).ThenByDescending(t => RelevantDate(t, query.DateScope)).ThenByDescending(t => t.CreatedAt)
+                : tasks.OrderBy(t => t.IsCompleted).ThenBy(t => t.Priority).ThenBy(t => RelevantDate(t, query.DateScope) is null).ThenBy(t => RelevantDate(t, query.DateScope)).ThenByDescending(t => t.CreatedAt),
+        };
     }
 
     public async Task<IReadOnlyList<GlobalSearchResult>> SearchAsync(GlobalSearchQuery query, CancellationToken cancellationToken = default)

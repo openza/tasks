@@ -6,30 +6,42 @@
     xmlns:models="using:Openza.Tasks.Core.Models"
     xmlns:vm="using:Openza.Tasks.ViewModels">
     <UserControl.Resources>
-        <CollectionViewSource
-            x:Key="GroupedTasksSource"
-            IsSourceGrouped="True"
-            ItemsPath="Tasks"
-            Source="{x:Bind ViewModel.TaskGroups, Mode=OneWay}" />
-        <DataTemplate x:Key="TaskRowTemplate" x:DataType="vm:TaskListItemViewModel">
-            <controls:TaskRowControl
-                ToggleCompleteClicked="OnToggleCompleteClicked"
-                DeleteTaskClicked="OnDeleteTaskClicked" />
-        </DataTemplate>
-        <DataTemplate x:Key="TaskGroupHeaderTemplate" x:DataType="vm:TaskGroupViewModel">
-            <StackPanel
-                Margin="0,16,0,6"
-                Padding="10,0"
-                Orientation="Horizontal"
-                Spacing="10">
-                <TextBlock
-                    Text="{Binding Title}"
-                    Style="{StaticResource BodyStrongTextBlockStyle}" />
-                <TextBlock
-                    Margin="0,1,0,0"
-                    Text="{Binding CountText}"
-                    Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
-            </StackPanel>
+        <DataTemplate x:Key="TaskListEntryTemplate" x:DataType="vm:TaskListEntryViewModel">
+            <Grid>
+                <Button
+                    HorizontalAlignment="Stretch"
+                    HorizontalContentAlignment="Stretch"
+                    MinHeight="36"
+                    Margin="0,10,0,4"
+                    Padding="8,6"
+                    Background="Transparent"
+                    BorderBrush="Transparent"
+                    BorderThickness="0"
+                    Tag="{x:Bind GroupKey}"
+                    Click="OnTaskGroupHeaderClicked"
+                    Visibility="{x:Bind HeaderVisibility, Mode=OneWay}"
+                    AutomationProperties.Name="{x:Bind GroupTitle}">
+                    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+                        <FontIcon
+                            Glyph="{x:Bind GroupExpandGlyph, Mode=OneWay}"
+                            FontSize="12"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <TextBlock
+                            Grid.Column="1"
+                            Text="{x:Bind GroupTitle, Mode=OneWay}"
+                            Style="{StaticResource BodyStrongTextBlockStyle}" />
+                        <TextBlock
+                            Grid.Column="2"
+                            Text="{x:Bind GroupCountText, Mode=OneWay}"
+                            Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
+                    </Grid>
+                </Button>
+                <controls:TaskRowControl
+                    DataContext="{x:Bind Task, Mode=OneWay}"
+                    Visibility="{x:Bind TaskVisibility, Mode=OneWay}"
+                    ToggleCompleteClicked="OnToggleCompleteClicked"
+                    TaskRowActionRequested="OnTaskRowActionRequested" />
+            </Grid>
         </DataTemplate>
     </UserControl.Resources>
     <Grid
@@ -45,9 +57,10 @@
 
         <controls:ProjectsPaneControl
             x:Name="ProjectsPane"
-            ProjectGroups="{x:Bind ViewModel.ProjectGroups, Mode=OneWay}"
+            ProjectEntries="{x:Bind ViewModel.ProjectEntries, Mode=OneWay}"
             SearchTextChanged="OnProjectSearchTextChanged"
             ProjectFilterChanged="OnProjectFilterChanged"
+            ProjectGroupToggled="OnProjectGroupToggled"
             ProjectSelected="OnProjectSelected"
             AddProjectClicked="OnAddProjectClicked"
             EditProjectClicked="OnEditProjectClicked"
@@ -146,6 +159,10 @@
                             <MenuFlyoutItem Text="Date" Tag="date" Click="OnSortMenuItemClicked" />
                             <MenuFlyoutItem Text="Newest" Tag="created" Click="OnSortMenuItemClicked" />
                             <MenuFlyoutItem Text="Title" Tag="title" Click="OnSortMenuItemClicked" />
+                            <MenuFlyoutItem Text="Project" Tag="project" Click="OnSortMenuItemClicked" />
+                            <MenuFlyoutSeparator />
+                            <MenuFlyoutItem Text="Ascending" Tag="asc" Click="OnSortDirectionMenuItemClicked" />
+                            <MenuFlyoutItem Text="Descending" Tag="desc" Click="OnSortDirectionMenuItemClicked" />
                         </MenuFlyout>
                     </DropDownButton.Flyout>
                 </DropDownButton>
@@ -356,10 +373,10 @@
             <Grid Grid.Row="3">
                 <ListView
                     x:Name="TaskList"
-                    ItemsSource="{x:Bind ViewModel.Tasks, Mode=OneWay}"
-                    ItemTemplate="{StaticResource TaskRowTemplate}"
+                    ItemsSource="{x:Bind ViewModel.TaskEntries, Mode=OneWay}"
+                    ItemTemplate="{StaticResource TaskListEntryTemplate}"
                     SelectionChanged="OnTaskSelectionChanged"
-                    Visibility="{x:Bind ViewModel.UngroupedListVisibility, Mode=OneWay}">
+                    Visibility="{x:Bind ViewModel.ListVisibility, Mode=OneWay}">
                     <ListView.Resources>
                         <StaticResource x:Key="ListViewItemBackgroundPointerOver" ResourceKey="OpenzaRowHoverBrush" />
                         <StaticResource x:Key="ListViewItemBackgroundSelected" ResourceKey="OpenzaRowSelectedBrush" />
@@ -367,30 +384,6 @@
                         <StaticResource x:Key="ListViewItemBackgroundPressed" ResourceKey="OpenzaRowSelectedBrush" />
                         <StaticResource x:Key="ListViewItemForegroundSelected" ResourceKey="OpenzaTextPrimaryBrush" />
                     </ListView.Resources>
-                    <ListView.ItemContainerStyle>
-                        <Style TargetType="ListViewItem">
-                            <Setter Property="Padding" Value="0" />
-                            <Setter Property="Margin" Value="0" />
-                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-                        </Style>
-                    </ListView.ItemContainerStyle>
-                </ListView>
-                <ListView
-                    x:Name="GroupedTaskList"
-                    ItemsSource="{Binding Source={StaticResource GroupedTasksSource}}"
-                    ItemTemplate="{StaticResource TaskRowTemplate}"
-                    SelectionChanged="OnTaskSelectionChanged"
-                    Visibility="{x:Bind ViewModel.GroupedListVisibility, Mode=OneWay}">
-                    <ListView.Resources>
-                        <StaticResource x:Key="ListViewItemBackgroundPointerOver" ResourceKey="OpenzaRowHoverBrush" />
-                        <StaticResource x:Key="ListViewItemBackgroundSelected" ResourceKey="OpenzaRowSelectedBrush" />
-                        <StaticResource x:Key="ListViewItemBackgroundSelectedPointerOver" ResourceKey="OpenzaRowSelectedBrush" />
-                        <StaticResource x:Key="ListViewItemBackgroundPressed" ResourceKey="OpenzaRowSelectedBrush" />
-                        <StaticResource x:Key="ListViewItemForegroundSelected" ResourceKey="OpenzaTextPrimaryBrush" />
-                    </ListView.Resources>
-                    <ListView.GroupStyle>
-                        <GroupStyle HeaderTemplate="{StaticResource TaskGroupHeaderTemplate}" />
-                    </ListView.GroupStyle>
                     <ListView.ItemContainerStyle>
                         <Style TargetType="ListViewItem">
                             <Setter Property="Padding" Value="0" />
