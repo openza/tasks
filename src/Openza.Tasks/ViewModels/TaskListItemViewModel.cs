@@ -15,6 +15,7 @@ public sealed class TaskListItemViewModel : ObservableObject
     private int _nestingLevel;
     private string _subtaskProgressText;
     private string _matchingSubtaskText;
+    private bool _areQuickActionsEnabled = true;
 
     public TaskListItemViewModel(
         TaskItem task,
@@ -41,6 +42,17 @@ public sealed class TaskListItemViewModel : ObservableObject
     public int NestingLevel => _nestingLevel;
     public string SubtaskProgressText => _subtaskProgressText;
     public string MatchingSubtaskText => _matchingSubtaskText;
+    public bool AreQuickActionsEnabled
+    {
+        get => _areQuickActionsEnabled;
+        set
+        {
+            if (SetProperty(ref _areQuickActionsEnabled, value))
+            {
+                OnPropertyChanged(nameof(QuickActionsVisibility));
+            }
+        }
+    }
 
     public string Id => Task.Id;
     public string Title => Task.Title;
@@ -99,6 +111,7 @@ public sealed class TaskListItemViewModel : ObservableObject
     public Visibility DueVisibility => string.IsNullOrWhiteSpace(DateText) ? Visibility.Collapsed : Visibility.Visible;
     public Visibility SourceVisibility => IsProviderTask ? Visibility.Visible : Visibility.Collapsed;
     public Visibility DetailsSubtaskMetadataVisibility => string.IsNullOrWhiteSpace(DetailsSubtaskMetadataText) ? Visibility.Collapsed : Visibility.Visible;
+    public Visibility QuickActionsVisibility => AreQuickActionsEnabled ? Visibility.Visible : Visibility.Collapsed;
     public bool IsCompleted => Task.IsCompleted;
     public bool IsSubtask => NestingLevel > 0 || !string.IsNullOrWhiteSpace(Task.ParentId);
     public bool IsProviderTask => Task.IsProviderTask || Task.HasProviderSource;
@@ -172,6 +185,7 @@ public sealed class TaskListItemViewModel : ObservableObject
         OnPropertyChanged(nameof(NestingLevel));
         OnPropertyChanged(nameof(SubtaskProgressText));
         OnPropertyChanged(nameof(MatchingSubtaskText));
+        OnPropertyChanged(nameof(AreQuickActionsEnabled));
         OnPropertyChanged(nameof(Id));
         OnPropertyChanged(nameof(Title));
         OnPropertyChanged(nameof(Notes));
@@ -188,6 +202,7 @@ public sealed class TaskListItemViewModel : ObservableObject
         OnPropertyChanged(nameof(MetadataItems));
         OnPropertyChanged(nameof(MetadataText));
         OnPropertyChanged(nameof(DetailsSubtaskMetadataText));
+        OnPropertyChanged(nameof(QuickActionsVisibility));
         OnPropertyChanged(nameof(HasLabels));
         OnPropertyChanged(nameof(StatusVisibility));
         OnPropertyChanged(nameof(PriorityCueVisibility));

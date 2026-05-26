@@ -297,12 +297,14 @@ public sealed partial class TasksPage : UserControl
     {
         _detailsOpen = true;
         _intakeOpen = false;
+        ViewModel.SetRowQuickActionsEnabled(false);
         UpdateWorkbenchLayoutForCurrentWidth();
     }
 
     public void HideDetailsPane()
     {
         _detailsOpen = false;
+        ViewModel.SetRowQuickActionsEnabled(true);
         UpdateWorkbenchLayoutForCurrentWidth();
     }
 
@@ -320,6 +322,7 @@ public sealed partial class TasksPage : UserControl
 
         _intakeOpen = true;
         _detailsOpen = false;
+        ViewModel.SetRowQuickActionsEnabled(true);
         UpdateWorkbenchLayoutForCurrentWidth();
     }
 

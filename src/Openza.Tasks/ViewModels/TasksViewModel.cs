@@ -18,6 +18,7 @@ public sealed class TasksViewModel : ObservableObject
     private ProjectItem? _selectedProject;
     private bool _isGrouped;
     private TaskGroupMode _currentGroupMode = TaskGroupMode.None;
+    private bool _areRowQuickActionsEnabled = true;
 
     public ObservableCollection<TaskListItemViewModel> Tasks { get; } = [];
     public ObservableCollection<TaskGroupViewModel> TaskGroups { get; } = [];
@@ -111,9 +112,27 @@ public sealed class TasksViewModel : ObservableObject
         }
     }
 
+    public void SetRowQuickActionsEnabled(bool enabled)
+    {
+        if (_areRowQuickActionsEnabled == enabled)
+        {
+            return;
+        }
+
+        _areRowQuickActionsEnabled = enabled;
+        foreach (var task in Tasks)
+        {
+            task.AreQuickActionsEnabled = enabled;
+        }
+    }
+
     public void SetTasks(IEnumerable<TaskListItemViewModel> tasks, TaskGroupMode groupMode)
     {
         var taskItems = tasks.ToList();
+        foreach (var task in taskItems)
+        {
+            task.AreQuickActionsEnabled = _areRowQuickActionsEnabled;
+        }
 
         SyncTasks(Tasks, taskItems);
 

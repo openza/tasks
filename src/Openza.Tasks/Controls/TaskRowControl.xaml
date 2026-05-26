@@ -97,6 +97,7 @@
                 Orientation="Horizontal"
                 Spacing="4"
                 Opacity="0"
+                Visibility="{Binding QuickActionsVisibility}"
                 GotFocus="OnActionsGotFocus"
                 LostFocus="OnActionsLostFocus"
                 VerticalAlignment="Center">
