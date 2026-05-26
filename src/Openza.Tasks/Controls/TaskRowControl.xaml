@@ -39,7 +39,7 @@
                     IsTextSelectionEnabled="True"
                     TextWrapping="WrapWholeWords"
                     TextTrimming="CharacterEllipsis" />
-                <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="6">
+                <Grid>
                     <ItemsControl
                         ItemsSource="{Binding MetadataItems}"
                         Opacity="{Binding MetadataOpacity}">
@@ -65,28 +65,6 @@
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
-                    <Border
-                        Grid.Column="1"
-                        Padding="7,2"
-                        CornerRadius="10"
-                        Background="{ThemeResource OpenzaChipBackgroundBrush}"
-                        Visibility="{Binding PriorityCueVisibility}"
-                        VerticalAlignment="Top">
-                        <TextBlock
-                            Text="{Binding PriorityCueText}"
-                            Style="{StaticResource OpenzaCaptionTextBlockStyle}" />
-                    </Border>
-                    <Border
-                        Grid.Column="2"
-                        Padding="7,2"
-                        CornerRadius="10"
-                        Background="{ThemeResource OpenzaChipBackgroundBrush}"
-                        Visibility="{Binding StatusVisibility}"
-                        VerticalAlignment="Top">
-                        <TextBlock
-                            Text="{Binding StatusText}"
-                            Style="{StaticResource OpenzaCaptionTextBlockStyle}" />
-                    </Border>
                 </Grid>
             </StackPanel>
 

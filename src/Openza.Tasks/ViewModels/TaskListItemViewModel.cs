@@ -244,6 +244,16 @@ public sealed class TaskListItemViewModel : ObservableObject
             yield return DateText;
         }
 
+        if (!string.IsNullOrWhiteSpace(StatusText))
+        {
+            yield return StatusText;
+        }
+
+        if (!string.IsNullOrWhiteSpace(PriorityCueText))
+        {
+            yield return PriorityCueText;
+        }
+
         if (IsProviderTask)
         {
             yield return SourceText;
