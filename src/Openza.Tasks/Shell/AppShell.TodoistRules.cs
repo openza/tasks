@@ -11,12 +11,13 @@ namespace Openza.Tasks.Shell;
 public sealed partial class AppShell
 {
     private const string TodoistRuleRouteId = "route_todoist_label_routing";
+    private const string TodoistUnlabeledRuleId = "todoist_rule_no_labels";
 
     private async Task RefreshTodoistRulesAsync()
     {
         var routes = await _store.GetSyncRoutesAsync().ConfigureAwait(true);
         var route = routes.FirstOrDefault(item => string.Equals(item.Id, TodoistRuleRouteId, StringComparison.Ordinal));
-        var rules = TodoistRuleSettings.FromJson(route?.SettingsJson).LabelRoutes;
+        var settings = TodoistRuleSettings.FromJson(route?.SettingsJson);
         var activeSpaces = _spaces
             .OrderBy(space => space.SortOrder)
             .ThenBy(space => space.Name, StringComparer.CurrentCultureIgnoreCase)
@@ -37,22 +38,12 @@ public sealed partial class AppShell
         var projectNames = todoistProjects.ToDictionary(project => project.Id, project => project.Name, StringComparer.Ordinal);
 
         SettingsPage.SetTodoistRuleOptions(todoistLabels, activeSpaces, todoistProjects);
-        SettingsPage.SetTodoistRules(rules.Select(rule => new TodoistRoutingRuleViewModel
-        {
-            Id = rule.Id,
-            Label = rule.Label,
-            SpaceId = rule.SpaceId,
-            SpaceName = spaceNames.GetValueOrDefault(rule.SpaceId, "Unknown Space"),
-            MoveToProjectId = rule.PostImport?.MoveToProjectId,
-            MoveToProjectName = rule.PostImport?.MoveToProjectId is { } projectId
-                ? projectNames.GetValueOrDefault(projectId, "Todoist project")
-                : null,
-        }));
+        SettingsPage.SetTodoistRules(BuildTodoistRuleViewModels(settings, spaceNames, projectNames));
     }
 
     private async void OnSaveTodoistRuleRequested(SettingsPage sender, TodoistRoutingRuleDraft draft)
     {
-        if (string.IsNullOrWhiteSpace(draft.Label))
+        if (!draft.MatchNoLabels && string.IsNullOrWhiteSpace(draft.Label))
         {
             ShowInfo("Rule needs a label", "Enter the Todoist label this rule should match.", InfoBarSeverity.Warning);
             return;
@@ -68,22 +59,42 @@ public sealed partial class AppShell
         var existingRoute = routes.FirstOrDefault(route => string.Equals(route.Id, TodoistRuleRouteId, StringComparison.Ordinal));
         var settings = TodoistRuleSettings.FromJson(existingRoute?.SettingsJson);
         var normalizedLabel = NormalizeTodoistRuleLabel(draft.Label);
-        var id = string.IsNullOrWhiteSpace(draft.Id) ? $"todoist_rule_{Guid.NewGuid():N}" : draft.Id;
-        var nextRule = new TodoistRuleJson(
-            id,
-            normalizedLabel,
-            draft.SpaceId,
-            string.IsNullOrWhiteSpace(draft.MoveToProjectId) ? null : new TodoistRulePostImportJson(draft.MoveToProjectId));
-        var rules = settings.LabelRoutes
-            .Where(rule => !string.Equals(rule.Id, id, StringComparison.Ordinal) &&
-                !string.Equals(rule.Label, normalizedLabel, StringComparison.OrdinalIgnoreCase))
-            .Append(nextRule)
-            .OrderBy(rule => rule.Label, StringComparer.CurrentCultureIgnoreCase)
-            .ToList();
+        var postImport = string.IsNullOrWhiteSpace(draft.MoveToProjectId) ? null : new TodoistRulePostImportJson(draft.MoveToProjectId);
+        var rules = settings.LabelRoutes;
+        var unlabeledRoute = settings.UnlabeledRoute;
+        if (draft.MatchNoLabels)
+        {
+            rules = settings.LabelRoutes
+                .Where(rule => !string.Equals(rule.Id, draft.Id, StringComparison.Ordinal))
+                .ToList();
+            unlabeledRoute = new TodoistRuleJson(TodoistUnlabeledRuleId, string.Empty, draft.SpaceId, postImport);
+        }
+        else
+        {
+            var id = string.IsNullOrWhiteSpace(draft.Id) ? $"todoist_rule_{Guid.NewGuid():N}" : draft.Id;
+            if (string.Equals(id, TodoistUnlabeledRuleId, StringComparison.Ordinal))
+            {
+                id = $"todoist_rule_{Guid.NewGuid():N}";
+                unlabeledRoute = null;
+            }
 
-        await SaveTodoistRuleSettingsAsync(existingRoute, new TodoistRuleSettings(rules)).ConfigureAwait(true);
+            var nextRule = new TodoistRuleJson(id, normalizedLabel, draft.SpaceId, postImport);
+            rules = settings.LabelRoutes
+                .Where(rule => !string.Equals(rule.Id, id, StringComparison.Ordinal) &&
+                    !string.Equals(rule.Label, normalizedLabel, StringComparison.OrdinalIgnoreCase))
+                .Append(nextRule)
+                .OrderBy(rule => rule.Label, StringComparer.CurrentCultureIgnoreCase)
+                .ToList();
+        }
+
+        await SaveTodoistRuleSettingsAsync(existingRoute, new TodoistRuleSettings(rules, unlabeledRoute)).ConfigureAwait(true);
         await RefreshTodoistRulesAsync().ConfigureAwait(true);
-        ShowInfo("Todoist rule saved", $"@{normalizedLabel} will be sent to the selected Space.", InfoBarSeverity.Success);
+        ShowInfo(
+            "Todoist rule saved",
+            draft.MatchNoLabels
+                ? "Todoist tasks with no labels will be sent to the selected Space."
+                : $"@{normalizedLabel} will be sent to the selected Space.",
+            InfoBarSeverity.Success);
     }
 
     private async void OnDeleteTodoistRuleRequested(SettingsPage sender, string id)
@@ -94,8 +105,11 @@ public sealed partial class AppShell
         var rules = settings.LabelRoutes
             .Where(rule => !string.Equals(rule.Id, id, StringComparison.Ordinal))
             .ToList();
+        var unlabeledRoute = string.Equals(settings.UnlabeledRoute?.Id, id, StringComparison.Ordinal)
+            ? null
+            : settings.UnlabeledRoute;
 
-        await SaveTodoistRuleSettingsAsync(existingRoute, new TodoistRuleSettings(rules)).ConfigureAwait(true);
+        await SaveTodoistRuleSettingsAsync(existingRoute, new TodoistRuleSettings(rules, unlabeledRoute)).ConfigureAwait(true);
         await RefreshTodoistRulesAsync().ConfigureAwait(true);
         ShowInfo("Todoist rule deleted", "New Todoist tasks will no longer use that rule.", InfoBarSeverity.Informational);
     }
@@ -110,11 +124,45 @@ public sealed partial class AppShell
             SourceConnectionId = "todoist_default",
             Mode = "one_way",
             Visibility = "optional",
-            IsEnabled = settings.LabelRoutes.Count > 0,
+            IsEnabled = settings.LabelRoutes.Count > 0 || settings.UnlabeledRoute is not null,
             SettingsJson = JsonSerializer.Serialize(settings, TodoistRuleJsonContext.Default.TodoistRuleSettings),
             CreatedAt = existingRoute?.CreatedAt ?? now,
             UpdatedAt = now,
         }).ConfigureAwait(true);
+    }
+
+    private static IReadOnlyList<TodoistRoutingRuleViewModel> BuildTodoistRuleViewModels(
+        TodoistRuleSettings settings,
+        IReadOnlyDictionary<string, string> spaceNames,
+        IReadOnlyDictionary<string, string> projectNames)
+    {
+        var rules = settings.LabelRoutes.Select(rule => ToTodoistRuleViewModel(rule, false, spaceNames, projectNames)).ToList();
+        if (settings.UnlabeledRoute is { } unlabeledRoute)
+        {
+            rules.Insert(0, ToTodoistRuleViewModel(unlabeledRoute, true, spaceNames, projectNames));
+        }
+
+        return rules;
+    }
+
+    private static TodoistRoutingRuleViewModel ToTodoistRuleViewModel(
+        TodoistRuleJson rule,
+        bool matchNoLabels,
+        IReadOnlyDictionary<string, string> spaceNames,
+        IReadOnlyDictionary<string, string> projectNames)
+    {
+        return new TodoistRoutingRuleViewModel
+        {
+            Id = rule.Id,
+            Label = rule.Label,
+            SpaceId = rule.SpaceId,
+            SpaceName = spaceNames.GetValueOrDefault(rule.SpaceId, "Unknown Space"),
+            MoveToProjectId = rule.PostImport?.MoveToProjectId,
+            MoveToProjectName = rule.PostImport?.MoveToProjectId is { } projectId
+                ? projectNames.GetValueOrDefault(projectId, "Todoist project")
+                : null,
+            MatchNoLabels = matchNoLabels,
+        };
     }
 
     private static string NormalizeTodoistRuleLabel(string value)
@@ -123,23 +171,25 @@ public sealed partial class AppShell
         return label.StartsWith('@') ? label[1..].Trim() : label;
     }
 
-    private sealed record TodoistRuleSettings([property: JsonPropertyName("labelRoutes")] IReadOnlyList<TodoistRuleJson> LabelRoutes)
+    private sealed record TodoistRuleSettings(
+        [property: JsonPropertyName("labelRoutes")] IReadOnlyList<TodoistRuleJson> LabelRoutes,
+        [property: JsonPropertyName("unlabeledRoute")] TodoistRuleJson? UnlabeledRoute)
     {
         public static TodoistRuleSettings FromJson(string? settingsJson)
         {
             if (string.IsNullOrWhiteSpace(settingsJson))
             {
-                return new TodoistRuleSettings([]);
+                return new TodoistRuleSettings([], null);
             }
 
             try
             {
                 return JsonSerializer.Deserialize(settingsJson, TodoistRuleJsonContext.Default.TodoistRuleSettings) ??
-                    new TodoistRuleSettings([]);
+                    new TodoistRuleSettings([], null);
             }
             catch (JsonException)
             {
-                return new TodoistRuleSettings([]);
+                return new TodoistRuleSettings([], null);
             }
         }
     }
