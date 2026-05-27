@@ -426,7 +426,7 @@ public sealed partial class AppShell
         SetBadge(TodayBadge, counts.Today);
         SetBadge(CalendarBadge, counts.Calendar);
         SetBadge(OverdueBadge, counts.Overdue);
-        SetBadge(TasksBadge, counts.All);
+        SetBadge(TasksBadge, counts.Open);
         SetBadge(CompletedBadge, counts.Completed);
     }
 
