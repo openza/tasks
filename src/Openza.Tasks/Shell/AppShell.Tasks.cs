@@ -17,6 +17,45 @@ namespace Openza.Tasks.Shell;
 
 public sealed partial class AppShell
 {
+    private string CurrentTaskListSelectionKey() =>
+        string.Equals(_currentView, "tasks", StringComparison.Ordinal) && !string.IsNullOrWhiteSpace(_selectedProjectId)
+            ? $"tasks/project/{_selectedProjectId}"
+            : _currentView;
+
+    private void RememberCurrentTaskListSelection()
+    {
+        if (!IsTaskView(_currentView))
+        {
+            return;
+        }
+
+        var key = CurrentTaskListSelectionKey();
+        if (TasksPage.IsDetailsPaneOpen && !string.IsNullOrWhiteSpace(_selectedTaskId))
+        {
+            _selectedTaskIdByList[key] = _selectedTaskId;
+        }
+        else
+        {
+            _selectedTaskIdByList.Remove(key);
+        }
+    }
+
+    private void RestoreTaskListSelection()
+    {
+        _selectedTaskId = IsTaskView(_currentView) &&
+            _selectedTaskIdByList.TryGetValue(CurrentTaskListSelectionKey(), out var selectedTaskId)
+                ? selectedTaskId
+                : null;
+    }
+
+    private void ForgetCurrentTaskListSelection()
+    {
+        if (IsTaskView(_currentView))
+        {
+            _selectedTaskIdByList.Remove(CurrentTaskListSelectionKey());
+        }
+    }
+
     private async Task LoadLabelsAsync()
     {
         _allLabels.Clear();
@@ -32,14 +71,18 @@ public sealed partial class AppShell
             return;
         }
 
+        var refreshVersion = ++_taskRefreshVersion;
+        var refreshView = _currentView;
+        var refreshSpaceId = _currentSpaceId;
+        var refreshProjectId = _selectedProjectId;
         var selectedTaskBeforeRefresh = _selectedTaskId;
         var viewportBeforeRefresh = TasksPage.CaptureTaskListViewport();
         var projects = _allProjects.ToDictionary(p => p.Id, StringComparer.Ordinal);
-        var selectedProject = _currentView == "tasks" ? GetSelectedProject() : null;
+        var selectedProject = refreshView == "tasks" ? GetSelectedProject(refreshProjectId) : null;
         var query = new TaskQuery
         {
-            SpaceId = _currentSpaceId,
-            Kind = _currentView switch
+            SpaceId = refreshSpaceId,
+            Kind = refreshView switch
             {
                 "inbox" => TaskListKind.Inbox,
                 "today" => TaskListKind.Today,
@@ -57,16 +100,27 @@ public sealed partial class AppShell
             RepeatScope = _repeatScopeFilter,
             SearchText = TasksPage.SearchText,
             SortMode = _sortMode,
+            SortDirection = _sortDirection,
             Priority = _priorityFilter,
         };
 
-        var tasks = await _store.GetTasksAsync(query).ConfigureAwait(true);
-        var allSpaceTasks = await _store.GetTasksAsync(new TaskQuery
+        var snapshotTask = _store.GetTaskListRefreshSnapshotAsync(query);
+        var sourceItemsTask = _store.GetProviderSourceItemsAsync(spaceId: refreshSpaceId, includeAdopted: false, includeIgnored: true);
+
+        await Task.WhenAll(snapshotTask, sourceItemsTask).ConfigureAwait(true);
+
+        if (refreshVersion != _taskRefreshVersion ||
+            !string.Equals(refreshView, _currentView, StringComparison.Ordinal) ||
+            !string.Equals(refreshSpaceId, _currentSpaceId, StringComparison.Ordinal) ||
+            !string.Equals(refreshProjectId, _selectedProjectId, StringComparison.Ordinal))
         {
-            SpaceId = _currentSpaceId,
-            Kind = TaskListKind.All,
-            IncludeSubtasks = true,
-        }).ConfigureAwait(true);
+            return;
+        }
+
+        var snapshot = await snapshotTask.ConfigureAwait(true);
+        var tasks = snapshot.VisibleTasks;
+        var allSpaceTasks = snapshot.AllSpaceTasks;
+        _lastTaskCounts = snapshot.Counts;
         var subtaskProgress = BuildSubtaskProgress(allSpaceTasks);
         var matchingSubtasks = BuildMatchingSubtaskText(tasks, query.SearchText);
         var taskItems = tasks
@@ -77,7 +131,7 @@ public sealed partial class AppShell
                 return new TaskListItemViewModel(
                     task,
                     project,
-                    _currentView,
+                    refreshView,
                     selectedProject is not null,
                     0,
                     subtaskProgress.TryGetValue(task.Id, out var progress) ? progress : string.Empty,
@@ -87,16 +141,43 @@ public sealed partial class AppShell
 
         TasksPage.ViewModel.SetTasks(taskItems, _groupMode);
 
-        if (_selectedTaskId is not null && tasks.All(task => task.Id != _selectedTaskId))
+        if (_selectedTaskId is null)
         {
-            _selectedTaskId = null;
+            _loadedDetailsTaskId = null;
             TasksPage.HideDetailsPane();
             TasksPage.ClearTaskSelection();
             TasksPage.DetailsPanel.ClearForNewTask(selectedProject, 3, DefaultStatusForCurrentView());
         }
-        else if (_selectedTaskId is not null)
+        else if (tasks.All(task => task.Id != _selectedTaskId))
         {
-            TasksPage.SelectTask(_selectedTaskId);
+            if (string.Equals(refreshView, "inbox", StringComparison.Ordinal) &&
+                TasksPage.IsDetailsPaneOpen &&
+                taskItems.FirstOrDefault(task => !task.IsSubtask) is { } nextInboxTask)
+            {
+                await LoadTaskDetailsAsync(nextInboxTask.Id).ConfigureAwait(true);
+            }
+            else
+            {
+                ForgetCurrentTaskListSelection();
+                _selectedTaskId = null;
+                _loadedDetailsTaskId = null;
+                TasksPage.HideDetailsPane();
+                TasksPage.ClearTaskSelection();
+                TasksPage.DetailsPanel.ClearForNewTask(selectedProject, 3, DefaultStatusForCurrentView());
+            }
+        }
+        else
+        {
+            var selectedTaskId = _selectedTaskId;
+            if (!TasksPage.IsDetailsPaneOpen ||
+                !string.Equals(_loadedDetailsTaskId, selectedTaskId, StringComparison.Ordinal))
+            {
+                await LoadTaskDetailsAsync(selectedTaskId).ConfigureAwait(true);
+            }
+            else
+            {
+                TasksPage.SelectTask(selectedTaskId);
+            }
         }
 
         if (_selectedTaskId is not null && string.Equals(_selectedTaskId, selectedTaskBeforeRefresh, StringComparison.Ordinal))
@@ -104,7 +185,7 @@ public sealed partial class AppShell
             TasksPage.RestoreTaskListViewport(viewportBeforeRefresh, _selectedTaskId);
         }
 
-        var title = selectedProject?.Name ?? _currentView switch
+        var title = selectedProject?.Name ?? refreshView switch
         {
             "inbox" => "Inbox",
             "today" => "Today",
@@ -125,10 +206,12 @@ public sealed partial class AppShell
 
         TasksPage.ViewModel.SelectedProject = selectedProject;
         TasksPage.SetHeader(title, subtitle, selectedProject is not null);
-        var counts = await _store.GetTaskCountsAsync(_currentSpaceId).ConfigureAwait(true);
-        var sourceItems = await _store.GetProviderSourceItemsAsync(spaceId: _currentSpaceId, includeAdopted: false, includeIgnored: true).ConfigureAwait(true);
+        var sourceItems = await sourceItemsTask.ConfigureAwait(true);
+        var counts = snapshot.Counts;
+        UpdateNavigationCounts(counts);
+        TasksPage.ViewModel.SetProjectGroups(BuildProjectGroups(counts, TasksPage.ProjectSearchText));
         TasksPage.SetGetStartedVisible(_settings.Settings.ShowGetStarted &&
-            string.Equals(_currentView, "inbox", StringComparison.Ordinal) &&
+            string.Equals(refreshView, "inbox", StringComparison.Ordinal) &&
             counts.All == 0 &&
             sourceItems.Count == 0 &&
             TasksPage.ViewModel.IsEmpty &&
@@ -148,7 +231,32 @@ public sealed partial class AppShell
             return;
         }
 
+        if (args.Reason == AutoSuggestionBoxTextChangeReason.UserInput)
+        {
+            ScheduleTaskSearchRefresh();
+            return;
+        }
+
         await RefreshTasksAsync().ConfigureAwait(true);
+    }
+
+    private void ScheduleTaskSearchRefresh()
+    {
+        if (_taskSearchRefreshTimer is null)
+        {
+            _taskSearchRefreshTimer = new DispatcherTimer
+            {
+                Interval = TimeSpan.FromMilliseconds(250),
+            };
+            _taskSearchRefreshTimer.Tick += async (_, _) =>
+            {
+                _taskSearchRefreshTimer?.Stop();
+                await RefreshTasksAsync().ConfigureAwait(true);
+            };
+        }
+
+        _taskSearchRefreshTimer.Stop();
+        _taskSearchRefreshTimer.Start();
     }
 
     private async void OnSortChanged(object sender, EventArgs e)
@@ -239,6 +347,8 @@ public sealed partial class AppShell
         }
 
         _selectedTaskId = task.Id;
+        _loadedDetailsTaskId = task.Id;
+        RememberCurrentTaskListSelection();
         var projects = _allProjects.ToDictionary(p => p.Id, StringComparer.Ordinal);
         var childTasks = await _store.GetTasksAsync(new TaskQuery
         {
@@ -764,7 +874,7 @@ public sealed partial class AppShell
 
         await _store.UpsertTaskAsync(task).ConfigureAwait(true);
         await LoadLabelsAsync().ConfigureAwait(true);
-        await LoadProjectsAsync().ConfigureAwait(true);
+        await LoadProjectsAsync(refreshList: false).ConfigureAwait(true);
         await RefreshTasksAsync().ConfigureAwait(true);
         ShowInfo("Task created", task.Title, InfoBarSeverity.Success);
 
@@ -944,7 +1054,7 @@ public sealed partial class AppShell
         }
 
         await LoadLabelsAsync().ConfigureAwait(true);
-        await LoadProjectsAsync().ConfigureAwait(true);
+        await LoadProjectsAsync(refreshList: false).ConfigureAwait(true);
         await RefreshTasksAsync().ConfigureAwait(true);
         TasksPage.DetailsPanel.SetAutoSaveState("Saved", autoDismiss: true);
         if (showFeedback)
@@ -1071,6 +1181,51 @@ public sealed partial class AppShell
         await ToggleTaskCompletionAsync(id, showFeedback).ConfigureAwait(true);
     }
 
+    private async void OnTaskRowActionRequested(TasksPage sender, TaskRowActionRequestedEventArgs args)
+    {
+        if (string.Equals(args.TaskId, _selectedTaskId, StringComparison.Ordinal) &&
+            !await SavePendingTaskDetailsAsync().ConfigureAwait(true))
+        {
+            return;
+        }
+
+        switch (args.Action)
+        {
+            case TaskRowActionKind.SetDate when args.Date is { } date:
+                await ApplyRowTaskUpdateAsync(args.TaskId, task => task with
+                {
+                    PlannedOn = date,
+                    PlannedAt = PreserveExactTime(date, task.PlannedOn, task.PlannedAt),
+                }).ConfigureAwait(true);
+                break;
+            case TaskRowActionKind.ClearDate:
+                await ApplyRowTaskUpdateAsync(args.TaskId, task => task with
+                {
+                    PlannedOn = null,
+                    PlannedAt = null,
+                }).ConfigureAwait(true);
+                break;
+            case TaskRowActionKind.ChangeProject:
+                await ChangeRowTaskProjectAsync(args.TaskId).ConfigureAwait(true);
+                break;
+            case TaskRowActionKind.ChangeLabels:
+                await ChangeRowTaskLabelsAsync(args.TaskId).ConfigureAwait(true);
+                break;
+            case TaskRowActionKind.SetStatus when args.Status is { } status:
+                await ApplyRowTaskUpdateAsync(args.TaskId, task => task.IsCompleted ? task : task with { Status = status }).ConfigureAwait(true);
+                break;
+            case TaskRowActionKind.SetPriority when args.Priority is { } priority:
+                await ApplyRowTaskUpdateAsync(args.TaskId, task => task with { Priority = priority }).ConfigureAwait(true);
+                break;
+            case TaskRowActionKind.MoveToSpace:
+                await MoveTaskToSpaceAsync(args.TaskId).ConfigureAwait(true);
+                break;
+            case TaskRowActionKind.Delete:
+                await DeleteTaskAsync(args.TaskId).ConfigureAwait(true);
+                break;
+        }
+    }
+
     private async void OnDetailsToggleCompleteClicked(object sender, RoutedEventArgs e)
     {
         if (_selectedTaskId is null)
@@ -1114,7 +1269,7 @@ public sealed partial class AppShell
             await _store.ReopenTaskAsync(task.Id).ConfigureAwait(true);
         }
 
-        await LoadProjectsAsync().ConfigureAwait(true);
+        await LoadProjectsAsync(refreshList: false).ConfigureAwait(true);
         await RefreshTasksAsync().ConfigureAwait(true);
         if (string.Equals(_selectedTaskId, id, StringComparison.Ordinal))
         {
@@ -1147,16 +1302,6 @@ public sealed partial class AppShell
         return false;
     }
 
-    private async void OnDeleteTaskClicked(object sender, RoutedEventArgs e)
-    {
-        if ((sender as FrameworkElement)?.Tag is not string id)
-        {
-            return;
-        }
-
-        await DeleteTaskAsync(id).ConfigureAwait(true);
-    }
-
     private async void OnDetailsDeleteTaskClicked(object sender, RoutedEventArgs e)
     {
         if (_selectedTaskId is null)
@@ -1179,7 +1324,12 @@ public sealed partial class AppShell
             return;
         }
 
-        var task = await _store.GetTaskAsync(_selectedTaskId).ConfigureAwait(true);
+        await MoveTaskToSpaceAsync(_selectedTaskId).ConfigureAwait(true);
+    }
+
+    private async Task MoveTaskToSpaceAsync(string taskId)
+    {
+        var task = await _store.GetTaskAsync(taskId).ConfigureAwait(true);
         if (task is null)
         {
             ShowInfo("Task not found", "The selected task no longer exists.", InfoBarSeverity.Warning);
@@ -1274,14 +1424,134 @@ public sealed partial class AppShell
         }
 
         _selectedTaskId = null;
+        _loadedDetailsTaskId = null;
         TasksPage.HideDetailsPane();
         TasksPage.ClearTaskSelection();
         TasksPage.DetailsPanel.ClearForNewTask(GetProject(_selectedProjectId), 3, DefaultStatusForCurrentView());
-        await LoadProjectsAsync().ConfigureAwait(true);
+        await LoadProjectsAsync(refreshList: false).ConfigureAwait(true);
         await RefreshTasksAsync().ConfigureAwait(true);
         await RefreshSourceItemsAsync().ConfigureAwait(true);
         await RefreshSettingsSpacesAsync().ConfigureAwait(true);
         ShowInfo("Task moved", $"Moved to {targetSpace.Name}.", InfoBarSeverity.Success);
+    }
+
+    private async Task ApplyRowTaskUpdateAsync(string taskId, Func<TaskItem, TaskItem> update)
+    {
+        var existing = await _store.GetTaskAsync(taskId).ConfigureAwait(true);
+        if (existing is null)
+        {
+            ShowInfo("Task not found", "The selected task no longer exists.", InfoBarSeverity.Warning);
+            return;
+        }
+
+        var updated = update(existing) with { UpdatedAt = DateTimeOffset.UtcNow };
+        await _store.UpsertTaskAsync(updated).ConfigureAwait(true);
+        await RefreshTasksAsync().ConfigureAwait(true);
+        if (string.Equals(_selectedTaskId, taskId, StringComparison.Ordinal))
+        {
+            await LoadTaskDetailsAsync(taskId).ConfigureAwait(true);
+        }
+    }
+
+    private async Task ChangeRowTaskProjectAsync(string taskId)
+    {
+        var task = await _store.GetTaskAsync(taskId).ConfigureAwait(true);
+        if (task is null)
+        {
+            ShowInfo("Task not found", "The selected task no longer exists.", InfoBarSeverity.Warning);
+            return;
+        }
+
+        var inboxProject = new ProjectItem
+        {
+            Id = string.Empty,
+            Name = "No project",
+            IntegrationId = IntegrationIds.Local,
+        };
+        var projectOptions = new List<ProjectItem> { inboxProject };
+        projectOptions.AddRange(_allProjects.Where(project => project.EffectiveStatus != ProjectLifecycleStates.Archived));
+        var projectBox = new ComboBox
+        {
+            Header = "Project",
+            DisplayMemberPath = "Name",
+            ItemsSource = projectOptions,
+            SelectedItem = projectOptions.FirstOrDefault(project => string.Equals(project.Id, task.ProjectId ?? string.Empty, StringComparison.Ordinal)) ?? inboxProject,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+        var dialog = new ContentDialog
+        {
+            Title = "Change project",
+            Content = projectBox,
+            PrimaryButtonText = "Save",
+            CloseButtonText = "Cancel",
+            XamlRoot = XamlRoot,
+        };
+
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary ||
+            projectBox.SelectedItem is not ProjectItem selectedProject)
+        {
+            return;
+        }
+
+        await ApplyRowTaskUpdateAsync(taskId, item => item with
+        {
+            ProjectId = string.IsNullOrWhiteSpace(selectedProject.Id) ? null : selectedProject.Id,
+        }).ConfigureAwait(true);
+    }
+
+    private async Task ChangeRowTaskLabelsAsync(string taskId)
+    {
+        var task = await _store.GetTaskAsync(taskId).ConfigureAwait(true);
+        if (task is null)
+        {
+            ShowInfo("Task not found", "The selected task no longer exists.", InfoBarSeverity.Warning);
+            return;
+        }
+
+        var selectedIds = task.Labels.Select(label => label.Id).ToHashSet(StringComparer.Ordinal);
+        var labelChecks = _allLabels
+            .OrderBy(label => label.Name, StringComparer.CurrentCultureIgnoreCase)
+            .Select(label => new CheckBox
+            {
+                Content = label.Name,
+                Tag = label,
+                IsChecked = selectedIds.Contains(label.Id),
+            })
+            .ToList();
+        var panel = new StackPanel { Spacing = 6 };
+        foreach (var check in labelChecks)
+        {
+            panel.Children.Add(check);
+        }
+
+        var scrollViewer = new ScrollViewer
+        {
+            Content = labelChecks.Count == 0
+                ? new TextBlock { Text = "No labels exist yet. Create labels from the task details pane first.", TextWrapping = TextWrapping.Wrap }
+                : panel,
+            MaxHeight = 360,
+        };
+        var dialog = new ContentDialog
+        {
+            Title = "Change labels",
+            Content = scrollViewer,
+            PrimaryButtonText = "Save",
+            CloseButtonText = "Cancel",
+            XamlRoot = XamlRoot,
+            IsPrimaryButtonEnabled = labelChecks.Count > 0,
+        };
+
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+        {
+            return;
+        }
+
+        var labels = labelChecks
+            .Where(check => check.IsChecked == true)
+            .Select(check => (LabelItem)check.Tag)
+            .ToList();
+        await LoadLabelsAsync().ConfigureAwait(true);
+        await ApplyRowTaskUpdateAsync(taskId, item => item with { Labels = labels }).ConfigureAwait(true);
     }
 
     private async Task DeleteTaskAsync(string id)
@@ -1330,12 +1600,13 @@ public sealed partial class AppShell
         if (_selectedTaskId == id)
         {
             _selectedTaskId = null;
+            _loadedDetailsTaskId = null;
             TasksPage.HideDetailsPane();
             TasksPage.ClearTaskSelection();
             TasksPage.DetailsPanel.ClearForNewTask(null, 3, DefaultStatusForCurrentView());
         }
 
-        await LoadProjectsAsync().ConfigureAwait(true);
+        await LoadProjectsAsync(refreshList: false).ConfigureAwait(true);
         await RefreshTasksAsync().ConfigureAwait(true);
     }
 
@@ -1347,6 +1618,7 @@ public sealed partial class AppShell
         }
 
         _selectedTaskId = null;
+        _loadedDetailsTaskId = null;
         TasksPage.HideDetailsPane();
         TasksPage.ClearTaskSelection();
         TasksPage.DetailsPanel.ClearForNewTask(null, 3, DefaultStatusForCurrentView());

@@ -153,6 +153,89 @@ public sealed class TaskSyncEngineTests : IDisposable
     }
 
     [Fact]
+    public async Task Sync_routes_unlabeled_todoist_source_items_from_settings_rule_shape()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        await store.UpsertSpaceAsync(new SpaceItem { Id = "space_personal", Name = "Personal" });
+        await store.UpsertSyncRouteAsync(new SyncRouteInfo
+        {
+            Id = "route_todoist_label_routing",
+            Name = "Todoist label rules",
+            SourceConnectionId = "todoist_default",
+            IsEnabled = true,
+            SettingsJson = """
+                {
+                  "unlabeledRoute": {
+                    "id": "todoist_rule_no_labels",
+                    "spaceId": "space_personal",
+                    "postImport": { "moveToProjectId": "personal_project" }
+                  }
+                }
+                """,
+        });
+        var provider = new FakeProvider();
+        var engine = new TaskSyncEngine(store);
+
+        await engine.SyncAsync(provider);
+
+        var source = Assert.Single(await store.GetProviderSourceItemsAsync(IntegrationIds.Todoist, spaceId: "space_personal"));
+        var routes = await store.GetSyncRoutesAsync();
+        var action = ProviderSourceRoutingPolicy
+            .FromRoutes(routes, "todoist_default", IntegrationIds.Todoist)
+            .Match(source)
+            .PostImportAction;
+        Assert.Equal("space_personal", source.SuggestedSpaceId);
+        Assert.NotNull(action);
+        Assert.Equal("personal_project", action.MoveToProjectId);
+    }
+
+    [Fact]
+    public async Task Sync_prefers_todoist_label_route_over_unlabeled_route()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        await store.UpsertSpaceAsync(new SpaceItem { Id = "space_work", Name = "Work" });
+        await store.UpsertSpaceAsync(new SpaceItem { Id = "space_personal", Name = "Personal" });
+        await store.UpsertSyncRouteAsync(new SyncRouteInfo
+        {
+            Id = "route_todoist_label_routing",
+            Name = "Todoist label rules",
+            SourceConnectionId = "todoist_default",
+            IsEnabled = true,
+            SettingsJson = """
+                {
+                  "labelRoutes": [
+                    { "labels": ["work"], "spaceId": "space_work" }
+                  ],
+                  "unlabeledRoute": {
+                    "id": "todoist_rule_no_labels",
+                    "spaceId": "space_personal"
+                  }
+                }
+                """,
+        });
+        var provider = new FakeProvider
+        {
+            Labels =
+            [
+                new LabelItem
+                {
+                    Id = "todoist_label_work",
+                    IntegrationId = IntegrationIds.Todoist,
+                    Name = "work",
+                },
+            ],
+        };
+        var engine = new TaskSyncEngine(store);
+
+        await engine.SyncAsync(provider);
+
+        var source = Assert.Single(await store.GetProviderSourceItemsAsync(IntegrationIds.Todoist, spaceId: "space_work"));
+        Assert.Equal("space_work", source.SuggestedSpaceId);
+    }
+
+    [Fact]
     public async Task Sync_stores_provider_projects_and_labels_for_rule_pickers()
     {
         var store = CreateStore();

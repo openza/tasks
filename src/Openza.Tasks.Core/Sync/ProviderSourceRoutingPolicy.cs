@@ -8,10 +8,14 @@ public sealed class ProviderSourceRoutingPolicy
     public static ProviderSourceRoutingPolicy Empty { get; } = new([]);
 
     private readonly IReadOnlyList<ProviderSourceLabelRoute> _labelRoutes;
+    private readonly ProviderSourceUnlabeledRoute? _unlabeledRoute;
 
-    private ProviderSourceRoutingPolicy(IReadOnlyList<ProviderSourceLabelRoute> labelRoutes)
+    private ProviderSourceRoutingPolicy(
+        IReadOnlyList<ProviderSourceLabelRoute> labelRoutes,
+        ProviderSourceUnlabeledRoute? unlabeledRoute = null)
     {
         _labelRoutes = labelRoutes;
+        _unlabeledRoute = unlabeledRoute;
     }
 
     public static ProviderSourceRoutingPolicy FromRoutes(
@@ -19,12 +23,19 @@ public sealed class ProviderSourceRoutingPolicy
         string providerConnectionId,
         string integrationId)
     {
-        var labelRoutes = routes
+        var matchingRouteSettings = routes
             .Where(route => route.IsEnabled && SourceConnectionMatches(route.SourceConnectionId, providerConnectionId, integrationId))
+            .ToList();
+        var labelRoutes = matchingRouteSettings
             .SelectMany(route => ParseLabelRoutes(route.SettingsJson))
             .ToList();
+        var unlabeledRoute = matchingRouteSettings
+            .Select(route => ParseUnlabeledRoute(route.SettingsJson))
+            .FirstOrDefault(route => route is not null);
 
-        return labelRoutes.Count == 0 ? Empty : new ProviderSourceRoutingPolicy(labelRoutes);
+        return labelRoutes.Count == 0 && unlabeledRoute is null
+            ? Empty
+            : new ProviderSourceRoutingPolicy(labelRoutes, unlabeledRoute);
     }
 
     public ProviderSourceRouteMatch Match(TaskItem task)
@@ -45,7 +56,9 @@ public sealed class ProviderSourceRoutingPolicy
 
         if (labelSet.Count == 0)
         {
-            return ProviderSourceRouteMatch.Empty;
+            return _unlabeledRoute is null
+                ? ProviderSourceRouteMatch.Empty
+                : new ProviderSourceRouteMatch(_unlabeledRoute.SpaceId, _unlabeledRoute.PostImportAction);
         }
 
         var route = _labelRoutes.FirstOrDefault(route => route.IsMatch(labelSet));
@@ -99,6 +112,31 @@ public sealed class ProviderSourceRoutingPolicy
         }
     }
 
+    private static ProviderSourceUnlabeledRoute? ParseUnlabeledRoute(string? settingsJson)
+    {
+        if (string.IsNullOrWhiteSpace(settingsJson))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(settingsJson);
+            var root = document.RootElement;
+            if (root.ValueKind != JsonValueKind.Object)
+            {
+                return null;
+            }
+
+            var route = ReadObject(root, "unlabeledRoute") ?? ReadObject(root, "noLabelRoute");
+            return route is null ? null : ParseUnlabeledRoute(route.Value);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
     private static ProviderSourceLabelRoute? ParseLabelRoute(JsonElement element)
     {
         if (element.ValueKind != JsonValueKind.Object)
@@ -125,6 +163,29 @@ public sealed class ProviderSourceRoutingPolicy
             : new ProviderPostImportAction(moveToProjectId);
 
         return new ProviderSourceLabelRoute(labels, matchAll, spaceId, action);
+    }
+
+    private static ProviderSourceUnlabeledRoute? ParseUnlabeledRoute(JsonElement element)
+    {
+        if (element.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        var spaceId = ReadString(element, "spaceId") ?? ReadString(element, "suggestedSpaceId");
+        var moveToProjectId =
+            ReadString(element, "moveToProjectId") ??
+            ReadString(element, "moveTaskToProjectId") ??
+            ReadString(element, "todoistProjectId") ??
+            ReadPostImportString(element, "moveToProjectId");
+
+        var action = string.IsNullOrWhiteSpace(moveToProjectId)
+            ? null
+            : new ProviderPostImportAction(moveToProjectId);
+
+        return string.IsNullOrWhiteSpace(spaceId) && action is null
+            ? null
+            : new ProviderSourceUnlabeledRoute(spaceId, action);
     }
 
     private static IEnumerable<string> ReadLabels(JsonElement element)
@@ -185,6 +246,13 @@ public sealed class ProviderSourceRoutingPolicy
             : null;
     }
 
+    private static JsonElement? ReadObject(JsonElement element, string property)
+    {
+        return element.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.Object
+            ? value
+            : null;
+    }
+
     private static string? ReadPostImportString(JsonElement element, string property)
     {
         return element.TryGetProperty("postImport", out var postImport) && postImport.ValueKind == JsonValueKind.Object
@@ -213,3 +281,7 @@ internal sealed record ProviderSourceLabelRoute(
             : Labels.Any(labels.Contains);
     }
 }
+
+internal sealed record ProviderSourceUnlabeledRoute(
+    string? SpaceId,
+    ProviderPostImportAction? PostImportAction);

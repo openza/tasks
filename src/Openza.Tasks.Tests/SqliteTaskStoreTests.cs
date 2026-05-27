@@ -357,6 +357,122 @@ public sealed class SqliteTaskStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task GetTasks_applies_sort_direction()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        await store.UpsertTaskAsync(new TaskItem
+        {
+            Id = "task_alpha",
+            Title = "Alpha",
+            CreatedAt = new DateTimeOffset(2026, 5, 1, 8, 0, 0, TimeSpan.Zero),
+        });
+        await store.UpsertTaskAsync(new TaskItem
+        {
+            Id = "task_beta",
+            Title = "Beta",
+            CreatedAt = new DateTimeOffset(2026, 5, 2, 8, 0, 0, TimeSpan.Zero),
+        });
+
+        var ascending = await store.GetTasksAsync(new TaskQuery
+        {
+            Kind = TaskListKind.All,
+            SortMode = TaskSortMode.Title,
+            SortDirection = TaskSortDirection.Ascending,
+        });
+        var descending = await store.GetTasksAsync(new TaskQuery
+        {
+            Kind = TaskListKind.All,
+            SortMode = TaskSortMode.Title,
+            SortDirection = TaskSortDirection.Descending,
+        });
+        var newestFirst = await store.GetTasksAsync(new TaskQuery
+        {
+            Kind = TaskListKind.All,
+            SortMode = TaskSortMode.CreatedNewest,
+            SortDirection = TaskSortDirection.Ascending,
+        });
+        var oldestFirst = await store.GetTasksAsync(new TaskQuery
+        {
+            Kind = TaskListKind.All,
+            SortMode = TaskSortMode.CreatedNewest,
+            SortDirection = TaskSortDirection.Descending,
+        });
+
+        Assert.Equal(["Alpha", "Beta"], ascending.Select(task => task.Title));
+        Assert.Equal(["Beta", "Alpha"], descending.Select(task => task.Title));
+        Assert.Equal(["Beta", "Alpha"], newestFirst.Select(task => task.Title));
+        Assert.Equal(["Alpha", "Beta"], oldestFirst.Select(task => task.Title));
+    }
+
+    [Fact]
+    public async Task GetTaskListRefreshSnapshot_matches_existing_task_and_count_queries()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        await store.UpsertProjectAsync(new ProjectItem
+        {
+            Id = "project_alpha",
+            Name = "Alpha",
+            IntegrationId = IntegrationIds.Local,
+        });
+        var label = new LabelItem
+        {
+            Id = "label_focus",
+            Name = "focus",
+            IntegrationId = IntegrationIds.Local,
+        };
+        await store.UpsertTaskAsync(new TaskItem
+        {
+            Id = "task_inbox",
+            Title = "Inbox task",
+            WorkflowStatus = TaskWorkflowStatus.Inbox,
+            Priority = 3,
+            Labels = [label],
+        });
+        await store.UpsertTaskAsync(new TaskItem
+        {
+            Id = "task_project",
+            Title = "Project task",
+            ProjectId = "project_alpha",
+            WorkflowStatus = TaskWorkflowStatus.Next,
+            Priority = 2,
+        });
+        await store.UpsertTaskAsync(new TaskItem
+        {
+            Id = "task_child",
+            Title = "Child task",
+            ParentId = "task_project",
+            WorkflowStatus = TaskWorkflowStatus.Next,
+            Priority = 2,
+        });
+
+        var query = new TaskQuery
+        {
+            Kind = TaskListKind.Open,
+            SortMode = TaskSortMode.PriorityThenDate,
+        };
+
+        var snapshot = await store.GetTaskListRefreshSnapshotAsync(query);
+        var visible = await store.GetTasksAsync(query);
+        var allSpaceTasks = await store.GetTasksAsync(new TaskQuery
+        {
+            Kind = TaskListKind.All,
+            IncludeSubtasks = true,
+        });
+        var counts = await store.GetTaskCountsAsync();
+
+        Assert.Equal(visible.Select(task => task.Id), snapshot.VisibleTasks.Select(task => task.Id));
+        Assert.Equal(allSpaceTasks.Select(task => task.Id), snapshot.AllSpaceTasks.Select(task => task.Id));
+        Assert.Equal(counts.Inbox, snapshot.Counts.Inbox);
+        Assert.Equal(counts.NextActions, snapshot.Counts.NextActions);
+        Assert.Equal(counts.Open, snapshot.Counts.Open);
+        Assert.Equal(counts.All, snapshot.Counts.All);
+        Assert.Equal(counts.ActiveByProject, snapshot.Counts.ActiveByProject);
+        Assert.Equal("focus", Assert.Single(snapshot.VisibleTasks.First(task => task.Id == "task_inbox").Labels).Name);
+    }
+
+    [Fact]
     public async Task Date_smart_lists_include_planned_deadline_and_routine_facets()
     {
         var store = CreateStore();

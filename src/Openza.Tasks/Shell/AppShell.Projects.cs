@@ -9,26 +9,26 @@ namespace Openza.Tasks.Shell;
 
 public sealed partial class AppShell
 {
-    private async Task LoadProjectsAsync()
+    private async Task LoadProjectsAsync(bool refreshList = true)
     {
         _allProjects.Clear();
         _allProjects.AddRange(await _store.GetProjectsAsync(_currentSpaceId, includeArchived: true).ConfigureAwait(true));
         TasksPage.SetProjectOptions(_allProjects.Where(project => project.EffectiveStatus != ProjectLifecycleStates.Archived));
-        await RefreshProjectListAsync().ConfigureAwait(true);
+        if (refreshList)
+        {
+            await RefreshProjectListAsync().ConfigureAwait(true);
+        }
     }
 
-    private async Task RefreshProjectListAsync()
+    private async Task RefreshProjectListAsync(TaskCountSummary? counts = null)
     {
-        var counts = await _store.GetTaskCountsAsync(_currentSpaceId).ConfigureAwait(true);
+        counts ??= _lastTaskCounts ?? await _store.GetTaskCountsAsync(_currentSpaceId).ConfigureAwait(true);
+        _lastTaskCounts = counts;
         UpdateNavigationCounts(counts);
-        TasksPage.ViewModel.ProjectGroups.Clear();
         _projectIdByName.Clear();
 
         var search = TasksPage.ProjectSearchText;
-        foreach (var group in BuildProjectGroups(counts, search))
-        {
-            TasksPage.ViewModel.ProjectGroups.Add(group);
-        }
+        TasksPage.ViewModel.SetProjectGroups(BuildProjectGroups(counts, search));
     }
 
     private IEnumerable<ProjectGroupViewModel> BuildProjectGroups(TaskCountSummary counts, string search)
@@ -102,7 +102,32 @@ public sealed partial class AppShell
             return;
         }
 
+        if (args.Reason == AutoSuggestionBoxTextChangeReason.UserInput)
+        {
+            ScheduleProjectSearchRefresh();
+            return;
+        }
+
         await RefreshProjectListAsync().ConfigureAwait(true);
+    }
+
+    private void ScheduleProjectSearchRefresh()
+    {
+        if (_projectSearchRefreshTimer is null)
+        {
+            _projectSearchRefreshTimer = new DispatcherTimer
+            {
+                Interval = TimeSpan.FromMilliseconds(200),
+            };
+            _projectSearchRefreshTimer.Tick += async (_, _) =>
+            {
+                _projectSearchRefreshTimer?.Stop();
+                await RefreshProjectListAsync(_lastTaskCounts).ConfigureAwait(true);
+            };
+        }
+
+        _projectSearchRefreshTimer.Stop();
+        _projectSearchRefreshTimer.Start();
     }
 
     private async void OnProjectFilterChanged(TasksPage sender, string filter)
@@ -144,10 +169,10 @@ public sealed partial class AppShell
         }
 
         _selectedTaskId = null;
+        _loadedDetailsTaskId = null;
         TasksPage.HideDetailsPane();
         TasksPage.ClearTaskSelection();
         TasksPage.DetailsPanel.ClearForNewTask(GetProject(_selectedProjectId), 3, TaskItemStatus.Inbox);
-        await RefreshProjectListAsync().ConfigureAwait(true);
         await RefreshTasksAsync().ConfigureAwait(true);
     }
 
@@ -166,10 +191,10 @@ public sealed partial class AppShell
         _selectedProjectId = null;
         ApplyTaskViewPreferences();
         _selectedTaskId = null;
+        _loadedDetailsTaskId = null;
         TasksPage.HideDetailsPane();
         TasksPage.ClearTaskSelection();
         TasksPage.DetailsPanel.ClearForNewTask(null, 3);
-        await RefreshProjectListAsync().ConfigureAwait(true);
         await RefreshTasksAsync().ConfigureAwait(true);
     }
 
@@ -401,7 +426,7 @@ public sealed partial class AppShell
         SetBadge(TodayBadge, counts.Today);
         SetBadge(CalendarBadge, counts.Calendar);
         SetBadge(OverdueBadge, counts.Overdue);
-        SetBadge(TasksBadge, counts.All);
+        SetBadge(TasksBadge, counts.Open);
         SetBadge(CompletedBadge, counts.Completed);
     }
 

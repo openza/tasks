@@ -8,14 +8,15 @@ namespace Openza.Tasks.Controls;
 
 public sealed partial class ProjectsPaneControl : UserControl
 {
-    public static readonly DependencyProperty ProjectGroupsProperty = DependencyProperty.Register(
-        nameof(ProjectGroups),
-        typeof(ObservableCollection<ProjectGroupViewModel>),
+    public static readonly DependencyProperty ProjectEntriesProperty = DependencyProperty.Register(
+        nameof(ProjectEntries),
+        typeof(ObservableCollection<ProjectPaneEntryViewModel>),
         typeof(ProjectsPaneControl),
         new PropertyMetadata(null));
 
     public event TypedEventHandler<AutoSuggestBox, AutoSuggestBoxTextChangedEventArgs>? SearchTextChanged;
     public event TypedEventHandler<ProjectsPaneControl, string>? ProjectFilterChanged;
+    public event TypedEventHandler<ProjectsPaneControl, string>? ProjectGroupToggled;
     public event TypedEventHandler<ProjectsPaneControl, string?>? ProjectSelected;
     public event RoutedEventHandler? AddProjectClicked;
     public event TypedEventHandler<ProjectsPaneControl, string>? EditProjectClicked;
@@ -26,10 +27,10 @@ public sealed partial class ProjectsPaneControl : UserControl
         InitializeComponent();
     }
 
-    public ObservableCollection<ProjectGroupViewModel>? ProjectGroups
+    public ObservableCollection<ProjectPaneEntryViewModel>? ProjectEntries
     {
-        get => (ObservableCollection<ProjectGroupViewModel>?)GetValue(ProjectGroupsProperty);
-        set => SetValue(ProjectGroupsProperty, value);
+        get => (ObservableCollection<ProjectPaneEntryViewModel>?)GetValue(ProjectEntriesProperty);
+        set => SetValue(ProjectEntriesProperty, value);
     }
 
     public string SearchText => ProjectSearchBox.Text?.Trim() ?? string.Empty;
@@ -56,20 +57,10 @@ public sealed partial class ProjectsPaneControl : UserControl
 
     private void OnProjectGroupHeaderClicked(object sender, RoutedEventArgs e)
     {
-        if ((sender as FrameworkElement)?.Tag is not string id || ProjectGroups is null)
+        if ((sender as FrameworkElement)?.Tag is string id && !string.IsNullOrWhiteSpace(id))
         {
-            return;
+            ProjectGroupToggled?.Invoke(this, id);
         }
-
-        var group = ProjectGroups.FirstOrDefault(group => string.Equals(group.Id, id, StringComparison.Ordinal));
-        if (group is null)
-        {
-            return;
-        }
-
-        group.IsExpanded = !group.IsExpanded;
-        ProjectGroupsList.ItemsSource = null;
-        ProjectGroupsList.ItemsSource = ProjectGroups;
     }
 
     private void OnEditProjectClicked(object sender, RoutedEventArgs e)

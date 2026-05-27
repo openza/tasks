@@ -6,7 +6,8 @@ public sealed record TodoistRoutingRuleDraft(
     string? Id,
     string Label,
     string SpaceId,
-    string? MoveToProjectId);
+    string? MoveToProjectId,
+    bool MatchNoLabels = false);
 
 public sealed class TodoistRoutingRuleViewModel
 {
@@ -16,8 +17,9 @@ public sealed class TodoistRoutingRuleViewModel
     public string SpaceName { get; set; } = string.Empty;
     public string? MoveToProjectId { get; set; }
     public string? MoveToProjectName { get; set; }
+    public bool MatchNoLabels { get; set; }
 
-    public string LabelText => $"@{Label}";
+    public string LabelText => MatchNoLabels ? "No Todoist labels" : $"@{Label}";
 
     public string SummaryText => string.IsNullOrWhiteSpace(MoveToProjectName)
         ? $"Send to {SpaceName}"

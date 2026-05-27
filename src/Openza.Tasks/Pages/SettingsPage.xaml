@@ -135,7 +135,7 @@
                             </toolkit:SettingsCard>
                             <toolkit:SettingsCard
                                 Header="Rules"
-                                Description="Send new Todoist tasks to a Space by label."
+                                Description="Send new Todoist tasks to a Space by label, or when they have no labels."
                                 ContentAlignment="Left">
                                 <Grid RowSpacing="12">
                                     <Grid.RowDefinitions>
