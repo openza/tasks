@@ -76,6 +76,19 @@
                 <Button.Flyout>
                     <MenuFlyout Placement="BottomEdgeAlignedRight">
                         <MenuFlyoutItem
+                            Text="Copy title"
+                            Click="OnCopyTitleClicked" />
+                        <MenuFlyoutItem
+                            Text="Copy notes"
+                            Click="OnCopyNotesClicked" />
+                        <MenuFlyoutItem
+                            Text="Copy source"
+                            Click="OnCopySourceClicked" />
+                        <MenuFlyoutItem
+                            Text="Copy metadata"
+                            Click="OnCopyMetadataClicked" />
+                        <MenuFlyoutSeparator />
+                        <MenuFlyoutItem
                             x:Name="MoveToSpaceMenuItem"
                             Text="Move to Space..."
                             Click="OnMoveToSpaceClicked">
@@ -459,6 +472,27 @@
                     </Grid>
                 </StackPanel>
 
+                <StackPanel x:Name="LocalMetadataSection" Spacing="8" Visibility="Collapsed">
+                    <TextBlock Text="Metadata" Style="{StaticResource OpenzaFormSectionHeaderTextBlockStyle}" />
+                    <Border
+                        Padding="12"
+                        CornerRadius="6"
+                        Background="{ThemeResource OpenzaSurfaceAltBrush}"
+                        BorderBrush="{ThemeResource OpenzaBorderBrush}"
+                        BorderThickness="1">
+                        <Grid ColumnDefinitions="*,*" ColumnSpacing="14">
+                            <StackPanel Spacing="2">
+                                <TextBlock Text="Created" Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
+                                <TextBlock x:Name="LocalCreatedText" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Spacing="2">
+                                <TextBlock Text="Modified" Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
+                                <TextBlock x:Name="LocalUpdatedText" />
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+                </StackPanel>
+
                 <Border
                     x:Name="SourceDateMismatchNotice"
                     Visibility="Collapsed"
@@ -616,7 +650,7 @@
                                         TextWrapping="Wrap"
                                         FontWeight="SemiBold" />
                                 </StackPanel>
-                                <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="14" RowSpacing="10">
+                                <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto,Auto,Auto" ColumnSpacing="14" RowSpacing="10">
                                     <StackPanel Spacing="2">
                                         <TextBlock Text="Project" Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
                                         <TextBlock x:Name="ProviderProjectText" TextWrapping="Wrap" />
@@ -636,6 +670,14 @@
                                     <StackPanel Grid.Row="2" Spacing="2">
                                         <TextBlock Text="Source" Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
                                         <TextBlock x:Name="ProviderSourceText" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Row="2" Grid.Column="1" Spacing="2">
+                                        <TextBlock Text="Created" Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
+                                        <TextBlock x:Name="ProviderCreatedText" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Row="3" Grid.ColumnSpan="2" Spacing="2">
+                                        <TextBlock Text="Recurring" Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
+                                        <TextBlock x:Name="ProviderRecurringText" TextWrapping="Wrap" />
                                     </StackPanel>
                                 </Grid>
                             </StackPanel>

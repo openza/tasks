@@ -140,12 +140,17 @@ public sealed partial class AppShell
                 }
             }
 
-            await LoadProjectsAsync().ConfigureAwait(true);
+            await LoadProjectsAsync(refreshList: false).ConfigureAwait(true);
             await RefreshTodoistRulesAsync().ConfigureAwait(true);
             if (IsTaskView(_currentView))
             {
                 await RefreshTasksAsync().ConfigureAwait(true);
             }
+            else
+            {
+                await RefreshProjectListAsync().ConfigureAwait(true);
+            }
+
             await RefreshSourceItemsAsync().ConfigureAwait(true);
 
             if (summaries.Count == 0)
@@ -680,6 +685,7 @@ public sealed partial class AppShell
             await RefreshTasksAsync().ConfigureAwait(true);
             await RefreshBackupListAsync().ConfigureAwait(true);
             await TryUploadNewestPreRestoreBackupAsync(restoreStartedAt, interactive: true).ConfigureAwait(true);
+            await RefreshCloudBackupListAsync(interactive: true, showResult: false).ConfigureAwait(true);
             ShowInfo("OneDrive backup restored", backup.DisplayName, InfoBarSeverity.Success);
         }
         catch (Exception exception)
@@ -796,6 +802,7 @@ public sealed partial class AppShell
             return;
         }
 
+        var uploadedBackup = false;
         try
         {
             RefreshCloudBackupStatus(isBusy: true);
@@ -803,6 +810,7 @@ public sealed partial class AppShell
             var uploaded = await CreateCloudBackupService(interactive).UploadBackupAsync(backup, options).ConfigureAwait(true);
             if (uploaded is not null)
             {
+                uploadedBackup = true;
                 _settings.Settings.LastOneDriveBackupAt = DateTimeOffset.Now;
                 _settings.Settings.LastOneDriveBackupStatus = "Uploaded";
                 _settings.Settings.LastOneDriveBackupError = string.Empty;
@@ -828,6 +836,11 @@ public sealed partial class AppShell
         {
             RefreshCloudBackupStatus(isBusy: false);
         }
+
+        if (uploadedBackup)
+        {
+            await RefreshCloudBackupListAsync(interactive, showResult: false).ConfigureAwait(true);
+        }
     }
 
     private async Task TryUploadPendingCloudBackupsAsync(bool interactive, bool showResult)
@@ -837,6 +850,7 @@ public sealed partial class AppShell
             return;
         }
 
+        var uploadedBackup = false;
         try
         {
             RefreshCloudBackupStatus(isBusy: true);
@@ -846,6 +860,7 @@ public sealed partial class AppShell
                 .ConfigureAwait(true);
             if (uploaded.Count > 0)
             {
+                uploadedBackup = true;
                 _settings.Settings.LastOneDriveBackupAt = DateTimeOffset.Now;
                 _settings.Settings.LastOneDriveBackupStatus = "Uploaded";
                 _settings.Settings.LastOneDriveBackupError = string.Empty;
@@ -874,6 +889,11 @@ public sealed partial class AppShell
         finally
         {
             RefreshCloudBackupStatus(isBusy: false);
+        }
+
+        if (uploadedBackup)
+        {
+            await RefreshCloudBackupListAsync(interactive, showResult: false).ConfigureAwait(true);
         }
     }
 
@@ -1128,6 +1148,7 @@ public sealed partial class AppShell
             await RefreshTasksAsync().ConfigureAwait(true);
             await RefreshBackupListAsync().ConfigureAwait(true);
             await TryUploadNewestPreRestoreBackupAsync(restoreStartedAt, interactive: false).ConfigureAwait(true);
+            await RefreshCloudBackupListAsync(interactive: false, showResult: false).ConfigureAwait(true);
             ShowInfo("Database restored", path, InfoBarSeverity.Success);
         }
         catch (Exception exception)
@@ -1286,6 +1307,7 @@ public sealed partial class AppShell
     private void OnReviewConnectedTasksClicked(object sender, RoutedEventArgs e)
     {
         _selectedTaskId = null;
+        _loadedDetailsTaskId = null;
         TasksPage.ClearTaskSelection();
     }
 

@@ -38,20 +38,28 @@ public sealed partial class AppShell : UserControl
     private readonly ObservableCollection<GlobalSearchResultViewModel> _globalTaskSearchResults = [];
     private readonly ObservableCollection<GlobalSearchResultViewModel> _globalProjectSearchResults = [];
     private readonly Dictionary<string, string> _projectIdByName = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> _selectedTaskIdByList = new(StringComparer.Ordinal);
     private string _currentView = "inbox";
     private string _currentSpaceId = SpaceIds.Default;
     private string? _selectedTaskId;
+    private string? _loadedDetailsTaskId;
     private string? _selectedProjectId;
     private string? _pendingProjectActionId;
-    private string _projectFilter = "all";
+    private string _projectFilter = ProjectLifecycleStates.Active;
     private TaskSortMode _sortMode = TaskSortMode.PriorityThenDate;
+    private TaskSortDirection _sortDirection = TaskSortDirection.Ascending;
     private TaskGroupMode _groupMode = TaskGroupMode.None;
     private int? _priorityFilter;
     private TaskDateScope _dateScopeFilter = TaskDateScope.All;
     private TaskRepeatScope _repeatScopeFilter = TaskRepeatScope.Include;
     private string? _labelFilterId;
+    private TaskCountSummary? _lastTaskCounts;
     private DispatcherTimer? _statusInfoTimer;
     private DispatcherTimer? _autoSyncTimer;
+    private DispatcherTimer? _taskSearchRefreshTimer;
+    private DispatcherTimer? _projectSearchRefreshTimer;
+    private int _taskRefreshVersion;
+    private Task? _startupMaintenanceTask;
     private bool _syncInProgress;
     private bool _uiReady;
     private bool _suppressNavigationSelection;
@@ -106,31 +114,23 @@ public sealed partial class AppShell : UserControl
             await ShowStartupRecoveryPromptAsync(_startupRecoveryCandidate).ConfigureAwait(true);
         }
 
-        if (_settings.Settings.AutoBackupEnabled)
-        {
-            await TryCreateStartupBackupAsync().ConfigureAwait(true);
-        }
-
         _deferNavigationCountUpdates = false;
         try
         {
             await LoadSpacesAsync().ConfigureAwait(true);
-            await LoadProjectsAsync().ConfigureAwait(true);
+            await LoadProjectsAsync(refreshList: false).ConfigureAwait(true);
             await LoadLabelsAsync().ConfigureAwait(true);
             await RefreshSettingsStateAsync().ConfigureAwait(true);
-            await TryUploadPendingCloudBackupsAsync(interactive: false, showResult: false).ConfigureAwait(true);
-            if (_settings.Settings.AutoSyncEnabled)
-            {
-                await RunAutomaticSyncAsync().ConfigureAwait(true);
-            }
         }
         finally
         {
             _deferNavigationCountUpdates = false;
         }
 
-        await RefreshProjectListAsync().ConfigureAwait(true);
         var counts = await _store.GetTaskCountsAsync(_currentSpaceId).ConfigureAwait(true);
+        _lastTaskCounts = counts;
+        UpdateNavigationCounts(counts);
+        await RefreshProjectListAsync(counts).ConfigureAwait(true);
         var startView = _settings.Settings.ShowGetStarted && counts.All == 0
             ? "inbox"
             : _settings.Settings.LastView;
@@ -141,6 +141,41 @@ public sealed partial class AppShell : UserControl
         }
 
         StartAutoSyncTimer();
+        StartStartupMaintenance();
+    }
+
+    private void StartStartupMaintenance()
+    {
+        if (_startupMaintenanceTask is { IsCompleted: false })
+        {
+            return;
+        }
+
+        _startupMaintenanceTask = RunStartupMaintenanceAsync();
+    }
+
+    private async Task RunStartupMaintenanceAsync()
+    {
+        await Task.Yield();
+
+        try
+        {
+            if (_settings.Settings.AutoBackupEnabled)
+            {
+                await TryCreateStartupBackupAsync().ConfigureAwait(true);
+            }
+
+            await TryUploadPendingCloudBackupsAsync(interactive: false, showResult: false).ConfigureAwait(true);
+
+            if (_settings.Settings.AutoSyncEnabled)
+            {
+                await RunAutomaticSyncAsync().ConfigureAwait(true);
+            }
+        }
+        catch (Exception exception)
+        {
+            AppLog.Write(exception);
+        }
     }
 
     private void SelectNavigation(string tag)
@@ -204,15 +239,7 @@ public sealed partial class AppShell : UserControl
             return;
         }
 
-        if (!string.Equals(nextView, _currentView, StringComparison.Ordinal) &&
-            (TasksPage.IsDetailsPaneOpen || TasksPage.IsConnectedTasksDrawerOpen))
-        {
-            _selectedTaskId = null;
-            TasksPage.HideDetailsPane();
-            TasksPage.HideConnectedTasksDrawer();
-            TasksPage.ClearTaskSelection();
-            TasksPage.DetailsPanel.ClearForNewTask(null, 3, DefaultStatusForCurrentView());
-        }
+        RememberCurrentTaskListSelection();
 
         var projectSelectionChanged = false;
         if (!string.Equals(nextView, "tasks", StringComparison.Ordinal) && _selectedProjectId is not null)
@@ -222,14 +249,11 @@ public sealed partial class AppShell : UserControl
         }
 
         _currentView = nextView;
+        RestoreTaskListSelection();
         ApplyTaskViewPreferences();
         if (!IsTaskView(_currentView))
         {
-            _selectedTaskId = null;
-            TasksPage.HideDetailsPane();
             TasksPage.HideConnectedTasksDrawer();
-            TasksPage.ClearTaskSelection();
-            TasksPage.DetailsPanel.ClearForNewTask(null, 3, DefaultStatusForCurrentView());
         }
 
         ApplyWorkspaceMode();
@@ -295,6 +319,7 @@ public sealed partial class AppShell : UserControl
 
         var viewSettings = ResolveTaskViewSettings();
         _sortMode = ParseEnum(viewSettings.SortMode, TaskSortMode.PriorityThenDate);
+        _sortDirection = ParseEnum(viewSettings.SortDirection, TaskSortDirection.Ascending);
         _groupMode = ParseEnum(viewSettings.GroupMode, DefaultGroupModeForView(_currentView));
         _priorityFilter = viewSettings.Priority;
         _dateScopeFilter = TaskDateScope.All;
@@ -310,6 +335,7 @@ public sealed partial class AppShell : UserControl
         }
 
         TasksPage.SetSortMode(_sortMode);
+        TasksPage.SetSortDirection(_sortDirection);
         TasksPage.SetGroupMode(_groupMode);
         TasksPage.SetPriorityFilter(_priorityFilter);
         TasksPage.SetDateScopeFilter(_dateScopeFilter);
@@ -335,6 +361,7 @@ public sealed partial class AppShell : UserControl
         return new TaskViewSettings
         {
             SortMode = TaskSortMode.PriorityThenDate.ToString(),
+            SortDirection = TaskSortDirection.Ascending.ToString(),
             GroupMode = groupMode.ToString(),
             DateScope = TaskDateScope.All.ToString(),
             RepeatScope = TaskRepeatScope.Include.ToString(),
@@ -348,8 +375,10 @@ public sealed partial class AppShell : UserControl
             "date" or "due" => TaskSortMode.Date,
             "created" => TaskSortMode.CreatedNewest,
             "title" => TaskSortMode.Title,
+            "project" => TaskSortMode.Project,
             _ => TaskSortMode.PriorityThenDate,
         };
+        _sortDirection = TasksPage.SortDirection;
         _groupMode = TasksPage.GroupMode;
         _priorityFilter = TasksPage.PriorityFilter;
         _dateScopeFilter = TasksPage.DateScopeFilter;
@@ -367,6 +396,7 @@ public sealed partial class AppShell : UserControl
         _settings.Settings.TaskViewSettings[TaskViewSettingsKey()] = new TaskViewSettings
         {
             SortMode = _sortMode.ToString(),
+            SortDirection = _sortDirection.ToString(),
             GroupMode = _groupMode.ToString(),
             Priority = _priorityFilter,
             DateScope = _dateScopeFilter.ToString(),
@@ -714,7 +744,9 @@ public sealed partial class AppShell : UserControl
         _settings.Settings.LastSpaceId = space.Id;
         await _settings.SaveAsync().ConfigureAwait(true);
         _selectedTaskId = null;
+        _loadedDetailsTaskId = null;
         _selectedProjectId = null;
+        _selectedTaskIdByList.Clear();
         UpdateSpaceSwitcher();
         ApplyTaskViewPreferences();
         TasksPage.HideDetailsPane();
@@ -851,7 +883,9 @@ public sealed partial class AppShell : UserControl
                 }
 
                 TasksPage.SearchText = string.Empty;
+                ForgetCurrentTaskListSelection();
                 _selectedTaskId = null;
+                _loadedDetailsTaskId = null;
                 TasksPage.HideDetailsPane();
                 TasksPage.HideConnectedTasksDrawer();
                 TasksPage.ClearTaskSelection();
@@ -864,7 +898,11 @@ public sealed partial class AppShell : UserControl
 
     private void AddKeyboardShortcut(VirtualKey key, VirtualKeyModifiers modifiers, TypedEventHandler<KeyboardAccelerator, KeyboardAcceleratorInvokedEventArgs> handler)
     {
-        var accelerator = new KeyboardAccelerator { Key = key, Modifiers = modifiers };
+        var accelerator = new KeyboardAccelerator
+        {
+            Key = key,
+            Modifiers = modifiers,
+        };
         accelerator.Invoked += handler;
         KeyboardAccelerators.Add(accelerator);
     }

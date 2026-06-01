@@ -606,14 +606,23 @@ public sealed partial class SettingsPage : UserControl
 
     private async Task ShowTodoistRuleDialogAsync(TodoistRoutingRuleViewModel? existing)
     {
+        var noLabelCheck = new CheckBox
+        {
+            Content = "Match Todoist tasks with no labels",
+            IsChecked = existing?.MatchNoLabels == true,
+        };
+
         var labelBox = new AutoSuggestBox
         {
             Header = "Todoist label",
             PlaceholderText = _todoistLabelChoices.Count == 0 ? "Sync Todoist to load labels" : "Choose a Todoist label",
-            Text = existing?.Label ?? string.Empty,
+            Text = existing?.MatchNoLabels == true ? string.Empty : existing?.Label ?? string.Empty,
             ItemsSource = _todoistLabelChoices,
             DisplayMemberPath = nameof(TodoistRoutingChoice.Name),
+            IsEnabled = existing?.MatchNoLabels != true,
         };
+        noLabelCheck.Checked += (_, _) => labelBox.IsEnabled = false;
+        noLabelCheck.Unchecked += (_, _) => labelBox.IsEnabled = true;
         labelBox.SuggestionChosen += (_, args) =>
         {
             if (args.SelectedItem is TodoistRoutingChoice choice)
@@ -660,7 +669,7 @@ public sealed partial class SettingsPage : UserControl
 
         var message = new TextBlock
         {
-            Text = "Choose a Todoist label. Openza will route matching new Todoist tasks without showing that label in your task list.",
+            Text = "Choose a Todoist label, or match tasks that do not have Todoist labels. Todoist labels stay hidden from normal Openza task labels.",
             TextWrapping = TextWrapping.Wrap,
         };
 
@@ -674,7 +683,7 @@ public sealed partial class SettingsPage : UserControl
             {
                 Spacing = 14,
                 Width = 420,
-                Children = { message, labelBox, spaceBox, moveBox },
+                Children = { message, noLabelCheck, labelBox, spaceBox, moveBox },
             },
         };
 
@@ -683,8 +692,9 @@ public sealed partial class SettingsPage : UserControl
             return;
         }
 
-        var label = NormalizeTodoistLabel(labelBox.Text);
-        if (string.IsNullOrWhiteSpace(label) || spaceBox.SelectedItem is not TodoistRoutingChoice space)
+        var matchNoLabels = noLabelCheck.IsChecked == true;
+        var label = matchNoLabels ? string.Empty : NormalizeTodoistLabel(labelBox.Text);
+        if ((!matchNoLabels && string.IsNullOrWhiteSpace(label)) || spaceBox.SelectedItem is not TodoistRoutingChoice space)
         {
             return;
         }
@@ -696,7 +706,8 @@ public sealed partial class SettingsPage : UserControl
                 existing?.Id,
                 label,
                 space.Id,
-                string.IsNullOrWhiteSpace(moveProject?.Id) ? null : moveProject.Id));
+                string.IsNullOrWhiteSpace(moveProject?.Id) ? null : moveProject.Id,
+                matchNoLabels));
     }
 
     private static string NormalizeTodoistLabel(string value)
