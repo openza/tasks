@@ -43,13 +43,14 @@ public sealed class SqliteTaskStoreTests : IDisposable
         }.ToString());
         await connection.OpenAsync();
 
-        Assert.Equal(4L, await ExecuteScalarAsync(connection, "PRAGMA user_version"));
+        Assert.Equal(5L, await ExecuteScalarAsync(connection, "PRAGMA user_version"));
         Assert.Equal(1L, await ExecuteScalarAsync(connection, "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'provider_connections'"));
         Assert.Equal(1L, await ExecuteScalarAsync(connection, "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'provider_source_items'"));
         Assert.Equal(1L, await ExecuteScalarAsync(connection, "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'sync_routes'"));
         Assert.Equal(1L, await ExecuteScalarAsync(connection, "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'sync_field_state'"));
         Assert.Equal(1L, await ExecuteScalarAsync(connection, "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'sync_operations'"));
         Assert.Equal(1L, await ExecuteScalarAsync(connection, "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'task_external_links'"));
+        Assert.Equal(1L, await ExecuteScalarAsync(connection, "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'pending_task_date_updates'"));
         Assert.Equal(1L, await ExecuteScalarAsync(connection, "SELECT COUNT(*) FROM pragma_table_info('tasks') WHERE name = 'source_description'"));
         Assert.Equal("'none'", await ExecuteScalarTextAsync(connection, "SELECT dflt_value FROM pragma_table_info('tasks') WHERE name = 'workflow_status'"));
         Assert.Equal("'active'", await ExecuteScalarTextAsync(connection, "SELECT dflt_value FROM pragma_table_info('projects') WHERE name = 'status'"));
@@ -1400,6 +1401,76 @@ public sealed class SqliteTaskStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task DeleteProviderSourceItem_removes_not_adopted_intake_only()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        await store.UpsertProviderSourceItemAsync(new ProviderSourceItem
+        {
+            Id = "source_todoist_delete",
+            IntegrationId = IntegrationIds.Todoist,
+            ProviderConnectionId = "todoist_default",
+            ExternalId = "remote_delete",
+            ProviderTaskId = "remote_delete",
+            Title = "Stale intake task",
+        });
+        await store.UpsertProviderSourceItemAsync(new ProviderSourceItem
+        {
+            Id = "source_todoist_adopted",
+            IntegrationId = IntegrationIds.Todoist,
+            ProviderConnectionId = "todoist_default",
+            ExternalId = "remote_adopted",
+            ProviderTaskId = "remote_adopted",
+            Title = "Adopted source",
+        });
+        var adoptedSource = await store.AdoptProviderSourceItemAsync("source_todoist_adopted");
+        Assert.NotNull(adoptedSource);
+
+        Assert.True(await store.DeleteProviderSourceItemAsync("source_todoist_delete"));
+        Assert.False(await store.DeleteProviderSourceItemAsync("source_todoist_adopted"));
+        Assert.Empty(await store.GetProviderSourceItemsAsync(IntegrationIds.Todoist));
+        Assert.NotNull(await store.GetTaskAsync(adoptedSource.Id));
+    }
+
+    [Fact]
+    public async Task UpsertProviderSourceItem_relinks_missing_source_to_existing_wrapper()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        await store.UpsertProviderSourceItemAsync(new ProviderSourceItem
+        {
+            Id = "source_todoist_relink",
+            IntegrationId = IntegrationIds.Todoist,
+            ProviderConnectionId = "todoist_default",
+            ExternalId = "remote_relink",
+            ProviderTaskId = "remote_relink",
+            Title = "Remote title",
+        });
+        var adopted = await store.AdoptProviderSourceItemAsync("source_todoist_relink");
+        Assert.NotNull(adopted);
+        await store.UpsertTaskAsync(adopted with { Title = "Kept locally" });
+        await store.DetachProviderSourceItemAsync("source_todoist_relink");
+
+        await store.UpsertProviderSourceItemAsync(new ProviderSourceItem
+        {
+            Id = "source_todoist_relink",
+            IntegrationId = IntegrationIds.Todoist,
+            ProviderConnectionId = "todoist_default",
+            ExternalId = "remote_relink",
+            ProviderTaskId = "remote_relink",
+            Title = "Remote title updated",
+        });
+
+        var task = await store.GetTaskAsync(adopted.Id);
+        var source = Assert.Single(await store.GetProviderSourceItemsAsync(IntegrationIds.Todoist, includeAdopted: true));
+        Assert.NotNull(task);
+        Assert.Equal("Kept locally", task.Title);
+        Assert.True(task.HasProviderSource);
+        Assert.Equal(ProviderSourceAdoptionStates.Adopted, source.AdoptionState);
+        Assert.Equal(adopted.Id, source.AdoptedTaskId);
+    }
+
+    [Fact]
     public async Task UnskipProviderSourceItem_restores_skipped_item_to_waiting_intake()
     {
         var store = CreateStore();
@@ -1850,6 +1921,38 @@ public sealed class SqliteTaskStoreTests : IDisposable
         await store.MarkCompletionSyncedAsync("completion_1");
 
         Assert.Empty(await store.GetPendingCompletionsAsync(IntegrationIds.Todoist));
+    }
+
+    [Fact]
+    public async Task QueueTaskDateUpdate_keeps_latest_update_per_provider_task()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        await store.QueueTaskDateUpdateAsync(new PendingTaskDateUpdate
+        {
+            Id = "date_1",
+            TaskId = "task_1",
+            Provider = IntegrationIds.Todoist,
+            ProviderTaskId = "remote_1",
+            PlannedOn = new DateOnly(2026, 6, 2),
+        });
+        await store.QueueTaskDateUpdateAsync(new PendingTaskDateUpdate
+        {
+            Id = "date_2",
+            TaskId = "task_1",
+            Provider = IntegrationIds.Todoist,
+            ProviderTaskId = "remote_1",
+            PlannedOn = new DateOnly(2026, 6, 3),
+        });
+
+        var pending = await store.GetPendingTaskDateUpdatesAsync(IntegrationIds.Todoist);
+        var update = Assert.Single(pending);
+        Assert.Equal("date_2", update.Id);
+        Assert.Equal(new DateOnly(2026, 6, 3), update.PlannedOn);
+
+        await store.MarkTaskDateUpdateSyncedAsync("date_2");
+
+        Assert.Empty(await store.GetPendingTaskDateUpdatesAsync(IntegrationIds.Todoist));
     }
 
     [Fact]

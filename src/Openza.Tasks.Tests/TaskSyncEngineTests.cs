@@ -36,6 +36,66 @@ public sealed class TaskSyncEngineTests : IDisposable
     }
 
     [Fact]
+    public async Task Sync_pushes_pending_todoist_date_updates_before_fetching_snapshot()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        await store.QueueTaskDateUpdateAsync(new PendingTaskDateUpdate
+        {
+            Id = "date_1",
+            TaskId = "local",
+            Provider = IntegrationIds.Todoist,
+            ProviderTaskId = "remote_1",
+            PlannedOn = new DateOnly(2026, 6, 2),
+        });
+        var provider = new FakeProvider();
+        var engine = new TaskSyncEngine(store);
+
+        var result = await engine.SyncAsync(provider);
+
+        Assert.True(result.Success);
+        Assert.Equal(1, result.DateUpdatesSynced);
+        var update = Assert.Single(provider.DateUpdates);
+        Assert.Equal("remote_1", update.ProviderTaskId);
+        Assert.Equal(new DateOnly(2026, 6, 2), update.PlannedOn);
+        Assert.Empty(await store.GetPendingTaskDateUpdatesAsync(IntegrationIds.Todoist));
+    }
+
+    [Fact]
+    public async Task Sync_pushes_pending_date_updates_before_completions_for_same_provider_task()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        await store.QueueTaskDateUpdateAsync(new PendingTaskDateUpdate
+        {
+            Id = "date_1",
+            TaskId = "local",
+            Provider = IntegrationIds.Todoist,
+            ProviderTaskId = "remote_1",
+            PlannedOn = new DateOnly(2026, 6, 2),
+        });
+        await store.QueueCompletionAsync(new PendingCompletion
+        {
+            Id = "completion_1",
+            TaskId = "local",
+            Provider = IntegrationIds.Todoist,
+            ProviderTaskId = "remote_1",
+            Completed = true,
+        });
+        var provider = new FakeProvider();
+        var engine = new TaskSyncEngine(store);
+
+        var result = await engine.SyncAsync(provider);
+
+        Assert.True(result.Success);
+        Assert.Equal(1, result.DateUpdatesSynced);
+        Assert.Equal(1, result.CompletionsSynced);
+        Assert.Equal(["date", "completion"], provider.OutboundOperationOrder);
+        Assert.Empty(await store.GetPendingTaskDateUpdatesAsync(IntegrationIds.Todoist));
+        Assert.Empty(await store.GetPendingCompletionsAsync(IntegrationIds.Todoist));
+    }
+
+    [Fact]
     public async Task Sync_uses_modern_todoist_urls_without_promoting_source_labels()
     {
         var store = CreateStore();
@@ -357,6 +417,7 @@ public sealed class TaskSyncEngineTests : IDisposable
 
         provider.Title = "Remote task updated";
         provider.Description = "Remote description updated";
+        provider.PlannedOn = new DateOnly(2026, 5, 15);
         var result = await engine.SyncAsync(provider);
 
         var task = await store.GetTaskAsync(adopted.Id);
@@ -371,7 +432,7 @@ public sealed class TaskSyncEngineTests : IDisposable
         Assert.Equal(1, task.Priority);
         Assert.Equal(TaskItemStatus.Waiting, task.Status);
         Assert.Equal("Local note", task.Notes);
-        Assert.Equal(new DateOnly(2026, 5, 13), task.PlannedOn);
+        Assert.Equal(new DateOnly(2026, 5, 15), task.PlannedOn);
         Assert.Equal(new DateOnly(2026, 5, 14), task.DeadlineOn);
         Assert.Equal(new DateTimeOffset(2026, 5, 13, 9, 0, 0, 0, TimeSpan.Zero), task.ScheduledStart);
         Assert.Equal(new DateTimeOffset(2026, 5, 13, 10, 0, 0, 0, TimeSpan.Zero), task.ScheduledEnd);
@@ -385,34 +446,11 @@ public sealed class TaskSyncEngineTests : IDisposable
     }
 
     [Fact]
-    public async Task Sync_preserves_adopted_source_item_missing_from_provider_snapshot_by_default()
+    public async Task Sync_detaches_adopted_source_item_missing_from_provider_snapshot()
     {
         var store = CreateStore();
         await store.InitializeAsync();
         var engine = new TaskSyncEngine(store);
-
-        var firstSync = await engine.SyncAsync(new FakeProvider());
-        var source = Assert.Single(await store.GetProviderSourceItemsAsync(IntegrationIds.Todoist));
-        var adopted = await store.AdoptProviderSourceItemAsync(source.Id);
-        Assert.True(firstSync.Success);
-        Assert.NotNull(adopted);
-
-        var secondSync = await engine.SyncAsync(new EmptyProvider());
-
-        var detached = await store.GetTaskAsync(adopted.Id);
-        Assert.True(secondSync.Success);
-        Assert.NotNull(detached);
-        Assert.True(detached.HasProviderSource);
-        var sourceAfterSync = Assert.Single(await store.GetProviderSourceItemsAsync(IntegrationIds.Todoist, includeAdopted: true, includeIgnored: true));
-        Assert.Equal(ProviderSourceAdoptionStates.Adopted, sourceAfterSync.AdoptionState);
-    }
-
-    [Fact]
-    public async Task Sync_detaches_adopted_source_item_missing_from_provider_snapshot_when_orphan_deletion_enabled()
-    {
-        var store = CreateStore();
-        await store.InitializeAsync();
-        var engine = new TaskSyncEngine(store, new ConflictPolicy(DeleteOrphans: true));
 
         var firstSync = await engine.SyncAsync(new FakeProvider());
         var source = Assert.Single(await store.GetProviderSourceItemsAsync(IntegrationIds.Todoist));
@@ -430,6 +468,61 @@ public sealed class TaskSyncEngineTests : IDisposable
 
         await store.DeleteTaskAsync(adopted.Id);
         Assert.Null(await store.GetTaskAsync(adopted.Id));
+    }
+
+    [Fact]
+    public async Task Sync_relinks_adopted_source_item_when_provider_task_returns()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        var engine = new TaskSyncEngine(store);
+
+        var firstSync = await engine.SyncAsync(new FakeProvider());
+        var source = Assert.Single(await store.GetProviderSourceItemsAsync(IntegrationIds.Todoist));
+        var adopted = await store.AdoptProviderSourceItemAsync(source.Id);
+        Assert.True(firstSync.Success);
+        Assert.NotNull(adopted);
+
+        await store.UpsertTaskAsync(adopted with { Title = "Local wrapper title" });
+
+        var detachedSync = await engine.SyncAsync(new EmptyProvider());
+        var detached = await store.GetTaskAsync(adopted.Id);
+        Assert.True(detachedSync.Success);
+        Assert.NotNull(detached);
+        Assert.False(detached.HasProviderSource);
+        Assert.Equal("Local wrapper title", detached.Title);
+
+        var restoredSync = await engine.SyncAsync(new FakeProvider());
+        var relinked = await store.GetTaskAsync(adopted.Id);
+        var sourceAfterRestore = Assert.Single(await store.GetProviderSourceItemsAsync(IntegrationIds.Todoist, includeAdopted: true));
+        Assert.True(restoredSync.Success);
+        Assert.NotNull(relinked);
+        Assert.Equal(adopted.Id, relinked.Id);
+        Assert.Equal("Local wrapper title", relinked.Title);
+        Assert.True(relinked.HasProviderSource);
+        Assert.Equal(ProviderSourceAdoptionStates.Adopted, sourceAfterRestore.AdoptionState);
+        Assert.Equal(adopted.Id, sourceAfterRestore.AdoptedTaskId);
+        Assert.Single(await store.GetTasksAsync(new TaskQuery { Kind = TaskListKind.All }));
+    }
+
+    [Fact]
+    public async Task Sync_removes_not_adopted_source_item_missing_from_provider_snapshot()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        var engine = new TaskSyncEngine(store);
+
+        var firstSync = await engine.SyncAsync(new FakeProvider());
+        var source = Assert.Single(await store.GetProviderSourceItemsAsync(IntegrationIds.Todoist));
+        Assert.True(firstSync.Success);
+        Assert.Equal(ProviderSourceAdoptionStates.NotAdopted, source.AdoptionState);
+
+        var secondSync = await engine.SyncAsync(new EmptyProvider());
+
+        Assert.True(secondSync.Success);
+        Assert.Equal(1, secondSync.TasksDeleted);
+        Assert.Empty(await store.GetProviderSourceItemsAsync(IntegrationIds.Todoist, includeAdopted: true, includeIgnored: true));
+        Assert.Empty(await store.GetTasksAsync(new TaskQuery { Kind = TaskListKind.All }));
     }
 
     [Fact]
@@ -462,12 +555,12 @@ public sealed class TaskSyncEngineTests : IDisposable
     }
 
     [Fact]
-    public async Task Sync_keeps_completed_snapshot_match_linked_when_orphan_deletion_enabled()
+    public async Task Sync_keeps_completed_snapshot_match_linked()
     {
         var store = CreateStore();
         await store.InitializeAsync();
         var provider = new FakeProvider();
-        var engine = new TaskSyncEngine(store, new ConflictPolicy(DeleteOrphans: true));
+        var engine = new TaskSyncEngine(store);
 
         var firstSync = await engine.SyncAsync(provider);
         var source = Assert.Single(await store.GetProviderSourceItemsAsync(IntegrationIds.Todoist));
@@ -621,7 +714,7 @@ public sealed class TaskSyncEngineTests : IDisposable
         TestDirectory.Delete(_directory);
     }
 
-    private sealed class FakeProvider : ISyncProvider
+    private sealed class FakeProvider : ITaskDateUpdateProvider
     {
         public string IntegrationId => IntegrationIds.Todoist;
         public string Title { get; set; } = "Remote task";
@@ -635,6 +728,8 @@ public sealed class TaskSyncEngineTests : IDisposable
         public bool IncludeCompletedTask { get; set; }
         public bool IncludeChildTask { get; set; }
         public int CompletedCalls { get; private set; }
+        public List<string> OutboundOperationOrder { get; } = [];
+        public List<PendingTaskDateUpdate> DateUpdates { get; } = [];
 
         public Task<ProviderSnapshot> FetchSnapshotAsync(CancellationToken cancellationToken = default)
         {
@@ -691,7 +786,16 @@ public sealed class TaskSyncEngineTests : IDisposable
 
         public Task CompleteTaskAsync(PendingCompletion completion, CancellationToken cancellationToken = default)
         {
+            OutboundOperationOrder.Add("completion");
             CompletedCalls++;
+            return Task.CompletedTask;
+        }
+
+        public Task UpdateTaskDateAsync(PendingTaskDateUpdate update, CancellationToken cancellationToken = default)
+        {
+            OutboundOperationOrder.Add("date");
+            DateUpdates.Add(update);
+            PlannedOn = update.PlannedOn;
             return Task.CompletedTask;
         }
     }

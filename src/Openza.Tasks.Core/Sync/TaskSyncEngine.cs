@@ -5,14 +5,13 @@ using Openza.Tasks.Core.Models;
 
 namespace Openza.Tasks.Core.Sync;
 
-public sealed class TaskSyncEngine(ITaskStore store, ConflictPolicy? conflictPolicy = null)
+public sealed class TaskSyncEngine(ITaskStore store)
 {
-    private readonly ConflictPolicy _conflictPolicy = conflictPolicy ?? ConflictPolicy.Default;
-
     public async Task<SyncSummary> SyncAsync(ISyncProvider provider, CancellationToken cancellationToken = default)
     {
         try
         {
+            var dateUpdatesSynced = await SyncPendingTaskDateUpdatesAsync(provider, cancellationToken).ConfigureAwait(false);
             var completionsSynced = await SyncPendingCompletionsAsync(provider, cancellationToken).ConfigureAwait(false);
             var snapshot = await provider.FetchSnapshotAsync(cancellationToken).ConfigureAwait(false);
             var providerConnectionId = provider.ProviderConnectionId;
@@ -83,16 +82,21 @@ public sealed class TaskSyncEngine(ITaskStore store, ConflictPolicy? conflictPol
                 sourceItemsUpdated++;
             }
 
-            var tasksDeleted = 0;
-            if (_conflictPolicy.DeleteOrphans)
+            var sourceItemsRemoved = 0;
+            foreach (var orphan in existingByExternalId.Values.Where(t =>
+                t.AdoptionState != ProviderSourceAdoptionStates.Ignored &&
+                !remoteExternalIds.Contains(t.ExternalId)))
             {
-                foreach (var orphan in existingByExternalId.Values.Where(t =>
-                    t.AdoptionState != ProviderSourceAdoptionStates.Ignored &&
-                    !remoteExternalIds.Contains(t.ExternalId)))
+                if (orphan.AdoptionState == ProviderSourceAdoptionStates.Adopted)
                 {
-                    // Direction 2 keeps provider removals non-destructive: the Openza task stays,
-                    // but the stale source link is detached so local cleanup can proceed.
+                    // Keep the local wrapper; detach the stale source link so local cleanup can proceed.
                     await store.DetachProviderSourceItemAsync(orphan.Id, cancellationToken).ConfigureAwait(false);
+                    continue;
+                }
+
+                if (await store.DeleteProviderSourceItemAsync(orphan.Id, cancellationToken).ConfigureAwait(false))
+                {
+                    sourceItemsRemoved++;
                 }
             }
 
@@ -102,11 +106,12 @@ public sealed class TaskSyncEngine(ITaskStore store, ConflictPolicy? conflictPol
                 true,
                 sourceItemsAdded,
                 sourceItemsUpdated,
-                tasksDeleted,
+                sourceItemsRemoved,
                 projectsSynced,
                 labelsSynced,
                 completionsSynced,
-                NewSyncToken: snapshot.SyncToken);
+                NewSyncToken: snapshot.SyncToken,
+                DateUpdatesSynced: dateUpdatesSynced);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -164,10 +169,54 @@ public sealed class TaskSyncEngine(ITaskStore store, ConflictPolicy? conflictPol
         {
             await provider.CompleteTaskAsync(completion, cancellationToken).ConfigureAwait(false);
             await store.MarkCompletionSyncedAsync(completion.Id, cancellationToken).ConfigureAwait(false);
+            if (completion.Completed)
+            {
+                await DiscardPendingTaskDateUpdatesForProviderTaskAsync(
+                    provider.IntegrationId,
+                    completion.ProviderTaskId,
+                    cancellationToken).ConfigureAwait(false);
+            }
+
             synced++;
         }
 
         return synced;
+    }
+
+    public async Task<int> SyncPendingTaskDateUpdatesAsync(ISyncProvider provider, CancellationToken cancellationToken = default)
+    {
+        if (provider is not ITaskDateUpdateProvider dateUpdateProvider)
+        {
+            return 0;
+        }
+
+        var updates = await store.GetPendingTaskDateUpdatesAsync(provider.IntegrationId, cancellationToken).ConfigureAwait(false);
+        var synced = 0;
+        foreach (var update in updates)
+        {
+            await dateUpdateProvider.UpdateTaskDateAsync(update, cancellationToken).ConfigureAwait(false);
+            await store.MarkTaskDateUpdateSyncedAsync(update.Id, cancellationToken).ConfigureAwait(false);
+            synced++;
+        }
+
+        return synced;
+    }
+
+    private async Task DiscardPendingTaskDateUpdatesForProviderTaskAsync(
+        string provider,
+        string providerTaskId,
+        CancellationToken cancellationToken)
+    {
+        var updates = await store.GetPendingTaskDateUpdatesAsync(provider, cancellationToken).ConfigureAwait(false);
+        foreach (var update in updates)
+        {
+            if (!string.Equals(update.ProviderTaskId, providerTaskId, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            await store.MarkTaskDateUpdateSyncedAsync(update.Id, cancellationToken).ConfigureAwait(false);
+        }
     }
 
     private static ProviderSourceItem ToProviderSourceItem(
