@@ -592,7 +592,10 @@ public sealed partial class TaskDetailsPaneControl : UserControl
 
     private void UpdateSourceDateMismatchNotice()
     {
-        if (_loadedTask is null || !_loadedTask.HasProviderSource || !string.IsNullOrWhiteSpace(_loadedTask.RecurrenceRule))
+        if (_loadedTask is null ||
+            !_loadedTask.HasProviderSource ||
+            IsTodoistNonRecurringSourceTask(_loadedTask) ||
+            !string.IsNullOrWhiteSpace(_loadedTask.RecurrenceRule))
         {
             HideSourceDateMismatchNotice();
             return;
@@ -734,6 +737,10 @@ public sealed partial class TaskDetailsPaneControl : UserControl
 
         return TaskListItemViewModel.SourceName(_loadedTask.SourceIntegrationId ?? _loadedTask.IntegrationId);
     }
+
+    private static bool IsTodoistNonRecurringSourceTask(TaskItem task) =>
+        string.Equals(task.SourceIntegrationId ?? task.IntegrationId, IntegrationIds.Todoist, StringComparison.Ordinal) &&
+        string.IsNullOrWhiteSpace(task.RecurrenceRule);
 
     private string CurrentSnapshot() =>
         string.Join('\u001f',

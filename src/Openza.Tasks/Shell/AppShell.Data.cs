@@ -165,7 +165,7 @@ public sealed partial class AppShell
             }
 
             var failures = summaries.Where(s => !s.Success).ToList();
-            var summaryText = string.Join("  ", summaries.Select(s => $"{SourceName(s.Provider)}: +{s.TasksAdded}, updated {s.TasksUpdated}, completions {s.CompletionsSynced}{(s.Success ? string.Empty : $" ({s.Error})")}"));
+            var summaryText = string.Join("  ", summaries.Select(s => $"{SourceName(s.Provider)}: +{s.TasksAdded}, updated {s.TasksUpdated}, dates {s.DateUpdatesSynced}, completions {s.CompletionsSynced}{(s.Success ? string.Empty : $" ({s.Error})")}"));
             SyncPage.SetLastSyncMessage($"{(failures.Count == 0 ? "Last sync completed" : "Last sync needs attention")}: {summaryText}");
             if (showCompletionInfo)
             {

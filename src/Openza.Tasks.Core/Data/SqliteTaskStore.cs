@@ -7,7 +7,7 @@ namespace Openza.Tasks.Core.Data;
 
 public sealed class SqliteTaskStore(string databasePath) : ITaskStore
 {
-    public const int CurrentSchemaVersion = 4;
+    public const int CurrentSchemaVersion = 5;
 
     private sealed record ParentTaskContext(string Id, string SpaceId, string? ProjectId, TaskWorkflowStatus WorkflowStatus);
 
@@ -801,13 +801,12 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         var existing = await ReadProviderSourceItemByExternalAsync(connection, item.ProviderConnectionId, item.ExternalId, cancellationToken).ConfigureAwait(false);
+        var restoredAdoption = await ResolveProviderSourceAdoptionAsync(connection, existing, item, cancellationToken).ConfigureAwait(false);
         var source = item with
         {
             Id = string.IsNullOrWhiteSpace(item.Id) ? BuildProviderSourceItemId(item.ProviderConnectionId, item.ExternalId) : item.Id,
-            AdoptionState = existing?.AdoptionState == ProviderSourceAdoptionStates.Missing
-                ? item.AdoptionState
-                : existing?.AdoptionState ?? item.AdoptionState,
-            AdoptedTaskId = existing?.AdoptedTaskId ?? item.AdoptedTaskId,
+            AdoptionState = restoredAdoption.AdoptionState,
+            AdoptedTaskId = restoredAdoption.AdoptedTaskId,
             SuggestedSpaceId = await ResolveProviderSourceSpaceIdAsync(connection, existing?.SuggestedSpaceId, item.SuggestedSpaceId, cancellationToken).ConfigureAwait(false),
             FirstSeenAt = existing?.FirstSeenAt ?? item.FirstSeenAt,
             LastSeenAt = DateTimeOffset.UtcNow,
@@ -836,7 +835,12 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         }
         else if (source.AdoptionState == ProviderSourceAdoptionStates.Adopted && !string.IsNullOrWhiteSpace(source.AdoptedTaskId))
         {
-            await RefreshAdoptedTaskFromSourceAsync(connection, source, parentContext, cancellationToken).ConfigureAwait(false);
+            await RefreshAdoptedTaskFromSourceAsync(
+                connection,
+                source,
+                parentContext,
+                ShouldSyncPlannedDateFromSource(source, existing),
+                cancellationToken).ConfigureAwait(false);
         }
 
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
@@ -876,7 +880,6 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         sourceCommand.CommandText = """
             UPDATE provider_source_items
             SET adoption_state = @adoption_state,
-                adopted_task_id = NULL,
                 updated_at = @updated_at
             WHERE id = @id
             """;
@@ -886,6 +889,20 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         await sourceCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
 
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<bool> DeleteProviderSourceItemAsync(string sourceItemId, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            DELETE FROM provider_source_items
+            WHERE id = @id
+              AND adoption_state = @adoption_state
+            """;
+        command.Parameters.AddWithValue("@id", sourceItemId);
+        command.Parameters.AddWithValue("@adoption_state", ProviderSourceAdoptionStates.NotAdopted);
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
     }
 
     public async Task<TaskItem?> AdoptProviderSourceItemAsync(string sourceItemId, string spaceId = SpaceIds.Default, CancellationToken cancellationToken = default)
@@ -1357,16 +1374,37 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
     public async Task DeleteTaskAsync(string taskId, CancellationToken cancellationToken = default)
     {
         await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         var linkedProvider = await ReadAdoptedProviderLinkAsync(connection, taskId, cancellationToken).ConfigureAwait(false);
         if (linkedProvider is not null)
         {
             throw new ProviderLinkedTaskDeleteException(taskId, linkedProvider);
         }
 
+        var linkCommand = connection.CreateCommand();
+        linkCommand.CommandText = "UPDATE sync_item_links SET local_task_id = NULL, updated_at = @updated_at WHERE local_task_id = @task_id";
+        linkCommand.Parameters.AddWithValue("@task_id", taskId);
+        linkCommand.Parameters.AddWithValue("@updated_at", ToDbDate(DateTimeOffset.UtcNow));
+        await linkCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+
+        var missingSourceCommand = connection.CreateCommand();
+        missingSourceCommand.CommandText = """
+            UPDATE provider_source_items
+            SET adopted_task_id = NULL,
+                updated_at = @updated_at
+            WHERE adopted_task_id = @task_id
+              AND adoption_state = @adoption_state
+            """;
+        missingSourceCommand.Parameters.AddWithValue("@task_id", taskId);
+        missingSourceCommand.Parameters.AddWithValue("@adoption_state", ProviderSourceAdoptionStates.Missing);
+        missingSourceCommand.Parameters.AddWithValue("@updated_at", ToDbDate(DateTimeOffset.UtcNow));
+        await missingSourceCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+
         var command = connection.CreateCommand();
         command.CommandText = "DELETE FROM tasks WHERE id = @id";
         command.Parameters.AddWithValue("@id", taskId);
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
     }
 
     public async Task DeleteProjectAsync(string projectId, bool moveTasksToInbox, CancellationToken cancellationToken = default)
@@ -1463,6 +1501,77 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         var command = connection.CreateCommand();
         command.CommandText = "DELETE FROM pending_completions WHERE id = @id";
         command.Parameters.AddWithValue("@id", completionId);
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task QueueTaskDateUpdateAsync(PendingTaskDateUpdate update, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await EnsurePendingTaskDateUpdatesTableAsync(connection, cancellationToken).ConfigureAwait(false);
+        var (plannedOn, plannedAt) = NormalizeDatePair(update.PlannedOn, update.PlannedAt);
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO pending_task_date_updates
+                (id, task_id, provider, provider_task_id, planned_on, planned_at, created_at, retry_count)
+            VALUES (@id, @task_id, @provider, @provider_task_id, @planned_on, @planned_at, @created_at, @retry_count)
+            ON CONFLICT(provider, provider_task_id) DO UPDATE SET
+                id = excluded.id,
+                task_id = excluded.task_id,
+                planned_on = excluded.planned_on,
+                planned_at = excluded.planned_at,
+                created_at = excluded.created_at,
+                retry_count = excluded.retry_count
+            """;
+        command.Parameters.AddWithValue("@id", update.Id);
+        command.Parameters.AddWithValue("@task_id", update.TaskId);
+        command.Parameters.AddWithValue("@provider", update.Provider);
+        command.Parameters.AddWithValue("@provider_task_id", update.ProviderTaskId);
+        command.Parameters.AddWithValue("@planned_on", ToDbValue(plannedOn));
+        command.Parameters.AddWithValue("@planned_at", ToDbValue(plannedAt));
+        command.Parameters.AddWithValue("@created_at", ToDbDate(update.CreatedAt));
+        command.Parameters.AddWithValue("@retry_count", update.RetryCount);
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<IReadOnlyList<PendingTaskDateUpdate>> GetPendingTaskDateUpdatesAsync(string provider, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await EnsurePendingTaskDateUpdatesTableAsync(connection, cancellationToken).ConfigureAwait(false);
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT id, task_id, provider, provider_task_id, planned_on, planned_at, created_at, retry_count
+            FROM pending_task_date_updates
+            WHERE provider = @provider
+            ORDER BY created_at
+            """;
+        command.Parameters.AddWithValue("@provider", provider);
+
+        var updates = new List<PendingTaskDateUpdate>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            updates.Add(new PendingTaskDateUpdate
+            {
+                Id = reader.GetString(0),
+                TaskId = reader.GetString(1),
+                Provider = reader.GetString(2),
+                ProviderTaskId = reader.GetString(3),
+                PlannedOn = ReadDateOnly(reader, 4),
+                PlannedAt = ReadDate(reader, 5),
+                CreatedAt = ReadDate(reader, 6) ?? DateTimeOffset.UtcNow,
+                RetryCount = reader.GetInt32(7),
+            });
+        }
+
+        return updates;
+    }
+
+    public async Task MarkTaskDateUpdateSyncedAsync(string updateId, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        var command = connection.CreateCommand();
+        command.CommandText = "DELETE FROM pending_task_date_updates WHERE id = @id";
+        command.Parameters.AddWithValue("@id", updateId);
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
@@ -1669,7 +1778,12 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    private static async Task RefreshAdoptedTaskFromSourceAsync(SqliteConnection connection, ProviderSourceItem source, ParentTaskContext? parent, CancellationToken cancellationToken)
+    private static async Task RefreshAdoptedTaskFromSourceAsync(
+        SqliteConnection connection,
+        ProviderSourceItem source,
+        ParentTaskContext? parent,
+        bool syncPlannedDate,
+        CancellationToken cancellationToken)
     {
         var (plannedOn, plannedAt) = NormalizeDatePair(source.PlannedOn, source.PlannedAt);
         var (deadlineOn, deadlineAt) = NormalizeDatePair(source.DeadlineOn, source.DeadlineAt);
@@ -1698,15 +1812,18 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
                     ELSE workflow_status
                 END,
                 completion_state = @completion_state,
+                source_integration_id = @source_integration_id,
+                source_connection_id = @source_connection_id,
+                source_external_id = @source_external_id,
                 source_provider_task_id = @source_provider_task_id,
                 source_url = @source_url,
                 source_metadata = @source_metadata,
                 planned_on = CASE
-                    WHEN @recurrence_rule IS NOT NULL AND TRIM(@recurrence_rule) != '' THEN @planned_on
+                    WHEN @sync_planned_date = 1 THEN @planned_on
                     ELSE planned_on
                 END,
                 planned_at = CASE
-                    WHEN @recurrence_rule IS NOT NULL AND TRIM(@recurrence_rule) != '' THEN @planned_at
+                    WHEN @sync_planned_date = 1 THEN @planned_at
                     ELSE planned_at
                 END,
                 deadline_on = CASE
@@ -1729,12 +1846,16 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
             WHERE id = @task_id
             """;
         command.Parameters.AddWithValue("@task_id", source.AdoptedTaskId);
+        command.Parameters.AddWithValue("@sync_planned_date", syncPlannedDate ? 1 : 0);
         command.Parameters.AddWithValue("@source_description", ToDbValue(source.Description));
         command.Parameters.AddWithValue("@parent_id", ToDbValue(parent?.Id));
         command.Parameters.AddWithValue("@parent_space_id", ToDbValue(parent?.SpaceId));
         command.Parameters.AddWithValue("@parent_project_id", ToDbValue(parent?.ProjectId));
         command.Parameters.AddWithValue("@parent_workflow_status", ToDbValue(parent?.WorkflowStatus.ToStorageValue()));
         command.Parameters.AddWithValue("@completion_state", source.CompletionState.ToStorageValue());
+        command.Parameters.AddWithValue("@source_integration_id", source.IntegrationId);
+        command.Parameters.AddWithValue("@source_connection_id", source.ProviderConnectionId);
+        command.Parameters.AddWithValue("@source_external_id", source.ExternalId);
         command.Parameters.AddWithValue("@source_provider_task_id", source.ProviderTaskId);
         command.Parameters.AddWithValue("@source_url", ToDbValue(source.SourceUrl));
         command.Parameters.AddWithValue("@source_metadata", BuildSourceMetadataJson(source));
@@ -1745,6 +1866,57 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         command.Parameters.AddWithValue("@recurrence_rule", ToDbValue(source.RecurrenceRule));
         command.Parameters.AddWithValue("@updated_at", ToDbDate(DateTimeOffset.UtcNow));
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task<(string AdoptionState, string? AdoptedTaskId)> ResolveProviderSourceAdoptionAsync(
+        SqliteConnection connection,
+        ProviderSourceItem? existing,
+        ProviderSourceItem incoming,
+        CancellationToken cancellationToken)
+    {
+        if (existing is null)
+        {
+            return (incoming.AdoptionState, incoming.AdoptedTaskId);
+        }
+
+        if (existing.AdoptionState != ProviderSourceAdoptionStates.Missing)
+        {
+            return (existing.AdoptionState, existing.AdoptedTaskId);
+        }
+
+        if (!string.IsNullOrWhiteSpace(existing.AdoptedTaskId) &&
+            await TaskExistsAsync(connection, existing.AdoptedTaskId, cancellationToken).ConfigureAwait(false))
+        {
+            return (ProviderSourceAdoptionStates.Adopted, existing.AdoptedTaskId);
+        }
+
+        return (incoming.AdoptionState, null);
+    }
+
+    private static async Task<bool> TaskExistsAsync(SqliteConnection connection, string taskId, CancellationToken cancellationToken)
+    {
+        var command = connection.CreateCommand();
+        command.CommandText = "SELECT 1 FROM tasks WHERE id = @id LIMIT 1";
+        command.Parameters.AddWithValue("@id", taskId);
+        return (await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)) is not null;
+    }
+
+    private static bool ShouldSyncPlannedDateFromSource(ProviderSourceItem source, ProviderSourceItem? previousSource)
+    {
+        if (!string.IsNullOrWhiteSpace(source.RecurrenceRule))
+        {
+            return true;
+        }
+
+        if (!string.Equals(source.IntegrationId, IntegrationIds.Todoist, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        return source.PlannedOn is not null ||
+            source.PlannedAt is not null ||
+            previousSource?.PlannedOn is not null ||
+            previousSource?.PlannedAt is not null;
     }
 
     private static ProviderSourceItem ReadProviderSourceItem(IDataRecord reader) => new()
@@ -2192,6 +2364,7 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         await EnsureTaskExternalLinksTableAsync(connection, cancellationToken).ConfigureAwait(false);
         await EnsurePendingCompletionsTableAsync(connection, cancellationToken).ConfigureAwait(false);
+        await EnsurePendingTaskDateUpdatesTableAsync(connection, cancellationToken).ConfigureAwait(false);
         await ExecutePragmaAsync(connection, $"PRAGMA user_version = {CurrentSchemaVersion}", cancellationToken).ConfigureAwait(false);
     }
 
@@ -2866,6 +3039,25 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
               completed_at INTEGER,
               created_at INTEGER NOT NULL,
               retry_count INTEGER NOT NULL DEFAULT 0
+            );
+            """;
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task EnsurePendingTaskDateUpdatesTableAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            CREATE TABLE IF NOT EXISTS pending_task_date_updates (
+              id TEXT PRIMARY KEY NOT NULL,
+              task_id TEXT NOT NULL,
+              provider TEXT NOT NULL,
+              provider_task_id TEXT NOT NULL,
+              planned_on TEXT,
+              planned_at INTEGER,
+              created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+              retry_count INTEGER NOT NULL DEFAULT 0,
+              UNIQUE(provider, provider_task_id)
             );
             """;
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);

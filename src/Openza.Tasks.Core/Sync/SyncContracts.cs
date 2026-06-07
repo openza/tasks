@@ -16,6 +16,11 @@ public interface ISyncProvider
     Task CompleteTaskAsync(PendingCompletion completion, CancellationToken cancellationToken = default);
 }
 
+public interface ITaskDateUpdateProvider : ISyncProvider
+{
+    Task UpdateTaskDateAsync(PendingTaskDateUpdate update, CancellationToken cancellationToken = default);
+}
+
 public sealed record ProviderSnapshot(
     IReadOnlyList<TaskItem> Tasks,
     IReadOnlyList<ProjectItem> Projects,
@@ -35,13 +40,9 @@ public sealed record SyncSummary(
     int LabelsSynced,
     int CompletionsSynced,
     string? Error = null,
-    string? NewSyncToken = null)
+    string? NewSyncToken = null,
+    int DateUpdatesSynced = 0)
 {
     public static SyncSummary Failed(string provider, Exception exception) =>
         new(provider, false, 0, 0, 0, 0, 0, 0, exception.Message);
-}
-
-public sealed record ConflictPolicy(bool DeleteOrphans)
-{
-    public static ConflictPolicy Default { get; } = new(DeleteOrphans: false);
 }

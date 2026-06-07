@@ -1047,6 +1047,7 @@ public sealed partial class AppShell
 
         TasksPage.DetailsPanel.SetAutoSaveState("Saving...");
         await _store.UpsertTaskAsync(task).ConfigureAwait(true);
+        await QueueTodoistDateUpdateIfNeededAsync(existing, task).ConfigureAwait(true);
         _selectedTaskId = task.Id;
         if (!TasksPage.DetailsPanel.MarkSaved(draft.Snapshot))
         {
@@ -1446,6 +1447,7 @@ public sealed partial class AppShell
 
         var updated = update(existing) with { UpdatedAt = DateTimeOffset.UtcNow };
         await _store.UpsertTaskAsync(updated).ConfigureAwait(true);
+        await QueueTodoistDateUpdateIfNeededAsync(existing, updated).ConfigureAwait(true);
         await RefreshTasksAsync().ConfigureAwait(true);
         if (string.Equals(_selectedTaskId, taskId, StringComparison.Ordinal))
         {
@@ -1691,4 +1693,36 @@ public sealed partial class AppShell
 
         return task.ExternalId ?? task.Id;
     }
+
+    private async Task QueueTodoistDateUpdateIfNeededAsync(TaskItem? existing, TaskItem updated)
+    {
+        if (existing is null ||
+            !IsTodoistLinkedTask(existing) ||
+            !string.IsNullOrWhiteSpace(existing.RecurrenceRule) ||
+            !TaskDateChanged(existing.PlannedOn, existing.PlannedAt, updated.PlannedOn, updated.PlannedAt))
+        {
+            return;
+        }
+
+        await _store.QueueTaskDateUpdateAsync(new PendingTaskDateUpdate
+        {
+            Id = $"date_{updated.Id}_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}",
+            TaskId = updated.Id,
+            Provider = IntegrationIds.Todoist,
+            ProviderTaskId = BuildProviderTaskId(existing),
+            PlannedOn = updated.PlannedOn,
+            PlannedAt = updated.PlannedAt,
+            CreatedAt = DateTimeOffset.UtcNow,
+        }).ConfigureAwait(true);
+    }
+
+    private static bool IsTodoistLinkedTask(TaskItem task) =>
+        string.Equals(task.SourceIntegrationId ?? task.IntegrationId, IntegrationIds.Todoist, StringComparison.Ordinal) &&
+        (!string.IsNullOrWhiteSpace(task.SourceProviderTaskId) || !string.IsNullOrWhiteSpace(task.ExternalId));
+
+    private static bool TaskDateChanged(DateOnly? oldDate, DateTimeOffset? oldTime, DateOnly? newDate, DateTimeOffset? newTime) =>
+        oldDate != newDate || !NullableDateTimesEqual(oldTime, newTime);
+
+    private static bool NullableDateTimesEqual(DateTimeOffset? left, DateTimeOffset? right) =>
+        left?.ToUnixTimeSeconds() == right?.ToUnixTimeSeconds();
 }

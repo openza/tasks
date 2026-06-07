@@ -151,6 +151,30 @@ public sealed class SyncProviderTests
     }
 
     [Fact]
+    public async Task TodoistProvider_updates_task_due_date()
+    {
+        var handler = new FakeHttpMessageHandler(request => request.RequestUri?.PathAndQuery switch
+        {
+            "/api/v1/tasks/task1" => Empty(HttpStatusCode.OK),
+            _ => Empty(HttpStatusCode.NotFound),
+        });
+        var provider = new TodoistProvider(new HttpClient(handler), "token");
+
+        await provider.UpdateTaskDateAsync(new PendingTaskDateUpdate
+        {
+            TaskId = "local_1",
+            Provider = IntegrationIds.Todoist,
+            ProviderTaskId = "task1",
+            PlannedOn = new DateOnly(2026, 6, 2),
+        });
+
+        var request = Assert.Single(handler.Requests);
+        Assert.Equal(HttpMethod.Post, request.Method);
+        Assert.Equal("/api/v1/tasks/task1", request.Uri.AbsolutePath);
+        Assert.Contains("\"due_date\":\"2026-06-02\"", request.Content);
+    }
+
+    [Fact]
     public async Task TodoistProvider_maps_floating_due_datetime_from_date_field()
     {
         var handler = new FakeHttpMessageHandler(request =>

@@ -6,7 +6,7 @@ using Openza.Tasks.Core.Models;
 
 namespace Openza.Tasks.Core.Sync;
 
-public sealed class TodoistProvider(HttpClient httpClient, string accessToken, string providerConnectionId = "todoist_default") : ISyncProvider
+public sealed class TodoistProvider(HttpClient httpClient, string accessToken, string providerConnectionId = "todoist_default") : ITaskDateUpdateProvider
 {
     private const string BaseUrl = "https://api.todoist.com/api/v1";
     private const int PageSize = 200;
@@ -36,6 +36,17 @@ public sealed class TodoistProvider(HttpClient httpClient, string accessToken, s
     {
         var suffix = completion.Completed ? "close" : "reopen";
         using var request = CreateRequest(HttpMethod.Post, $"/tasks/{completion.ProviderTaskId}/{suffix}");
+        using var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        response.EnsureSuccessStatusCode();
+    }
+
+    public async Task UpdateTaskDateAsync(PendingTaskDateUpdate update, CancellationToken cancellationToken = default)
+    {
+        using var request = CreateRequest(HttpMethod.Post, $"/tasks/{Uri.EscapeDataString(update.ProviderTaskId)}");
+        request.Content = new StringContent(
+            JsonSerializer.Serialize(BuildDateUpdatePayload(update)),
+            Encoding.UTF8,
+            "application/json");
         using var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
     }
@@ -354,6 +365,21 @@ public sealed class TodoistProvider(HttpClient httpClient, string accessToken, s
 
     private static bool GetBool(JsonElement element, string property) =>
         element.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.True;
+
+    private static object BuildDateUpdatePayload(PendingTaskDateUpdate update)
+    {
+        if (update.PlannedAt is { } plannedAt)
+        {
+            return new { due_datetime = plannedAt.UtcDateTime.ToString("O", CultureInfo.InvariantCulture) };
+        }
+
+        if (update.PlannedOn is { } plannedOn)
+        {
+            return new { due_date = plannedOn.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) };
+        }
+
+        return new { due_string = "no date" };
+    }
 
     private static DateTimeOffset? ParseDate(string? value) =>
         DateTimeOffset.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var parsed) ? parsed : null;

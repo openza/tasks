@@ -31,6 +31,6 @@ Preview is a maintainer dogfood channel, not a user-specific product path. Produ
 | Preview | `Openza.OpenzaTasks.Preview` | Openza Tasks Preview | `0.N.B.0` |
 | Production | `Openza.OpenzaTasks` | Openza Tasks | `1.N.P.0` |
 
-Current Preview version: `0.2.1.0`.
+Current Preview version: `0.2.2.0`.
 
 Preview versions intentionally use the second version component so they never collide with the production `1.x.x.x` lane.

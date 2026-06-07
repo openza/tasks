@@ -25,6 +25,7 @@ public interface ITaskStore
     Task<IReadOnlyList<ProviderSourceItem>> GetProviderSourceItemsAsync(string? integrationId = null, string? spaceId = null, bool includeAdopted = false, bool includeIgnored = false, CancellationToken cancellationToken = default);
     Task UpsertProviderSourceItemAsync(ProviderSourceItem item, CancellationToken cancellationToken = default);
     Task DetachProviderSourceItemAsync(string sourceItemId, CancellationToken cancellationToken = default);
+    Task<bool> DeleteProviderSourceItemAsync(string sourceItemId, CancellationToken cancellationToken = default);
     Task<TaskItem?> AdoptProviderSourceItemAsync(string sourceItemId, string spaceId = SpaceIds.Default, CancellationToken cancellationToken = default);
     Task<bool> SkipProviderSourceItemAsync(string sourceItemId, CancellationToken cancellationToken = default);
     Task<bool> UnskipProviderSourceItemAsync(string sourceItemId, CancellationToken cancellationToken = default);
@@ -44,6 +45,9 @@ public interface ITaskStore
     Task QueueCompletionAsync(PendingCompletion completion, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<PendingCompletion>> GetPendingCompletionsAsync(string provider, CancellationToken cancellationToken = default);
     Task MarkCompletionSyncedAsync(string completionId, CancellationToken cancellationToken = default);
+    Task QueueTaskDateUpdateAsync(PendingTaskDateUpdate update, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<PendingTaskDateUpdate>> GetPendingTaskDateUpdatesAsync(string provider, CancellationToken cancellationToken = default);
+    Task MarkTaskDateUpdateSyncedAsync(string updateId, CancellationToken cancellationToken = default);
     Task SetIntegrationConfiguredAsync(string id, bool configured, CancellationToken cancellationToken = default);
     Task SetIntegrationActiveAsync(string id, bool active, CancellationToken cancellationToken = default);
     Task UpdateIntegrationSyncAsync(string id, DateTimeOffset lastSyncAt, string? syncToken, CancellationToken cancellationToken = default);
