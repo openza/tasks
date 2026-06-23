@@ -38,7 +38,7 @@ public partial class App : Application
             return;
         }
 
-        _ = OpenMainWindowAsync();
+        await OpenMainWindowAsync();
     }
 
     private void OnActivated(object? sender, AppActivationArguments args)

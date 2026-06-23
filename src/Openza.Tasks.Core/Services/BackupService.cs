@@ -149,7 +149,9 @@ public sealed class BackupService(
             return false;
         }
 
-        await using var connection = await OpenReadOnlyConnectionAsync(DatabasePath, cancellationToken).ConfigureAwait(false);
+        // A live database can have a rollback journal after an interrupted exit. Open
+        // read-write here so SQLite can recover it before reading schema metadata.
+        await using var connection = await OpenConnectionAsync(DatabasePath, SqliteOpenMode.ReadWrite, cancellationToken).ConfigureAwait(false);
         var userVersion = Convert.ToInt32(await ExecuteScalarAsync(connection, "PRAGMA user_version", cancellationToken).ConfigureAwait(false), CultureInfo.InvariantCulture);
         if (userVersion >= currentSchemaVersion)
         {
@@ -495,12 +497,15 @@ public sealed class BackupService(
         return new DatabaseSnapshot(taskCount, projectCount, spaceCount, BackupIntegrityStatuses.Valid);
     }
 
-    private static async Task<SqliteConnection> OpenReadOnlyConnectionAsync(string path, CancellationToken cancellationToken)
+    private static Task<SqliteConnection> OpenReadOnlyConnectionAsync(string path, CancellationToken cancellationToken) =>
+        OpenConnectionAsync(path, SqliteOpenMode.ReadOnly, cancellationToken);
+
+    private static async Task<SqliteConnection> OpenConnectionAsync(string path, SqliteOpenMode mode, CancellationToken cancellationToken)
     {
         var connection = new SqliteConnection(new SqliteConnectionStringBuilder
         {
             DataSource = path,
-            Mode = SqliteOpenMode.ReadOnly,
+            Mode = mode,
             Pooling = false,
         }.ToString());
         await connection.OpenAsync(cancellationToken).ConfigureAwait(false);

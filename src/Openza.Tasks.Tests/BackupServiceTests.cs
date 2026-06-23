@@ -191,6 +191,18 @@ public sealed class BackupServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task ShouldCreatePreMigrationBackup_detects_older_database_with_user_tables()
+    {
+        var databasePath = await CreateDatabaseAsync("older-schema.db", taskId: "task_old");
+        await SetUserVersionAsync(databasePath, SqliteTaskStore.CurrentSchemaVersion - 1);
+        var service = CreateService(databasePath);
+
+        var shouldCreateBackup = await service.ShouldCreatePreMigrationBackupAsync(SqliteTaskStore.CurrentSchemaVersion);
+
+        Assert.True(shouldCreateBackup);
+    }
+
+    [Fact]
     public async Task Restore_rejects_corrupt_database()
     {
         var databasePath = await CreateDatabaseAsync("valid.db", taskId: "task_1");
@@ -264,6 +276,21 @@ public sealed class BackupServiceTests : IDisposable
 
         SqliteConnection.ClearAllPools();
         return databasePath;
+    }
+
+    private static async Task SetUserVersionAsync(string databasePath, int userVersion)
+    {
+        await using var connection = new SqliteConnection(new SqliteConnectionStringBuilder
+        {
+            DataSource = databasePath,
+            Mode = SqliteOpenMode.ReadWrite,
+            Pooling = false,
+        }.ToString());
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = $"PRAGMA user_version = {userVersion}";
+        await command.ExecuteNonQueryAsync();
+        SqliteConnection.ClearAllPools();
     }
 
     public void Dispose()
