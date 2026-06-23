@@ -77,16 +77,17 @@ Suggested search terms:
 
 ## Store Assets
 
-Existing screenshots:
+Store-ready screenshots captured from the Preview Demo space:
 
-- `assets\screenshots\settings.png` is 1505x973 and is Store-ready.
-- `assets\screenshots\main-view.png` is 1502x622 and must be recaptured at a taller desktop size before submission.
+- `assets\screenshots\main-view-demo.png` is 1536x816.
+- `assets\screenshots\add-task-demo.png` is 1536x816.
+- `assets\screenshots\search-demo.png` is 1536x816.
+- `assets\screenshots\sync-demo.png` is 1536x816.
 
-Capture at least these Store screenshots from non-private sample data:
+Older screenshots:
 
-- Main task/project surface, 1366x768 or larger.
-- Settings/integrations surface, 1366x768 or larger.
-- Optional backup/import/export view, 1366x768 or larger.
+- `assets\screenshots\settings.png` is 1505x973 but may expose account state depending on the running app and should be reviewed before Store use.
+- `assets\screenshots\main-view.png` is 1502x622 and is not tall enough for Store submission.
 
 Do not use screenshots with personal tasks, real provider data, private account names, tokens, or private project names.
 
@@ -99,9 +100,9 @@ Do not use screenshots with personal tasks, real provider data, private account 
 - [x] WinUI app builds locally for Release/x64.
 - [x] Website/docs build passes locally.
 - [x] `gitleaks detect --source . --verbose` passes before commit/tag.
-- [ ] Partner Center product exists and app is associated from Visual Studio.
+- [x] Partner Center product exists and app is associated from Visual Studio.
 - [ ] Production manifest publisher/identity is updated to Store-assigned values after association.
-- [ ] Store-ready screenshots are captured from non-private sample data.
+- [x] Store-ready screenshots are captured from non-private sample data.
 - [ ] Store package is generated from Visual Studio.
 - [ ] Partner Center package validation passes.
 - [ ] Submission is reviewed and published.
