@@ -6,6 +6,9 @@
   xmlns:mp="http://schemas.microsoft.com/appx/2014/phone/manifest"
   IgnorableNamespaces="uap rescap mp">
   <Identity Name="Openza.OpenzaTasks" Publisher="CN=Openza" Version="1.0.0.0" ProcessorArchitecture="x64" />
+  <mp:PhoneIdentity
+    PhoneProductId="602c88e1-81f4-4db7-8df4-62b12212e5db"
+    PhonePublisherId="00000000-0000-0000-0000-000000000000" />
   <Properties>
     <DisplayName>Openza Tasks</DisplayName>
     <PublisherDisplayName>Openza</PublisherDisplayName>
@@ -33,7 +36,4 @@
     <Capability Name="internetClient" />
     <rescap:Capability Name="runFullTrust" />
   </Capabilities>
-  <mp:PhoneIdentity
-    PhoneProductId="602c88e1-81f4-4db7-8df4-62b12212e5db"
-    PhonePublisherId="00000000-0000-0000-0000-000000000000" />
 </Package>
