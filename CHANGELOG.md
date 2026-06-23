@@ -4,6 +4,10 @@ All notable changes to Openza Tasks will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+- Expanded Microsoft Store submission notes with validation, Partner Center handoff, listing copy, asset checks, and release checklist.
+- Clarified public backup wording so local package restore points are not described as durable backups.
+
 ### Removed
 - Removed the legacy Rust sync reference crate from `main`; historical Rust work remains available in git history and older releases.
 
