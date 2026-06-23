@@ -38,6 +38,11 @@ If `pnpm` is not on PATH, use:
 $env:ASTRO_TELEMETRY_DISABLED='1'; npm --prefix website run build
 ```
 
+For Store upload package generation, the project disables `.appxsym` creation with
+`AppxSymbolPackageEnabled=false`. This avoids MSIX tooling failures on machines
+without `mspdbcmf.exe` while still producing the `.msixupload` package Partner
+Center accepts.
+
 ## Partner Center Handoff
 
 These steps require the maintainer's Microsoft Partner Center account:
