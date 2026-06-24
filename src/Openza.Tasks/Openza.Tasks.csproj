@@ -10,6 +10,8 @@
     <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
     <UseWinUI>true</UseWinUI>
     <EnableMsixTooling>true</EnableMsixTooling>
+    <SelfContained>true</SelfContained>
+    <PublishSelfContained>true</PublishSelfContained>
     <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
     <UseDotNetNativeToolchain>false</UseDotNetNativeToolchain>
     <RootNamespace>Openza.Tasks</RootNamespace>
