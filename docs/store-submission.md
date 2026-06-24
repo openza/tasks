@@ -84,11 +84,12 @@ Suggested search terms:
 
 Store-ready screenshots captured from the Preview Demo space:
 
-- `assets\screenshots\main-view-demo.png` is 1536x816.
-- `assets\screenshots\add-task-demo.png` is 1536x816.
-- `assets\screenshots\search-demo.png` is 1536x816.
-- `assets\screenshots\sync-demo.png` is 1536x816.
-- Exact-size Partner Center variants are in `assets\screenshots\store-1366x768\`:
+- 1536x816 originals:
+  - `assets\screenshots\main-view-demo.png`
+  - `assets\screenshots\add-task-demo.png`
+  - `assets\screenshots\search-demo.png`
+  - `assets\screenshots\sync-demo.png`
+- 1366x768 Partner Center variants in `assets\screenshots\store-1366x768\`:
   - `main-view-store-1366x768.png`
   - `add-task-store-1366x768.png`
   - `search-store-1366x768.png`
