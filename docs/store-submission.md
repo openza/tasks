@@ -4,8 +4,8 @@ Openza Tasks is Store-first for WinUI V1.
 
 ## Current Release Target
 
-- Release: `1.0.0`
-- Package version: `1.0.0.0`
+- Release: `1.0.1`
+- Package version: `1.0.1.0`
 - Store app name: Openza Tasks
 - Public support/contact: `deependra@solanky.dev`
 - Privacy policy: use the published `PRIVACY.md` page from this repository or website.
@@ -112,7 +112,7 @@ Do not use screenshots with personal tasks, real provider data, private account 
 
 ## Release Checklist
 
-- [x] Production manifest exists with `Openza.OpenzaTasks` and version `1.0.0.0`.
+- [x] Production manifest exists with `Openza.OpenzaTasks` and version `1.0.1.0`.
 - [x] Dev and Preview manifests are separate from Production.
 - [x] Package artifacts and certificates are ignored by git.
 - [x] Unit tests pass locally for Release.
