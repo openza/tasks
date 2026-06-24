@@ -2,7 +2,7 @@
 
 Openza Tasks does not collect telemetry, analytics, or personal usage data. Openza Tasks is maintained by Deependra Solanky; contact: `deependra@solanky.dev`.
 
-Task data is stored locally on your Windows device in the app data folder. Local backups are stored in a durable Openza backup folder outside package `LocalState` so app reset or reinstall does not remove the only backup copy.
+Task data is stored locally on your Windows device in the app data folder. Local restore points are stored in the app's package `LocalState` folder and support rollback before startup, import, restore, and schema migration events. Because package data can be removed by uninstall, reset, or package identity changes, durable backup means optional OneDrive app-folder backup or an explicit user export.
 
 If you connect Todoist or Microsoft To Do, Openza Tasks uses provider access only for the feature you enable. Todoist tokens are stored locally using Windows Credential Locker. Microsoft sign-in uses MSAL; the MSAL token cache is stored locally and encrypted for the current Windows user.
 

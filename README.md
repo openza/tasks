@@ -11,8 +11,8 @@ Openza Tasks is maintained by Deependra Solanky as a personal open-source projec
 - **Native Windows app** - WinUI 3, MSIX packaging, Mica where available
 - **Local-first storage** - tasks, projects, labels, backups, and imports live on your device
 - **Provider sync** - optional Todoist and Microsoft To Do reconnect/sync
-- **Durable backups** - automatic and manual SQLite backups are stored outside package state
-- **Optional OneDrive backup** - restorable backup snapshots can be uploaded to the app's OneDrive folder
+- **Local restore points** - automatic and manual SQLite restore points support rollback inside the app package state
+- **Optional durable backup** - restorable backup snapshots can be uploaded to the app's OneDrive folder or exported by the user
 - **Focused task layout** - navigation, projects, task list, and details in one productive surface
 - **Markdown import/export** - import GFM checkboxes and export tasks grouped by project
 - **Clean local database** - Store V1 starts fresh with planner-ready local data
