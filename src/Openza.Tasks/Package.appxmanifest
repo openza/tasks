@@ -1,13 +1,13 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Package
   xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
   xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
   xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
   xmlns:mp="http://schemas.microsoft.com/appx/2014/phone/manifest"
   IgnorableNamespaces="uap rescap mp">
-  <Identity Name="Openza.OpenzaTasks" Publisher="CN=Openza" Version="1.0.0.0" ProcessorArchitecture="x64" />
+  <Identity Name="Openza.OpenzaTasks" Publisher="CN=DAC3BFD1-0B27-4912-85AF-DB96E18108D1" Version="1.0.0.0" ProcessorArchitecture="x64" />
   <mp:PhoneIdentity
-    PhoneProductId="602c88e1-81f4-4db7-8df4-62b12212e5db"
+    PhoneProductId="f42e14cc-5ade-44f4-a7bf-e282bf33ae79"
     PhonePublisherId="00000000-0000-0000-0000-000000000000" />
   <Properties>
     <DisplayName>Openza Tasks</DisplayName>

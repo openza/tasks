@@ -88,6 +88,11 @@ Store-ready screenshots captured from the Preview Demo space:
 - `assets\screenshots\add-task-demo.png` is 1536x816.
 - `assets\screenshots\search-demo.png` is 1536x816.
 - `assets\screenshots\sync-demo.png` is 1536x816.
+- Exact-size Partner Center variants are in `assets\screenshots\store-1366x768\`:
+  - `main-view-store-1366x768.png`
+  - `add-task-store-1366x768.png`
+  - `search-store-1366x768.png`
+  - `sync-store-1366x768.png`
 
 Older screenshots:
 
@@ -106,9 +111,9 @@ Do not use screenshots with personal tasks, real provider data, private account 
 - [x] Website/docs build passes locally.
 - [x] `gitleaks detect --source . --verbose` passes before commit/tag.
 - [x] Partner Center product exists and app is associated from Visual Studio.
-- [ ] Production manifest publisher/identity is updated to Store-assigned values after association.
+- [x] Production manifest publisher/identity is updated to Store-assigned values after association.
 - [x] Store-ready screenshots are captured from non-private sample data.
-- [ ] Store package is generated from Visual Studio.
+- [x] Store package is generated from Visual Studio/MSBuild.
 - [ ] Partner Center package validation passes.
 - [ ] Submission is reviewed and published.
 
