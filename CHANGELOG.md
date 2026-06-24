@@ -4,6 +4,9 @@ All notable changes to Openza Tasks will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+- Bundled the .NET runtime in the Microsoft Store package and bumped the production MSIX version to `1.0.1.0`.
+
 ### Changed
 - Expanded Microsoft Store submission notes with validation, Partner Center handoff, listing copy, asset checks, and release checklist.
 - Clarified public backup wording so local package restore points are not described as durable backups.

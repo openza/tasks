@@ -4,8 +4,8 @@ Openza Tasks is Store-first for WinUI V1.
 
 ## Current Release Target
 
-- Release: `1.0.0`
-- Package version: `1.0.0.0`
+- Release: `1.0.1`
+- Package version: `1.0.1.0`
 - Store app name: Openza Tasks
 - Public support/contact: `deependra@solanky.dev`
 - Privacy policy: use the published `PRIVACY.md` page from this repository or website.
@@ -17,6 +17,7 @@ Openza Tasks is Store-first for WinUI V1.
 - Architecture: x64
 - Target OS: Windows 10 22H2+ and Windows 11
 - Restricted capability: `runFullTrust`, required by packaged WinUI desktop apps
+- Runtime deployment: self-contained .NET and Windows App SDK; the Store package must not require a separate .NET runtime install.
 - Production version lane: `1.N.P.0`
 - Preview and Dev identities must stay separate from Production. Do not install over or relaunch Production/Preview during release validation unless explicitly approved.
 
@@ -42,6 +43,13 @@ For Store upload package generation, the project disables `.appxsym` creation wi
 `AppxSymbolPackageEnabled=false`. This avoids MSIX tooling failures on machines
 without `mspdbcmf.exe` while still producing the `.msixupload` package Partner
 Center accepts.
+
+The project also sets `SelfContained=true`, `PublishSelfContained=true`, and
+`WindowsAppSDKSelfContained=true` so the package includes the .NET and Windows
+App SDK runtime components needed to launch on clean Store certification
+machines. If Partner Center reports policy 10.2.4.1 for an undisclosed `.NET
+environment`, rebuild and resubmit from a package that includes these settings
+rather than adding .NET as a required external dependency in the listing copy.
 
 ## Partner Center Handoff
 
@@ -104,7 +112,7 @@ Do not use screenshots with personal tasks, real provider data, private account 
 
 ## Release Checklist
 
-- [x] Production manifest exists with `Openza.OpenzaTasks` and version `1.0.0.0`.
+- [x] Production manifest exists with `Openza.OpenzaTasks` and version `1.0.1.0`.
 - [x] Dev and Preview manifests are separate from Production.
 - [x] Package artifacts and certificates are ignored by git.
 - [x] Unit tests pass locally for Release.
@@ -115,6 +123,7 @@ Do not use screenshots with personal tasks, real provider data, private account 
 - [x] Production manifest publisher/identity is updated to Store-assigned values after association.
 - [x] Store-ready screenshots are captured from non-private sample data.
 - [x] Store package is generated from Visual Studio/MSBuild.
+- [x] Store package bundles the .NET runtime and Windows App SDK runtime.
 - [ ] Partner Center package validation passes.
 - [ ] Submission is reviewed and published.
 
