@@ -21,8 +21,8 @@ All notable changes to Openza Tasks will be documented in this file.
 ### Changed
 - Rebuilt the active app as a Windows-native WinUI 3/.NET 10 application.
 - Replaced the Rust FFI sync path with a C# sync engine in `Openza.Tasks.Core`.
-- Switched active release validation from Flutter/Linux artifacts to WinUI build and tests.
-- Marked Flutter/Linux packages as legacy release artifacts.
+- Switched active release validation from Flutter-era artifacts to WinUI build and tests.
+- Marked Flutter-era packages as legacy release artifacts.
 - Microsoft To Do and OneDrive backup now keep separate Microsoft account selections.
 - Cleaned `main` so the WinUI app is the only active app codebase; Flutter-era code is preserved on the `legacy-flutter-app` branch.
 - Started the WinUI production release line at MSIX package version `1.0.0.0`.
@@ -35,7 +35,7 @@ All notable changes to Openza Tasks will be documented in this file.
 - Unit tests for Markdown parsing, SQLite storage, backup/export, sync behavior, and cloud backup bundles.
 
 ### Removed
-- Removed legacy Flutter/Dart app sources, platform runners, Flatpak/AppImage packaging, and Flutter build scripts from `main`.
+- Removed legacy Flutter/Dart app sources, platform runners, legacy package tooling, and Flutter build scripts from `main`.
 
 ## [0.5.0] - 2026-01-25
 
@@ -68,7 +68,7 @@ All notable changes to Openza Tasks will be documented in this file.
 
 ### Fixed
 - Dialogs no longer disappear during background sync - Navigator is now preserved when data refreshes
-- Flatpak file dialogs now work correctly for backup download/import and markdown export/import (replaced `file_picker` with `file_selector` for proper XDG portal support)
+- Legacy desktop file dialogs now work correctly for backup download/import and markdown export/import
 
 ## [0.3.0] - 2025-12-28
 
@@ -85,7 +85,7 @@ All notable changes to Openza Tasks will be documented in this file.
 
 ### Fixed
 - Theme switch crash caused by TextStyle interpolation during animation (#15)
-- Local task persistence in release/Flatpak builds (#18) - SQLite WAL mode conflict between Dart and Rust
+- Local task persistence in legacy release builds (#18) - SQLite WAL mode conflict between Dart and Rust
 - Use `deleteSync()` instead of async `delete()` in isolate functions for proper cleanup
 
 ### Changed
@@ -130,7 +130,7 @@ All notable changes to Openza Tasks will be documented in this file.
 - Renamed `integrations` JSON column to `provider_metadata`
 - **App identity** changed from `com.openza.openza_flutter` to `com.openza.tasks`
 - **Database location** moved to platform-appropriate Application Support directory:
-  - Linux: `~/.local/share/com.openza.tasks/openza_tasks.db`
+  - Legacy desktop: platform application data folder
   - macOS: `~/Library/Application Support/com.openza.tasks/openza_tasks.db`
   - Windows: `%APPDATA%\com.openza.tasks\openza_tasks.db`
 
@@ -145,7 +145,7 @@ All notable changes to Openza Tasks will be documented in this file.
 ## [0.1.4] - 2025-12-13
 
 ### Fixed
-- Flatpak metadata and screenshots
+- Legacy package metadata and screenshots
 - Flutter version compatibility in CI
 
 ## [0.1.3] - 2025-12-13

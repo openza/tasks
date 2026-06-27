@@ -32,4 +32,4 @@ src/Openza.Tasks.Tests  Unit and migration tests
 
 ## Migration Notes
 
-Flutter/Linux/Rust-FFI builds are legacy. The WinUI app does not ship the old Rust DLL; sync logic now lives in C# so it can later move into an Openza Sync service or CLI.
+Flutter/Rust-FFI builds are legacy. The WinUI app does not ship the old Rust DLL; sync logic now lives in C# so it can later move into an Openza Sync service or CLI.
