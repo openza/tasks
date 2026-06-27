@@ -19,7 +19,10 @@ Openza Tasks is maintained by Deependra Solanky as a personal open-source projec
 
 ## Download
 
-V1 is Store-first. Until the Microsoft Store listing is public, install and test from Visual Studio or an MSIX package created locally.
+Openza Tasks V1 is live on the Microsoft Store:
+
+- [Install from Microsoft Store](https://apps.microsoft.com/detail/9NQGDKXGRGF8)
+- [Open in the Store app](ms-windows-store://pdp/?ProductId=9NQGDKXGRGF8)
 
 Legacy Flutter/Linux packages remain available in older GitHub releases, but they are no longer the active product line. Store V1 starts with a clean WinUI workspace and can reconnect integrations.
 

@@ -7,6 +7,9 @@ Openza Tasks is Store-first for WinUI V1.
 - Release: `1.0.1`
 - Package version: `1.0.1.0`
 - Store app name: Openza Tasks
+- Microsoft Store product ID: `9NQGDKXGRGF8`
+- Public Store listing: <https://apps.microsoft.com/detail/9NQGDKXGRGF8>
+- Store app deep link: `ms-windows-store://pdp/?ProductId=9NQGDKXGRGF8`
 - Public support/contact: `deependra@solanky.dev`
 - Privacy policy: use the published `PRIVACY.md` page from this repository or website.
 
@@ -124,8 +127,8 @@ Do not use screenshots with personal tasks, real provider data, private account 
 - [x] Store-ready screenshots are captured from non-private sample data.
 - [x] Store package is generated from Visual Studio/MSBuild.
 - [x] Store package bundles the .NET runtime and Windows App SDK runtime.
-- [ ] Partner Center package validation passes.
-- [ ] Submission is reviewed and published.
+- [x] Partner Center package validation passes.
+- [x] Submission is reviewed and published.
 
 ## Privacy
 

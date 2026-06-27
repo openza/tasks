@@ -4,6 +4,8 @@ All notable changes to Openza Tasks will be documented in this file.
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-06-27
+
 ### Fixed
 - Bundled the .NET runtime in the Microsoft Store package and bumped the production MSIX version to `1.0.1.0`.
 
