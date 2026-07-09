@@ -56,7 +56,6 @@ public sealed class TaskSyncEngine(ITaskStore store)
                 var isNewSourceItem = !existingByExternalId.ContainsKey(task.ExternalId);
                 var routeMatch = routingPolicy.Match(task);
                 var routedTask = ApplyRouting(task, routeMatch);
-                await store.UpsertProviderSourceItemAsync(ToProviderSourceItem(routedTask, providerConnectionId, projectNames), cancellationToken).ConfigureAwait(false);
                 if (isNewSourceItem && ShouldApplyAutomaticPostImportAction(task, routeMatch, provider))
                 {
                     await ((ITaskProjectMoveProvider)provider)
@@ -64,6 +63,7 @@ public sealed class TaskSyncEngine(ITaskStore store)
                         .ConfigureAwait(false);
                 }
 
+                await store.UpsertProviderSourceItemAsync(ToProviderSourceItem(routedTask, providerConnectionId, projectNames), cancellationToken).ConfigureAwait(false);
                 if (!isNewSourceItem)
                 {
                     sourceItemsUpdated++;
@@ -165,7 +165,7 @@ public sealed class TaskSyncEngine(ITaskStore store)
             match.PostImportAction is not null &&
             !string.IsNullOrWhiteSpace(match.PostImportAction.MoveToProjectId) &&
             ShouldBypassManualImport(task) &&
-            !IsInProviderProject(task.ProjectId, match.PostImportAction.MoveToProjectId);
+            !IsInProviderProject(task, match.PostImportAction.MoveToProjectId);
     }
 
     private static bool ShouldBypassManualImport(TaskItem task) =>
@@ -175,21 +175,31 @@ public sealed class TaskSyncEngine(ITaskStore store)
             task.DeadlineOn is not null ||
             task.DeadlineAt is not null);
 
-    private static bool IsInProviderProject(string? currentProjectId, string targetProjectId)
+    private static bool IsInProviderProject(TaskItem task, string targetProjectId)
     {
+        var currentProjectId = task.ProjectId;
         if (string.IsNullOrWhiteSpace(currentProjectId))
         {
             return false;
         }
 
         return string.Equals(currentProjectId, targetProjectId, StringComparison.Ordinal) ||
-            string.Equals(RemoveProviderProjectPrefix(currentProjectId), targetProjectId, StringComparison.Ordinal);
+            string.Equals(RemoveProviderProjectPrefix(currentProjectId, task.IntegrationId), targetProjectId, StringComparison.Ordinal);
     }
 
-    private static string RemoveProviderProjectPrefix(string projectId) =>
-        projectId.StartsWith("todoist_", StringComparison.Ordinal)
-            ? projectId["todoist_".Length..]
+    private static string RemoveProviderProjectPrefix(string projectId, string integrationId)
+    {
+        var prefix = integrationId switch
+        {
+            IntegrationIds.Todoist => "todoist_",
+            IntegrationIds.MicrosoftToDo => "mstodo_",
+            _ => string.Empty,
+        };
+
+        return !string.IsNullOrEmpty(prefix) && projectId.StartsWith(prefix, StringComparison.Ordinal)
+            ? projectId[prefix.Length..]
             : projectId;
+    }
 
     private static ProjectItem WithProviderConnection(ProjectItem project, string providerConnectionId)
     {

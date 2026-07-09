@@ -391,6 +391,46 @@ public sealed class TaskSyncEngineTests : IDisposable
     }
 
     [Fact]
+    public async Task Sync_retries_todoist_post_import_filing_after_transient_move_failure()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        await store.UpsertSyncRouteAsync(new SyncRouteInfo
+        {
+            Id = "route_todoist_label_routing",
+            Name = "Todoist label rules",
+            SourceConnectionId = "todoist_default",
+            IsEnabled = true,
+            SettingsJson = """
+                {
+                  "unlabeledRoute": {
+                    "id": "todoist_rule_no_labels",
+                    "postImport": { "moveToProjectId": "personal_project" }
+                  }
+                }
+                """,
+        });
+        var provider = new FakeProvider
+        {
+            PlannedOn = new DateOnly(2026, 7, 9),
+            RecurrenceRule = "every day",
+            ThrowOnMove = true,
+        };
+        var engine = new TaskSyncEngine(store);
+
+        var failedSync = await engine.SyncAsync(provider);
+        provider.ThrowOnMove = false;
+        var retrySync = await engine.SyncAsync(provider);
+
+        var task = Assert.Single(await store.GetTasksAsync(new TaskQuery { Kind = TaskListKind.All }));
+        var move = Assert.Single(provider.ProjectMoves);
+        Assert.False(failedSync.Success);
+        Assert.True(retrySync.Success);
+        Assert.NotNull(task);
+        Assert.Equal(("remote_1", "personal_project"), move);
+    }
+
+    [Fact]
     public async Task Sync_prefers_todoist_label_route_over_unlabeled_route()
     {
         var store = CreateStore();
@@ -869,6 +909,7 @@ public sealed class TaskSyncEngineTests : IDisposable
         public bool IncludeCompletedTask { get; set; }
         public bool IncludeChildTask { get; set; }
         public int CompletedCalls { get; private set; }
+        public bool ThrowOnMove { get; set; }
         public List<string> OutboundOperationOrder { get; } = [];
         public List<PendingTaskDateUpdate> DateUpdates { get; } = [];
         public List<(string TaskId, string ProjectId)> ProjectMoves { get; } = [];
@@ -945,6 +986,11 @@ public sealed class TaskSyncEngineTests : IDisposable
         public Task MoveTaskAsync(string taskId, string projectId, CancellationToken cancellationToken = default)
         {
             OutboundOperationOrder.Add("move");
+            if (ThrowOnMove)
+            {
+                throw new InvalidOperationException("Move failed.");
+            }
+
             ProjectMoves.Add((taskId, projectId));
             ProjectId = $"todoist_{projectId}";
             return Task.CompletedTask;
