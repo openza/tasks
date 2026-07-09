@@ -53,8 +53,18 @@ public sealed class TaskSyncEngine(ITaskStore store)
                 }
 
                 remoteExternalIds.Add(task.ExternalId);
-                await store.UpsertProviderSourceItemAsync(ToProviderSourceItem(ApplyRouting(task, routingPolicy), providerConnectionId, projectNames), cancellationToken).ConfigureAwait(false);
-                if (existingByExternalId.ContainsKey(task.ExternalId))
+                var isNewSourceItem = !existingByExternalId.ContainsKey(task.ExternalId);
+                var routeMatch = routingPolicy.Match(task);
+                var routedTask = ApplyRouting(task, routeMatch);
+                await store.UpsertProviderSourceItemAsync(ToProviderSourceItem(routedTask, providerConnectionId, projectNames), cancellationToken).ConfigureAwait(false);
+                if (isNewSourceItem && ShouldApplyAutomaticPostImportAction(task, routeMatch, provider))
+                {
+                    await ((ITaskProjectMoveProvider)provider)
+                        .MoveTaskAsync(BuildProviderTaskId(task), routeMatch.PostImportAction!.MoveToProjectId, cancellationToken)
+                        .ConfigureAwait(false);
+                }
+
+                if (!isNewSourceItem)
                 {
                     sourceItemsUpdated++;
                     continue;
@@ -141,11 +151,45 @@ public sealed class TaskSyncEngine(ITaskStore store)
         };
     }
 
-    private static TaskItem ApplyRouting(TaskItem task, ProviderSourceRoutingPolicy routingPolicy)
+    private static TaskItem ApplyRouting(TaskItem task, ProviderSourceRouteMatch match)
     {
-        var match = routingPolicy.Match(task);
         return string.IsNullOrWhiteSpace(match.SpaceId) ? task : task with { SpaceId = match.SpaceId };
     }
+
+    private static bool ShouldApplyAutomaticPostImportAction(
+        TaskItem task,
+        ProviderSourceRouteMatch match,
+        ISyncProvider provider)
+    {
+        return provider is ITaskProjectMoveProvider &&
+            match.PostImportAction is not null &&
+            !string.IsNullOrWhiteSpace(match.PostImportAction.MoveToProjectId) &&
+            ShouldBypassManualImport(task) &&
+            !IsInProviderProject(task.ProjectId, match.PostImportAction.MoveToProjectId);
+    }
+
+    private static bool ShouldBypassManualImport(TaskItem task) =>
+        !string.IsNullOrWhiteSpace(task.RecurrenceRule) &&
+        (task.PlannedOn is not null ||
+            task.PlannedAt is not null ||
+            task.DeadlineOn is not null ||
+            task.DeadlineAt is not null);
+
+    private static bool IsInProviderProject(string? currentProjectId, string targetProjectId)
+    {
+        if (string.IsNullOrWhiteSpace(currentProjectId))
+        {
+            return false;
+        }
+
+        return string.Equals(currentProjectId, targetProjectId, StringComparison.Ordinal) ||
+            string.Equals(RemoveProviderProjectPrefix(currentProjectId), targetProjectId, StringComparison.Ordinal);
+    }
+
+    private static string RemoveProviderProjectPrefix(string projectId) =>
+        projectId.StartsWith("todoist_", StringComparison.Ordinal)
+            ? projectId["todoist_".Length..]
+            : projectId;
 
     private static ProjectItem WithProviderConnection(ProjectItem project, string providerConnectionId)
     {
