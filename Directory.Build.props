@@ -7,10 +7,10 @@
     <AnalysisLevel>latest</AnalysisLevel>
     <LangVersion>latest</LangVersion>
     <UseSharedCompilation>false</UseSharedCompilation>
-    <Authors>Openza contributors</Authors>
+    <Authors>Deependra Solanky and Openza contributors</Authors>
     <Company>Openza</Company>
     <Product>Openza Tasks</Product>
-    <Copyright>Copyright (c) Openza contributors</Copyright>
+    <Copyright>Copyright (c) 2025 Deependra Solanky and Openza contributors</Copyright>
     <RepositoryType>git</RepositoryType>
     <RepositoryUrl>https://github.com/openza/tasks</RepositoryUrl>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>

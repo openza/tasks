@@ -87,4 +87,4 @@ Openza Tasks does not add telemetry or analytics. Todoist tokens and OneDrive ba
 
 ## License
 
-MIT License - see [LICENSE](LICENSE).
+The source code and documentation are available under the [MIT License](LICENSE). Openza names, logos, and official app icons are reserved brand assets; see [BRAND.md](BRAND.md). Third-party dependencies remain subject to their respective licenses; see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
