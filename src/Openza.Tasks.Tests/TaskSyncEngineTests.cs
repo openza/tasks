@@ -251,6 +251,186 @@ public sealed class TaskSyncEngineTests : IDisposable
     }
 
     [Fact]
+    public async Task Sync_applies_todoist_post_import_filing_for_recurring_tasks()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        await store.UpsertSpaceAsync(new SpaceItem { Id = "space_personal", Name = "Personal" });
+        await store.UpsertSyncRouteAsync(new SyncRouteInfo
+        {
+            Id = "route_todoist_label_routing",
+            Name = "Todoist label rules",
+            SourceConnectionId = "todoist_default",
+            IsEnabled = true,
+            SettingsJson = """
+                {
+                  "unlabeledRoute": {
+                    "id": "todoist_rule_no_labels",
+                    "spaceId": "space_personal",
+                    "postImport": { "moveToProjectId": "personal_project" }
+                  }
+                }
+                """,
+        });
+        var provider = new FakeProvider
+        {
+            PlannedOn = new DateOnly(2026, 7, 9),
+            RecurrenceRule = "every day",
+        };
+        var engine = new TaskSyncEngine(store);
+
+        var result = await engine.SyncAsync(provider);
+
+        var task = Assert.Single(await store.GetTasksAsync(new TaskQuery { Kind = TaskListKind.All }));
+        var move = Assert.Single(provider.ProjectMoves);
+        Assert.True(result.Success);
+        Assert.Equal(TaskItemStatus.Someday, task.Status);
+        Assert.Equal(("remote_1", "personal_project"), move);
+    }
+
+    [Fact]
+    public async Task Sync_does_not_apply_todoist_post_import_filing_for_normal_waiting_source_items()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        await store.UpsertSyncRouteAsync(new SyncRouteInfo
+        {
+            Id = "route_todoist_label_routing",
+            Name = "Todoist label rules",
+            SourceConnectionId = "todoist_default",
+            IsEnabled = true,
+            SettingsJson = """
+                {
+                  "unlabeledRoute": {
+                    "id": "todoist_rule_no_labels",
+                    "postImport": { "moveToProjectId": "personal_project" }
+                  }
+                }
+                """,
+        });
+        var provider = new FakeProvider();
+        var engine = new TaskSyncEngine(store);
+
+        var result = await engine.SyncAsync(provider);
+
+        Assert.True(result.Success);
+        Assert.Empty(await store.GetTasksAsync(new TaskQuery { Kind = TaskListKind.All }));
+        Assert.Empty(provider.ProjectMoves);
+    }
+
+    [Fact]
+    public async Task Sync_skips_todoist_post_import_filing_when_recurring_task_is_already_in_target_project()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        await store.UpsertSyncRouteAsync(new SyncRouteInfo
+        {
+            Id = "route_todoist_label_routing",
+            Name = "Todoist label rules",
+            SourceConnectionId = "todoist_default",
+            IsEnabled = true,
+            SettingsJson = """
+                {
+                  "unlabeledRoute": {
+                    "id": "todoist_rule_no_labels",
+                    "postImport": { "moveToProjectId": "personal_project" }
+                  }
+                }
+                """,
+        });
+        var provider = new FakeProvider
+        {
+            PlannedOn = new DateOnly(2026, 7, 9),
+            ProjectId = "todoist_personal_project",
+            RecurrenceRule = "every day",
+        };
+        var engine = new TaskSyncEngine(store);
+
+        var result = await engine.SyncAsync(provider);
+
+        Assert.True(result.Success);
+        Assert.Empty(provider.ProjectMoves);
+    }
+
+    [Fact]
+    public async Task Sync_does_not_repeat_todoist_post_import_filing_for_existing_recurring_tasks()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        await store.UpsertSyncRouteAsync(new SyncRouteInfo
+        {
+            Id = "route_todoist_label_routing",
+            Name = "Todoist label rules",
+            SourceConnectionId = "todoist_default",
+            IsEnabled = true,
+            SettingsJson = """
+                {
+                  "unlabeledRoute": {
+                    "id": "todoist_rule_no_labels",
+                    "postImport": { "moveToProjectId": "personal_project" }
+                  }
+                }
+                """,
+        });
+        var provider = new FakeProvider
+        {
+            PlannedOn = new DateOnly(2026, 7, 9),
+            RecurrenceRule = "every day",
+        };
+        var engine = new TaskSyncEngine(store);
+
+        var firstSync = await engine.SyncAsync(provider);
+        provider.ProjectId = "todoist_other_project";
+        var secondSync = await engine.SyncAsync(provider);
+
+        var move = Assert.Single(provider.ProjectMoves);
+        Assert.True(firstSync.Success);
+        Assert.True(secondSync.Success);
+        Assert.Equal(("remote_1", "personal_project"), move);
+        Assert.Equal("todoist_other_project", provider.ProjectId);
+    }
+
+    [Fact]
+    public async Task Sync_retries_todoist_post_import_filing_after_transient_move_failure()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        await store.UpsertSyncRouteAsync(new SyncRouteInfo
+        {
+            Id = "route_todoist_label_routing",
+            Name = "Todoist label rules",
+            SourceConnectionId = "todoist_default",
+            IsEnabled = true,
+            SettingsJson = """
+                {
+                  "unlabeledRoute": {
+                    "id": "todoist_rule_no_labels",
+                    "postImport": { "moveToProjectId": "personal_project" }
+                  }
+                }
+                """,
+        });
+        var provider = new FakeProvider
+        {
+            PlannedOn = new DateOnly(2026, 7, 9),
+            RecurrenceRule = "every day",
+            ThrowOnMove = true,
+        };
+        var engine = new TaskSyncEngine(store);
+
+        var failedSync = await engine.SyncAsync(provider);
+        provider.ThrowOnMove = false;
+        var retrySync = await engine.SyncAsync(provider);
+
+        var task = Assert.Single(await store.GetTasksAsync(new TaskQuery { Kind = TaskListKind.All }));
+        var move = Assert.Single(provider.ProjectMoves);
+        Assert.False(failedSync.Success);
+        Assert.True(retrySync.Success);
+        Assert.NotNull(task);
+        Assert.Equal(("remote_1", "personal_project"), move);
+    }
+
+    [Fact]
     public async Task Sync_prefers_todoist_label_route_over_unlabeled_route()
     {
         var store = CreateStore();
@@ -714,11 +894,12 @@ public sealed class TaskSyncEngineTests : IDisposable
         TestDirectory.Delete(_directory);
     }
 
-    private sealed class FakeProvider : ITaskDateUpdateProvider
+    private sealed class FakeProvider : ITaskDateUpdateProvider, ITaskProjectMoveProvider
     {
         public string IntegrationId => IntegrationIds.Todoist;
         public string Title { get; set; } = "Remote task";
         public string? Description { get; set; }
+        public string? ProjectId { get; set; }
         public DateOnly? PlannedOn { get; set; }
         public string? RecurrenceRule { get; set; }
         public IReadOnlyList<LabelItem> Labels { get; set; } = [];
@@ -728,8 +909,10 @@ public sealed class TaskSyncEngineTests : IDisposable
         public bool IncludeCompletedTask { get; set; }
         public bool IncludeChildTask { get; set; }
         public int CompletedCalls { get; private set; }
+        public bool ThrowOnMove { get; set; }
         public List<string> OutboundOperationOrder { get; } = [];
         public List<PendingTaskDateUpdate> DateUpdates { get; } = [];
+        public List<(string TaskId, string ProjectId)> ProjectMoves { get; } = [];
 
         public Task<ProviderSnapshot> FetchSnapshotAsync(CancellationToken cancellationToken = default)
         {
@@ -743,6 +926,7 @@ public sealed class TaskSyncEngineTests : IDisposable
                     IntegrationId = IntegrationIds.Todoist,
                     Title = Title,
                     Description = Description,
+                    ProjectId = ProjectId,
                     PlannedOn = PlannedOn,
                     RecurrenceRule = RecurrenceRule,
                     Labels = Labels,
@@ -796,6 +980,19 @@ public sealed class TaskSyncEngineTests : IDisposable
             OutboundOperationOrder.Add("date");
             DateUpdates.Add(update);
             PlannedOn = update.PlannedOn;
+            return Task.CompletedTask;
+        }
+
+        public Task MoveTaskAsync(string taskId, string projectId, CancellationToken cancellationToken = default)
+        {
+            OutboundOperationOrder.Add("move");
+            if (ThrowOnMove)
+            {
+                throw new InvalidOperationException("Move failed.");
+            }
+
+            ProjectMoves.Add((taskId, projectId));
+            ProjectId = $"todoist_{projectId}";
             return Task.CompletedTask;
         }
     }

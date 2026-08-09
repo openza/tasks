@@ -21,6 +21,11 @@ public interface ITaskDateUpdateProvider : ISyncProvider
     Task UpdateTaskDateAsync(PendingTaskDateUpdate update, CancellationToken cancellationToken = default);
 }
 
+public interface ITaskProjectMoveProvider : ISyncProvider
+{
+    Task MoveTaskAsync(string taskId, string projectId, CancellationToken cancellationToken = default);
+}
+
 public sealed record ProviderSnapshot(
     IReadOnlyList<TaskItem> Tasks,
     IReadOnlyList<ProjectItem> Projects,

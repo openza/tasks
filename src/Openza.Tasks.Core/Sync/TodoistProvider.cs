@@ -6,7 +6,7 @@ using Openza.Tasks.Core.Models;
 
 namespace Openza.Tasks.Core.Sync;
 
-public sealed class TodoistProvider(HttpClient httpClient, string accessToken, string providerConnectionId = "todoist_default") : ITaskDateUpdateProvider
+public sealed class TodoistProvider(HttpClient httpClient, string accessToken, string providerConnectionId = "todoist_default") : ITaskDateUpdateProvider, ITaskProjectMoveProvider
 {
     private const string BaseUrl = "https://api.todoist.com/api/v1";
     private const int PageSize = 200;
