@@ -4,6 +4,17 @@ All notable changes to Openza Tasks will be documented in this file.
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-08-09
+
+### Fixed
+- Automatically file newly imported recurring Todoist tasks with dates or deadlines into the configured post-import project.
+- Retry Todoist post-import filing after transient move failures and avoid repeating moves for tasks already known locally or already in the target project.
+
+### Changed
+- Updated the bundled SQLite runtime through `SQLitePCLRaw.bundle_e_sqlite3` 3.0.5.
+- Updated GitHub build, Pages, maintenance, and release actions to current pinned releases.
+- Bumped the production MSIX version to `1.0.2.0`.
+
 ## [1.0.1] - 2026-06-27
 
 ### Fixed
