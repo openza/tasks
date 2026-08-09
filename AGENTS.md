@@ -9,13 +9,12 @@ Also follow the shared Openza guidance in `../AGENTS.md`. Keep this file limited
 - The legacy Flutter app is preserved on the `legacy-flutter-app` branch only; `main` is the active WinUI codebase.
 - Historical Rust sync work is preserved in git history and older releases. Do not ship a Rust DLL in the WinUI app.
 - `assets/` stores icons, images, and bundled resources used at runtime.
-- `docs/`, `website/`, and `scripts/` provide supporting documentation and tooling.
+- `docs/` and `scripts/` provide developer documentation and tooling. The user guide lives in the `solanky.dev` repository.
 
 ## Build, Test, and Development Commands
 - `dotnet restore Openza.Tasks.slnx` restores the active WinUI solution.
 - `dotnet test src\Openza.Tasks.Tests\Openza.Tasks.Tests.csproj -c Release` runs unit and migration tests.
 - `dotnet build src\Openza.Tasks\Openza.Tasks.csproj -c Release --no-restore` verifies the packaged WinUI app compiles.
-- `pnpm --dir website build` verifies the docs site; if `pnpm` is not on PATH locally, use `$env:ASTRO_TELEMETRY_DISABLED='1'; npm --prefix website run build`.
 
 ## Coding Style & Naming Conventions
 - Follow existing C# naming and nullable annotations.

@@ -6,6 +6,8 @@ Openza Tasks is a Windows-native task manager for people who want fast local tas
 
 Openza Tasks is maintained by Deependra Solanky as a personal open-source project. Microsoft sign-in may show the Openza app name with the `solanky.dev` publisher/contact identity.
 
+User guide: [solanky.dev/openza/tasks](https://solanky.dev/openza/tasks/)
+
 ## Features
 
 - **Native Windows app** - WinUI 3, MSIX packaging, Mica where available
@@ -85,4 +87,4 @@ Openza Tasks does not add telemetry or analytics. Todoist tokens and OneDrive ba
 
 ## License
 
-MIT License - see [LICENSE](LICENSE).
+The source code and documentation are available under the [MIT License](LICENSE). Openza names, logos, and official app icons are reserved brand assets; see [BRAND.md](BRAND.md). Third-party dependencies remain subject to their respective licenses; see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
