@@ -348,7 +348,8 @@ internal static class OpenzaCli
     private static void WriteTaskList(CliOutput output, IEnumerable<TaskItem> tasks)
     {
         var rows = tasks.Select(task => new TaskRow(task.Id, task.Title, task.SpaceId, task.ProjectId, task.WorkflowStatus.ToString().ToLowerInvariant(),
-            task.IsCompleted, PriorityName(task.Priority), task.Priority, task.PlannedOn, task.DeadlineOn, task.Notes, task.Labels.Select(label => label.Name).ToArray(), task.Revision)).ToList();
+            task.IsCompleted, PriorityName(task.Priority), task.Priority, task.PlannedOn, task.DeadlineOn, task.Notes,
+            task.Labels.Select(label => label.Name).ToArray(), !string.IsNullOrWhiteSpace(task.RecurrenceRule), task.RecurrenceRule, task.Revision)).ToList();
         output.Write(rows,
             rows.Select(x => new[] { x.Id, x.Title, x.Status, x.Priority, x.PlannedOn?.ToString("yyyy-MM-dd") ?? "", x.Completed.ToString() }),
             ["id", "title", "status", "priority", "planned_on", "completed"],
@@ -358,7 +359,8 @@ internal static class OpenzaCli
     private static void WriteTaskDetails(CliOutput output, TaskItem task)
     {
         var row = new TaskRow(task.Id, task.Title, task.SpaceId, task.ProjectId, task.WorkflowStatus.ToString().ToLowerInvariant(),
-            task.IsCompleted, PriorityName(task.Priority), task.Priority, task.PlannedOn, task.DeadlineOn, task.Notes, task.Labels.Select(label => label.Name).ToArray(), task.Revision);
+            task.IsCompleted, PriorityName(task.Priority), task.Priority, task.PlannedOn, task.DeadlineOn, task.Notes,
+            task.Labels.Select(label => label.Name).ToArray(), !string.IsNullOrWhiteSpace(task.RecurrenceRule), task.RecurrenceRule, task.Revision);
         var textValues = new[]
         {
             row.Id, row.Title, row.SpaceId, row.ProjectId ?? "", row.Status, row.Completed.ToString().ToLowerInvariant(), row.Priority,
@@ -468,7 +470,22 @@ internal static class OpenzaCli
 
     private sealed record CliContext(OpenzaRuntimeContext Runtime, TaskApplicationService Service, CliOutput Output);
     private sealed record ReferenceRow(string Id, string Name, string Detail);
-    private sealed record TaskRow(string Id, string Title, string SpaceId, string? ProjectId, string Status, bool Completed, string Priority, int PriorityValue, DateOnly? PlannedOn, DateOnly? DeadlineOn, string? Notes, string[] Labels, long Revision);
+    private sealed record TaskRow(
+        string Id,
+        string Title,
+        string SpaceId,
+        string? ProjectId,
+        string Status,
+        bool Completed,
+        string Priority,
+        int PriorityValue,
+        DateOnly? PlannedOn,
+        DateOnly? DeadlineOn,
+        string? Notes,
+        string[] Labels,
+        bool IsRecurring,
+        string? RecurrenceRule,
+        long Revision);
 }
 
 internal sealed class CliOutput(string format)

@@ -155,6 +155,46 @@ public sealed class CliContractTests : IDisposable
     }
 
     [Fact]
+    public async Task Task_list_and_show_json_expose_canonical_recurrence_metadata()
+    {
+        var store = await CreateStoreAsync();
+        await store.UpsertTaskAsync(new TaskItem
+        {
+            Id = "task_recurring_cli",
+            Title = "Recurring CLI task",
+            PlannedOn = new DateOnly(2026, 8, 16),
+            RecurrenceRule = "every day",
+        });
+        await store.UpsertTaskAsync(new TaskItem
+        {
+            Id = "task_one_time_cli",
+            Title = "One-time CLI task",
+        });
+
+        var list = await RunAsync("task", "list", "--view", "all", "--format", "json");
+        var recurringShow = await RunAsync("task", "show", "task_recurring_cli", "--format", "json");
+        var oneTimeShow = await RunAsync("task", "show", "task_one_time_cli", "--format", "json");
+
+        AssertSuccess(list);
+        AssertSuccess(recurringShow);
+        AssertSuccess(oneTimeShow);
+        using var listJson = JsonDocument.Parse(list.Stdout);
+        var listedRecurring = listJson.RootElement.GetProperty("data").EnumerateArray()
+            .Single(task => task.GetProperty("id").GetString() == "task_recurring_cli");
+        Assert.True(listedRecurring.GetProperty("isRecurring").GetBoolean());
+        Assert.Equal("every day", listedRecurring.GetProperty("recurrenceRule").GetString());
+        Assert.Equal("2026-08-16", listedRecurring.GetProperty("plannedOn").GetString());
+
+        using var recurringJson = JsonDocument.Parse(recurringShow.Stdout);
+        Assert.True(recurringJson.RootElement.GetProperty("data").GetProperty("isRecurring").GetBoolean());
+        Assert.Equal("every day", recurringJson.RootElement.GetProperty("data").GetProperty("recurrenceRule").GetString());
+
+        using var oneTimeJson = JsonDocument.Parse(oneTimeShow.Stdout);
+        Assert.False(oneTimeJson.RootElement.GetProperty("data").GetProperty("isRecurring").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, oneTimeJson.RootElement.GetProperty("data").GetProperty("recurrenceRule").ValueKind);
+    }
+
+    [Fact]
     public async Task Search_limit_caps_combined_task_and_project_results()
     {
         var store = await CreateStoreAsync();

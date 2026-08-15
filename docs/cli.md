@@ -71,6 +71,16 @@ accepts `inbox`, `next`, `waiting`, or `someday`. Task-list views accept `open`,
 `inbox`, `next` (`next-actions` is an alias), `waiting`, `someday`, `today`,
 `calendar`, `overdue`, `completed`, or `all`. Dates use `YYYY-MM-DD`.
 
+Task JSON from both `task list` and single-task commands includes
+`isRecurring` and `recurrenceRule`. `isRecurring` is `true` exactly when the
+canonical domain `recurrence_rule` contains a non-blank provider pattern;
+`recurrenceRule` contains that provider pattern or is `null` for a one-time
+task. Openza has no separate canonical next-occurrence field: the current
+occurrence date remains available through the existing `plannedOn` and
+`deadlineOn` fields. This is an additive JSON v2 field extension. TSV v1 stays
+unchanged for compatibility; agents that need recurrence metadata should use
+JSON.
+
 Task lists contain top-level tasks by default so their totals match `status`.
 Use `--include-subtasks` to return nested tasks too. `search --limit` caps the
 combined task and project result set, rather than applying separately to each
