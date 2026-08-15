@@ -9,7 +9,8 @@ public sealed class BackupService(
     string databasePath,
     string backupDirectory,
     BackupRetentionPolicy? retentionPolicy = null,
-    BackupContext? context = null)
+    BackupContext? context = null,
+    Func<IDisposable>? databaseReplacementLeaseFactory = null)
 {
     private static readonly JsonSerializerOptions MetadataJsonOptions = new() { WriteIndented = true };
 
@@ -17,6 +18,7 @@ public sealed class BackupService(
     public string BackupDirectory { get; } = backupDirectory;
     public BackupRetentionPolicy RetentionPolicy { get; } = retentionPolicy ?? BackupRetentionPolicy.Default;
     public BackupContext Context { get; } = context ?? BackupContext.Unknown;
+    private Func<IDisposable>? DatabaseReplacementLeaseFactory { get; } = databaseReplacementLeaseFactory;
 
     public Task<string> CreateBackupAsync(CancellationToken cancellationToken = default) =>
         CreateBackupAsync(BackupReasons.Manual, cancellationToken);
@@ -207,6 +209,7 @@ public sealed class BackupService(
 
     public async Task RestoreBackupAsync(string sourcePath, CancellationToken cancellationToken = default)
     {
+        using var replacementLease = DatabaseReplacementLeaseFactory?.Invoke();
         cancellationToken.ThrowIfCancellationRequested();
         ValidateSqliteFile(sourcePath);
         Directory.CreateDirectory(Path.GetDirectoryName(DatabasePath) ?? ".");

@@ -1369,6 +1369,33 @@ public sealed class SqliteTaskStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task Read_only_store_initializes_and_queries_without_writing_database_directory()
+    {
+        if (OperatingSystem.IsWindows()) return;
+
+        var store = CreateStore();
+        await store.InitializeAsync();
+        await store.UpsertTaskAsync(new TaskItem { Id = "task_read_only", Title = "Read only" });
+        var directory = Path.GetDirectoryName(store.DatabasePath)!;
+        var originalMode = File.GetUnixFileMode(directory);
+        try
+        {
+            File.SetUnixFileMode(directory, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+            var readOnlyStore = new SqliteTaskStore(store.DatabasePath, readOnly: true);
+
+            await readOnlyStore.InitializeAsync();
+            var task = Assert.Single(await readOnlyStore.GetTasksAsync(new TaskQuery { Kind = TaskListKind.Open }));
+
+            Assert.Equal("task_read_only", task.Id);
+            Assert.False(File.Exists(Path.Combine(directory, ".runtime.lock")));
+        }
+        finally
+        {
+            File.SetUnixFileMode(directory, originalMode);
+        }
+    }
+
+    [Fact]
     public async Task Initialize_moves_existing_recurring_dated_inbox_tasks_to_someday()
     {
         var store = CreateStore();

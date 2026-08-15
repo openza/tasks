@@ -1,6 +1,7 @@
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.Windows.AppLifecycle;
+using Openza.Tasks.Application.Runtime;
 using Openza.Tasks.Core.Data;
 using Openza.Tasks.Core.Services;
 using Openza.Tasks.Core.Sync;
@@ -66,7 +67,13 @@ public partial class App : Application
                 new BackupContext(
                     packageIdentity,
                     BackupPaths.GetAppFlavor(packageIdentity),
-                    packageVersion));
+                    packageVersion),
+                databaseReplacementLeaseFactory: () =>
+                    ChannelRuntimeLease.AcquireDatabaseReplacement(new OpenzaRuntimeContext
+                    {
+                        Channel = OpenzaChannel.Production,
+                        DataDirectory = appData,
+                    }));
             var legacyRestorePointDirectories = new[]
                 {
                     BackupPaths.GetLegacyPackageBackupDirectory(appData),

@@ -23,6 +23,13 @@ openza label list
 
 Use `--format text|json|tsv` on any leaf command. JSON responses have a stable `schemaVersion` and `data` envelope. Results go to stdout and diagnostics go to stderr.
 
+The current JSON contract is `schemaVersion: 2` for successful results and structured errors. Version 2 reflects the finalized task detail/mutation shape and priority fields; the previously installed 0.1.0 CLI emitted version 1. Consumers must branch on `schemaVersion` rather than treating versions 1 and 2 as interchangeable. Successful responses use `data`; failures write an `error` object with the same schema version to stderr.
+
+Single-task commands (`task show`, `add`, `update`, `complete`, and `reopen`)
+return one object in `data`; list and search commands return arrays. With
+`--format json`, failures use the same versioned envelope on stderr with an
+`error` object containing `code`, `message`, `exitCode`, and `details`.
+
 Exit codes are `0` success, `1` unexpected failure, `2` invalid arguments, `3` missing or ambiguous reference, `4` concurrent-edit conflict, `5` missing destructive confirmation, and `6` an operation restricted by the task's provider link. Task deletion requires `--yes` and accepts `--revision` for optimistic concurrency.
 
 ## Versioned TSV schemas
@@ -58,4 +65,52 @@ schema_version  id  title  space_id  project_id  status  completed  priority  pl
 
 The text form exposes the same fields as key/value rows. JSON uses the versioned envelope and corresponding camel-case properties. Label arguments resolve an exact label ID first, then a unique case-insensitive name. An unmatched label value intentionally creates a local label; an ambiguous name must be replaced with an exact ID.
 
+Task JSON renders `priority` as `highest`, `high`, `normal`, or `low`, and also
+includes `priorityValue` as `1`, `2`, `3`, or `4` respectively. Workflow status
+accepts `inbox`, `next`, `waiting`, or `someday`. Task-list views accept `open`,
+`inbox`, `next` (`next-actions` is an alias), `waiting`, `someday`, `today`,
+`calendar`, `overdue`, `completed`, or `all`. Dates use `YYYY-MM-DD`.
+
+Task lists contain top-level tasks by default so their totals match `status`.
+Use `--include-subtasks` to return nested tasks too. `search --limit` caps the
+combined task and project result set, rather than applying separately to each
+kind. Label filters accept the exact ID returned by `label list` or a unique
+case-insensitive name; matching by the resolved name also keeps legacy/provider
+label records logically grouped.
+
 Provider connection and synchronization remain GUI workflows in CLI v1.
+
+## Linux installation
+
+The desktop app and CLI are separate packages. Install `openza-cli` when you
+want the `openza` command; the desktop package is not required. Both packages
+use the same Production data directory when installed together.
+
+For the one-time transition from the earlier combined `openza-tasks` 0.1.0
+package, the CLI package declares `Replaces` only for the old embedded CLI
+files. This permits either safe order: installing the CLI first transfers those
+files without removing the existing desktop app, while upgrading the desktop
+first removes its old embedded CLI before the standalone CLI is installed.
+Neither new package depends on or breaks the other.
+
+Maintainers can build the ignored local Debian package with:
+
+```bash
+./packaging/linux/build-cli-deb.sh VERSION amd64
+sudo apt install ./artifacts/linux/openza-cli_VERSION_amd64.deb
+```
+
+The GUI package owns `openza-tasks` only. Preview packages use the distinct
+`openza-cli-preview` package and `openza-preview` command.
+
+Read-only commands (`status`, `search`, task/reference `list`, and `task show`)
+open an existing database in SQLite read-only mode and do not run schema
+migrations. All commands take a shared coordination lease stored outside the
+data directory, so a read cannot overlap a coordinated database replacement and a
+read-only data directory remains usable. Linux always uses the same hardened
+`/tmp/openza-runtime-<uid>` coordination root for an OS user, independent of
+`XDG_RUNTIME_DIR`, `TMPDIR`, or sandbox visibility, so the GUI and an agent CLI
+cannot select different locks. Mutating commands retain the normal writable
+store. The installed launcher selects an extraction cache
+under `XDG_CACHE_HOME` and falls back to a per-user directory under `/tmp` when
+the home cache is not writable, which supports managed/headless agent sandboxes.

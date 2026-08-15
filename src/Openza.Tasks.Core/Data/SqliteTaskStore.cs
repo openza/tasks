@@ -6,16 +6,35 @@ using Openza.Tasks.Core.Services;
 
 namespace Openza.Tasks.Core.Data;
 
-public sealed class SqliteTaskStore(string databasePath) : ITaskStore
+public sealed class SqliteTaskStore(string databasePath, bool readOnly = false) : ITaskStore
 {
     public const int CurrentSchemaVersion = 6;
 
     private sealed record ParentTaskContext(string Id, string SpaceId, string? ProjectId, TaskWorkflowStatus WorkflowStatus);
 
     public string DatabasePath { get; } = databasePath;
+    public bool IsReadOnly { get; } = readOnly;
 
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
+        if (IsReadOnly)
+        {
+            if (!File.Exists(DatabasePath))
+            {
+                throw new FileNotFoundException("The Openza database does not exist.", DatabasePath);
+            }
+
+            await using var readOnlyConnection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+            var command = readOnlyConnection.CreateCommand();
+            command.CommandText = "PRAGMA user_version";
+            var schemaVersion = Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), System.Globalization.CultureInfo.InvariantCulture);
+            if (schemaVersion != CurrentSchemaVersion)
+            {
+                throw new InvalidOperationException($"The Openza database schema is version {schemaVersion}; open the desktop app before using read-only CLI commands that require schema version {CurrentSchemaVersion}.");
+            }
+            return;
+        }
+
         PrivateFilePermissions.EnsureDirectory(Path.GetDirectoryName(DatabasePath) ?? ".");
         await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         await EnsureLegacySchemaCompatibilityAsync(connection, cancellationToken).ConfigureAwait(false);
@@ -86,9 +105,11 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
             filtered = filtered.Where(t => t.ParentId == query.ParentId);
         }
 
-        if (!string.IsNullOrWhiteSpace(query.LabelId))
+        if (!string.IsNullOrWhiteSpace(query.LabelId) || !string.IsNullOrWhiteSpace(query.LabelName))
         {
-            filtered = filtered.Where(t => t.Labels.Any(label => label.Id == query.LabelId));
+            filtered = filtered.Where(t => t.Labels.Any(label =>
+                (!string.IsNullOrWhiteSpace(query.LabelId) && label.Id == query.LabelId) ||
+                (!string.IsNullOrWhiteSpace(query.LabelName) && string.Equals(label.Name, query.LabelName, StringComparison.CurrentCultureIgnoreCase))));
         }
 
         if (query.Priority is not null)
@@ -213,8 +234,7 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
                 };
             })
             .OrderByDescending(result => result.Score)
-            .ThenBy(result => result.Title, StringComparer.CurrentCultureIgnoreCase)
-            .Take(limit);
+            .ThenBy(result => result.Title, StringComparer.CurrentCultureIgnoreCase);
 
         var projectResults = projects
             .Where(project => activeSpaceIds is null || activeSpaceIds.Contains(project.SpaceId))
@@ -230,10 +250,15 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
                 Score = CalculateSearchScore(query.SearchText, tokens, project.Name, project.Description),
             })
             .OrderByDescending(result => result.Score)
-            .ThenBy(result => result.Title, StringComparer.CurrentCultureIgnoreCase)
-            .Take(limit);
+            .ThenBy(result => result.Title, StringComparer.CurrentCultureIgnoreCase);
 
-        return taskResults.Concat(projectResults).ToList();
+        return taskResults
+            .Concat(projectResults)
+            .OrderByDescending(result => result.Score)
+            .ThenBy(result => result.Kind)
+            .ThenBy(result => result.Title, StringComparer.CurrentCultureIgnoreCase)
+            .Take(limit)
+            .ToList();
     }
 
     private static IReadOnlyList<TaskItem> ArrangeWithSubtasks(
@@ -2480,15 +2505,18 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         var connection = new SqliteConnection(new SqliteConnectionStringBuilder
         {
             DataSource = DatabasePath,
-            Mode = SqliteOpenMode.ReadWriteCreate,
+            Mode = IsReadOnly ? SqliteOpenMode.ReadOnly : SqliteOpenMode.ReadWriteCreate,
             Cache = SqliteCacheMode.Default,
             Pooling = false,
         }.ToString());
 
         await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
-        await ExecutePragmaAsync(connection, "PRAGMA journal_mode = DELETE", cancellationToken).ConfigureAwait(false);
+        if (!IsReadOnly)
+        {
+            await ExecutePragmaAsync(connection, "PRAGMA journal_mode = DELETE", cancellationToken).ConfigureAwait(false);
+            await ExecutePragmaAsync(connection, "PRAGMA synchronous = FULL", cancellationToken).ConfigureAwait(false);
+        }
         await ExecutePragmaAsync(connection, "PRAGMA busy_timeout = 5000", cancellationToken).ConfigureAwait(false);
-        await ExecutePragmaAsync(connection, "PRAGMA synchronous = FULL", cancellationToken).ConfigureAwait(false);
         await ExecutePragmaAsync(connection, "PRAGMA foreign_keys = ON", cancellationToken).ConfigureAwait(false);
         return connection;
     }

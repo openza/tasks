@@ -20,7 +20,7 @@ public sealed class CliContractTests : IDisposable
         AssertSuccess(status);
         using (var document = JsonDocument.Parse(status.Stdout))
         {
-            Assert.Equal(1, document.RootElement.GetProperty("schemaVersion").GetInt32());
+            Assert.Equal(2, document.RootElement.GetProperty("schemaVersion").GetInt32());
             Assert.Equal("dev", document.RootElement.GetProperty("data").GetProperty("channel").GetString());
         }
 
@@ -36,9 +36,11 @@ public sealed class CliContractTests : IDisposable
         long revision;
         using (var document = JsonDocument.Parse(add.Stdout))
         {
-            var task = document.RootElement.GetProperty("data")[0];
+            var task = document.RootElement.GetProperty("data");
             id = task.GetProperty("id").GetString()!;
             revision = task.GetProperty("revision").GetInt64();
+            Assert.Equal("high", task.GetProperty("priority").GetString());
+            Assert.Equal(2, task.GetProperty("priorityValue").GetInt32());
         }
 
         var list = await RunAsync("task", "list", "--project", "CLI Project", "--label", "CLI Label", "--format", "tsv");
@@ -63,8 +65,8 @@ public sealed class CliContractTests : IDisposable
         AssertSuccess(jsonShow);
         using (var document = JsonDocument.Parse(jsonShow.Stdout))
         {
-            Assert.Equal(id, document.RootElement.GetProperty("data")[0].GetProperty("id").GetString());
-            Assert.True(document.RootElement.GetProperty("data")[0].TryGetProperty("revision", out _));
+            Assert.Equal(id, document.RootElement.GetProperty("data").GetProperty("id").GetString());
+            Assert.True(document.RootElement.GetProperty("data").TryGetProperty("revision", out _));
         }
 
         var update = await RunAsync("task", "update", id, "--revision", revision.ToString(), "--clear-project", "--clear-date",
@@ -72,7 +74,7 @@ public sealed class CliContractTests : IDisposable
         AssertSuccess(update);
         using (var document = JsonDocument.Parse(update.Stdout))
         {
-            var task = document.RootElement.GetProperty("data")[0];
+            var task = document.RootElement.GetProperty("data");
             Assert.Equal(JsonValueKind.Null, task.GetProperty("projectId").ValueKind);
             Assert.Equal(JsonValueKind.Null, task.GetProperty("plannedOn").ValueKind);
             Assert.Equal(JsonValueKind.Null, task.GetProperty("deadlineOn").ValueKind);
@@ -85,12 +87,175 @@ public sealed class CliContractTests : IDisposable
         AssertSuccess(completed);
         using (var document = JsonDocument.Parse(completed.Stdout))
         {
-            revision = document.RootElement.GetProperty("data")[0].GetProperty("revision").GetInt64();
+            revision = document.RootElement.GetProperty("data").GetProperty("revision").GetInt64();
         }
         AssertSuccess(await RunAsync("task", "reopen", id, "--revision", revision.ToString()));
         var current = (await store.GetTaskAsync(id))!;
         AssertSuccess(await RunAsync("task", "delete", id, "--revision", current.Revision.ToString(), "--yes"));
         Assert.Null(await store.GetTaskAsync(id));
+    }
+
+    [Fact]
+    public async Task Status_and_default_lists_count_the_same_top_level_tasks()
+    {
+        var store = await CreateStoreAsync();
+        await store.UpsertTaskAsync(new TaskItem { Id = "task_parent", Title = "Parent" });
+        await store.UpsertTaskAsync(new TaskItem { Id = "task_child", Title = "Child", ParentId = "task_parent" });
+        await store.UpsertTaskAsync(new TaskItem { Id = "task_next", Title = "Next", WorkflowStatus = TaskWorkflowStatus.Next });
+        await store.UpsertTaskAsync(new TaskItem { Id = "task_waiting", Title = "Waiting", WorkflowStatus = TaskWorkflowStatus.Waiting });
+        await store.UpsertTaskAsync(new TaskItem { Id = "task_someday", Title = "Someday", WorkflowStatus = TaskWorkflowStatus.Someday });
+        await store.UpsertTaskAsync(new TaskItem { Id = "task_today", Title = "Today", PlannedOn = DateOnly.FromDateTime(DateTime.Today) });
+        await store.UpsertTaskAsync(new TaskItem { Id = "task_future", Title = "Future", DeadlineOn = DateOnly.FromDateTime(DateTime.Today.AddDays(2)) });
+        await store.UpsertTaskAsync(new TaskItem { Id = "task_overdue", Title = "Overdue", PlannedOn = DateOnly.FromDateTime(DateTime.Today.AddDays(-2)) });
+        await store.UpsertTaskAsync(new TaskItem { Id = "task_completed", Title = "Completed", CompletionState = TaskCompletionState.Completed });
+
+        var status = await RunAsync("status", "--format", "json");
+        var withSubtasks = await RunAsync("task", "list", "--view", "all", "--include-subtasks", "--format", "json");
+
+        AssertSuccess(status);
+        AssertSuccess(withSubtasks);
+        using var statusJson = JsonDocument.Parse(status.Stdout);
+        using var withSubtasksJson = JsonDocument.Parse(withSubtasks.Stdout);
+        var counts = statusJson.RootElement.GetProperty("data").GetProperty("counts");
+        foreach (var (view, countProperty) in new[]
+        {
+            ("inbox", "inbox"), ("next", "nextActions"), ("waiting", "waiting"),
+            ("someday", "someday"), ("today", "today"), ("calendar", "calendar"),
+            ("overdue", "overdue"), ("open", "open"), ("all", "all"),
+            ("completed", "completed"),
+        })
+        {
+            var list = await RunAsync("task", "list", "--view", view, "--format", "json");
+            AssertSuccess(list);
+            using var listJson = JsonDocument.Parse(list.Stdout);
+            Assert.Equal(
+                counts.GetProperty(countProperty).GetInt32(),
+                listJson.RootElement.GetProperty("data").GetArrayLength());
+        }
+        Assert.Equal(9, withSubtasksJson.RootElement.GetProperty("data").GetArrayLength());
+    }
+
+    [Fact]
+    public async Task Label_filter_accepts_listed_exact_id_and_resolved_name()
+    {
+        var store = await CreateStoreAsync();
+        var label = new LabelItem { Id = "label_filter", Name = "Filter label" };
+        await store.UpsertLabelAsync(label);
+        await store.UpsertTaskAsync(new TaskItem { Id = "task_labeled", Title = "Labeled", Labels = [label] });
+
+        var byId = await RunAsync("task", "list", "--label", label.Id, "--format", "json");
+        var byName = await RunAsync("task", "list", "--label", label.Name, "--format", "json");
+
+        AssertSuccess(byId);
+        AssertSuccess(byName);
+        using var idJson = JsonDocument.Parse(byId.Stdout);
+        using var nameJson = JsonDocument.Parse(byName.Stdout);
+        Assert.Equal("task_labeled", Assert.Single(idJson.RootElement.GetProperty("data").EnumerateArray()).GetProperty("id").GetString());
+        Assert.Equal("task_labeled", Assert.Single(nameJson.RootElement.GetProperty("data").EnumerateArray()).GetProperty("id").GetString());
+    }
+
+    [Fact]
+    public async Task Search_limit_caps_combined_task_and_project_results()
+    {
+        var store = await CreateStoreAsync();
+        await store.UpsertTaskAsync(new TaskItem { Id = "task_limit_one", Title = "Limit one" });
+        await store.UpsertTaskAsync(new TaskItem { Id = "task_limit_two", Title = "Limit two" });
+        await store.UpsertTaskAsync(new TaskItem { Id = "task_limit_three", Title = "Limit three" });
+        await store.UpsertProjectAsync(new ProjectItem { Id = "project_limit", Name = "Limit project" });
+
+        var result = await RunAsync("search", "limit", "--limit", "3", "--format", "json");
+
+        AssertSuccess(result);
+        using var json = JsonDocument.Parse(result.Stdout);
+        Assert.Equal(3, json.RootElement.GetProperty("data").GetArrayLength());
+
+        foreach (var invalidLimit in new[] { "0", "501" })
+        {
+            var invalid = await RunAsync("search", "limit", "--limit", invalidLimit, "--format", "json");
+            Assert.Equal(2, invalid.ExitCode);
+            Assert.Empty(invalid.Stdout);
+            using var error = JsonDocument.Parse(invalid.Stderr);
+            Assert.Equal("invalid_arguments", error.RootElement.GetProperty("error").GetProperty("code").GetString());
+        }
+    }
+
+    [Fact]
+    public async Task Read_commands_work_when_database_directory_is_not_writable()
+    {
+        if (OperatingSystem.IsWindows()) return;
+
+        var store = await CreateStoreAsync();
+        await store.UpsertTaskAsync(new TaskItem { Id = "task_headless", Title = "Headless" });
+        var originalMode = File.GetUnixFileMode(_directory);
+        try
+        {
+            File.SetUnixFileMode(_directory, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+
+            var status = await RunAsync("status", "--format", "json");
+            var list = await RunAsync("task", "list", "--format", "json");
+
+            AssertSuccess(status);
+            AssertSuccess(list);
+            Assert.False(File.Exists(Path.Combine(_directory, ".runtime.lock")));
+        }
+        finally
+        {
+            File.SetUnixFileMode(_directory, originalMode);
+        }
+    }
+
+    [Fact]
+    public async Task Help_documents_enums_and_json_errors_are_versioned()
+    {
+        _ = await CreateStoreAsync();
+
+        var listHelp = await RunAsync("task", "list", "--help");
+        var addHelp = await RunAsync("task", "add", "--help");
+        AssertSuccess(listHelp);
+        AssertSuccess(addHelp);
+        Assert.Contains("open, inbox, next", listHelp.Stdout);
+        Assert.Contains("next-actions", listHelp.Stdout);
+        Assert.Contains("highest (1), high (2), normal (3), or low (4)", addHelp.Stdout);
+        Assert.Contains("YYYY-MM-DD", addHelp.Stdout);
+
+        var parser = await RunAsync("task", "--list", "--format", "json");
+        Assert.Equal(2, parser.ExitCode);
+        Assert.Empty(parser.Stdout);
+        using var parserJson = JsonDocument.Parse(parser.Stderr);
+        Assert.Equal(2, parserJson.RootElement.GetProperty("schemaVersion").GetInt32());
+        Assert.Equal("invalid_arguments", parserJson.RootElement.GetProperty("error").GetProperty("code").GetString());
+
+        var missing = await RunAsync("task", "show", "missing", "--format", "json");
+        Assert.Equal(3, missing.ExitCode);
+        Assert.Empty(missing.Stdout);
+        using var missingJson = JsonDocument.Parse(missing.Stderr);
+        Assert.Equal(2, missingJson.RootElement.GetProperty("schemaVersion").GetInt32());
+        Assert.Equal("not_found_or_ambiguous", missingJson.RootElement.GetProperty("error").GetProperty("code").GetString());
+    }
+
+    [Fact]
+    public async Task Read_command_does_not_open_database_while_replacement_holds_exclusive_lease()
+    {
+        _ = await CreateStoreAsync();
+        var runtime = Openza.Tasks.Application.Runtime.OpenzaRuntimeContext.Create(
+            Openza.Tasks.Application.Runtime.OpenzaChannel.Dev,
+            _directory);
+
+        CliResult blocked;
+        using (Openza.Tasks.Application.Runtime.ChannelRuntimeLease.AcquireDatabaseReplacement(runtime))
+        {
+            blocked = await RunAsync("status", "--format", "json");
+        }
+
+        Assert.Equal(1, blocked.ExitCode);
+        Assert.Empty(blocked.Stdout);
+        using (var error = JsonDocument.Parse(blocked.Stderr))
+        {
+            Assert.Equal(2, error.RootElement.GetProperty("schemaVersion").GetInt32());
+            Assert.Equal("unexpected_error", error.RootElement.GetProperty("error").GetProperty("code").GetString());
+            Assert.Contains("database restore is in progress", error.RootElement.GetProperty("error").GetProperty("message").GetString());
+        }
+        AssertSuccess(await RunAsync("status", "--format", "json"));
     }
 
     [Fact]
@@ -155,7 +320,7 @@ public sealed class CliContractTests : IDisposable
         AssertSuccess(json);
         using (var document = JsonDocument.Parse(json.Stdout))
         {
-            var task = document.RootElement.GetProperty("data")[0];
+            var task = document.RootElement.GetProperty("data");
             Assert.Equal(updatedTitle, task.GetProperty("title").GetString());
             Assert.Equal(notes, task.GetProperty("notes").GetString());
             Assert.Equal([firstLabel, secondLabel], task.GetProperty("labels").EnumerateArray().Select(item => item.GetString()!).ToArray());
@@ -221,7 +386,7 @@ public sealed class CliContractTests : IDisposable
         AssertSuccess(exact);
         using (var document = JsonDocument.Parse(exact.Stdout))
         {
-            Assert.Equal("FOCUS", document.RootElement.GetProperty("data")[0].GetProperty("labels")[0].GetString());
+            Assert.Equal("FOCUS", document.RootElement.GetProperty("data").GetProperty("labels")[0].GetString());
         }
 
         AssertSuccess(await RunAsync("task", "add", "Create label", "--label", "Fresh label"));

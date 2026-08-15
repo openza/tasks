@@ -12,6 +12,7 @@ return await OpenzaCli.RunAsync(args);
 
 internal static class OpenzaCli
 {
+    internal const int JsonSchemaVersion = 2;
     private const int Success = 0;
     private const int UnexpectedError = 1;
     private const int InvalidArguments = 2;
@@ -26,10 +27,8 @@ internal static class OpenzaCli
         var parseResult = root.Parse(args);
         if (parseResult.Errors.Count > 0)
         {
-            foreach (var error in parseResult.Errors)
-            {
-                Console.Error.WriteLine(error.Message);
-            }
+            var messages = parseResult.Errors.Select(error => error.Message).ToArray();
+            WriteError(GetRequestedFormat(args), InvalidArguments, "invalid_arguments", messages[0], messages);
             return InvalidArguments;
         }
         return await parseResult.InvokeAsync();
@@ -92,20 +91,25 @@ internal static class OpenzaCli
     private static Command BuildSearchCommand(Option<string> format)
     {
         var query = new Argument<string>("query") { Description = "Text to search for." };
-        var includeCompleted = new Option<bool>("--include-completed");
-        var limit = new Option<int>("--limit") { DefaultValueFactory = _ => 30 };
+        var includeCompleted = new Option<bool>("--include-completed") { Description = "Include completed tasks in search results." };
+        var limit = new Option<int>("--limit") { Description = "Maximum combined task and project results (1-500).", DefaultValueFactory = _ => 30 };
         var command = new Command("search", "Search tasks and projects across all spaces.");
         command.Arguments.Add(query);
         command.Options.Add(includeCompleted);
         command.Options.Add(limit);
         command.SetAction(async (parseResult, cancellationToken) => await ExecuteAsync(parseResult, format, async context =>
         {
+            var limitValue = parseResult.GetValue(limit);
+            if (limitValue is < 1 or > 500)
+            {
+                throw new ArgumentException("--limit must be between 1 and 500.");
+            }
             var results = await context.Service.SearchAsync(new GlobalSearchQuery
             {
                 SearchText = parseResult.GetValue(query) ?? string.Empty,
                 IncludeAllSpaces = true,
                 IncludeCompletedTasks = parseResult.GetValue(includeCompleted),
-                Limit = Math.Clamp(parseResult.GetValue(limit), 1, 500),
+                Limit = limitValue,
             }, cancellationToken);
             var data = results.Select(item => new
             {
@@ -135,28 +139,35 @@ internal static class OpenzaCli
 
     private static Command BuildTaskListCommand(Option<string> format)
     {
-        var view = new Option<string>("--view") { DefaultValueFactory = _ => "open" };
-        var space = new Option<string?>("--space");
-        var project = new Option<string?>("--project");
-        var label = new Option<string?>("--label");
-        var search = new Option<string?>("--search");
-        var includeSubtasks = new Option<bool>("--include-subtasks");
+        var view = new Option<string>("--view") { Description = "View: open, inbox, next (alias: next-actions), waiting, someday, today, calendar, overdue, completed, or all.", DefaultValueFactory = _ => "open" };
+        var space = new Option<string?>("--space") { Description = "Space exact ID or unique name." };
+        var project = new Option<string?>("--project") { Description = "Project exact ID or unique name." };
+        var label = new Option<string?>("--label") { Description = "Label exact ID or unique name." };
+        var search = new Option<string?>("--search") { Description = "Filter task title, notes, or source description." };
+        var includeSubtasks = new Option<bool>("--include-subtasks") { Description = "Include nested subtasks; default lists top-level tasks only." };
         var command = new Command("list", "List tasks.");
         foreach (var option in new Option[] { view, space, project, label, search, includeSubtasks }) command.Options.Add(option);
         command.SetAction(async (parseResult, cancellationToken) => await ExecuteAsync(parseResult, format, async context =>
         {
-            var spaceId = await ResolveIdAsync(parseResult.GetValue(space), await context.Service.ListSpacesAsync(cancellationToken), x => x.Id, x => x.Name, "space");
-            var projectId = await ResolveIdAsync(parseResult.GetValue(project), await context.Service.ListProjectsAsync(spaceId, cancellationToken), x => x.Id, x => x.Name, "project");
-            var labelId = await ResolveIdAsync(parseResult.GetValue(label), await context.Service.ListLabelsAsync(cancellationToken), x => x.Id, x => x.Name, "label");
+            var selectedSpace = ResolveReference(parseResult.GetValue(space), await context.Service.ListSpacesAsync(cancellationToken), x => x.Id, x => x.Name, "space");
+            var spaceId = selectedSpace?.Id;
+            var selectedProject = ResolveReference(parseResult.GetValue(project), await context.Service.ListProjectsAsync(spaceId, cancellationToken), x => x.Id, x => x.Name, "project");
+            var selectedLabel = ResolveReference(parseResult.GetValue(label), await context.Service.ListLabelsAsync(cancellationToken), x => x.Id, x => x.Name, "label");
+            var includeNestedTasks = parseResult.GetValue(includeSubtasks);
             var tasks = await context.Service.ListTasksAsync(new TaskQuery
             {
                 Kind = ParseView(parseResult.GetValue(view)),
                 SpaceId = spaceId,
-                ProjectId = projectId,
-                LabelId = labelId,
+                ProjectId = selectedProject?.Id,
+                LabelId = selectedLabel?.Id,
+                LabelName = selectedLabel?.Name,
                 SearchText = parseResult.GetValue(search),
-                IncludeSubtasks = parseResult.GetValue(includeSubtasks),
+                IncludeSubtasks = true,
             }, cancellationToken);
+            if (!includeNestedTasks)
+            {
+                tasks = tasks.Where(task => string.IsNullOrWhiteSpace(task.ParentId)).ToList();
+            }
             WriteTaskList(context.Output, tasks);
             return Success;
         }, cancellationToken));
@@ -184,8 +195,8 @@ internal static class OpenzaCli
         var notes = new Option<string?>("--notes");
         var space = new Option<string?>("--space");
         var project = new Option<string?>("--project");
-        var status = new Option<string>("--status") { DefaultValueFactory = _ => "inbox" };
-        var priority = new Option<string>("--priority") { DefaultValueFactory = _ => "normal" };
+        var status = CreateStatusOption(requiredDefault: "inbox");
+        var priority = CreatePriorityOption(requiredDefault: "normal");
         var date = CreateDateOption("--date");
         var deadline = CreateDateOption("--deadline");
         var labels = new Option<string[]>("--label") { AllowMultipleArgumentsPerToken = true, DefaultValueFactory = _ => [] };
@@ -215,8 +226,8 @@ internal static class OpenzaCli
         var space = new Option<string?>("--space");
         var project = new Option<string?>("--project");
         var clearProject = new Option<bool>("--clear-project");
-        var status = new Option<string?>("--status");
-        var priority = new Option<string?>("--priority");
+        var status = CreateStatusOption();
+        var priority = CreatePriorityOption();
         var date = CreateDateOption("--date");
         var clearDate = new Option<bool>("--clear-date");
         var deadline = CreateDateOption("--deadline");
@@ -274,7 +285,11 @@ internal static class OpenzaCli
         command.Options.Add(revision);
         command.SetAction(async (parseResult, cancellationToken) => await ExecuteAsync(parseResult, format, async context =>
         {
-            if (!parseResult.GetValue(yes)) { Console.Error.WriteLine("Deletion requires --yes."); return ConfirmationRequired; }
+            if (!parseResult.GetValue(yes))
+            {
+                context.Output.WriteError(ConfirmationRequired, "confirmation_required", "Deletion requires --yes.");
+                return ConfirmationRequired;
+            }
             await context.Service.DeleteTaskAsync(parseResult.GetValue(id)!, parseResult.GetValue(revision), cancellationToken);
             context.Output.Write(new { deleted = true, id = parseResult.GetValue(id) }, [["Deleted", parseResult.GetValue(id)!]],
                 ["deleted", "id"], [["true", parseResult.GetValue(id)!]]);
@@ -304,20 +319,23 @@ internal static class OpenzaCli
 
     private static async Task<int> ExecuteAsync(ParseResult parseResult, Option<string> format, Func<CliContext, Task<int>> action, CancellationToken cancellationToken)
     {
+        var formatValue = parseResult.GetValue(format) ?? "text";
         try
         {
             var runtime = ResolveRuntime();
+            var readOnly = IsReadOnlyCommand(parseResult);
             using var lease = ChannelRuntimeLease.AcquireShared(runtime);
-            var service = new TaskApplicationService(new SqliteTaskStore(runtime.DatabasePath));
+            using var databaseLease = ChannelRuntimeLease.AcquireDatabaseRead(runtime);
+            var service = new TaskApplicationService(new SqliteTaskStore(runtime.DatabasePath, readOnly));
             await service.InitializeAsync(cancellationToken);
-            return await action(new CliContext(runtime, service, new CliOutput(parseResult.GetValue(format) ?? "text")));
+            return await action(new CliContext(runtime, service, new CliOutput(formatValue)));
         }
-        catch (TaskConflictException exception) { Console.Error.WriteLine(exception.Message); return Conflict; }
-        catch (ProviderLinkedTaskDeleteException exception) { Console.Error.WriteLine(exception.Message); return OperationRestricted; }
+        catch (TaskConflictException exception) { WriteError(formatValue, Conflict, "conflict", exception.Message); return Conflict; }
+        catch (ProviderLinkedTaskDeleteException exception) { WriteError(formatValue, OperationRestricted, "operation_restricted", exception.Message); return OperationRestricted; }
         catch (Exception exception) when (exception is KeyNotFoundException or ReferenceResolutionException)
-        { Console.Error.WriteLine(exception.Message); return NotFoundOrAmbiguous; }
-        catch (ArgumentException exception) { Console.Error.WriteLine(exception.Message); return InvalidArguments; }
-        catch (Exception exception) { Console.Error.WriteLine(exception.Message); return UnexpectedError; }
+        { WriteError(formatValue, NotFoundOrAmbiguous, "not_found_or_ambiguous", exception.Message); return NotFoundOrAmbiguous; }
+        catch (ArgumentException exception) { WriteError(formatValue, InvalidArguments, "invalid_arguments", exception.Message); return InvalidArguments; }
+        catch (Exception exception) { WriteError(formatValue, UnexpectedError, "unexpected_error", exception.Message); return UnexpectedError; }
     }
 
     private static OpenzaRuntimeContext ResolveRuntime()
@@ -330,27 +348,27 @@ internal static class OpenzaCli
     private static void WriteTaskList(CliOutput output, IEnumerable<TaskItem> tasks)
     {
         var rows = tasks.Select(task => new TaskRow(task.Id, task.Title, task.SpaceId, task.ProjectId, task.WorkflowStatus.ToString().ToLowerInvariant(),
-            task.IsCompleted, task.Priority, task.PlannedOn, task.DeadlineOn, task.Notes, task.Labels.Select(label => label.Name).ToArray(), task.Revision)).ToList();
+            task.IsCompleted, PriorityName(task.Priority), task.Priority, task.PlannedOn, task.DeadlineOn, task.Notes, task.Labels.Select(label => label.Name).ToArray(), task.Revision)).ToList();
         output.Write(rows,
-            rows.Select(x => new[] { x.Id, x.Title, x.Status, PriorityName(x.Priority), x.PlannedOn?.ToString("yyyy-MM-dd") ?? "", x.Completed.ToString() }),
+            rows.Select(x => new[] { x.Id, x.Title, x.Status, x.Priority, x.PlannedOn?.ToString("yyyy-MM-dd") ?? "", x.Completed.ToString() }),
             ["id", "title", "status", "priority", "planned_on", "completed"],
-            rows.Select(x => new[] { x.Id, x.Title, x.Status, PriorityName(x.Priority), x.PlannedOn?.ToString("yyyy-MM-dd") ?? "", x.Completed.ToString().ToLowerInvariant() }));
+            rows.Select(x => new[] { x.Id, x.Title, x.Status, x.Priority, x.PlannedOn?.ToString("yyyy-MM-dd") ?? "", x.Completed.ToString().ToLowerInvariant() }));
     }
 
     private static void WriteTaskDetails(CliOutput output, TaskItem task)
     {
         var row = new TaskRow(task.Id, task.Title, task.SpaceId, task.ProjectId, task.WorkflowStatus.ToString().ToLowerInvariant(),
-            task.IsCompleted, task.Priority, task.PlannedOn, task.DeadlineOn, task.Notes, task.Labels.Select(label => label.Name).ToArray(), task.Revision);
+            task.IsCompleted, PriorityName(task.Priority), task.Priority, task.PlannedOn, task.DeadlineOn, task.Notes, task.Labels.Select(label => label.Name).ToArray(), task.Revision);
         var textValues = new[]
         {
-            row.Id, row.Title, row.SpaceId, row.ProjectId ?? "", row.Status, row.Completed.ToString().ToLowerInvariant(), PriorityName(row.Priority),
+            row.Id, row.Title, row.SpaceId, row.ProjectId ?? "", row.Status, row.Completed.ToString().ToLowerInvariant(), row.Priority,
             row.PlannedOn?.ToString("yyyy-MM-dd") ?? "", row.DeadlineOn?.ToString("yyyy-MM-dd") ?? "", row.Notes ?? "",
             string.Join(",", row.Labels), row.Revision.ToString(CultureInfo.InvariantCulture),
         };
         var tsvValues = (string[])textValues.Clone();
         tsvValues[10] = JsonSerializer.Serialize(row.Labels);
         output.WriteTaskDetails(
-            new[] { row },
+            row,
             textValues,
             tsvValues);
     }
@@ -360,13 +378,13 @@ internal static class OpenzaCli
     private static void EnsureNotBoth<T>(ParseResult result, Option<T> value, Option<bool> clear)
     { if (result.GetResult(value) is not null && result.GetValue(clear)) throw new ArgumentException($"{value.Name} and {clear.Name} cannot be used together."); }
 
-    private static async Task<string?> ResolveIdAsync<T>(string? value, IReadOnlyList<T> items, Func<T, string> id, Func<T, string> name, string kind)
+    private static T? ResolveReference<T>(string? value, IReadOnlyList<T> items, Func<T, string> id, Func<T, string> name, string kind)
+        where T : class
     {
-        await Task.CompletedTask;
         if (string.IsNullOrWhiteSpace(value)) return null;
-        var exact = items.FirstOrDefault(x => id(x) == value); if (exact is not null) return id(exact);
+        var exact = items.FirstOrDefault(x => id(x) == value); if (exact is not null) return exact;
         var matches = items.Where(x => string.Equals(name(x), value, StringComparison.CurrentCultureIgnoreCase)).ToList();
-        return matches.Count switch { 1 => id(matches[0]), 0 => throw new ReferenceResolutionException($"No {kind} matches '{value}'."), _ => throw new ReferenceResolutionException($"More than one {kind} matches '{value}'. Use its exact id.") };
+        return matches.Count switch { 1 => matches[0], 0 => throw new ReferenceResolutionException($"No {kind} matches '{value}'."), _ => throw new ReferenceResolutionException($"More than one {kind} matches '{value}'. Use its exact id.") };
     }
 
     private static TaskListKind ParseView(string? value) => value?.ToLowerInvariant() switch
@@ -382,7 +400,7 @@ internal static class OpenzaCli
 
     private static Option<DateOnly?> CreateDateOption(string name)
     {
-        var option = new Option<DateOnly?>(name);
+        var option = new Option<DateOnly?>(name) { Description = "Date in YYYY-MM-DD format." };
         option.Validators.Add(result =>
         {
             if (result.Tokens.Count > 0 && !DateOnly.TryParseExact(
@@ -398,9 +416,59 @@ internal static class OpenzaCli
         return option;
     }
 
+    private static Option<string> CreateStatusOption(string? requiredDefault = null) => new("--status")
+    {
+        Description = "Workflow status: inbox, next, waiting, or someday.",
+        DefaultValueFactory = requiredDefault is null ? null : _ => requiredDefault,
+    };
+
+    private static Option<string> CreatePriorityOption(string? requiredDefault = null) => new("--priority")
+    {
+        Description = "Priority: highest (1), high (2), normal (3), or low (4).",
+        DefaultValueFactory = requiredDefault is null ? null : _ => requiredDefault,
+    };
+
+    private static bool IsReadOnlyCommand(ParseResult parseResult)
+    {
+        var command = parseResult.CommandResult.Command;
+        return command.Name is "status" or "search" or "list" or "show";
+    }
+
+    private static string GetRequestedFormat(IReadOnlyList<string> args)
+    {
+        for (var index = 0; index < args.Count; index++)
+        {
+            var value = args[index];
+            if (value is "--format" or "-f")
+            {
+                return index + 1 < args.Count ? args[index + 1] : "text";
+            }
+            if (value.StartsWith("--format=", StringComparison.Ordinal)) return value[9..];
+            if (value.StartsWith("-f=", StringComparison.Ordinal)) return value[3..];
+        }
+        return "text";
+    }
+
+    private static void WriteError(string format, int exitCode, string code, string message, IReadOnlyList<string>? details = null)
+    {
+        if (format == "json")
+        {
+            Console.Error.WriteLine(JsonSerializer.Serialize(new
+            {
+                schemaVersion = JsonSchemaVersion,
+                error = new { code, message, exitCode, details = details ?? [message] },
+            }, new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true }));
+            return;
+        }
+        foreach (var detail in details ?? [message])
+        {
+            Console.Error.WriteLine(detail);
+        }
+    }
+
     private sealed record CliContext(OpenzaRuntimeContext Runtime, TaskApplicationService Service, CliOutput Output);
     private sealed record ReferenceRow(string Id, string Name, string Detail);
-    private sealed record TaskRow(string Id, string Title, string SpaceId, string? ProjectId, string Status, bool Completed, int Priority, DateOnly? PlannedOn, DateOnly? DeadlineOn, string? Notes, string[] Labels, long Revision);
+    private sealed record TaskRow(string Id, string Title, string SpaceId, string? ProjectId, string Status, bool Completed, string Priority, int PriorityValue, DateOnly? PlannedOn, DateOnly? DeadlineOn, string? Notes, string[] Labels, long Revision);
 }
 
 internal sealed class CliOutput(string format)
@@ -414,7 +482,7 @@ internal sealed class CliOutput(string format)
         IReadOnlyList<string>? tsvColumns = null,
         IEnumerable<string[]>? tsvRows = null)
     {
-        if (format == "json") { Console.WriteLine(JsonSerializer.Serialize(new { schemaVersion = 1, data }, JsonOptions)); return; }
+        if (format == "json") { Console.WriteLine(JsonSerializer.Serialize(new { schemaVersion = OpenzaCli.JsonSchemaVersion, data }, JsonOptions)); return; }
         var rows = textRows.ToList();
         if (format == "tsv")
         {
@@ -432,7 +500,7 @@ internal sealed class CliOutput(string format)
     {
         if (format == "json")
         {
-            Console.WriteLine(JsonSerializer.Serialize(new { schemaVersion = 1, data }, JsonOptions));
+            Console.WriteLine(JsonSerializer.Serialize(new { schemaVersion = OpenzaCli.JsonSchemaVersion, data }, JsonOptions));
             return;
         }
         if (format == "tsv")
@@ -444,6 +512,20 @@ internal sealed class CliOutput(string format)
         {
             Console.WriteLine($"{TaskDetailColumns[index]}  {textValues[index]}");
         }
+    }
+
+    public void WriteError(int exitCode, string code, string message)
+    {
+        if (format == "json")
+        {
+            Console.Error.WriteLine(JsonSerializer.Serialize(new
+            {
+                schemaVersion = OpenzaCli.JsonSchemaVersion,
+                error = new { code, message, exitCode, details = new[] { message } },
+            }, JsonOptions));
+            return;
+        }
+        Console.Error.WriteLine(message);
     }
     private static void WriteTsv(IReadOnlyList<string> columns, IEnumerable<string[]> rows)
     {

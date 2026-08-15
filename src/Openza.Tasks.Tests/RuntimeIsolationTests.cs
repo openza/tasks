@@ -94,7 +94,107 @@ public sealed class RuntimeIsolationTests : IDisposable
     {
         var context = new OpenzaRuntimeContext { Channel = OpenzaChannel.Dev, DataDirectory = Path.Combine(_directory, "locked") };
         using var shared = ChannelRuntimeLease.AcquireShared(context);
+        Assert.False(context.RuntimeLockPath.StartsWith(context.DataDirectory + Path.DirectorySeparatorChar, StringComparison.Ordinal));
+        Assert.False(File.Exists(Path.Combine(context.DataDirectory, ".runtime.lock")));
         Assert.Throws<InvalidOperationException>(() => ChannelRuntimeLease.AcquireExclusive(context));
+    }
+
+    [Fact]
+    public void Coordination_lock_avoids_an_unwritable_xdg_runtime_directory()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var runtimeDirectory = Path.Combine(_directory, "read-only-runtime");
+        Directory.CreateDirectory(runtimeDirectory);
+        File.SetUnixFileMode(runtimeDirectory, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+        var previousRuntimeDirectory = Environment.GetEnvironmentVariable("XDG_RUNTIME_DIR");
+        try
+        {
+            Environment.SetEnvironmentVariable("XDG_RUNTIME_DIR", runtimeDirectory);
+            var context = new OpenzaRuntimeContext
+            {
+                Channel = OpenzaChannel.Dev,
+                DataDirectory = Path.Combine(_directory, "fallback-lock"),
+            };
+
+            using var lease = ChannelRuntimeLease.AcquireShared(context);
+            Assert.False(context.RuntimeLockPath.StartsWith(runtimeDirectory + Path.DirectorySeparatorChar, StringComparison.Ordinal));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("XDG_RUNTIME_DIR", previousRuntimeDirectory);
+            File.SetUnixFileMode(runtimeDirectory,
+                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+    }
+
+    [Fact]
+    public void Coordination_lock_rejects_a_symlinked_xdg_runtime_directory()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var targetDirectory = Path.Combine(_directory, "runtime-target");
+        var linkedDirectory = Path.Combine(_directory, "runtime-link");
+        Directory.CreateDirectory(targetDirectory);
+        Directory.CreateSymbolicLink(linkedDirectory, targetDirectory);
+        var previousRuntimeDirectory = Environment.GetEnvironmentVariable("XDG_RUNTIME_DIR");
+        try
+        {
+            Environment.SetEnvironmentVariable("XDG_RUNTIME_DIR", linkedDirectory);
+            var context = new OpenzaRuntimeContext
+            {
+                Channel = OpenzaChannel.Dev,
+                DataDirectory = Path.Combine(_directory, "symlink-fallback-lock"),
+            };
+
+            using var lease = ChannelRuntimeLease.AcquireShared(context);
+            Assert.False(context.RuntimeLockPath.StartsWith(linkedDirectory + Path.DirectorySeparatorChar, StringComparison.Ordinal));
+            Assert.Empty(Directory.EnumerateFileSystemEntries(targetDirectory));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("XDG_RUNTIME_DIR", previousRuntimeDirectory);
+        }
+    }
+
+    [Fact]
+    public void Linux_coordination_path_is_stable_across_xdg_runtime_visibility()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        var context = new OpenzaRuntimeContext
+        {
+            Channel = OpenzaChannel.Dev,
+            DataDirectory = Path.Combine(_directory, "stable-runtime-lock"),
+        };
+        var previousRuntimeDirectory = Environment.GetEnvironmentVariable("XDG_RUNTIME_DIR");
+        var previousTemporaryDirectory = Environment.GetEnvironmentVariable("TMPDIR");
+        try
+        {
+            Environment.SetEnvironmentVariable("XDG_RUNTIME_DIR", Path.Combine(_directory, "visible-runtime"));
+            Environment.SetEnvironmentVariable("TMPDIR", Path.Combine(_directory, "visible-tmp"));
+            var visiblePath = context.RuntimeLockPath;
+            Environment.SetEnvironmentVariable("XDG_RUNTIME_DIR", "/run/user/1000");
+            Environment.SetEnvironmentVariable("TMPDIR", "/different-sandbox-tmp");
+            var sandboxedPath = context.RuntimeLockPath;
+
+            Assert.Equal(visiblePath, sandboxedPath);
+            Assert.StartsWith("/tmp/openza-runtime-", visiblePath, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("XDG_RUNTIME_DIR", previousRuntimeDirectory);
+            Environment.SetEnvironmentVariable("TMPDIR", previousTemporaryDirectory);
+        }
     }
 
     [Fact]

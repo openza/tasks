@@ -97,7 +97,9 @@ public sealed class MainWindowViewModel : ObservableObject
                 context: new BackupContext(
                     "Openza.Tasks.Desktop",
                     DesktopDataPaths.Runtime.Channel.ToString().ToLowerInvariant(),
-                    CurrentAppVersion))
+                    CurrentAppVersion),
+                databaseReplacementLeaseFactory: () =>
+                    Openza.Tasks.Application.Runtime.ChannelRuntimeLease.AcquireDatabaseReplacement(DesktopDataPaths.Runtime))
             : null);
     }
 

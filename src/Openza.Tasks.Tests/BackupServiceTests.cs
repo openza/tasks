@@ -187,6 +187,24 @@ public sealed class BackupServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Restore_holds_the_configured_database_replacement_lease()
+    {
+        var currentPath = await CreateDatabaseAsync("leased-current.db", taskId: "task_current");
+        var restoreSourcePath = await CreateDatabaseAsync("leased-source.db", taskId: "task_restored");
+        var lease = new TrackingDisposable();
+        var service = new BackupService(
+            currentPath,
+            Path.Combine(_directory, "leased-backups"),
+            context: new BackupContext("test.identity", "test", "1.2.3.4"),
+            databaseReplacementLeaseFactory: () => lease);
+
+        await service.RestoreBackupAsync(restoreSourcePath);
+
+        Assert.True(lease.WasDisposed);
+        Assert.NotNull(await new SqliteTaskStore(currentPath).GetTaskAsync("task_restored"));
+    }
+
+    [Fact]
     public async Task Restore_does_not_prune_selected_backup_before_copying_it()
     {
         var currentPath = await CreateDatabaseAsync("current-prune.db", taskId: "task_current");
@@ -287,6 +305,12 @@ public sealed class BackupServiceTests : IDisposable
             backupDirectory ?? Path.Combine(_directory, "backups"),
             retentionPolicy,
             new BackupContext("test.identity", "test", "1.2.3.4"));
+
+    private sealed class TrackingDisposable : IDisposable
+    {
+        public bool WasDisposed { get; private set; }
+        public void Dispose() => WasDisposed = true;
+    }
 
     private async Task<string> CreateDatabaseAsync(string fileName, string? taskId = null, string? projectId = null)
     {

@@ -5,7 +5,9 @@ configure_openza_linux_channel() {
     Production)
       package_channel="Production"
       package_name="openza-tasks"
+      cli_package_name="openza-cli"
       display_name="Openza Tasks"
+      cli_display_name="Openza CLI"
       desktop_id="com.openza.Tasks"
       app_library_name="openza-tasks"
       cli_library_name="openza-cli"
@@ -17,7 +19,9 @@ configure_openza_linux_channel() {
     Preview)
       package_channel="Preview"
       package_name="openza-tasks-preview"
+      cli_package_name="openza-cli-preview"
       display_name="Openza Tasks Preview"
+      cli_display_name="Openza CLI Preview"
       desktop_id="com.openza.Tasks.Preview"
       app_library_name="openza-tasks-preview"
       cli_library_name="openza-cli-preview"

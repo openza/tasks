@@ -34,12 +34,14 @@ dotnet msbuild "$desktop_package_project" -t:ValidateOpenzaChannel -p:OpenzaPack
 dotnet build "$cli_package_project" -c Release --no-restore -m:1 -p:OpenzaPackagingProfile=Production -p:_IsPublishing=true -v:quiet
 production_build_dir="$repo_root/src/Openza.Tasks.Cli/bin/packaging/Production/Release/net10.0"
 [[ ! -e "$production_build_dir/.openza-channel" ]]
+OPENZA_TASKS_DEV_DATA_DIR="$test_dir/production-spoof-dev" dotnet "$production_build_dir/openza.dll" task add "Channel gate fixture" >"$output_file"
 OPENZA_TASKS_DEV_DATA_DIR="$test_dir/production-spoof-dev" dotnet "$production_build_dir/openza.dll" --format json status >"$output_file"
 grep -Eq '"channel"[[:space:]]*:[[:space:]]*"dev"' "$output_file"
 
 dotnet build "$cli_package_project" -c Release --no-restore -m:1 -p:OpenzaPackagingProfile=Preview -p:_IsPublishing=true -v:quiet
 preview_build_dir="$repo_root/src/Openza.Tasks.Cli/bin/packaging/Preview/Release/net10.0"
 [[ ! -e "$preview_build_dir/.openza-channel" ]]
+OPENZA_TASKS_DEV_DATA_DIR="$test_dir/preview-spoof-dev" dotnet "$preview_build_dir/openza.dll" task add "Channel gate fixture" >"$output_file"
 OPENZA_TASKS_DEV_DATA_DIR="$test_dir/preview-spoof-dev" dotnet "$preview_build_dir/openza.dll" --format json status >"$output_file"
 grep -Eq '"channel"[[:space:]]*:[[:space:]]*"dev"' "$output_file"
 
