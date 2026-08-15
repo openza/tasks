@@ -8,6 +8,17 @@ Openza Tasks V3 is designed around three capabilities:
 
 The SQLite schema is internal to the app. It is not a public plugin contract yet, but it should stay clean enough to support the planner and sync-engine roadmap.
 
+## Application Hosts
+
+Openza Tasks has two application hosts over the same cross-platform Core:
+
+- `Openza.Tasks` is the Windows-native WinUI 3 app and remains the primary Windows distribution.
+- `Openza.Tasks.Desktop` is the Linux-first Avalonia app. It owns desktop presentation and platform integrations without introducing Avalonia dependencies into Core.
+
+The hosts do not share UI code. Data models, SQLite storage, provider synchronization, import/export, and backup behavior belong in `Openza.Tasks.Core` when they are platform-neutral. Credentials, notifications, launch behavior, packaging, and other OS integrations remain host-specific.
+
+On Linux, `Openza.Tasks.Desktop` stores application data below the platform local-data directory, uses the freedesktop Secret Service through `secret-tool` for provider credentials, and creates daily SQLite restore points. DEB and AppImage packaging metadata lives under `packaging/linux` and is validated independently from the Windows Store package lane.
+
 ## Spaces
 
 Spaces are Openza-owned scopes for separating a person's work contexts, such as Work and Personal. A space is not a provider account, not a workspace account, and not a Todoist/Microsoft list. It is the boundary for what the app shows.

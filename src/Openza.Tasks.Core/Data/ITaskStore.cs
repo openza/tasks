@@ -34,6 +34,7 @@ public interface ITaskStore
     Task RecordSyncRouteRunAsync(SyncRouteRunInfo run, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<SyncRouteRunInfo>> GetSyncRouteRunsAsync(string? routeId = null, CancellationToken cancellationToken = default);
     Task UpsertTaskAsync(TaskItem task, CancellationToken cancellationToken = default);
+    Task UpsertTaskWithPendingUpdatesAsync(TaskItem task, PendingCompletion? completion, PendingTaskDateUpdate? dateUpdate, CancellationToken cancellationToken = default);
     Task MoveTaskToSpaceAsync(string taskId, string targetSpaceId, CancellationToken cancellationToken = default);
     Task UpsertProjectAsync(ProjectItem project, CancellationToken cancellationToken = default);
     Task UpsertLabelAsync(LabelItem label, CancellationToken cancellationToken = default);
@@ -42,6 +43,7 @@ public interface ITaskStore
     Task DeleteProjectAsync(string projectId, bool moveTasksToInbox, CancellationToken cancellationToken = default);
     Task CompleteTaskAsync(string taskId, CancellationToken cancellationToken = default);
     Task ReopenTaskAsync(string taskId, CancellationToken cancellationToken = default);
+    Task SetTaskCompletionWithPendingUpdateAsync(string taskId, bool completed, PendingCompletion? completion, CancellationToken cancellationToken = default);
     Task QueueCompletionAsync(PendingCompletion completion, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<PendingCompletion>> GetPendingCompletionsAsync(string provider, CancellationToken cancellationToken = default);
     Task MarkCompletionSyncedAsync(string completionId, CancellationToken cancellationToken = default);

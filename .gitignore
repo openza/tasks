@@ -51,6 +51,8 @@ app.*.map.json
 .claude/
 
 # Build artifacts
+artifacts/
+design-qa.md
 *.AppImage
 *.flatpak
 Openza.AppDir/

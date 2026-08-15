@@ -1,0 +1,65 @@
+<Window
+    x:Class="Openza.Tasks.Desktop.Connected.ConnectedTasksWindow"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Width="900"
+    Height="700"
+    MinWidth="680"
+    MinHeight="480"
+    Title="Connected tasks"
+    Icon="avares://Openza.Tasks.Desktop/Assets/openza-tasks.png"
+    WindowStartupLocation="CenterOwner"
+    Opened="OnOpened">
+    <Grid RowDefinitions="Auto,Auto,*,Auto">
+        <Border Padding="24,18" BorderBrush="{DynamicResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,0,1">
+            <Grid ColumnDefinitions="*,Auto">
+                <StackPanel>
+                    <TextBlock FontSize="26" FontWeight="SemiBold" Text="Connected tasks" />
+                    <TextBlock Margin="0,3,0,0" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="Choose what enters your local Openza workspace." />
+                </StackPanel>
+                <Button Grid.Column="1" VerticalAlignment="Center" Click="OnRefreshClicked" Content="Refresh" />
+            </Grid>
+        </Border>
+
+        <TextBox
+            x:Name="SearchBox"
+            Grid.Row="1"
+            Margin="24,16,24,8"
+            PlaceholderText="Filter connected tasks"
+            TextChanged="OnSearchChanged" />
+
+        <Grid Grid.Row="2">
+            <ListBox Margin="20,0" ItemsSource="{Binding FilteredConnectedTasks}">
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <Border Padding="12" BorderBrush="{DynamicResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,0,1">
+                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
+                                <StackPanel Spacing="4">
+                                    <TextBlock FontSize="15" FontWeight="SemiBold" Text="{Binding Title}" TextWrapping="Wrap" />
+                                    <TextBlock FontSize="12" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{Binding SourceText}" />
+                                    <TextBlock FontSize="12" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{Binding MetadataText}" TextWrapping="Wrap" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" VerticalAlignment="Center" Orientation="Horizontal" Spacing="8">
+                                    <Button IsVisible="{Binding CanSkip}" Click="OnSkipClicked" Content="{Binding SecondaryActionText}" />
+                                    <Button Classes="accent" Click="OnPrimaryActionClicked" Content="{Binding PrimaryActionText}" />
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="6" IsVisible="{Binding HasNoConnectedTasks}">
+                <TextBlock HorizontalAlignment="Center" FontSize="18" FontWeight="SemiBold" Text="No connected tasks waiting" />
+                <TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="Run provider sync later to refresh this inbox." />
+            </StackPanel>
+        </Grid>
+
+        <Border Grid.Row="3" Padding="18,12" BorderBrush="{DynamicResource DividerStrokeColorDefaultBrush}" BorderThickness="0,1,0,0">
+            <Grid ColumnDefinitions="*,Auto">
+                <TextBlock VerticalAlignment="Center" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{Binding StatusMessage}" />
+                <Button Grid.Column="1" Click="OnCloseClicked" Content="Close" />
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

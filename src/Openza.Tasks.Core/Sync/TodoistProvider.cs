@@ -13,6 +13,13 @@ public sealed class TodoistProvider(HttpClient httpClient, string accessToken, s
     public string IntegrationId => IntegrationIds.Todoist;
     public string ProviderConnectionId => providerConnectionId;
 
+    public async Task ValidateAccessAsync(CancellationToken cancellationToken = default)
+    {
+        using var request = CreateRequest(HttpMethod.Get, "/tasks?limit=1");
+        using var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        response.EnsureSuccessStatusCode();
+    }
+
     public async Task<ProviderSnapshot> FetchSnapshotAsync(CancellationToken cancellationToken = default)
     {
         using var tasksJson = await SendPagedJsonAsync("/tasks", cancellationToken).ConfigureAwait(false);

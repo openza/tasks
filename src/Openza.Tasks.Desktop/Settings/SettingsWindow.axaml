@@ -1,0 +1,143 @@
+<Window
+    x:Class="Openza.Tasks.Desktop.Settings.SettingsWindow"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Width="760"
+    Height="720"
+    MinWidth="620"
+    MinHeight="520"
+    Title="Openza Tasks settings"
+    Icon="avares://Openza.Tasks.Desktop/Assets/openza-tasks.png"
+    WindowStartupLocation="CenterOwner"
+    Opened="OnOpened">
+    <Grid RowDefinitions="Auto,*,Auto">
+        <Border Padding="24,18" BorderBrush="{DynamicResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,0,1">
+            <StackPanel>
+                <TextBlock FontSize="26" FontWeight="SemiBold" Text="Settings" />
+                <TextBlock Margin="0,3,0,0" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="Configure this desktop installation." />
+            </StackPanel>
+        </Border>
+
+        <ScrollViewer
+            Grid.Row="1"
+            HorizontalScrollBarVisibility="Disabled"
+            VerticalScrollBarVisibility="Auto">
+            <Border Padding="24,24,12,32">
+                <StackPanel Spacing="24">
+                <StackPanel Spacing="8">
+                    <TextBlock Classes="section-title" Text="APPEARANCE" />
+                    <Border Padding="16" Classes="card">
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
+                            <StackPanel>
+                                <TextBlock FontWeight="SemiBold" Text="Theme" />
+                                <TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="Follow the desktop or choose a fixed appearance." />
+                            </StackPanel>
+                            <ComboBox x:Name="ThemePicker" Grid.Column="1" Width="140" SelectionChanged="OnThemeChanged">
+                                <ComboBoxItem Content="System" />
+                                <ComboBoxItem Content="Light" />
+                                <ComboBoxItem Content="Dark" />
+                            </ComboBox>
+                        </Grid>
+                    </Border>
+                </StackPanel>
+
+                <StackPanel Spacing="8">
+                    <TextBlock Classes="section-title" Text="SPACES" />
+                    <Border Padding="16" Classes="card">
+                        <Grid RowDefinitions="Auto,Auto" RowSpacing="12">
+                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                <TextBox x:Name="NewSpaceBox" PlaceholderText="New space name" KeyDown="OnNewSpaceKeyDown" />
+                                <Button Grid.Column="1" Classes="accent" Click="OnAddSpaceClicked" Content="Add space" />
+                            </Grid>
+                            <ListBox x:Name="SpacesList" Grid.Row="1" ItemsSource="{Binding EditableSpaceItems}">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid Margin="2" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+                                            <TextBlock VerticalAlignment="Center" Text="{Binding Title}" />
+                                            <Button Grid.Column="1" Click="OnRenameSpaceClicked" Content="Rename" />
+                                            <Button Grid.Column="2" Click="OnArchiveSpaceClicked" Content="Archive" />
+                                        </Grid>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                        </Grid>
+                    </Border>
+                </StackPanel>
+
+                <StackPanel Spacing="8">
+                    <TextBlock Classes="section-title" Text="DATA AND RECOVERY" />
+                    <Border Padding="16" Classes="card">
+                        <StackPanel Spacing="12">
+                            <StackPanel>
+                                <TextBlock FontWeight="SemiBold" Text="Local database" />
+                                <TextBlock FontFamily="monospace" FontSize="12" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{Binding DatabasePath}" TextWrapping="Wrap" />
+                            </StackPanel>
+                            <WrapPanel Orientation="Horizontal">
+                                <Button Margin="0,0,8,8" Click="OnCreateRestorePointClicked" Content="Create restore point" />
+                                <Button Margin="0,0,8,8" Click="OnExportDatabaseClicked" Content="Export backup file" />
+                                <Button Margin="0,0,8,8" Click="OnRestoreDatabaseClicked" Content="Restore from file" />
+                                <Button Margin="0,0,8,8" Click="OnOpenDataFolderClicked" Content="Open data folder" />
+                            </WrapPanel>
+                            <TextBlock FontWeight="SemiBold" Text="Restore points" />
+                            <ListBox MaxHeight="190" ItemsSource="{Binding RestorePoints}" SelectedItem="{Binding SelectedRestorePoint}">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Margin="2" Spacing="2">
+                                            <TextBlock FontWeight="SemiBold" Text="{Binding Title}" />
+                                            <TextBlock FontSize="12" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{Binding Details}" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <Button Click="OnRestoreSelectedPointClicked" Content="Restore selected" />
+                                <Button Click="OnDeleteSelectedPointClicked" Content="Delete selected" />
+                            </StackPanel>
+                            <TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="Restore always creates a safety restore point first." />
+                        </StackPanel>
+                    </Border>
+                    <Border Padding="16" Classes="card">
+                        <StackPanel Spacing="12">
+                            <TextBlock FontWeight="SemiBold" Text="GitHub issues" />
+                            <TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{Binding GitHubConnectionText}" TextWrapping="Wrap" />
+                            <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+                                <TextBox PasswordChar="●" RevealPassword="False" PlaceholderText="GitHub token" Text="{Binding GitHubToken, Mode=TwoWay}" />
+                                <Button Grid.Column="1" Classes="accent" Click="OnConnectGitHubClicked" Content="Connect" />
+                                <Button Grid.Column="2" Click="OnDisconnectGitHubClicked" Content="Disconnect" />
+                            </Grid>
+                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                <TextBox PlaceholderText="Default repository, for example openza/tasks" Text="{Binding GitHubDefaultRepository, Mode=TwoWay}" />
+                                <Button Grid.Column="1" Click="OnSaveGitHubRepositoryClicked" Content="Save repository" />
+                            </Grid>
+                            <TextBlock FontSize="12" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="The token is stored in Ubuntu Secret Service. New issues use the selected task title and details." TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+
+                <StackPanel Spacing="8">
+                    <TextBlock Classes="section-title" Text="INTEGRATIONS" />
+                    <Border Padding="16" Classes="card">
+                        <StackPanel Spacing="12">
+                            <TextBlock FontWeight="SemiBold" Text="Todoist" />
+                            <TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{Binding TodoistConnectionText}" TextWrapping="Wrap" />
+                            <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+                                <TextBox PasswordChar="●" RevealPassword="False" PlaceholderText="Todoist API token" Text="{Binding TodoistToken, Mode=TwoWay}" />
+                                <Button Grid.Column="1" Classes="accent" Click="OnConnectTodoistClicked" Content="Connect" />
+                                <Button Grid.Column="2" Click="OnDisconnectTodoistClicked" Content="Disconnect" />
+                            </Grid>
+                            <TextBlock FontSize="12" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="Tokens are stored in Ubuntu Secret Service and never written to settings.json or the task database." TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+                </StackPanel>
+            </Border>
+        </ScrollViewer>
+
+        <Border Grid.Row="2" Padding="18,12" BorderBrush="{DynamicResource DividerStrokeColorDefaultBrush}" BorderThickness="0,1,0,0">
+            <Grid ColumnDefinitions="*,Auto">
+                <TextBlock VerticalAlignment="Center" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{Binding StatusMessage}" />
+                <Button Grid.Column="1" Click="OnCloseClicked" Content="Close" />
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

@@ -31,8 +31,33 @@ jobs:
       - name: Build app
         run: dotnet build src\Openza.Tasks\Openza.Tasks.csproj -c Release -p:Platform=x64 --no-restore
 
+  validate-linux:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Test Core
+        run: dotnet test src/Openza.Tasks.Tests/Openza.Tasks.Tests.csproj -c Release
+
+      - name: Validate Linux metadata
+        run: |
+          desktop-file-validate packaging/linux/com.openza.Tasks.desktop
+          appstreamcli validate --no-net packaging/linux/com.openza.Tasks.metainfo.xml
+
+      - name: Build and inspect Debian package
+        run: |
+          ./packaging/linux/build-deb.sh 0.1.0 amd64
+          dpkg-deb --info artifacts/linux/openza-tasks_0.1.0_amd64.deb
+
   release:
-    needs: validate-windows
+    needs: [validate-windows, validate-linux]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     permissions:
@@ -41,6 +66,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: '10.0.x'
 
       - name: Get version from tag
         id: get_version
@@ -55,15 +85,50 @@ jobs:
           echo "$CHANGELOG" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
+      - name: Download verified AppImage tooling
+        run: |
+          curl --fail --location --retry 3 \
+            --output "$RUNNER_TEMP/appimagetool" \
+            https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage
+          echo "ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0  $RUNNER_TEMP/appimagetool" | sha256sum --check
+          chmod 755 "$RUNNER_TEMP/appimagetool"
+          curl --fail --location --retry 3 \
+            --output "$RUNNER_TEMP/appimage-runtime-x86_64" \
+            https://github.com/AppImage/type2-runtime/releases/download/20251108/runtime-x86_64
+          echo "2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d  $RUNNER_TEMP/appimage-runtime-x86_64" | sha256sum --check
+
+      - name: Build Linux release packages
+        env:
+          APPIMAGETOOL: ${{ runner.temp }}/appimagetool
+          APPIMAGE_RUNTIME_FILE: ${{ runner.temp }}/appimage-runtime-x86_64
+        run: |
+          VERSION="${{ steps.get_version.outputs.VERSION }}"
+          ./packaging/linux/build-deb.sh "$VERSION" amd64
+          ./packaging/linux/build-appimage.sh "$VERSION"
+          test "$(dpkg-deb --field "artifacts/linux/openza-tasks_${VERSION}_amd64.deb" Version)" = "$VERSION"
+          test "$(dpkg-deb --fsys-tarfile "artifacts/linux/openza-tasks_${VERSION}_amd64.deb" | tar -xOf - ./usr/lib/openza-tasks/VERSION)" = "$VERSION"
+          mkdir -p "$RUNNER_TEMP/appimage-check"
+          (
+            cd "$RUNNER_TEMP/appimage-check"
+            "$GITHUB_WORKSPACE/artifacts/linux/Openza_Tasks-${VERSION}-x86_64.AppImage" --appimage-extract usr/lib/openza-tasks/VERSION
+            test "$(cat squashfs-root/usr/lib/openza-tasks/VERSION)" = "$VERSION"
+          )
+          cd artifacts/linux
+          sha256sum "openza-tasks_${VERSION}_amd64.deb" "Openza_Tasks-${VERSION}-x86_64.AppImage" > SHA256SUMS
+
       - name: Create draft release
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
           name: Openza Tasks v${{ steps.get_version.outputs.VERSION }}
           draft: true
           prerelease: false
+          files: |
+            artifacts/linux/openza-tasks_${{ steps.get_version.outputs.VERSION }}_amd64.deb
+            artifacts/linux/Openza_Tasks-${{ steps.get_version.outputs.VERSION }}-x86_64.AppImage
+            artifacts/linux/SHA256SUMS
           body: |
             ${{ steps.changelog.outputs.CONTENT }}
 
-            Openza Tasks is Store-first. Build and upload Store MSIX packages from the Visual Studio Store packaging flow after associating the app with Partner Center.
+            Linux packages and checksums are attached. Windows Store packaging remains a separate Partner Center flow.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

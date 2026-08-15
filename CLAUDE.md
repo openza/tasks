@@ -1,10 +1,10 @@
 # Openza Tasks
 
-Windows-native local-first task manager built with WinUI 3 and .NET.
+Local-first task manager with a Windows-native WinUI app and a Linux-first Avalonia app.
 
 ## Tech Stack
 
-.NET 10, Windows App SDK 2.0.x, WinUI 3, CommunityToolkit.Mvvm, Microsoft.Data.Sqlite, xUnit.
+.NET 10, Avalonia 12, Windows App SDK 2.0.x, WinUI 3, Microsoft.Data.Sqlite, xUnit.
 
 ## Essential Commands
 
@@ -12,6 +12,10 @@ Windows-native local-first task manager built with WinUI 3 and .NET.
 dotnet restore Openza.Tasks.slnx
 dotnet test src\Openza.Tasks.Tests\Openza.Tasks.Tests.csproj -c Release
 dotnet build src\Openza.Tasks\Openza.Tasks.csproj -c Release --no-restore
+```
+
+```bash
+./dev.sh
 ```
 
 ## Critical Rules
@@ -26,6 +30,7 @@ dotnet build src\Openza.Tasks\Openza.Tasks.csproj -c Release --no-restore
 
 ```text
 src/Openza.Tasks        WinUI app, Windows Credential Locker, app settings
+src/Openza.Tasks.Desktop Linux-first Avalonia app and desktop services
 src/Openza.Tasks.Core   Data, migration, backup, Markdown import/export, C# sync
 src/Openza.Tasks.Tests  Unit and migration tests
 ```

@@ -1,8 +1,8 @@
 # Openza Tasks
 
-**Windows Native. Local First. Open Source.**
+**Linux First. Windows Native. Local First. Open Source.**
 
-Openza Tasks is a Windows-native task manager for people who want fast local task capture with optional provider sync. The active app is built with WinUI 3 and stores data locally in SQLite.
+Openza Tasks is a task manager for people who want fast local capture with optional provider sync. The Windows edition remains a native WinUI 3 app, while the new Avalonia desktop edition targets Linux first and keeps Windows and macOS compatibility. Both use the same local-first SQLite core.
 
 Openza Tasks is maintained by Deependra Solanky as a personal open-source project. Microsoft sign-in may show the Openza app name with the `solanky.dev` publisher/contact identity.
 
@@ -10,6 +10,7 @@ User guide: [solanky.dev/openza/tasks](https://solanky.dev/openza/tasks/)
 
 ## Features
 
+- **Linux-first desktop app** - Avalonia with first-class keyboard and desktop workflows
 - **Native Windows app** - WinUI 3, MSIX packaging, Mica where available
 - **Local-first storage** - tasks, projects, labels, backups, and imports live on your device
 - **Provider sync** - optional Todoist and Microsoft To Do reconnect/sync
@@ -30,7 +31,28 @@ Legacy Flutter-era packages remain available in older GitHub releases, but they 
 
 ## Building From Source
 
-### Prerequisites
+### Linux desktop development
+
+Install the .NET 10 SDK, then run:
+
+```bash
+./dev.sh
+```
+
+The Avalonia app stores its database under the platform-local application data directory. For isolated development or testing, set `OPENZA_TASKS_DATA_DIR` to another directory before launching.
+
+The Linux app currently includes smart lists, Spaces, projects, search, sorting, filtering, grouping, task details, labels, dates and deadlines, subtasks, Markdown import/export, restore points, connected-task intake, Todoist synchronization, and GitHub issue linking. Provider tokens are stored through the desktop Secret Service; install `libsecret-tools` before connecting an account.
+
+Build Linux packages from the repository root:
+
+```bash
+./packaging/linux/build-deb.sh 0.1.0
+APPIMAGETOOL=/path/to/appimagetool ./packaging/linux/build-appimage.sh 0.1.0
+```
+
+Generated packages are written under the ignored `artifacts/linux/` directory.
+
+### Windows prerequisites
 
 - Windows 10 22H2 or Windows 11
 - .NET 10 SDK
@@ -66,6 +88,7 @@ dotnet build src\Openza.Tasks\Openza.Tasks.csproj -c Release -p:Platform=x64 --n
 ```text
 src/
   Openza.Tasks/        WinUI 3 packaged app
+  Openza.Tasks.Desktop/ Avalonia desktop app
   Openza.Tasks.Core/   SQLite data, backups, import/export, provider sync
   Openza.Tasks.Tests/  Unit, repository, backup, and sync tests
 ```

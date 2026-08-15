@@ -15,5 +15,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Openza.Tasks.Core\Openza.Tasks.Core.csproj" />
+    <ProjectReference Include="..\Openza.Tasks.Desktop\Openza.Tasks.Desktop.csproj" />
   </ItemGroup>
 </Project>

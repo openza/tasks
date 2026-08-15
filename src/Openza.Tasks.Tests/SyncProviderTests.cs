@@ -9,6 +9,22 @@ namespace Openza.Tasks.Tests;
 public sealed class SyncProviderTests
 {
     [Fact]
+    public async Task TodoistProvider_validates_access_with_bearer_token()
+    {
+        var handler = new FakeHttpMessageHandler(request =>
+            request.RequestUri?.PathAndQuery == "/api/v1/tasks?limit=1"
+                ? Json("""{ "results": [], "next_cursor": null }""")
+                : Empty(HttpStatusCode.NotFound));
+        var provider = new TodoistProvider(new HttpClient(handler), "token");
+
+        await provider.ValidateAccessAsync();
+
+        var request = Assert.Single(handler.Requests);
+        Assert.Equal("/api/v1/tasks?limit=1", request.Uri.PathAndQuery);
+        Assert.Equal("Bearer", request.AuthorizationScheme);
+    }
+
+    [Fact]
     public async Task TodoistProvider_maps_project_labels_date_and_completion_endpoint()
     {
         var handler = new FakeHttpMessageHandler(request =>

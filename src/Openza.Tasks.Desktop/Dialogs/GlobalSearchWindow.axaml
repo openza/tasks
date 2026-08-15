@@ -1,0 +1,39 @@
+<Window
+    x:Class="Openza.Tasks.Desktop.Dialogs.GlobalSearchWindow"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Width="680"
+    Height="620"
+    MinWidth="520"
+    MinHeight="420"
+    ShowInTaskbar="False"
+    Title="Search Openza Tasks"
+    WindowStartupLocation="CenterOwner"
+    Opened="OnOpened">
+    <Grid Margin="24" RowDefinitions="Auto,Auto,*,Auto" RowSpacing="14">
+        <StackPanel Spacing="4">
+            <TextBlock FontSize="24" FontWeight="SemiBold" Text="Search" />
+            <TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="Find tasks and projects across every space." />
+        </StackPanel>
+        <Grid Grid.Row="1" ColumnDefinitions="*,Auto" ColumnSpacing="8">
+            <TextBox x:Name="SearchBox" PlaceholderText="Search tasks and projects" KeyDown="OnSearchKeyDown" />
+            <Button Grid.Column="1" Classes="accent" Click="OnSearchClicked" Content="Search" />
+        </Grid>
+        <ListBox x:Name="ResultsList" Grid.Row="2" DoubleTapped="OnResultsDoubleTapped">
+            <ListBox.ItemTemplate>
+                <DataTemplate>
+                    <StackPanel Margin="8" Spacing="4">
+                        <TextBlock FontWeight="SemiBold" Text="{Binding Title}" TextWrapping="Wrap" />
+                        <TextBlock FontSize="12" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{Binding Subtitle}" />
+                        <TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}" IsVisible="{Binding Snippet, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" Text="{Binding Snippet}" TextWrapping="Wrap" />
+                    </StackPanel>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+        <Grid Grid.Row="3" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+            <TextBlock x:Name="ResultStatus" VerticalAlignment="Center" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="Enter a search term." />
+            <Button Grid.Column="1" Click="OnCancelClicked" Content="Cancel" />
+            <Button Grid.Column="2" Classes="accent" Click="OnOpenClicked" Content="Open selected" />
+        </Grid>
+    </Grid>
+</Window>

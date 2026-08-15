@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.openza.Tasks</id>
+  <name>Openza Tasks</name>
+  <summary>Local-first task management</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <developer id="dev.solanky">
+    <name>Openza</name>
+  </developer>
+  <description>
+    <p>Openza Tasks is a private, local-first task manager with optional provider synchronization.</p>
+  </description>
+  <launchable type="desktop-id">com.openza.Tasks.desktop</launchable>
+  <url type="homepage">https://solanky.dev/openza/tasks/</url>
+  <url type="bugtracker">https://github.com/openza/tasks/issues</url>
+  <content_rating type="oars-1.1" />
+  <releases>
+    <release version="0.1.0" date="2026-08-14" />
+  </releases>
+</component>

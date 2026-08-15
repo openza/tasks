@@ -2,6 +2,7 @@ using System.Data;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Openza.Tasks.Core.Models;
+using Openza.Tasks.Core.Services;
 
 namespace Openza.Tasks.Core.Data;
 
@@ -15,11 +16,13 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
 
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
-        Directory.CreateDirectory(Path.GetDirectoryName(DatabasePath) ?? ".");
+        PrivateFilePermissions.EnsureDirectory(Path.GetDirectoryName(DatabasePath) ?? ".");
         await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         await EnsureLegacySchemaCompatibilityAsync(connection, cancellationToken).ConfigureAwait(false);
         await CreateSchemaAsync(connection, cancellationToken).ConfigureAwait(false);
         await InsertDefaultDataAsync(connection, cancellationToken).ConfigureAwait(false);
+        await connection.CloseAsync().ConfigureAwait(false);
+        PrivateFilePermissions.EnsureFile(DatabasePath);
     }
 
     public async Task<IReadOnlyList<TaskItem>> GetTasksAsync(TaskQuery query, CancellationToken cancellationToken = default)
@@ -1245,6 +1248,27 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task UpsertTaskWithPendingUpdatesAsync(
+        TaskItem task,
+        PendingCompletion? completion,
+        PendingTaskDateUpdate? dateUpdate,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        await UpsertTaskCoreAsync(connection, task, cancellationToken).ConfigureAwait(false);
+        await SetTaskLabelsCoreAsync(connection, task.Id, task.Labels, cancellationToken).ConfigureAwait(false);
+        if (completion is not null)
+        {
+            await QueueCompletionCoreAsync(connection, completion, cancellationToken).ConfigureAwait(false);
+        }
+        if (dateUpdate is not null)
+        {
+            await QueueTaskDateUpdateCoreAsync(connection, dateUpdate, cancellationToken).ConfigureAwait(false);
+        }
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
     public async Task MoveTaskToSpaceAsync(string taskId, string targetSpaceId, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(taskId))
@@ -1444,6 +1468,27 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
     public async Task QueueCompletionAsync(PendingCompletion completion, CancellationToken cancellationToken = default)
     {
         await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await QueueCompletionCoreAsync(connection, completion, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task SetTaskCompletionWithPendingUpdateAsync(
+        string taskId,
+        bool completed,
+        PendingCompletion? completion,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        if (completion is not null)
+        {
+            await QueueCompletionCoreAsync(connection, completion, cancellationToken).ConfigureAwait(false);
+        }
+        await SetCompletionStateCoreAsync(connection, taskId, completed, cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task QueueCompletionCoreAsync(SqliteConnection connection, PendingCompletion completion, CancellationToken cancellationToken)
+    {
         await EnsurePendingCompletionsTableAsync(connection, cancellationToken).ConfigureAwait(false);
         var command = connection.CreateCommand();
         command.CommandText = """
@@ -1507,6 +1552,11 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
     public async Task QueueTaskDateUpdateAsync(PendingTaskDateUpdate update, CancellationToken cancellationToken = default)
     {
         await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await QueueTaskDateUpdateCoreAsync(connection, update, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task QueueTaskDateUpdateCoreAsync(SqliteConnection connection, PendingTaskDateUpdate update, CancellationToken cancellationToken)
+    {
         await EnsurePendingTaskDateUpdatesTableAsync(connection, cancellationToken).ConfigureAwait(false);
         var (plannedOn, plannedAt) = NormalizeDatePair(update.PlannedOn, update.PlannedAt);
         var command = connection.CreateCommand();
@@ -1618,6 +1668,11 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
     private async Task SetCompletionStateAsync(string taskId, bool completed, CancellationToken cancellationToken)
     {
         await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await SetCompletionStateCoreAsync(connection, taskId, completed, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task SetCompletionStateCoreAsync(SqliteConnection connection, string taskId, bool completed, CancellationToken cancellationToken)
+    {
         var now = DateTimeOffset.UtcNow;
         var command = connection.CreateCommand();
         command.CommandText = """
@@ -1631,7 +1686,11 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         command.Parameters.AddWithValue("@completion_state", completed ? "completed" : "open");
         command.Parameters.AddWithValue("@completed_at", completed ? ToDbDate(now) : DBNull.Value);
         command.Parameters.AddWithValue("@updated_at", ToDbDate(now));
-        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        var changed = await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        if (changed == 0)
+        {
+            throw new InvalidOperationException("The task no longer exists.");
+        }
     }
 
     private async Task UpdateIntegrationFlagsAsync(string id, bool? configured, bool? active, CancellationToken cancellationToken)

@@ -30,6 +30,56 @@ public sealed class SqliteTaskStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task Atomic_completion_rolls_back_provider_outbox_when_local_task_is_missing()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        var pending = new PendingCompletion
+        {
+            Id = "completion_missing",
+            TaskId = "missing",
+            Provider = IntegrationIds.Todoist,
+            ProviderTaskId = "todoist-task",
+            Completed = true,
+            CompletedAt = DateTimeOffset.UtcNow,
+            CreatedAt = DateTimeOffset.UtcNow,
+        };
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            store.SetTaskCompletionWithPendingUpdateAsync("missing", completed: true, pending));
+
+        Assert.Empty(await store.GetPendingCompletionsAsync(IntegrationIds.Todoist));
+    }
+
+    [Fact]
+    public async Task Initialize_makes_database_private_without_changing_an_existing_parent_on_unix()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var store = CreateStore();
+        Directory.CreateDirectory(_directory);
+        File.SetUnixFileMode(
+            _directory,
+            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
+            UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.GroupExecute |
+            UnixFileMode.OtherRead | UnixFileMode.OtherWrite | UnixFileMode.OtherExecute);
+
+        await store.InitializeAsync();
+
+        Assert.Equal(
+            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
+            UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.GroupExecute |
+            UnixFileMode.OtherRead | UnixFileMode.OtherWrite | UnixFileMode.OtherExecute,
+            File.GetUnixFileMode(_directory));
+        Assert.Equal(
+            UnixFileMode.UserRead | UnixFileMode.UserWrite,
+            File.GetUnixFileMode(store.DatabasePath));
+    }
+
+    [Fact]
     public async Task Initialize_creates_v3_schema_for_planning_and_sync_routes()
     {
         var store = CreateStore();

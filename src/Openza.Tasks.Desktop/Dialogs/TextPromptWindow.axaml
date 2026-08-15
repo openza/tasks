@@ -1,0 +1,19 @@
+<Window
+    x:Class="Openza.Tasks.Desktop.Dialogs.TextPromptWindow"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Width="440"
+    SizeToContent="Height"
+    CanResize="False"
+    ShowInTaskbar="False"
+    WindowStartupLocation="CenterOwner"
+    Opened="OnOpened">
+    <Grid Margin="24" RowDefinitions="Auto,Auto,Auto" RowSpacing="14">
+        <TextBlock x:Name="TitleText" FontSize="20" FontWeight="SemiBold" TextWrapping="Wrap" />
+        <TextBox x:Name="ValueBox" Grid.Row="1" KeyDown="OnValueKeyDown" />
+        <StackPanel Grid.Row="2" HorizontalAlignment="Right" Orientation="Horizontal" Spacing="8">
+            <Button Click="OnCancelClicked" Content="Cancel" />
+            <Button Classes="accent" Click="OnConfirmClicked" Content="Save" />
+        </StackPanel>
+    </Grid>
+</Window>

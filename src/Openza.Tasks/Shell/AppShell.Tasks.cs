@@ -8,6 +8,7 @@ using Openza.Tasks.Controls;
 using Openza.Tasks.Core.Data;
 using Openza.Tasks.Core.Models;
 using Openza.Tasks.Core.Services;
+using Openza.Tasks.Core.Sync;
 using Openza.Tasks.Pages;
 using Openza.Tasks.Services;
 using Openza.Tasks.ViewModels;
@@ -1246,19 +1247,10 @@ public sealed partial class AppShell
         }
 
         var completed = !task.IsCompleted;
-        if ((task.HasProviderSource || task.IsProviderTask) &&
-            (!string.IsNullOrWhiteSpace(task.SourceProviderTaskId) || !string.IsNullOrWhiteSpace(task.ExternalId)))
+        var pendingCompletion = ProviderWriteBackPlanner.CreateCompletion(task, completed, DateTimeOffset.UtcNow);
+        if (pendingCompletion is not null)
         {
-            await _store.QueueCompletionAsync(new PendingCompletion
-            {
-                Id = $"completion_{task.Id}_{DateTimeOffset.UtcNow.ToUnixTimeSeconds()}",
-                TaskId = task.Id,
-                Provider = task.SourceIntegrationId ?? task.IntegrationId,
-                ProviderTaskId = BuildProviderTaskId(task),
-                Completed = completed,
-                CompletedAt = completed ? DateTimeOffset.UtcNow : null,
-                CreatedAt = DateTimeOffset.UtcNow,
-            }).ConfigureAwait(true);
+            await _store.QueueCompletionAsync(pendingCompletion).ConfigureAwait(true);
         }
 
         if (completed)

@@ -3,7 +3,8 @@
 Also follow the shared Openza guidance in `../AGENTS.md`. Keep this file limited to Tasks-specific constraints and commands.
 
 ## Project Structure & Module Organization
-- `src/Openza.Tasks/` holds the active WinUI 3 app. Keep `MainWindow` as a thin host; put app shell behavior under `Shell/`, reusable UI in `Controls/`, settings/pages in `Pages/`, and Windows-only helpers in `Services/`.
+- `src/Openza.Tasks/` holds the Windows-native WinUI 3 app. Keep `MainWindow` as a thin host; put app shell behavior under `Shell/`, reusable UI in `Controls/`, settings/pages in `Pages/`, and Windows-only helpers in `Services/`.
+- `src/Openza.Tasks.Desktop/` holds the Linux-first Avalonia app. Keep platform services under `Services/`, window composition under `Shell/`, and testable presentation state under `ViewModels/`.
 - `src/Openza.Tasks.Core/` holds SQLite data access, migration, import/export, provider sync, credentials abstractions, and testable business logic.
 - `src/Openza.Tasks.Tests/` holds xUnit tests for the WinUI migration.
 - The legacy Flutter app is preserved on the `legacy-flutter-app` branch only; `main` is the active WinUI codebase.
@@ -15,6 +16,9 @@ Also follow the shared Openza guidance in `../AGENTS.md`. Keep this file limited
 - `dotnet restore Openza.Tasks.slnx` restores the active WinUI solution.
 - `dotnet test src\Openza.Tasks.Tests\Openza.Tasks.Tests.csproj -c Release` runs unit and migration tests.
 - `dotnet build src\Openza.Tasks\Openza.Tasks.csproj -c Release --no-restore` verifies the packaged WinUI app compiles.
+- From `src/Openza.Tasks.Desktop`, `dotnet restore` and `dotnet build -c Release --no-restore` validate the Avalonia app with its Linux-compatible SDK selection.
+- On Linux, `./dev.sh` launches the Avalonia app.
+- `./packaging/linux/build-deb.sh <version>` builds the self-contained DEB; `APPIMAGETOOL=/path/to/appimagetool ./packaging/linux/build-appimage.sh <version>` builds the AppImage. Outputs belong under ignored `artifacts/linux/`.
 
 ## Coding Style & Naming Conventions
 - Follow existing C# naming and nullable annotations.

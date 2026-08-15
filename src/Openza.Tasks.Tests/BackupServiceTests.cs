@@ -65,6 +65,45 @@ public sealed class BackupServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Backup_storage_makes_existing_and_new_files_private_on_unix()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var databasePath = await CreateDatabaseAsync("permissions-source.db", taskId: "task_permissions");
+        var backupDirectory = Path.Combine(_directory, "permission-backups");
+        Directory.CreateDirectory(backupDirectory);
+        var existingDirectoryMode =
+            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
+            UnixFileMode.GroupRead | UnixFileMode.GroupExecute |
+            UnixFileMode.OtherRead | UnixFileMode.OtherExecute;
+        File.SetUnixFileMode(backupDirectory, existingDirectoryMode);
+        var existingDatabase = Path.Combine(backupDirectory, "existing.db");
+        var existingMetadata = $"{existingDatabase}.json";
+        await File.WriteAllTextAsync(existingDatabase, "existing");
+        await File.WriteAllTextAsync(existingMetadata, "existing");
+        var permissiveFileMode =
+            UnixFileMode.UserRead | UnixFileMode.UserWrite |
+            UnixFileMode.GroupRead | UnixFileMode.GroupWrite |
+            UnixFileMode.OtherRead | UnixFileMode.OtherWrite;
+        File.SetUnixFileMode(existingDatabase, permissiveFileMode);
+        File.SetUnixFileMode(existingMetadata, permissiveFileMode);
+
+        var service = CreateService(databasePath, backupDirectory);
+        _ = service.ListBackups();
+        var createdDatabase = await service.CreateBackupAsync(BackupReasons.Manual);
+
+        var privateFileMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+        Assert.Equal(existingDirectoryMode, File.GetUnixFileMode(backupDirectory));
+        Assert.Equal(privateFileMode, File.GetUnixFileMode(existingDatabase));
+        Assert.Equal(privateFileMode, File.GetUnixFileMode(existingMetadata));
+        Assert.Equal(privateFileMode, File.GetUnixFileMode(createdDatabase));
+        Assert.Equal(privateFileMode, File.GetUnixFileMode($"{createdDatabase}.json"));
+    }
+
+    [Fact]
     public async Task MigrateLegacyBackups_copies_valid_backups_once()
     {
         var databasePath = await CreateDatabaseAsync("legacy-source.db", taskId: "task_legacy");
