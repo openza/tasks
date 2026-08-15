@@ -39,7 +39,9 @@ Install the .NET 10 SDK, then run:
 ./dev.sh
 ```
 
-The Avalonia app stores its database under the platform-local application data directory. For isolated development or testing, set `OPENZA_TASKS_DATA_DIR` to another directory before launching.
+Source launches always use the isolated maintainer-only Dev directory. For disposable testing, `OPENZA_TASKS_DEV_DATA_DIR` may override that Dev path; Production builds ignore it.
+
+Run the matching Dev CLI with `./dev-cli.sh`. See [docs/cli.md](docs/cli.md) for its command contract.
 
 The Linux app currently includes smart lists, Spaces, projects, search, sorting, filtering, grouping, task details, labels, dates and deadlines, subtasks, Markdown import/export, restore points, connected-task intake, Todoist synchronization, and GitHub issue linking. Provider tokens are stored through the desktop Secret Service; install `libsecret-tools` before connecting an account.
 

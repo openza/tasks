@@ -40,6 +40,20 @@ public sealed class DesktopTaskCreationTests : IDisposable
     }
 
     [Fact]
+    public async Task CreateTaskAsync_preserves_completed_status()
+    {
+        var store = await CreateStoreAsync();
+        var viewModel = new MainWindowViewModel(store);
+
+        await viewModel.CreateTaskAsync(new AddTaskDraft(
+            "Already complete", string.Empty, null, 4, 2, null, string.Empty, false));
+
+        var task = Assert.Single(await store.GetTasksAsync(new TaskQuery { Kind = TaskListKind.Completed }));
+        Assert.True(task.IsCompleted);
+        Assert.NotNull(task.CompletedAt);
+    }
+
+    [Fact]
     public async Task Task_list_shows_only_top_level_tasks_and_keeps_subtasks_in_details()
     {
         var store = await CreateStoreAsync();
@@ -76,6 +90,31 @@ public sealed class DesktopTaskCreationTests : IDisposable
         var update = Assert.Single(await store.GetPendingTaskDateUpdatesAsync(IntegrationIds.Todoist));
         Assert.Equal("todoist-task", update.ProviderTaskId);
         Assert.Equal(new DateOnly(2026, 8, 15), update.PlannedOn);
+    }
+
+    [Fact]
+    public async Task Saving_completed_status_completes_and_queues_Todoist_write_back()
+    {
+        var store = await CreateStoreAsync();
+        await store.UpsertTaskAsync(CreateTask("adopted-completion", "Complete in editor") with
+        {
+            SourceIntegrationId = IntegrationIds.Todoist,
+            SourceExternalId = "todoist-completion",
+            SourceProviderTaskId = "todoist-completion",
+        });
+        var viewModel = new MainWindowViewModel(store);
+        await viewModel.SelectNavigationAsync(viewModel.NavigationItems.Single(item => item.Kind == TaskListKind.Open));
+        await viewModel.SelectTaskAsync(Assert.Single(viewModel.Tasks));
+        viewModel.DetailStatusIndex = 4;
+
+        Assert.True(await viewModel.SaveSelectedAsync());
+
+        var completed = (await store.GetTaskAsync("adopted-completion"))!;
+        Assert.True(completed.IsCompleted);
+        Assert.Equal(TaskWorkflowStatus.Inbox, completed.WorkflowStatus);
+        var pending = Assert.Single(await store.GetPendingCompletionsAsync(IntegrationIds.Todoist));
+        Assert.True(pending.Completed);
+        Assert.Equal("todoist-completion", pending.ProviderTaskId);
     }
 
     [Fact]

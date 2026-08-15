@@ -45,7 +45,7 @@ public sealed partial class SettingsWindow : Window
 
     private async void OnThemeChanged(object? sender, SelectionChangedEventArgs e)
     {
-        if (!_initialized || Application.Current is null)
+        if (!_initialized || Avalonia.Application.Current is null)
         {
             return;
         }
@@ -56,7 +56,7 @@ public sealed partial class SettingsWindow : Window
             2 => "Dark",
             _ => "System",
         };
-        Application.Current.RequestedThemeVariant = theme switch
+        Avalonia.Application.Current.RequestedThemeVariant = theme switch
         {
             "Light" => ThemeVariant.Light,
             "Dark" => ThemeVariant.Dark,

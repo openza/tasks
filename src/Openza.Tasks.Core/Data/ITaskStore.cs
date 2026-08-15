@@ -35,11 +35,13 @@ public interface ITaskStore
     Task<IReadOnlyList<SyncRouteRunInfo>> GetSyncRouteRunsAsync(string? routeId = null, CancellationToken cancellationToken = default);
     Task UpsertTaskAsync(TaskItem task, CancellationToken cancellationToken = default);
     Task UpsertTaskWithPendingUpdatesAsync(TaskItem task, PendingCompletion? completion, PendingTaskDateUpdate? dateUpdate, CancellationToken cancellationToken = default);
+    Task<bool> TryUpsertTaskWithPendingUpdatesAsync(TaskItem task, long expectedRevision, PendingCompletion? completion, PendingTaskDateUpdate? dateUpdate, CancellationToken cancellationToken = default);
     Task MoveTaskToSpaceAsync(string taskId, string targetSpaceId, CancellationToken cancellationToken = default);
     Task UpsertProjectAsync(ProjectItem project, CancellationToken cancellationToken = default);
     Task UpsertLabelAsync(LabelItem label, CancellationToken cancellationToken = default);
     Task SetTaskLabelsAsync(string taskId, IReadOnlyList<LabelItem> labels, CancellationToken cancellationToken = default);
     Task DeleteTaskAsync(string taskId, CancellationToken cancellationToken = default);
+    Task<bool> TryDeleteTaskAsync(string taskId, long expectedRevision, CancellationToken cancellationToken = default);
     Task DeleteProjectAsync(string projectId, bool moveTasksToInbox, CancellationToken cancellationToken = default);
     Task CompleteTaskAsync(string taskId, CancellationToken cancellationToken = default);
     Task ReopenTaskAsync(string taskId, CancellationToken cancellationToken = default);

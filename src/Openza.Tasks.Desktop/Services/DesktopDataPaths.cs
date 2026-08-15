@@ -1,27 +1,19 @@
+using Openza.Tasks.Application.Runtime;
 using Openza.Tasks.Core.Services;
 
 namespace Openza.Tasks.Desktop.Services;
 
 public static class DesktopDataPaths
 {
-    private const string DataDirectoryOverride = "OPENZA_TASKS_DATA_DIR";
+    private const string DevDataDirectoryOverride = "OPENZA_TASKS_DEV_DATA_DIR";
+
+    public static OpenzaRuntimeContext Runtime { get; } = CreateRuntime();
 
     public static string DataDirectory
     {
         get
         {
-            var configuredPath = Environment.GetEnvironmentVariable(DataDirectoryOverride);
-            if (!string.IsNullOrWhiteSpace(configuredPath))
-            {
-                var overridePath = Path.GetFullPath(configuredPath);
-                PrivateFilePermissions.EnsureOwnedDirectory(overridePath);
-                return overridePath;
-            }
-
-            var path = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "Openza",
-                "Tasks");
+            var path = Runtime.DataDirectory;
             PrivateFilePermissions.EnsureOwnedDirectory(path);
             return path;
         }
@@ -31,7 +23,7 @@ public static class DesktopDataPaths
     {
         get
         {
-            var path = Path.Combine(DataDirectory, "openza-tasks.db");
+            var path = Runtime.DatabasePath;
             PrivateFilePermissions.EnsureFile(path);
             return path;
         }
@@ -41,11 +33,20 @@ public static class DesktopDataPaths
     {
         get
         {
-            var path = Path.Combine(DataDirectory, "restore-points");
+            var path = Runtime.RestorePointDirectory;
             PrivateFilePermissions.EnsureOwnedDirectory(path);
             PrivateFilePermissions.EnsureFiles(path, "*.db");
             PrivateFilePermissions.EnsureFiles(path, "*.db.json");
             return path;
         }
+    }
+
+    private static OpenzaRuntimeContext CreateRuntime()
+    {
+        var channel = OpenzaRuntimeContext.ReadChannel(typeof(DesktopDataPaths).Assembly);
+        var devOverride = channel == OpenzaChannel.Dev
+            ? Environment.GetEnvironmentVariable(DevDataDirectoryOverride)
+            : null;
+        return OpenzaRuntimeContext.Create(channel, devOverride);
     }
 }

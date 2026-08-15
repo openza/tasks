@@ -8,7 +8,7 @@ namespace Openza.Tasks.Core.Data;
 
 public sealed class SqliteTaskStore(string databasePath) : ITaskStore
 {
-    public const int CurrentSchemaVersion = 5;
+    public const int CurrentSchemaVersion = 6;
 
     private sealed record ParentTaskContext(string Id, string SpaceId, string? ProjectId, TaskWorkflowStatus WorkflowStatus);
 
@@ -871,7 +871,8 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
                     source_provider_task_id = NULL,
                     source_url = NULL,
                     source_metadata = NULL,
-                    updated_at = @updated_at
+                    updated_at = @updated_at,
+                    revision = revision + 1
                 WHERE id = @task_id
                 """;
             taskCommand.Parameters.AddWithValue("@task_id", source.AdoptedTaskId);
@@ -1269,6 +1270,39 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task<bool> TryUpsertTaskWithPendingUpdatesAsync(
+        TaskItem task,
+        long expectedRevision,
+        PendingCompletion? completion,
+        PendingTaskDateUpdate? dateUpdate,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        var revisionCommand = connection.CreateCommand();
+        revisionCommand.CommandText = "SELECT revision FROM tasks WHERE id = @id";
+        revisionCommand.Parameters.AddWithValue("@id", task.Id);
+        var current = await revisionCommand.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+        if (current is null || current is DBNull || Convert.ToInt64(current) != expectedRevision)
+        {
+            await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
+            return false;
+        }
+
+        await UpsertTaskCoreAsync(connection, task, cancellationToken).ConfigureAwait(false);
+        await SetTaskLabelsCoreAsync(connection, task.Id, task.Labels, cancellationToken).ConfigureAwait(false);
+        if (completion is not null)
+        {
+            await QueueCompletionCoreAsync(connection, completion, cancellationToken).ConfigureAwait(false);
+        }
+        if (dateUpdate is not null)
+        {
+            await QueueTaskDateUpdateCoreAsync(connection, dateUpdate, cancellationToken).ConfigureAwait(false);
+        }
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return true;
+    }
+
     public async Task MoveTaskToSpaceAsync(string taskId, string targetSpaceId, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(taskId))
@@ -1320,7 +1354,8 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
             SET space_id = @space_id,
                 project_id = NULL,
                 parent_id = CASE WHEN id = @task_id AND @clear_parent = 1 THEN NULL ELSE parent_id END,
-                updated_at = @updated_at
+                updated_at = @updated_at,
+                revision = revision + 1
             WHERE id IN (SELECT id FROM moved_tasks)
             """;
         updateCommand.Parameters.AddWithValue("@task_id", taskId);
@@ -1384,7 +1419,7 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
     public async Task UpsertLabelAsync(LabelItem label, CancellationToken cancellationToken = default)
     {
         await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
-        await ResolveAndUpsertLabelCoreAsync(connection, label, cancellationToken).ConfigureAwait(false);
+        await ResolveAndUpsertLabelCoreAsync(connection, label, cancellationToken, preserveExistingId: false).ConfigureAwait(false);
     }
 
     public async Task SetTaskLabelsAsync(string taskId, IReadOnlyList<LabelItem> labels, CancellationToken cancellationToken = default)
@@ -1397,8 +1432,29 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
 
     public async Task DeleteTaskAsync(string taskId, CancellationToken cancellationToken = default)
     {
+        _ = await DeleteTaskCoreAsync(taskId, expectedRevision: null, cancellationToken).ConfigureAwait(false);
+    }
+
+    public Task<bool> TryDeleteTaskAsync(string taskId, long expectedRevision, CancellationToken cancellationToken = default) =>
+        DeleteTaskCoreAsync(taskId, expectedRevision, cancellationToken);
+
+    private async Task<bool> DeleteTaskCoreAsync(string taskId, long? expectedRevision, CancellationToken cancellationToken)
+    {
         await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        if (expectedRevision is not null)
+        {
+            var revisionCommand = connection.CreateCommand();
+            revisionCommand.CommandText = "SELECT revision FROM tasks WHERE id = @id";
+            revisionCommand.Parameters.AddWithValue("@id", taskId);
+            var current = await revisionCommand.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+            if (current is null || current is DBNull || Convert.ToInt64(current) != expectedRevision)
+            {
+                await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
+                return false;
+            }
+        }
+
         var linkedProvider = await ReadAdoptedProviderLinkAsync(connection, taskId, cancellationToken).ConfigureAwait(false);
         if (linkedProvider is not null)
         {
@@ -1429,6 +1485,7 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         command.Parameters.AddWithValue("@id", taskId);
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return true;
     }
 
     public async Task DeleteProjectAsync(string projectId, bool moveTasksToInbox, CancellationToken cancellationToken = default)
@@ -1438,7 +1495,7 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
 
         var taskCommand = connection.CreateCommand();
         taskCommand.CommandText = moveTasksToInbox
-            ? "UPDATE tasks SET project_id = NULL, workflow_status = CASE WHEN completion_state = 'open' THEN 'inbox' ELSE workflow_status END, updated_at = @updated_at WHERE project_id = @project_id"
+            ? "UPDATE tasks SET project_id = NULL, workflow_status = CASE WHEN completion_state = 'open' THEN 'inbox' ELSE workflow_status END, updated_at = @updated_at, revision = revision + 1 WHERE project_id = @project_id"
             : "DELETE FROM tasks WHERE project_id = @project_id";
         taskCommand.Parameters.AddWithValue("@project_id", projectId);
         if (moveTasksToInbox)
@@ -1679,7 +1736,8 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
             UPDATE tasks
             SET completion_state = @completion_state,
                 completed_at = @completed_at,
-                updated_at = @updated_at
+                updated_at = @updated_at,
+                revision = revision + 1
             WHERE id = @id
             """;
         command.Parameters.AddWithValue("@id", taskId);
@@ -1898,6 +1956,7 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
                     ELSE recurrence_rule
                 END,
                 updated_at = @updated_at,
+                revision = revision + 1,
                 completed_at = CASE
                     WHEN @completion_state = 'completed' THEN COALESCE(completed_at, @updated_at)
                     ELSE NULL
@@ -2059,7 +2118,7 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
                    t.deadline_on, t.deadline_at, t.scheduled_start, t.scheduled_end, t.duration_minutes, t.recurrence_rule,
                    t.notes, t.provider_metadata, t.source_metadata, t.local_metadata,
                    t.created_at, t.updated_at, t.completed_at, t.provider_connection_id, psi.title, psi.source_project_name,
-                   psi.priority, psi.planned_on, psi.planned_at, psi.deadline_on, psi.deadline_at
+                   psi.priority, psi.planned_on, psi.planned_at, psi.deadline_on, psi.deadline_at, t.revision
             FROM tasks t
             LEFT JOIN provider_source_items psi
               ON psi.provider_connection_id = t.source_connection_id
@@ -2113,6 +2172,7 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
                 SourcePlannedAt = ReadDate(reader, 37),
                 SourceDeadlineOn = ReadDateOnly(reader, 38),
                 SourceDeadlineAt = ReadDate(reader, 39),
+                Revision = reader.GetInt64(40),
                 Labels = labelsByTask.GetValueOrDefault(id, []),
             });
         }
@@ -2172,13 +2232,13 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
                                source_url, completion_state, workflow_status, planned_on, planned_at, deadline_on, deadline_at,
                                scheduled_start, scheduled_end, duration_minutes, recurrence_rule,
                                notes, provider_metadata, source_metadata, local_metadata,
-                               created_at, updated_at, completed_at)
+                               created_at, updated_at, completed_at, revision)
             VALUES (@id, @external_id, @space_id, @integration_id, @provider_connection_id, @title, @description, @source_description, @project_id, @parent_id,
                     @priority, @source_integration_id, @source_connection_id, @source_external_id, @source_provider_task_id,
                     @source_url, @completion_state, @workflow_status, @planned_on, @planned_at, @deadline_on, @deadline_at,
                     @scheduled_start, @scheduled_end, @duration_minutes, @recurrence_rule,
                     @notes, @provider_metadata, @source_metadata, @local_metadata,
-                    @created_at, @updated_at, @completed_at)
+                    @created_at, @updated_at, @completed_at, @revision)
             ON CONFLICT(id) DO UPDATE SET
                 external_id = excluded.external_id,
                 space_id = excluded.space_id,
@@ -2210,7 +2270,8 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
                 source_metadata = excluded.source_metadata,
                 local_metadata = excluded.local_metadata,
                 updated_at = excluded.updated_at,
-                completed_at = excluded.completed_at
+                completed_at = excluded.completed_at,
+                revision = tasks.revision + 1
             """;
         command.Parameters.AddWithValue("@id", task.Id);
         command.Parameters.AddWithValue("@external_id", ToDbValue(task.ExternalId));
@@ -2245,6 +2306,7 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         command.Parameters.AddWithValue("@created_at", ToDbDate(task.CreatedAt));
         command.Parameters.AddWithValue("@updated_at", ToDbValue(task.UpdatedAt));
         command.Parameters.AddWithValue("@completed_at", ToDbValue(task.CompletedAt));
+        command.Parameters.AddWithValue("@revision", task.Revision);
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
@@ -2266,8 +2328,23 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         }
     }
 
-    private static async Task<string> ResolveAndUpsertLabelCoreAsync(SqliteConnection connection, LabelItem label, CancellationToken cancellationToken)
+    private static async Task<string> ResolveAndUpsertLabelCoreAsync(
+        SqliteConnection connection,
+        LabelItem label,
+        CancellationToken cancellationToken,
+        bool preserveExistingId = true)
     {
+        if (preserveExistingId)
+        {
+            var idCommand = connection.CreateCommand();
+            idCommand.CommandText = "SELECT id FROM labels WHERE id = @id LIMIT 1";
+            idCommand.Parameters.AddWithValue("@id", label.Id);
+            if (await idCommand.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is string existingExactId)
+            {
+                return existingExactId;
+            }
+        }
+
         var existingId = await FindLabelIdByNameAsync(connection, label.Name, cancellationToken).ConfigureAwait(false);
         if (!string.IsNullOrWhiteSpace(existingId) && !string.Equals(existingId, label.Id, StringComparison.Ordinal))
         {
@@ -2798,6 +2875,7 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         await AddColumnIfMissingAsync(connection, "tasks", "created_at", "INTEGER", cancellationToken).ConfigureAwait(false);
         await AddColumnIfMissingAsync(connection, "tasks", "updated_at", "INTEGER", cancellationToken).ConfigureAwait(false);
         await AddColumnIfMissingAsync(connection, "tasks", "completed_at", "INTEGER", cancellationToken).ConfigureAwait(false);
+        await AddColumnIfMissingAsync(connection, "tasks", "revision", "INTEGER NOT NULL DEFAULT 0", cancellationToken).ConfigureAwait(false);
 
         await ExecuteNonQueryAsync(connection, """
             UPDATE tasks
@@ -3385,6 +3463,7 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
           created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
           updated_at INTEGER,
           completed_at INTEGER
+          , revision INTEGER NOT NULL DEFAULT 0
         );
 
         CREATE TABLE IF NOT EXISTS provider_source_items (

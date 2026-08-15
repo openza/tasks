@@ -1,14 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <OutputType>WinExe</OutputType>
+    <OutputType>Exe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
-    <AvaloniaUseCompiledBindingsByDefault>false</AvaloniaUseCompiledBindingsByDefault>
-    <RootNamespace>Openza.Tasks.Desktop</RootNamespace>
-    <AssemblyName>Openza.Tasks.Desktop</AssemblyName>
+    <RootNamespace>Openza.Tasks.Cli</RootNamespace>
+    <AssemblyName>openza</AssemblyName>
   </PropertyGroup>
 
   <Import Project="..\..\packaging\channels\$(OpenzaPackagingProfile).props"
-          Condition="('$(OpenzaPackagingProfile)' == 'Production' or '$(OpenzaPackagingProfile)' == 'Preview') and '$(MSBuildProjectFile)' == 'Openza.Tasks.Desktop.Package.csproj'" />
+          Condition="('$(OpenzaPackagingProfile)' == 'Production' or '$(OpenzaPackagingProfile)' == 'Preview') and '$(MSBuildProjectFile)' == 'Openza.Tasks.Cli.Package.csproj'" />
 
   <PropertyGroup>
     <OpenzaChannel Condition="'$(OpenzaChannel)' == ''">Dev</OpenzaChannel>
@@ -26,20 +25,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Avalonia" Version="12.1.0" />
-    <PackageReference Include="Avalonia.Desktop" Version="12.1.0" />
-    <PackageReference Include="Avalonia.Fonts.Inter" Version="12.1.0" />
-    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.0" />
-    <PackageReference Include="FluentIcons.Avalonia" Version="2.1.335" />
-  </ItemGroup>
-
-  <ItemGroup>
+    <PackageReference Include="System.CommandLine" Version="2.0.11" />
     <ProjectReference Include="..\Openza.Tasks.Application\Openza.Tasks.Application.csproj" />
     <ProjectReference Include="..\Openza.Tasks.Core\Openza.Tasks.Core.csproj" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <AvaloniaResource Include="..\..\assets\icons\icon-256.png" Link="Assets\openza-tasks.png" />
   </ItemGroup>
 
   <Import Project="..\..\packaging\channels\Openza.Channel.targets" />

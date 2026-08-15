@@ -1,0 +1,25 @@
+<Project>
+  <Target Name="ValidateOpenzaChannel" BeforeTargets="PrepareForBuild;Run">
+    <Error
+      Condition="'$(OpenzaPackagingProfile)' != '' and '$(MSBuildProjectFile)' != 'Openza.Tasks.Cli.Package.csproj' and '$(MSBuildProjectFile)' != 'Openza.Tasks.Desktop.Package.csproj'"
+      Text="Openza packaging profiles are accepted only by the dedicated packaging entry projects." />
+    <Error
+      Condition="'$(OpenzaPackagingProfile)' != '' and '$(OpenzaPackagingProfile)' != 'Production' and '$(OpenzaPackagingProfile)' != 'Preview'"
+      Text="Unknown Openza packaging profile '$(OpenzaPackagingProfile)'. Valid profiles are Production and Preview." />
+    <Error
+      Condition="'$(OpenzaChannel)' != 'Dev' and '$(OpenzaChannel)' != 'Production' and '$(OpenzaChannel)' != 'Preview'"
+      Text="Unknown Openza channel '$(OpenzaChannel)'." />
+    <Error
+      Condition="'$(OpenzaChannel)' != 'Dev' and ('$(OpenzaPackagingProfile)' == '' or '$(OpenzaPackagedChannel)' != '$(OpenzaChannel)')"
+      Text="The $(OpenzaChannel) channel is packaging-only. Select it through the matching OpenzaPackagingProfile; ordinary source builds must use Dev." />
+    <Error
+      Condition="'$(OpenzaChannel)' != 'Dev' and '$(_IsPublishing)' != 'true'"
+      Text="The $(OpenzaChannel) channel may only be compiled by dotnet publish. Ordinary source build and run commands must use Dev." />
+  </Target>
+  <Target
+    Name="RejectOpenzaPackagingEntryRun"
+    BeforeTargets="Run"
+    Condition="'$(MSBuildProjectFile)' == 'Openza.Tasks.Cli.Package.csproj' or '$(MSBuildProjectFile)' == 'Openza.Tasks.Desktop.Package.csproj'">
+    <Error Text="Packaging entry projects cannot be run. Use the normal app project, which is isolated to Dev." />
+  </Target>
+</Project>

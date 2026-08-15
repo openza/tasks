@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+repo_root="$(cd -- "$script_dir/.." && pwd)"
+exec dotnet run --project "$repo_root/tools/Openza.Tasks.Seed/Openza.Tasks.Seed.csproj" -- "$@"

@@ -7,15 +7,24 @@ namespace Openza.Tasks.Desktop.Services;
 public sealed class SecretToolCredentialStore : ICredentialStore
 {
     private const string ApplicationAttribute = "openza-app";
-    private const string ApplicationValue = "tasks";
     private const string KeyAttribute = "credential-key";
+    private readonly string _applicationValue;
+    private readonly string _label;
+
+    public SecretToolCredentialStore(string applicationValue, string label)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(applicationValue);
+        ArgumentException.ThrowIfNullOrWhiteSpace(label);
+        _applicationValue = applicationValue;
+        _label = label;
+    }
 
     public async Task SaveAsync(string key, string value, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(key);
         ArgumentException.ThrowIfNullOrWhiteSpace(value);
         var result = await RunAsync(
-            ["store", "--label=Openza Tasks", ApplicationAttribute, ApplicationValue, KeyAttribute, key],
+            ["store", $"--label={_label}", ApplicationAttribute, _applicationValue, KeyAttribute, key],
             value,
             cancellationToken);
         EnsureSuccess(result, "save the credential");
@@ -25,7 +34,7 @@ public sealed class SecretToolCredentialStore : ICredentialStore
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(key);
         var result = await RunAsync(
-            ["lookup", ApplicationAttribute, ApplicationValue, KeyAttribute, key],
+            ["lookup", ApplicationAttribute, _applicationValue, KeyAttribute, key],
             null,
             cancellationToken);
         return result.ExitCode == 0 ? NullIfEmpty(result.StandardOutput) : null;
@@ -35,7 +44,7 @@ public sealed class SecretToolCredentialStore : ICredentialStore
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(key);
         var result = await RunAsync(
-            ["clear", ApplicationAttribute, ApplicationValue, KeyAttribute, key],
+            ["clear", ApplicationAttribute, _applicationValue, KeyAttribute, key],
             null,
             cancellationToken);
         if (result.ExitCode is not 0 and not 1)

@@ -80,7 +80,7 @@ public sealed class SqliteTaskStoreTests : IDisposable
     }
 
     [Fact]
-    public async Task Initialize_creates_v3_schema_for_planning_and_sync_routes()
+    public async Task Initialize_creates_current_schema_for_planning_and_sync_routes()
     {
         var store = CreateStore();
         await store.InitializeAsync();
@@ -93,7 +93,8 @@ public sealed class SqliteTaskStoreTests : IDisposable
         }.ToString());
         await connection.OpenAsync();
 
-        Assert.Equal(5L, await ExecuteScalarAsync(connection, "PRAGMA user_version"));
+        Assert.Equal(SqliteTaskStore.CurrentSchemaVersion, await ExecuteScalarAsync(connection, "PRAGMA user_version"));
+        Assert.Equal(1L, await ExecuteScalarAsync(connection, "SELECT COUNT(*) FROM pragma_table_info('tasks') WHERE name = 'revision'"));
         Assert.Equal(1L, await ExecuteScalarAsync(connection, "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'provider_connections'"));
         Assert.Equal(1L, await ExecuteScalarAsync(connection, "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'provider_source_items'"));
         Assert.Equal(1L, await ExecuteScalarAsync(connection, "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'sync_routes'"));

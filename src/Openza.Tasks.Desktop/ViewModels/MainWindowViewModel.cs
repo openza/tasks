@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Text.Json;
+using Openza.Tasks.Application.Tasks;
 using Openza.Tasks.Core.Data;
 using Openza.Tasks.Core.Credentials;
 using Openza.Tasks.Core.Models;
@@ -14,6 +15,7 @@ public sealed class MainWindowViewModel : ObservableObject
 {
     private const string TodoistTokenKey = "todoist-token";
     private readonly ITaskStore _store;
+    private readonly TaskApplicationService _taskService;
     private readonly ICredentialStore _credentials;
     private readonly HttpClient _httpClient = new();
     private readonly TaskSyncEngine _syncEngine;
@@ -71,7 +73,9 @@ public sealed class MainWindowViewModel : ObservableObject
     private bool _automaticSyncEnabled = true;
 
     public MainWindowViewModel(ITaskStore store)
-        : this(store, new SecretToolCredentialStore())
+        : this(store, new SecretToolCredentialStore(
+            DesktopDataPaths.Runtime.CredentialNamespace,
+            DesktopDataPaths.Runtime.DisplayName))
     {
     }
 
@@ -81,6 +85,7 @@ public sealed class MainWindowViewModel : ObservableObject
         Func<string, string, ITaskProjectMoveProvider>? todoistMoveProviderFactory = null)
     {
         _store = store;
+        _taskService = new TaskApplicationService(store);
         _credentials = credentials;
         _syncEngine = new TaskSyncEngine(store);
         _todoistMoveProviderFactory = todoistMoveProviderFactory ??
@@ -89,7 +94,10 @@ public sealed class MainWindowViewModel : ObservableObject
             ? new BackupService(
                 sqliteStore.DatabasePath,
                 DesktopDataPaths.RestorePointDirectory,
-                context: new BackupContext("Openza.Tasks.Desktop", "desktop", CurrentAppVersion))
+                context: new BackupContext(
+                    "Openza.Tasks.Desktop",
+                    DesktopDataPaths.Runtime.Channel.ToString().ToLowerInvariant(),
+                    CurrentAppVersion))
             : null);
     }
 
@@ -1385,27 +1393,21 @@ public sealed class MainWindowViewModel : ObservableObject
             return;
         }
 
-        var task = new TaskItem
-        {
-            Id = $"local_{Guid.NewGuid():N}",
-            SpaceId = _currentSpaceId ?? _defaultSpaceId,
-            IntegrationId = IntegrationIds.Local,
-            Title = title,
-            Notes = string.IsNullOrWhiteSpace(draft.Notes) ? null : draft.Notes.Trim(),
-            ProjectId = draft.Project?.ProjectId ?? SelectedProject?.Project.Id,
-            Status = StatusFromIndex(draft.StatusIndex),
-            Priority = Math.Clamp(draft.PriorityIndex + 1, 1, 4),
-            PlannedOn = draft.PlannedDate is { } plannedDate
-                ? DateOnly.FromDateTime(plannedDate.LocalDateTime)
-                : null,
-            Labels = ParseLabels(draft.LabelsText),
-            CreatedAt = DateTimeOffset.UtcNow,
-            UpdatedAt = DateTimeOffset.UtcNow,
-        };
-
         await RunBusyAsync(async () =>
         {
-            await _store.UpsertTaskAsync(task);
+            var status = StatusFromIndex(draft.StatusIndex);
+            var task = await _taskService.CreateTaskAsync(new CreateTaskRequest
+            {
+                Title = title,
+                Notes = draft.Notes,
+                Space = _currentSpaceId ?? _defaultSpaceId,
+                Project = draft.Project?.ProjectId ?? SelectedProject?.Project.Id,
+                Status = status.ToWorkflowStatus(),
+                Completed = status == TaskItemStatus.Completed,
+                Priority = Math.Clamp(draft.PriorityIndex + 1, 1, 4),
+                PlannedOn = draft.PlannedDate is { } plannedDate ? DateOnly.FromDateTime(plannedDate.LocalDateTime) : null,
+                Labels = ParseLabels(draft.LabelsText).Select(label => label.Name).ToArray(),
+            });
             StatusMessage = "Task added";
             await RefreshAsyncCore(draft.OpenAfterCreate ? task.Id : null);
         });
@@ -1452,41 +1454,24 @@ public sealed class MainWindowViewModel : ObservableObject
 
             var original = SelectedTask.Task;
             var status = StatusFromIndex(DetailStatusIndex);
+            var completed = status == TaskItemStatus.Completed;
             var taskLabels = ParseLabels(DetailLabels);
             DateOnly? plannedOn = DetailDate is null ? null : DateOnly.FromDateTime(DetailDate.Value.LocalDateTime);
             DateOnly? deadlineOn = DetailDeadline is null ? null : DateOnly.FromDateTime(DetailDeadline.Value.LocalDateTime);
-            var updated = original with
+            var updated = await _taskService.UpdateTaskAsync(new UpdateTaskRequest
             {
-                Title = DetailTitle.Trim(),
-                Notes = NullIfEmpty(DetailNotes),
-                Status = status,
-                Priority = Math.Clamp(DetailPriorityIndex + 1, 1, 4),
-                ProjectId = DetailProject?.ProjectId,
-                PlannedOn = plannedOn,
-                PlannedAt = ProviderWriteBackPlanner.PreserveExactTime(plannedOn, original.PlannedOn, original.PlannedAt),
-                DeadlineOn = deadlineOn,
-                DeadlineAt = ProviderWriteBackPlanner.PreserveExactTime(deadlineOn, original.DeadlineOn, original.DeadlineAt),
-                CompletedAt = status == TaskItemStatus.Completed
-                    ? original.CompletedAt ?? DateTimeOffset.UtcNow
-                    : null,
-                UpdatedAt = DateTimeOffset.UtcNow,
-                Labels = taskLabels,
-            };
-
-            PendingCompletion? pendingCompletion = null;
-            if (original.IsCompleted != updated.IsCompleted)
-            {
-                pendingCompletion = ProviderWriteBackPlanner.CreateCompletion(
-                    original,
-                    updated.IsCompleted,
-                    DateTimeOffset.UtcNow);
-            }
-
-            var pendingDateUpdate = ProviderWriteBackPlanner.CreateTodoistDateUpdate(
-                original,
-                updated,
-                DateTimeOffset.UtcNow);
-            await _store.UpsertTaskWithPendingUpdatesAsync(updated, pendingCompletion, pendingDateUpdate);
+                TaskId = original.Id,
+                ExpectedRevision = original.Revision,
+                Title = OptionalValue<string?>.Set(DetailTitle.Trim()),
+                Notes = OptionalValue<string?>.Set(NullIfEmpty(DetailNotes)),
+                Status = completed ? default : OptionalValue<TaskWorkflowStatus>.Set(status.ToWorkflowStatus()),
+                Completed = OptionalValue<bool>.Set(completed),
+                Priority = OptionalValue<int>.Set(Math.Clamp(DetailPriorityIndex + 1, 1, 4)),
+                Project = OptionalValue<string?>.Set(DetailProject?.ProjectId),
+                PlannedOn = OptionalValue<DateOnly?>.Set(plannedOn),
+                DeadlineOn = OptionalValue<DateOnly?>.Set(deadlineOn),
+                Labels = OptionalValue<IReadOnlyList<string>>.Set(taskLabels.Select(label => label.Name).ToArray()),
+            });
 
             StatusMessage = "Changes saved";
             var selectedId = SelectedTask?.Task.Id;
@@ -1504,9 +1489,10 @@ public sealed class MainWindowViewModel : ObservableObject
         }
 
         var taskId = SelectedTask.Task.Id;
+        var revision = SelectedTask.Task.Revision;
         await RunBusyAsync(async () =>
         {
-            await _store.DeleteTaskAsync(taskId);
+            await _taskService.DeleteTaskAsync(taskId, revision);
             StatusMessage = "Task deleted";
             await RefreshAsyncCore();
         });
@@ -1617,8 +1603,7 @@ public sealed class MainWindowViewModel : ObservableObject
 
     private async Task SetTaskCompletionAsync(TaskItem task, bool completed)
     {
-        var pendingCompletion = ProviderWriteBackPlanner.CreateCompletion(task, completed, DateTimeOffset.UtcNow);
-        await _store.SetTaskCompletionWithPendingUpdateAsync(task.Id, completed, pendingCompletion);
+        await _taskService.SetCompletedAsync(task.Id, completed, task.Revision);
     }
 
     private async Task RefreshAsync()
