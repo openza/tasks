@@ -700,7 +700,28 @@ public sealed partial class MainWindow : Window
             $"“{ViewModel.SelectedTask.Title}” will be permanently removed from this local database.");
         if (await dialog.ShowDialog<bool>(this))
         {
-            await ViewModel.DeleteSelectedAsync();
+            try
+            {
+                await ViewModel.DeleteSelectedAsync();
+            }
+            catch (ProviderLinkedTaskDeleteException exception)
+            {
+                var alert = new ConfirmWindow(
+                    "Task is linked",
+                    exception.Message,
+                    "Close",
+                    showCancel: false);
+                await alert.ShowDialog<bool>(this);
+            }
+            catch (Exception exception)
+            {
+                var alert = new ConfirmWindow(
+                    "Could not delete task",
+                    exception.Message,
+                    "Close",
+                    showCancel: false);
+                await alert.ShowDialog<bool>(this);
+            }
         }
     }
 

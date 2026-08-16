@@ -1500,7 +1500,7 @@ public sealed class MainWindowViewModel : ObservableObject
             await _taskService.DeleteTaskAsync(taskId, revision);
             StatusMessage = "Task deleted";
             await RefreshAsyncCore();
-        });
+        }, rethrow: true);
     }
 
     public async Task MoveSelectedTaskToSpaceAsync(SpaceNavigationItemViewModel targetSpace)
@@ -2042,7 +2042,7 @@ public sealed class MainWindowViewModel : ObservableObject
         return new DateTimeOffset(value, TimeZoneInfo.Local.GetUtcOffset(value));
     }
 
-    private async Task<bool> RunBusyAsync(Func<Task> action)
+    private async Task<bool> RunBusyAsync(Func<Task> action, bool rethrow = false)
     {
         await _operationGate.WaitAsync();
         IsBusy = true;
@@ -2054,6 +2054,10 @@ public sealed class MainWindowViewModel : ObservableObject
         catch (Exception exception)
         {
             StatusMessage = $"Could not complete that action: {exception.Message}";
+            if (rethrow)
+            {
+                throw;
+            }
             return false;
         }
         finally
