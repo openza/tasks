@@ -54,6 +54,13 @@ public sealed class ChannelRuntimeLease : IDisposable
             FileShare.None,
             $"Close other {context.DisplayName} operations before restoring its database.");
 
+    public static ChannelRuntimeLease AcquireProviderSync(OpenzaRuntimeContext context, string provider) =>
+        Acquire(
+            context.ProviderSyncLockPath(provider),
+            FileAccess.ReadWrite,
+            FileShare.None,
+            $"Another {context.DisplayName} {provider} sync is already running.");
+
     private static ChannelRuntimeLease Acquire(
         string lockPath,
         FileAccess access,

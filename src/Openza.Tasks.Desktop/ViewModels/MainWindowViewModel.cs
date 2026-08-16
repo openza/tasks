@@ -1143,6 +1143,9 @@ public sealed class MainWindowViewModel : ObservableObject
     {
         await RunBusyAsync(async () =>
         {
+            using var syncLease = Openza.Tasks.Application.Runtime.ChannelRuntimeLease.AcquireProviderSync(
+                DesktopDataPaths.Runtime,
+                IntegrationIds.Todoist);
             var token = await _credentials.GetAsync(TodoistTokenKey);
             if (string.IsNullOrWhiteSpace(token))
             {

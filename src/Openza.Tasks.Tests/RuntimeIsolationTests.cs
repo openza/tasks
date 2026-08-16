@@ -100,6 +100,21 @@ public sealed class RuntimeIsolationTests : IDisposable
     }
 
     [Fact]
+    public void Provider_sync_lease_serializes_same_provider_only()
+    {
+        var context = new OpenzaRuntimeContext
+        {
+            Channel = OpenzaChannel.Dev,
+            DataDirectory = Path.Combine(_directory, "provider-sync-lock"),
+        };
+
+        using var todoist = ChannelRuntimeLease.AcquireProviderSync(context, IntegrationIds.Todoist);
+        Assert.Throws<InvalidOperationException>(() =>
+            ChannelRuntimeLease.AcquireProviderSync(context, IntegrationIds.Todoist));
+        using var microsoft = ChannelRuntimeLease.AcquireProviderSync(context, IntegrationIds.MicrosoftToDo);
+    }
+
+    [Fact]
     public void Coordination_lock_avoids_an_unwritable_xdg_runtime_directory()
     {
         if (OperatingSystem.IsWindows())

@@ -9,6 +9,7 @@ namespace Openza.Tasks.Core.Data;
 public sealed class SqliteTaskStore(string databasePath, bool readOnly = false) : ITaskStore
 {
     public const int CurrentSchemaVersion = 6;
+    public const int MinimumReadOnlySchemaVersion = 5;
 
     private sealed record ParentTaskContext(string Id, string SpaceId, string? ProjectId, TaskWorkflowStatus WorkflowStatus);
 
@@ -28,9 +29,11 @@ public sealed class SqliteTaskStore(string databasePath, bool readOnly = false) 
             var command = readOnlyConnection.CreateCommand();
             command.CommandText = "PRAGMA user_version";
             var schemaVersion = Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), System.Globalization.CultureInfo.InvariantCulture);
-            if (schemaVersion != CurrentSchemaVersion)
+            if (schemaVersion < MinimumReadOnlySchemaVersion || schemaVersion > CurrentSchemaVersion)
             {
-                throw new InvalidOperationException($"The Openza database schema is version {schemaVersion}; open the desktop app before using read-only CLI commands that require schema version {CurrentSchemaVersion}.");
+                throw new InvalidOperationException(
+                    $"The Openza database schema is version {schemaVersion}; read-only CLI commands support versions " +
+                    $"{MinimumReadOnlySchemaVersion} through {CurrentSchemaVersion}.");
             }
             return;
         }
@@ -1622,6 +1625,46 @@ public sealed class SqliteTaskStore(string databasePath, bool readOnly = false) 
         return completions;
     }
 
+    public async Task<PendingProviderWriteSummary> GetPendingProviderWriteSummaryAsync(
+        string provider,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        var completions = 0;
+        var reopens = 0;
+        var dateUpdates = 0;
+
+        if (await TableExistsAsync(connection, "pending_completions", cancellationToken).ConfigureAwait(false))
+        {
+            var command = connection.CreateCommand();
+            command.CommandText = """
+                SELECT
+                    COALESCE(SUM(CASE WHEN completed = 1 THEN 1 ELSE 0 END), 0),
+                    COALESCE(SUM(CASE WHEN completed = 0 THEN 1 ELSE 0 END), 0)
+                FROM pending_completions
+                WHERE provider = @provider
+                """;
+            command.Parameters.AddWithValue("@provider", provider);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                completions = reader.GetInt32(0);
+                reopens = reader.GetInt32(1);
+            }
+        }
+
+        if (await TableExistsAsync(connection, "pending_task_date_updates", cancellationToken).ConfigureAwait(false))
+        {
+            var command = connection.CreateCommand();
+            command.CommandText = "SELECT COUNT(*) FROM pending_task_date_updates WHERE provider = @provider";
+            command.Parameters.AddWithValue("@provider", provider);
+            dateUpdates = Convert.ToInt32(
+                await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false));
+        }
+
+        return new PendingProviderWriteSummary(completions, reopens, dateUpdates);
+    }
+
     public async Task MarkCompletionSyncedAsync(string completionId, CancellationToken cancellationToken = default)
     {
         await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
@@ -2135,6 +2178,8 @@ public sealed class SqliteTaskStore(string databasePath, bool readOnly = false) 
     private async Task<IReadOnlyList<TaskItem>> ReadTasksAsync(SqliteConnection connection, CancellationToken cancellationToken)
     {
         var labelsByTask = await ReadLabelsByTaskAsync(connection, cancellationToken).ConfigureAwait(false);
+        var taskColumns = await GetColumnNamesAsync(connection, "tasks", cancellationToken).ConfigureAwait(false);
+        var revisionProjection = taskColumns.Contains("revision") ? "t.revision" : "0 AS revision";
         var command = connection.CreateCommand();
         command.CommandText = """
             SELECT t.id, t.external_id, t.space_id, t.integration_id, t.title, t.description, t.source_description, t.project_id, t.parent_id,
@@ -2143,12 +2188,12 @@ public sealed class SqliteTaskStore(string databasePath, bool readOnly = false) 
                    t.deadline_on, t.deadline_at, t.scheduled_start, t.scheduled_end, t.duration_minutes, t.recurrence_rule,
                    t.notes, t.provider_metadata, t.source_metadata, t.local_metadata,
                    t.created_at, t.updated_at, t.completed_at, t.provider_connection_id, psi.title, psi.source_project_name,
-                   psi.priority, psi.planned_on, psi.planned_at, psi.deadline_on, psi.deadline_at, t.revision
+                   psi.priority, psi.planned_on, psi.planned_at, psi.deadline_on, psi.deadline_at, @revision_projection
             FROM tasks t
             LEFT JOIN provider_source_items psi
               ON psi.provider_connection_id = t.source_connection_id
              AND psi.external_id = t.source_external_id
-            """;
+            """.Replace("@revision_projection", revisionProjection, StringComparison.Ordinal);
 
         var tasks = new List<TaskItem>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);

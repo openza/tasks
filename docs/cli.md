@@ -19,6 +19,8 @@ openza task list|show|add|update|complete|reopen|delete
 openza space list
 openza project list
 openza label list
+openza sync status --provider todoist --direction push --scope pending
+openza sync run --provider todoist --direction push --scope pending --yes
 ```
 
 Use `--format text|json|tsv` on any leaf command. JSON responses have a stable `schemaVersion` and `data` envelope. Results go to stdout and diagnostics go to stderr.
@@ -56,6 +58,8 @@ The stable v1 columns are:
 | `task add`, `task update`, `task complete`, `task reopen` | same as `task show` |
 | `task delete` | `deleted`, `id` |
 | `space list`, `project list`, `label list` | `id`, `name`, `detail` |
+| `sync status` | `provider`, `direction`, `scope`, `configured`, `active`, `credential_available`, `pending_completions`, `pending_reopens`, `pending_date_updates`, `total_pending`, `last_full_sync_at` |
+| `sync run` | `provider`, `direction`, `scope`, `planned`, `applied`, `remaining`, `success` |
 
 For example, `task show --format tsv` begins with:
 
@@ -88,7 +92,35 @@ kind. Label filters accept the exact ID returned by `label list` or a unique
 case-insensitive name; matching by the resolved name also keeps legacy/provider
 label records logically grouped.
 
-Provider connection and synchronization remain GUI workflows in CLI v1.
+Provider connection and full synchronization remain GUI workflows. The CLI
+supports one deliberately narrow Todoist operation: pushing task changes that
+Openza has already placed in its pending provider-write queue. It can send
+completion, reopen, and planned-date changes; it does not fetch a provider
+snapshot, import tasks, apply routing rules, move Todoist tasks, or configure a
+provider. CLI provider sync is currently supported only on Linux, where it reads
+the existing channel-specific Secret Service credential. Windows provider sync
+remains a GUI workflow until the Windows credential integration is implemented.
+
+All three sync selectors are required even though only one contract is
+currently supported:
+
+```text
+--provider todoist --direction push --scope pending
+```
+
+Run `sync status` first. It reads only local integration state, Secret Service
+credential availability, last full-sync time, and aggregate pending counts; it
+does not reveal task IDs/titles/tokens and makes no provider request. When work
+is queued, `sync run` requires `--yes`; that flag authorizes all pending writes
+present when that invocation acquires the provider-sync lease. A prior status or
+confirmation count is advisory because new local changes may be queued later.
+The execution serializes with the Linux Avalonia app's Todoist sync. A zero-work
+run succeeds without `--yes` and makes no provider request. Missing confirmation
+for a non-empty queue exits `5`; a provider that is not already configured,
+active, and credentialed exits `6`. Pull and
+bidirectional sync remain GUI-only because the existing full engine can also
+apply routing-driven remote project moves. No CLI sync command configures or
+activates a provider implicitly.
 
 ## Linux installation
 
@@ -115,7 +147,13 @@ The GUI package owns `openza-tasks` only. Preview packages use the distinct
 
 Read-only commands (`status`, `search`, task/reference `list`, and `task show`)
 open an existing database in SQLite read-only mode and do not run schema
-migrations. All commands take a shared coordination lease stored outside the
+migrations. They accept the current schema and the immediately preceding
+schema when it contains the fields those commands require, so installing a new
+CLI does not force a desktop migration merely to keep reading existing data.
+`sync status` and `sync run` without `--yes` use the same read-only path; the
+latter checks only aggregate pending counts before returning confirmation or a
+zero-work result and does not access credentials or construct a provider.
+All commands take a shared coordination lease stored outside the
 data directory, so a read cannot overlap a coordinated database replacement and a
 read-only data directory remains usable. Linux always uses the same hardened
 `/tmp/openza-runtime-<uid>` coordination root for an OS user, independent of

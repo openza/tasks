@@ -1,7 +1,11 @@
 using System.Diagnostics;
 using System.Text.Json;
+using Microsoft.Data.Sqlite;
+using Openza.Tasks.Application.Sync;
+using Openza.Tasks.Core.Credentials;
 using Openza.Tasks.Core.Data;
 using Openza.Tasks.Core.Models;
+using Openza.Tasks.Core.Sync;
 
 namespace Openza.Tasks.Tests;
 
@@ -233,15 +237,76 @@ public sealed class CliContractTests : IDisposable
 
             var status = await RunAsync("status", "--format", "json");
             var list = await RunAsync("task", "list", "--format", "json");
+            var syncStatus = await RunInProcessAsync(new InMemoryCredentialStore(), new CliFakeProvider(),
+                "sync", "status", "--provider", "todoist", "--direction", "push", "--scope", "pending", "--format", "json");
 
             AssertSuccess(status);
             AssertSuccess(list);
+            AssertSuccess(syncStatus);
             Assert.False(File.Exists(Path.Combine(_directory, ".runtime.lock")));
         }
         finally
         {
             File.SetUnixFileMode(_directory, originalMode);
         }
+    }
+
+    [Fact]
+    public async Task Schema_five_fixture_supports_every_read_only_command_without_migration()
+    {
+        if (OperatingSystem.IsWindows()) return;
+
+        var store = await CreateStoreAsync();
+        await store.UpsertLabelAsync(new LabelItem { Id = "label_schema_five", Name = "Schema Five" });
+        await store.UpsertTaskAsync(new TaskItem
+        {
+            Id = "task_schema_five",
+            Title = "Schema five task",
+            WorkflowStatus = TaskWorkflowStatus.Inbox,
+            PlannedOn = DateOnly.FromDateTime(DateTime.Today),
+            Labels = [new LabelItem { Id = "label_schema_five", Name = "Schema Five" }],
+        });
+        await store.SetTaskLabelsAsync("task_schema_five", [new LabelItem { Id = "label_schema_five", Name = "Schema Five" }]);
+        await MakeCanonicalSchemaFiveAsync();
+        var originalMode = File.GetUnixFileMode(_directory);
+        try
+        {
+            File.SetUnixFileMode(_directory, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+            foreach (var arguments in new[]
+            {
+                new[] { "status", "--format", "json" },
+                new[] { "task", "list", "--view", "open", "--format", "json" },
+                new[] { "task", "list", "--view", "all", "--include-subtasks", "--format", "json" },
+                new[] { "task", "list", "--view", "completed", "--format", "json" },
+                new[] { "task", "list", "--view", "inbox", "--format", "json" },
+                new[] { "task", "list", "--view", "next", "--format", "json" },
+                new[] { "task", "list", "--view", "waiting", "--format", "json" },
+                new[] { "task", "list", "--view", "someday", "--format", "json" },
+                new[] { "task", "list", "--view", "today", "--format", "json" },
+                new[] { "task", "list", "--view", "calendar", "--format", "json" },
+                new[] { "task", "list", "--view", "overdue", "--format", "json" },
+                new[] { "task", "show", "task_schema_five", "--format", "json" },
+                new[] { "label", "list", "--format", "json" },
+                new[] { "space", "list", "--format", "json" },
+                new[] { "project", "list", "--format", "json" },
+                new[] { "task", "list", "--label", "label_schema_five", "--format", "json" },
+                new[] { "search", "Schema five", "--format", "json" },
+            })
+            {
+                AssertSuccess(await RunAsync(arguments));
+            }
+
+            AssertSuccess(await RunInProcessAsync(new InMemoryCredentialStore(), new CliFakeProvider(),
+                "sync", "status", "--provider", "todoist", "--direction", "push", "--scope", "pending", "--format", "json"));
+            AssertSuccess(await RunInProcessAsync(new InMemoryCredentialStore(), new CliFakeProvider(),
+                "sync", "run", "--provider", "todoist", "--direction", "push", "--scope", "pending", "--format", "json"));
+        }
+        finally
+        {
+            File.SetUnixFileMode(_directory, originalMode);
+        }
+
+        await AssertCanonicalSchemaFiveAsync();
     }
 
     [Fact]
@@ -271,6 +336,202 @@ public sealed class CliContractTests : IDisposable
         using var missingJson = JsonDocument.Parse(missing.Stderr);
         Assert.Equal(2, missingJson.RootElement.GetProperty("schemaVersion").GetInt32());
         Assert.Equal("not_found_or_ambiguous", missingJson.RootElement.GetProperty("error").GetProperty("code").GetString());
+    }
+
+    [Fact]
+    public async Task Unknown_commands_and_sync_safety_contract_use_documented_exit_codes()
+    {
+        _ = await CreateStoreAsync();
+
+        foreach (var arguments in new[]
+        {
+            new[] { "bogus" },
+            new[] { "bogus", "--help" },
+        })
+        {
+            var unknown = await RunAsync(arguments);
+            Assert.Equal(2, unknown.ExitCode);
+            Assert.Empty(unknown.Stdout);
+            Assert.Contains("Unrecognized command or argument 'bogus'.", unknown.Stderr);
+        }
+
+        var jsonUnknown = await RunAsync("--format", "json", "bogus", "--help");
+        Assert.Equal(2, jsonUnknown.ExitCode);
+        Assert.Empty(jsonUnknown.Stdout);
+        using (var error = JsonDocument.Parse(jsonUnknown.Stderr))
+        {
+            Assert.Equal(2, error.RootElement.GetProperty("schemaVersion").GetInt32());
+            Assert.Equal("invalid_arguments", error.RootElement.GetProperty("error").GetProperty("code").GetString());
+        }
+
+        AssertSuccess(await RunAsync("--help"));
+        AssertSuccess(await RunAsync("task", "--help"));
+        AssertSuccess(await RunAsync("task", "list", "--help"));
+        var syncHelp = await RunAsync("sync", "run", "--help");
+        AssertSuccess(syncHelp);
+        Assert.Contains("Pull and bidirectional sync remain GUI-only", syncHelp.Stdout);
+
+        foreach (var missingSelector in new[]
+        {
+            new[] { "sync", "status", "--direction", "push", "--scope", "pending" },
+            new[] { "sync", "status", "--provider", "todoist", "--scope", "pending" },
+            new[] { "sync", "status", "--provider", "todoist", "--direction", "push" },
+        })
+        {
+            var invalid = await RunAsync(missingSelector);
+            Assert.Equal(2, invalid.ExitCode);
+        }
+    }
+
+    [Fact]
+    public async Task Sync_cli_uses_injected_credentials_and_provider_for_status_confirmation_noop_and_push()
+    {
+        var store = await CreateStoreAsync();
+        var credentials = new InMemoryCredentialStore();
+        var provider = new CliFakeProvider();
+
+        var status = await RunInProcessAsync(credentials, provider,
+            "sync", "status", "--provider", "todoist", "--direction", "push", "--scope", "pending", "--format", "json");
+        AssertSuccess(status);
+        using (var document = JsonDocument.Parse(status.Stdout))
+        {
+            var data = document.RootElement.GetProperty("data");
+            Assert.Equal(0, data.GetProperty("pending").GetProperty("total").GetInt32());
+            Assert.False(data.GetProperty("credentialAvailable").GetBoolean());
+        }
+
+        var noOp = await RunInProcessAsync(credentials, provider,
+            "sync", "run", "--provider", "todoist", "--direction", "push", "--scope", "pending", "--format", "json");
+        AssertSuccess(noOp);
+        Assert.Empty(provider.Calls);
+
+        await QueueCliPendingWritesAsync(store);
+
+        var disconnected = await RunInProcessAsync(credentials, provider,
+            "sync", "run", "--provider", "todoist", "--direction", "push", "--scope", "pending", "--yes", "--format", "json");
+        Assert.Equal(6, disconnected.ExitCode);
+        Assert.Empty(provider.Calls);
+
+        await store.SetIntegrationConfiguredAsync(IntegrationIds.Todoist, true);
+        await store.SetIntegrationActiveAsync(IntegrationIds.Todoist, true);
+        await credentials.SaveAsync(ProviderCredentialKeys.TodoistToken, "disposable-test-token");
+
+        var confirmation = await RunInProcessAsync(credentials, provider,
+            "sync", "run", "--provider", "todoist", "--direction", "push", "--scope", "pending", "--format", "json");
+        Assert.Equal(5, confirmation.ExitCode);
+        Assert.Empty(provider.Calls);
+
+        var pushed = await RunInProcessAsync(credentials, provider,
+            "sync", "run", "--provider", "todoist", "--direction", "push", "--scope", "pending", "--yes", "--format", "json");
+        AssertSuccess(pushed);
+        Assert.Equal(["date", "completion"], provider.Calls);
+        using (var document = JsonDocument.Parse(pushed.Stdout))
+        {
+            var data = document.RootElement.GetProperty("data");
+            Assert.True(data.GetProperty("success").GetBoolean());
+            Assert.Equal(2, data.GetProperty("applied").GetProperty("total").GetInt32());
+            Assert.Equal(0, data.GetProperty("remaining").GetProperty("total").GetInt32());
+        }
+
+        var unsupported = await RunInProcessAsync(credentials, provider,
+            "sync", "run", "--provider", "todoist", "--direction", "both", "--scope", "pending", "--yes", "--format", "json");
+        Assert.Equal(2, unsupported.ExitCode);
+    }
+
+    [Fact]
+    public async Task Sync_cli_tsv_schema_is_stable_with_disposable_credentials()
+    {
+        var store = await CreateStoreAsync();
+        var credentials = new InMemoryCredentialStore();
+        var provider = new CliFakeProvider();
+        var result = await RunInProcessAsync(credentials, provider,
+            "sync", "status", "--provider", "todoist", "--direction", "push", "--scope", "pending", "--format", "tsv");
+        AssertTsvSchema(result,
+            "provider", "direction", "scope", "configured", "active", "credential_available",
+            "pending_completions", "pending_reopens", "pending_date_updates", "total_pending", "last_full_sync_at");
+
+        await store.SetIntegrationConfiguredAsync(IntegrationIds.Todoist, true);
+        await store.SetIntegrationActiveAsync(IntegrationIds.Todoist, true);
+        await credentials.SaveAsync(ProviderCredentialKeys.TodoistToken, "disposable-test-token");
+        await QueueCliPendingWritesAsync(store);
+        var pushed = await RunInProcessAsync(credentials, provider,
+            "sync", "run", "--provider", "todoist", "--direction", "push", "--scope", "pending", "--yes", "--format", "tsv");
+        AssertTsvSchema(pushed, "provider", "direction", "scope", "planned", "applied", "remaining", "success");
+    }
+
+    [Fact]
+    public async Task Sync_cli_does_not_call_provider_while_Avalonia_provider_lease_is_held()
+    {
+        var store = await CreateStoreAsync();
+        await store.SetIntegrationConfiguredAsync(IntegrationIds.Todoist, true);
+        await store.SetIntegrationActiveAsync(IntegrationIds.Todoist, true);
+        await QueueCliPendingWritesAsync(store);
+        var credentials = new InMemoryCredentialStore();
+        await credentials.SaveAsync(ProviderCredentialKeys.TodoistToken, "disposable-test-token");
+        var provider = new CliFakeProvider();
+        var runtime = Openza.Tasks.Application.Runtime.OpenzaRuntimeContext.Create(
+            Openza.Tasks.Application.Runtime.OpenzaChannel.Dev,
+            _directory);
+
+        CliResult blocked;
+        using (Openza.Tasks.Application.Runtime.ChannelRuntimeLease.AcquireProviderSync(runtime, IntegrationIds.Todoist))
+        {
+            blocked = await RunInProcessAsync(credentials, provider,
+                "sync", "run", "--provider", "todoist", "--direction", "push", "--scope", "pending", "--yes", "--format", "json");
+        }
+
+        Assert.Equal(1, blocked.ExitCode);
+        Assert.Empty(provider.Calls);
+        Assert.Contains("sync is already running", blocked.Stderr);
+    }
+
+    [Fact]
+    public async Task Sync_confirmation_on_schema_five_is_read_only_and_does_not_access_credentials_or_provider()
+    {
+        if (OperatingSystem.IsWindows()) return;
+
+        var store = await CreateStoreAsync();
+        await QueueCliPendingWritesAsync(store);
+        await MakeCanonicalSchemaFiveAsync();
+        var originalMode = File.GetUnixFileMode(_directory);
+        var credentials = new ThrowingCredentialStore();
+        var provider = new CliFakeProvider();
+        try
+        {
+            File.SetUnixFileMode(_directory, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+            var result = await RunInProcessAsync(credentials, provider,
+                "sync", "run", "--provider", "todoist", "--direction", "push", "--scope", "pending", "--format", "json");
+
+            Assert.Equal(5, result.ExitCode);
+            Assert.Empty(provider.Calls);
+            using var error = JsonDocument.Parse(result.Stderr);
+            Assert.Equal("confirmation_required", error.RootElement.GetProperty("error").GetProperty("code").GetString());
+        }
+        finally
+        {
+            File.SetUnixFileMode(_directory, originalMode);
+        }
+
+        await AssertCanonicalSchemaFiveAsync();
+    }
+
+    [Fact]
+    public async Task Sync_contract_values_are_rejected_before_database_access()
+    {
+        var missingDirectory = Path.Combine(_directory, "does-not-exist");
+        foreach (var arguments in new[]
+        {
+            new[] { "sync", "status", "--provider", "other", "--direction", "push", "--scope", "pending", "--format", "json" },
+            new[] { "sync", "run", "--provider", "todoist", "--direction", "pull", "--scope", "pending", "--yes", "--format", "json" },
+            new[] { "sync", "run", "--provider", "todoist", "--direction", "push", "--scope", "all", "--yes", "--format", "json" },
+        })
+        {
+            var result = await RunWithDataDirectoryAsync(missingDirectory, arguments);
+            Assert.Equal(2, result.ExitCode);
+            Assert.Empty(result.Stdout);
+            using var error = JsonDocument.Parse(result.Stderr);
+            Assert.Equal("invalid_arguments", error.RootElement.GetProperty("error").GetProperty("code").GetString());
+        }
     }
 
     [Fact]
@@ -466,6 +727,80 @@ public sealed class CliContractTests : IDisposable
 
     private Task<CliResult> RunAsync(params string[] arguments) => RunWithDataDirectoryAsync(_directory, arguments);
 
+    private async Task<CliResult> RunInProcessAsync(
+        ICredentialStore credentials,
+        ISyncProvider provider,
+        params string[] arguments)
+    {
+        var priorDataDirectory = Environment.GetEnvironmentVariable("OPENZA_TASKS_DEV_DATA_DIR");
+        var priorOut = Console.Out;
+        var priorError = Console.Error;
+        using var stdout = new StringWriter();
+        using var stderr = new StringWriter();
+        try
+        {
+            Environment.SetEnvironmentVariable("OPENZA_TASKS_DEV_DATA_DIR", _directory);
+            Console.SetOut(stdout);
+            Console.SetError(stderr);
+            var dependencies = new CliDependencies(_ => credentials, (_, _) => provider);
+            var exitCode = await OpenzaCli.RunAsync(arguments, dependencies);
+            return new CliResult(
+                exitCode,
+                stdout.ToString().TrimEnd('\r', '\n'),
+                stderr.ToString().TrimEnd('\r', '\n'));
+        }
+        finally
+        {
+            Console.SetOut(priorOut);
+            Console.SetError(priorError);
+            Environment.SetEnvironmentVariable("OPENZA_TASKS_DEV_DATA_DIR", priorDataDirectory);
+        }
+    }
+
+    private static async Task QueueCliPendingWritesAsync(SqliteTaskStore store)
+    {
+        await store.QueueTaskDateUpdateAsync(new PendingTaskDateUpdate
+        {
+            Id = "cli-date",
+            TaskId = "cli-date-task",
+            Provider = IntegrationIds.Todoist,
+            ProviderTaskId = "remote-cli-date",
+            PlannedOn = new DateOnly(2026, 8, 16),
+            CreatedAt = DateTimeOffset.UtcNow.AddMinutes(-1),
+        });
+        await store.QueueCompletionAsync(new PendingCompletion
+        {
+            Id = "cli-completion",
+            TaskId = "cli-completion-task",
+            Provider = IntegrationIds.Todoist,
+            ProviderTaskId = "remote-cli-completion",
+            Completed = true,
+            CreatedAt = DateTimeOffset.UtcNow,
+        });
+    }
+
+    private async Task MakeCanonicalSchemaFiveAsync()
+    {
+        await using var connection = new SqliteConnection($"Data Source={Path.Combine(_directory, "openza-tasks.db")}");
+        await connection.OpenAsync();
+        var command = connection.CreateCommand();
+        command.CommandText = "ALTER TABLE tasks DROP COLUMN revision; PRAGMA user_version = 5;";
+        await command.ExecuteNonQueryAsync();
+    }
+
+
+    private async Task AssertCanonicalSchemaFiveAsync()
+    {
+        await using var connection = new SqliteConnection($"Data Source={Path.Combine(_directory, "openza-tasks.db")};Mode=ReadOnly");
+        await connection.OpenAsync();
+        var versionCommand = connection.CreateCommand();
+        versionCommand.CommandText = "PRAGMA user_version";
+        Assert.Equal(5L, Convert.ToInt64(await versionCommand.ExecuteScalarAsync()));
+        var revisionCommand = connection.CreateCommand();
+        revisionCommand.CommandText = "SELECT COUNT(*) FROM pragma_table_info('tasks') WHERE name = 'revision'";
+        Assert.Equal(0L, Convert.ToInt64(await revisionCommand.ExecuteScalarAsync()));
+    }
+
     private async Task<CliResult> RunWithDataDirectoryAsync(string dataDirectory, params string[] arguments)
     {
         var cliPath = Path.Combine(AppContext.BaseDirectory, "openza.dll");
@@ -512,6 +847,39 @@ public sealed class CliContractTests : IDisposable
             Assert.Equal(columns.Length + 1, values.Length);
             Assert.Equal("1", values[0]);
         }
+    }
+
+    private sealed class CliFakeProvider : ITaskDateUpdateProvider
+    {
+        public string IntegrationId => IntegrationIds.Todoist;
+        public List<string> Calls { get; } = [];
+
+        public Task<ProviderSnapshot> FetchSnapshotAsync(CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("Push-only sync must not fetch a snapshot.");
+
+        public Task UpdateTaskDateAsync(PendingTaskDateUpdate update, CancellationToken cancellationToken = default)
+        {
+            Calls.Add("date");
+            return Task.CompletedTask;
+        }
+
+        public Task CompleteTaskAsync(PendingCompletion completion, CancellationToken cancellationToken = default)
+        {
+            Calls.Add(completion.Completed ? "completion" : "reopen");
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class ThrowingCredentialStore : ICredentialStore
+    {
+        public Task SaveAsync(string key, string value, CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("Credential store must not be accessed before confirmation.");
+
+        public Task<string?> GetAsync(string key, CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("Credential store must not be accessed before confirmation.");
+
+        public Task RemoveAsync(string key, CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("Credential store must not be accessed before confirmation.");
     }
 
     private static Dictionary<string, string> ParseSingleTsvRecord(CliResult result)

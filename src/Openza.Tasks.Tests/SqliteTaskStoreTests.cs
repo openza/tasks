@@ -52,6 +52,26 @@ public sealed class SqliteTaskStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task Pending_write_summary_is_read_only_when_queue_tables_do_not_exist()
+    {
+        Directory.CreateDirectory(_directory);
+        var databasePath = Path.Combine(_directory, "no-outbox-tables.db");
+        await using (var connection = new SqliteConnection($"Data Source={databasePath}"))
+        {
+            await connection.OpenAsync();
+            var command = connection.CreateCommand();
+            command.CommandText = $"PRAGMA user_version = {SqliteTaskStore.CurrentSchemaVersion}";
+            await command.ExecuteNonQueryAsync();
+        }
+
+        var store = new SqliteTaskStore(databasePath, readOnly: true);
+        await store.InitializeAsync();
+        var summary = await store.GetPendingProviderWriteSummaryAsync(IntegrationIds.Todoist);
+
+        Assert.Equal(0, summary.Total);
+    }
+
+    [Fact]
     public async Task Initialize_makes_database_private_without_changing_an_existing_parent_on_unix()
     {
         if (OperatingSystem.IsWindows())

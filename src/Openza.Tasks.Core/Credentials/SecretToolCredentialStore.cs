@@ -1,8 +1,7 @@
 using System.ComponentModel;
 using System.Diagnostics;
-using Openza.Tasks.Core.Credentials;
 
-namespace Openza.Tasks.Desktop.Services;
+namespace Openza.Tasks.Core.Credentials;
 
 public sealed class SecretToolCredentialStore : ICredentialStore
 {

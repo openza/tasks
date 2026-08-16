@@ -66,7 +66,7 @@ Version: $version
 Section: utils
 Priority: optional
 Architecture: $architecture
-Depends: libc6
+Depends: libc6, libsecret-tools
 Replaces: $package_name (<< 0.1.1)
 Installed-Size: $installed_size
 Maintainer: Openza <deependra@solanky.dev>

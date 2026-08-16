@@ -4,14 +4,19 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using Openza.Tasks.Application.Runtime;
+using Openza.Tasks.Application.Sync;
 using Openza.Tasks.Application.Tasks;
+using Openza.Tasks.Core.Credentials;
 using Openza.Tasks.Core.Data;
 using Openza.Tasks.Core.Models;
+using Openza.Tasks.Core.Sync;
 
 return await OpenzaCli.RunAsync(args);
 
 internal static class OpenzaCli
 {
+    private static readonly HttpClient SyncHttpClient = new();
+    internal static HttpClient SyncHttpClientForDependencies => SyncHttpClient;
     internal const int JsonSchemaVersion = 2;
     private const int Success = 0;
     private const int UnexpectedError = 1;
@@ -21,20 +26,25 @@ internal static class OpenzaCli
     private const int ConfirmationRequired = 5;
     private const int OperationRestricted = 6;
 
-    public static async Task<int> RunAsync(string[] args)
+    public static Task<int> RunAsync(string[] args) => RunAsync(args, CliDependencies.Default);
+
+    internal static async Task<int> RunAsync(string[] args, CliDependencies dependencies)
     {
-        var root = BuildRootCommand();
+        var root = BuildRootCommand(dependencies);
         var parseResult = root.Parse(args);
-        if (parseResult.Errors.Count > 0)
+        if (parseResult.Errors.Count > 0 || parseResult.UnmatchedTokens.Count > 0)
         {
-            var messages = parseResult.Errors.Select(error => error.Message).ToArray();
+            var messages = parseResult.Errors.Select(error => error.Message)
+                .Concat(parseResult.UnmatchedTokens.Select(token => $"Unrecognized command or argument '{token}'."))
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
             WriteError(GetRequestedFormat(args), InvalidArguments, "invalid_arguments", messages[0], messages);
             return InvalidArguments;
         }
         return await parseResult.InvokeAsync();
     }
 
-    private static RootCommand BuildRootCommand()
+    private static RootCommand BuildRootCommand(CliDependencies dependencies)
     {
         var format = new Option<string>("--format")
         {
@@ -59,8 +69,181 @@ internal static class OpenzaCli
         root.Subcommands.Add(BuildSpaceCommand(format));
         root.Subcommands.Add(BuildProjectCommand(format));
         root.Subcommands.Add(BuildLabelCommand(format));
+        root.Subcommands.Add(BuildSyncCommand(format, dependencies));
         return root;
     }
+
+    private static Command BuildSyncCommand(Option<string> format, CliDependencies dependencies)
+    {
+        var sync = new Command("sync", "Inspect or push explicitly queued provider changes.");
+        sync.Subcommands.Add(BuildSyncStatusCommand(format, dependencies));
+        sync.Subcommands.Add(BuildSyncRunCommand(format, dependencies));
+        return sync;
+    }
+
+    private static Command BuildSyncStatusCommand(Option<string> format, CliDependencies dependencies)
+    {
+        var (provider, direction, scope) = CreateSyncContractOptions();
+        var command = new Command("status", "Read local Todoist sync readiness and pending-write counts; no provider request is made.");
+        command.Options.Add(provider);
+        command.Options.Add(direction);
+        command.Options.Add(scope);
+        command.SetAction(async (parseResult, cancellationToken) => await ExecuteAsync(parseResult, format, async context =>
+        {
+            if (!OperatingSystem.IsLinux())
+            {
+                const string message = "CLI provider sync is currently supported only on Linux.";
+                context.Output.WriteError(OperationRestricted, "operation_restricted", message);
+                return OperationRestricted;
+            }
+            var service = CreateSyncService(context, dependencies);
+            var preflight = await service.GetPreflightAsync(
+                parseResult.GetValue(provider)!,
+                parseResult.GetValue(direction)!,
+                parseResult.GetValue(scope)!,
+                cancellationToken);
+            WriteSyncPreflight(context.Output, preflight);
+            return Success;
+        }, cancellationToken));
+        return command;
+    }
+
+    private static Command BuildSyncRunCommand(Option<string> format, CliDependencies dependencies)
+    {
+        var (provider, direction, scope) = CreateSyncContractOptions();
+        var yes = new Option<bool>("--yes")
+        {
+            Description = "Confirm sending the reported queued changes to Todoist.",
+        };
+        var command = new Command("run", "Push queued completion, reopen, and date changes only; does not pull or configure providers.");
+        command.Options.Add(provider);
+        command.Options.Add(direction);
+        command.Options.Add(scope);
+        command.Options.Add(yes);
+        command.SetAction(async (parseResult, cancellationToken) => await ExecuteAsync(parseResult, format, async context =>
+        {
+            if (!OperatingSystem.IsLinux())
+            {
+                const string message = "CLI provider sync is currently supported only on Linux.";
+                context.Output.WriteError(OperationRestricted, "operation_restricted", message);
+                return OperationRestricted;
+            }
+            var providerValue = parseResult.GetValue(provider)!;
+            var directionValue = parseResult.GetValue(direction)!;
+            var scopeValue = parseResult.GetValue(scope)!;
+            using var syncLease = ChannelRuntimeLease.AcquireProviderSync(context.Runtime, providerValue);
+            var pending = await context.Store.GetPendingProviderWriteSummaryAsync(providerValue, cancellationToken);
+            if (pending.Total == 0)
+            {
+                var noOpResult = new ProviderPushResult(
+                    providerValue,
+                    directionValue,
+                    scopeValue,
+                    Success: true,
+                    pending,
+                    new PendingProviderWriteSummary(0, 0, 0),
+                    pending);
+                WriteSyncResult(context.Output, noOpResult);
+                return Success;
+            }
+            if (!parseResult.GetValue(yes))
+            {
+                var message = $"Confirmation required to push {pending.Total} queued Todoist changes " +
+                    $"({pending.Completions} completions, {pending.Reopens} reopens, " +
+                    $"{pending.DateUpdates} date updates). Re-run with --yes.";
+                context.Output.WriteError(ConfirmationRequired, "confirmation_required", message);
+                return ConfirmationRequired;
+            }
+            var service = CreateSyncService(context, dependencies);
+            var preflight = await service.GetPreflightAsync(providerValue, directionValue, scopeValue, cancellationToken);
+            if (!preflight.Ready)
+            {
+                const string message = "Todoist is not ready for CLI sync. Connect and enable it in Openza Tasks Settings first.";
+                context.Output.WriteError(OperationRestricted, "operation_restricted", message);
+                return OperationRestricted;
+            }
+
+            var result = await service.PushPendingAsync(providerValue, directionValue, scopeValue, cancellationToken);
+            if (!result.Success)
+            {
+                context.Output.WriteError(UnexpectedError, "sync_failed",
+                    $"Todoist pending-write push failed: {result.Error} Remaining queued changes: {result.Remaining.Total}.");
+                return UnexpectedError;
+            }
+
+            WriteSyncResult(context.Output, result);
+            return Success;
+        }, cancellationToken, readOnlyOverride: !parseResult.GetValue(yes)));
+        return command;
+    }
+
+    private static (Option<string> Provider, Option<string> Direction, Option<string> Scope) CreateSyncContractOptions()
+    {
+        var provider = new Option<string>("--provider")
+        {
+            Description = "Required provider: todoist.",
+            Required = true,
+        };
+        provider.Validators.Add(result => ValidateExactSyncValue(result, "todoist"));
+        var direction = new Option<string>("--direction")
+        {
+            Description = "Required direction: push. Pull and bidirectional sync remain GUI-only.",
+            Required = true,
+        };
+        direction.Validators.Add(result => ValidateExactSyncValue(result, "push"));
+        var scope = new Option<string>("--scope")
+        {
+            Description = "Required scope: pending. Sends only queued task changes.",
+            Required = true,
+        };
+        scope.Validators.Add(result => ValidateExactSyncValue(result, "pending"));
+        return (provider, direction, scope);
+    }
+
+    private static void ValidateExactSyncValue(OptionResult result, string expected)
+    {
+        if (result.Tokens.Count > 0 && !string.Equals(result.Tokens[0].Value, expected, StringComparison.Ordinal))
+        {
+            result.AddError($"{result.Option.Name} must be {expected}.");
+        }
+    }
+
+    private static ProviderSyncApplicationService CreateSyncService(CliContext context, CliDependencies dependencies) =>
+        new(
+            context.Store,
+            dependencies.CreateCredentialStore(context.Runtime),
+            dependencies.CreateProvider);
+
+    private static void WriteSyncResult(CliOutput output, ProviderPushResult result) =>
+        output.Write(
+            result,
+            [["Provider", result.Provider], ["Direction", result.Direction], ["Scope", result.Scope],
+             ["Applied", result.Applied.Total.ToString(CultureInfo.InvariantCulture)],
+             ["Remaining", result.Remaining.Total.ToString(CultureInfo.InvariantCulture)]],
+            ["provider", "direction", "scope", "planned", "applied", "remaining", "success"],
+            [[result.Provider, result.Direction, result.Scope,
+              result.Planned.Total.ToString(CultureInfo.InvariantCulture),
+              result.Applied.Total.ToString(CultureInfo.InvariantCulture),
+              result.Remaining.Total.ToString(CultureInfo.InvariantCulture),
+              result.Success.ToString().ToLowerInvariant()]]);
+
+    private static void WriteSyncPreflight(CliOutput output, ProviderSyncPreflight preflight) =>
+        output.Write(
+            preflight,
+            [["Provider", preflight.Provider], ["Direction", preflight.Direction], ["Scope", preflight.Scope],
+             ["Configured", preflight.Configured.ToString()], ["Active", preflight.Active.ToString()],
+             ["Credential available", preflight.CredentialAvailable.ToString()],
+             ["Pending", preflight.Pending.Total.ToString(CultureInfo.InvariantCulture)]],
+            ["provider", "direction", "scope", "configured", "active", "credential_available",
+             "pending_completions", "pending_reopens", "pending_date_updates", "total_pending", "last_full_sync_at"],
+            [[preflight.Provider, preflight.Direction, preflight.Scope,
+              preflight.Configured.ToString().ToLowerInvariant(), preflight.Active.ToString().ToLowerInvariant(),
+              preflight.CredentialAvailable.ToString().ToLowerInvariant(),
+              preflight.Pending.Completions.ToString(CultureInfo.InvariantCulture),
+              preflight.Pending.Reopens.ToString(CultureInfo.InvariantCulture),
+              preflight.Pending.DateUpdates.ToString(CultureInfo.InvariantCulture),
+              preflight.Pending.Total.ToString(CultureInfo.InvariantCulture),
+              preflight.LastFullSyncAt?.ToString("O", CultureInfo.InvariantCulture) ?? ""]]);
 
     private static Command BuildStatusCommand(Option<string> format)
     {
@@ -317,18 +500,24 @@ internal static class OpenzaCli
         return parent;
     }
 
-    private static async Task<int> ExecuteAsync(ParseResult parseResult, Option<string> format, Func<CliContext, Task<int>> action, CancellationToken cancellationToken)
+    private static async Task<int> ExecuteAsync(
+        ParseResult parseResult,
+        Option<string> format,
+        Func<CliContext, Task<int>> action,
+        CancellationToken cancellationToken,
+        bool? readOnlyOverride = null)
     {
         var formatValue = parseResult.GetValue(format) ?? "text";
         try
         {
             var runtime = ResolveRuntime();
-            var readOnly = IsReadOnlyCommand(parseResult);
+            var readOnly = readOnlyOverride ?? IsReadOnlyCommand(parseResult);
             using var lease = ChannelRuntimeLease.AcquireShared(runtime);
             using var databaseLease = ChannelRuntimeLease.AcquireDatabaseRead(runtime);
-            var service = new TaskApplicationService(new SqliteTaskStore(runtime.DatabasePath, readOnly));
+            var store = new SqliteTaskStore(runtime.DatabasePath, readOnly);
+            var service = new TaskApplicationService(store);
             await service.InitializeAsync(cancellationToken);
-            return await action(new CliContext(runtime, service, new CliOutput(formatValue)));
+            return await action(new CliContext(runtime, store, service, new CliOutput(formatValue)));
         }
         catch (TaskConflictException exception) { WriteError(formatValue, Conflict, "conflict", exception.Message); return Conflict; }
         catch (ProviderLinkedTaskDeleteException exception) { WriteError(formatValue, OperationRestricted, "operation_restricted", exception.Message); return OperationRestricted; }
@@ -468,7 +657,7 @@ internal static class OpenzaCli
         }
     }
 
-    private sealed record CliContext(OpenzaRuntimeContext Runtime, TaskApplicationService Service, CliOutput Output);
+    private sealed record CliContext(OpenzaRuntimeContext Runtime, ITaskStore Store, TaskApplicationService Service, CliOutput Output);
     private sealed record ReferenceRow(string Id, string Name, string Detail);
     private sealed record TaskRow(
         string Id,
@@ -486,6 +675,15 @@ internal static class OpenzaCli
         bool IsRecurring,
         string? RecurrenceRule,
         long Revision);
+}
+
+internal sealed record CliDependencies(
+    Func<OpenzaRuntimeContext, ICredentialStore> CreateCredentialStore,
+    Func<string, string, ISyncProvider> CreateProvider)
+{
+    internal static CliDependencies Default { get; } = new(
+        runtime => new SecretToolCredentialStore(runtime.CredentialNamespace, runtime.DisplayName),
+        (token, connectionId) => new TodoistProvider(OpenzaCli.SyncHttpClientForDependencies, token, connectionId));
 }
 
 internal sealed class CliOutput(string format)

@@ -17,6 +17,8 @@ public sealed record OpenzaRuntimeContext
     public string RuntimeLockPath => Path.Combine(GetCoordinationLockDirectory(), $"{StableHash(Path.GetFullPath(DataDirectory))}.lock");
     public string DatabaseReplacementLockPath => Path.Combine(
         GetCoordinationLockDirectory(), $"{StableHash(Path.GetFullPath(DataDirectory))}.replacement.lock");
+    public string ProviderSyncLockPath(string provider) => Path.Combine(
+        GetCoordinationLockDirectory(), $"{StableHash($"{Path.GetFullPath(DataDirectory)}|sync|{provider}")}.lock");
     public string CredentialNamespace => Channel switch
     {
         OpenzaChannel.Production => "tasks",

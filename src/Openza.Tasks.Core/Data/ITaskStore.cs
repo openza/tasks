@@ -48,6 +48,7 @@ public interface ITaskStore
     Task SetTaskCompletionWithPendingUpdateAsync(string taskId, bool completed, PendingCompletion? completion, CancellationToken cancellationToken = default);
     Task QueueCompletionAsync(PendingCompletion completion, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<PendingCompletion>> GetPendingCompletionsAsync(string provider, CancellationToken cancellationToken = default);
+    Task<PendingProviderWriteSummary> GetPendingProviderWriteSummaryAsync(string provider, CancellationToken cancellationToken = default);
     Task MarkCompletionSyncedAsync(string completionId, CancellationToken cancellationToken = default);
     Task QueueTaskDateUpdateAsync(PendingTaskDateUpdate update, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<PendingTaskDateUpdate>> GetPendingTaskDateUpdatesAsync(string provider, CancellationToken cancellationToken = default);

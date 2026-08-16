@@ -63,6 +63,7 @@ configure_openza_cli_extraction_cache
 [[ "$DOTNET_BUNDLE_EXTRACT_BASE_DIR" == "$cache_test_root/tmp/openza-cli-$(id -u)" ]]
 [[ -w "$DOTNET_BUNDLE_EXTRACT_BASE_DIR" ]]
 grep -Fq 'Replaces: $package_name (<< 0.1.1)' "$script_dir/build-cli-deb.sh"
+grep -Fq 'Depends: libc6, libsecret-tools' "$script_dir/build-cli-deb.sh"
 ! grep -Fq 'Breaks: $package_name' "$script_dir/build-cli-deb.sh"
 ! grep -Fq '$cli_package_name (= $version)' "$script_dir/build-deb.sh"
 
