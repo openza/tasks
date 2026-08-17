@@ -33,6 +33,7 @@ public sealed class MainWindowViewModel : ObservableObject
     private readonly List<ProjectItem> _projects = [];
     private readonly List<LabelItem> _labels = [];
     private readonly Dictionary<string, int> _projectCounts = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _collapsedTaskGroups = new(StringComparer.Ordinal);
     private string _defaultSpaceId = SpaceIds.Default;
     private string? _currentSpaceId;
     private SpaceNavigationItemViewModel? _selectedSpace;
@@ -46,6 +47,7 @@ public sealed class MainWindowViewModel : ObservableObject
     private string _pageTitle = "Inbox";
     private string _pageSubtitle = "Capture first. Organize when it helps.";
     private string _statusMessage = "Ready";
+    private bool _isStatusMessagePersistent;
     private bool _isBusy;
     private string _detailTitle = string.Empty;
     private string _detailNotes = string.Empty;
@@ -154,7 +156,14 @@ public sealed class MainWindowViewModel : ObservableObject
     public SpaceNavigationItemViewModel? SelectedSpace
     {
         get => _selectedSpace;
-        set => SetProperty(ref _selectedSpace, value);
+        set
+        {
+            var contextChanged = !string.Equals(_selectedSpace?.SpaceId, value?.SpaceId, StringComparison.Ordinal);
+            if (SetProperty(ref _selectedSpace, value) && contextChanged)
+            {
+                _collapsedTaskGroups.Clear();
+            }
+        }
     }
 
     public NavigationItemViewModel? SelectedNavigation
@@ -162,8 +171,13 @@ public sealed class MainWindowViewModel : ObservableObject
         get => _selectedNavigation;
         set
         {
+            var contextChanged = _selectedNavigation?.Kind != value?.Kind;
             if (SetProperty(ref _selectedNavigation, value))
             {
+                if (contextChanged)
+                {
+                    _collapsedTaskGroups.Clear();
+                }
                 OnPropertyChanged(nameof(EmptyStateTitle));
                 OnPropertyChanged(nameof(EmptyStateMessage));
             }
@@ -175,8 +189,13 @@ public sealed class MainWindowViewModel : ObservableObject
         get => _selectedProject;
         set
         {
+            var contextChanged = !string.Equals(_selectedProject?.Project.Id, value?.Project.Id, StringComparison.Ordinal);
             if (SetProperty(ref _selectedProject, value))
             {
+                if (contextChanged)
+                {
+                    _collapsedTaskGroups.Clear();
+                }
                 OnPropertyChanged(nameof(HasSelectedProject));
             }
         }
@@ -205,7 +224,7 @@ public sealed class MainWindowViewModel : ObservableObject
     public bool HasNoSelectedTask => !HasSelectedTask;
     public string CompletionActionText => SelectedTask?.Task.IsCompleted == true ? "Reopen" : "Complete";
     public bool HasNoTasks => Tasks.Count == 0;
-    public string EmptyStateTitle => SelectedNavigation?.Kind switch
+    public string EmptyStateTitle => HasActiveListFilters ? "No matching tasks" : SelectedNavigation?.Kind switch
     {
         TaskListKind.Inbox => "Inbox is clear",
         TaskListKind.Today => "Nothing for today",
@@ -216,7 +235,9 @@ public sealed class MainWindowViewModel : ObservableObject
         TaskListKind.Completed => "No completed tasks yet",
         _ => "Nothing here",
     };
-    public string EmptyStateMessage => SelectedNavigation?.Kind switch
+    public string EmptyStateMessage => HasActiveListFilters
+        ? "Change or clear your search and filters to see more tasks."
+        : SelectedNavigation?.Kind switch
     {
         TaskListKind.Inbox when HasConnectedTasks => "Clarify captured tasks here, or review tasks waiting from connected apps.",
         TaskListKind.Inbox => "Capture anything on your mind here. Clarify it later when you are ready.",
@@ -229,6 +250,7 @@ public sealed class MainWindowViewModel : ObservableObject
         TaskListKind.Completed => "Completed tasks will appear here.",
         _ => "Create a task to start filling this list.",
     };
+    public string EmptyStateActionText => HasActiveListFilters ? "Clear filters" : "Add task";
     public string DatabasePath => (_store as SqliteTaskStore)?.DatabasePath ?? "Custom data store";
     public bool HasNoConnectedTasks => FilteredConnectedTasks.Count == 0;
     public int ConnectedTaskCount => _allConnectedTasks.Count;
@@ -346,13 +368,25 @@ public sealed class MainWindowViewModel : ObservableObject
     public int PriorityFilterIndex
     {
         get => _priorityFilterIndex;
-        set => SetProperty(ref _priorityFilterIndex, value);
+        set
+        {
+            if (SetProperty(ref _priorityFilterIndex, value))
+            {
+                NotifyListFilterStateChanged();
+            }
+        }
     }
 
     public int RepeatFilterIndex
     {
         get => _repeatFilterIndex;
-        set => SetProperty(ref _repeatFilterIndex, value);
+        set
+        {
+            if (SetProperty(ref _repeatFilterIndex, value))
+            {
+                NotifyListFilterStateChanged();
+            }
+        }
     }
 
     public int GroupIndex
@@ -362,6 +396,7 @@ public sealed class MainWindowViewModel : ObservableObject
         {
             if (SetProperty(ref _groupIndex, value))
             {
+                _collapsedTaskGroups.Clear();
                 OnPropertyChanged(nameof(GroupSummary));
             }
         }
@@ -384,7 +419,64 @@ public sealed class MainWindowViewModel : ObservableObject
     public LabelOptionViewModel? SelectedLabelFilter
     {
         get => _selectedLabelFilter;
-        set => SetProperty(ref _selectedLabelFilter, value);
+        set
+        {
+            if (SetProperty(ref _selectedLabelFilter, value))
+            {
+                NotifyListFilterStateChanged();
+            }
+        }
+    }
+
+    public bool HasPriorityFilter => PriorityFilterIndex > 0;
+
+    public bool HasRepeatFilter => RepeatFilterIndex > 0;
+
+    public bool HasLabelFilter => SelectedLabelFilter?.LabelId is not null;
+
+    public bool HasActiveOptionFilters => ActiveOptionFilterCount > 0;
+
+    public bool HasActiveListFilters => !string.IsNullOrWhiteSpace(SearchText) || HasActiveOptionFilters;
+
+    public string FilterSummary => ActiveOptionFilterCount == 0 ? "Filters" : $"Filters ({ActiveOptionFilterCount})";
+
+    public string FilterAutomationName => ActiveOptionFilterCount == 0
+        ? "Filters"
+        : $"Filters, {ActiveOptionFilterCount} active";
+
+    public string PriorityFilterChipText => $"Priority: {PriorityFilterIndex switch
+    {
+        1 => "Urgent",
+        2 => "High",
+        3 => "Normal",
+        4 => "Low",
+        _ => "All",
+    }}  ×";
+
+    public string RepeatFilterChipText => $"Repeating: {(RepeatFilterIndex == 1 ? "Exclude" : "Only")}  ×";
+
+    public string LabelFilterChipText => $"Label: {SelectedLabelFilter?.Title ?? "Label"}  ×";
+
+    private int ActiveOptionFilterCount =>
+        (HasPriorityFilter ? 1 : 0) +
+        (HasRepeatFilter ? 1 : 0) +
+        (HasLabelFilter ? 1 : 0);
+
+    private void NotifyListFilterStateChanged()
+    {
+        OnPropertyChanged(nameof(HasPriorityFilter));
+        OnPropertyChanged(nameof(HasRepeatFilter));
+        OnPropertyChanged(nameof(HasLabelFilter));
+        OnPropertyChanged(nameof(HasActiveOptionFilters));
+        OnPropertyChanged(nameof(HasActiveListFilters));
+        OnPropertyChanged(nameof(FilterSummary));
+        OnPropertyChanged(nameof(FilterAutomationName));
+        OnPropertyChanged(nameof(PriorityFilterChipText));
+        OnPropertyChanged(nameof(RepeatFilterChipText));
+        OnPropertyChanged(nameof(LabelFilterChipText));
+        OnPropertyChanged(nameof(EmptyStateTitle));
+        OnPropertyChanged(nameof(EmptyStateMessage));
+        OnPropertyChanged(nameof(EmptyStateActionText));
     }
 
     public string QuickAddTitle
@@ -396,7 +488,16 @@ public sealed class MainWindowViewModel : ObservableObject
     public string SearchText
     {
         get => _searchText;
-        set => SetProperty(ref _searchText, value);
+        set
+        {
+            if (SetProperty(ref _searchText, value))
+            {
+                OnPropertyChanged(nameof(HasActiveListFilters));
+                OnPropertyChanged(nameof(EmptyStateTitle));
+                OnPropertyChanged(nameof(EmptyStateMessage));
+                OnPropertyChanged(nameof(EmptyStateActionText));
+            }
+        }
     }
 
     public string ProjectSearchText
@@ -426,7 +527,17 @@ public sealed class MainWindowViewModel : ObservableObject
     public string StatusMessage
     {
         get => _statusMessage;
-        private set => SetProperty(ref _statusMessage, value);
+        private set
+        {
+            IsStatusMessagePersistent = false;
+            SetProperty(ref _statusMessage, value);
+        }
+    }
+
+    public bool IsStatusMessagePersistent
+    {
+        get => _isStatusMessagePersistent;
+        private set => SetProperty(ref _isStatusMessagePersistent, value);
     }
 
     public bool IsBusy
@@ -821,6 +932,21 @@ public sealed class MainWindowViewModel : ObservableObject
     public Task ApplySearchAsync() => RefreshAsync();
 
     public Task ApplyListOptionsAsync() => RefreshAsync();
+
+    public void ToggleTaskGroup(string groupKey)
+    {
+        if (string.IsNullOrWhiteSpace(groupKey))
+        {
+            return;
+        }
+
+        if (!_collapsedTaskGroups.Add(groupKey))
+        {
+            _collapsedTaskGroups.Remove(groupKey);
+        }
+
+        BuildTaskEntries(_projects);
+    }
 
     public void ApplyProjectFilter() => RebuildProjectItems();
 
@@ -1386,7 +1512,7 @@ public sealed class MainWindowViewModel : ObservableObject
             var summary = await _syncEngine.SyncAsync(new TodoistProvider(_httpClient, token));
             if (!summary.Success)
             {
-                StatusMessage = $"Todoist sync failed: {summary.Error}";
+                SetPersistentStatusMessage($"Todoist sync failed: {summary.Error}");
                 return;
             }
 
@@ -1441,12 +1567,16 @@ public sealed class MainWindowViewModel : ObservableObject
             else
             {
                 var filing = await TryApplyTodoistPostImportFilingAsync(item.Source);
-                StatusMessage = filing switch
+                if (filing.Error.Length > 0)
                 {
-                    { Applied: true } => "Task added to Openza and filed in Todoist",
-                    { Error.Length: > 0 } => $"Task added to Openza, but Todoist filing failed: {filing.Error}",
-                    _ => "Task added to Openza",
-                };
+                    SetPersistentStatusMessage($"Task added to Openza, but Todoist filing failed: {filing.Error}");
+                }
+                else
+                {
+                    StatusMessage = filing.Applied
+                        ? "Task added to Openza and filed in Todoist"
+                        : "Task added to Openza";
+                }
             }
             await LoadConnectedTasksCoreAsync();
             await RefreshAsyncCore(task?.Id);
@@ -1488,10 +1618,21 @@ public sealed class MainWindowViewModel : ObservableObject
 
             await LoadConnectedTasksCoreAsync();
             await RefreshAsyncCore(lastTaskId);
-            StatusMessage = filingFailureCount > 0
-                ? $"Added {adoptedCount} tasks to Openza; {filingFailureCount} Todoist filing actions failed."
-                : $"Added {adoptedCount} tasks to Openza";
+            if (filingFailureCount > 0)
+            {
+                SetPersistentStatusMessage($"Added {adoptedCount} tasks to Openza; {filingFailureCount} Todoist filing actions failed.");
+            }
+            else
+            {
+                StatusMessage = $"Added {adoptedCount} tasks to Openza";
+            }
         });
+    }
+
+    public void DismissStatusMessage()
+    {
+        IsStatusMessagePersistent = false;
+        StatusMessage = string.Empty;
     }
 
     private async Task<TodoistFilingResult> TryApplyTodoistPostImportFilingAsync(ProviderSourceItem source)
@@ -1781,13 +1922,14 @@ public sealed class MainWindowViewModel : ObservableObject
             plannedOn is null ? "Task date cleared" : "Task date changed");
 
     public Task SetTaskStatusFromRowAsync(TaskListItemViewModel item, TaskItemStatus status) =>
-        UpdateTaskFromRowAsync(
+        item.Task.IsCompleted
+            ? Task.CompletedTask
+            : UpdateTaskFromRowAsync(
             item,
             new UpdateTaskRequest
             {
                 TaskId = item.Task.Id,
                 Status = OptionalValue<TaskWorkflowStatus>.Set(status.ToWorkflowStatus()),
-                Completed = OptionalValue<bool>.Set(false),
             },
             "Task status changed");
 
@@ -1855,7 +1997,7 @@ public sealed class MainWindowViewModel : ObservableObject
             await _taskService.DeleteTaskAsync(current.Id, current.Revision);
             StatusMessage = "Task deleted";
             await RefreshAsyncCore(string.Equals(selectedId, current.Id, StringComparison.Ordinal) ? null : selectedId);
-        }, rethrow: true);
+        }, rethrow: true, reportError: false);
     }
 
     private async Task UpdateTaskFromRowAsync(TaskListItemViewModel item, UpdateTaskRequest request, string statusMessage)
@@ -1973,7 +2115,7 @@ public sealed class MainWindowViewModel : ObservableObject
             await _taskService.DeleteTaskAsync(taskId, revision);
             StatusMessage = "Task deleted";
             await RefreshAsyncCore();
-        }, rethrow: true);
+        }, rethrow: true, reportError: false);
     }
 
     public async Task MoveSelectedTaskToSpaceAsync(SpaceNavigationItemViewModel targetSpace)
@@ -2868,7 +3010,13 @@ public sealed class MainWindowViewModel : ObservableObject
 
         foreach (var group in groups.Values.OrderBy(group => group.Assignment.SortKey, StringComparer.Ordinal).ThenBy(group => group.Assignment.Title, StringComparer.CurrentCultureIgnoreCase))
         {
-            TaskEntries.Add(TaskListEntryViewModel.Header(group.Assignment.Title, group.Tasks.Count));
+            var isExpanded = !_collapsedTaskGroups.Contains(group.Assignment.Key);
+            TaskEntries.Add(TaskListEntryViewModel.Header(group.Assignment.Key, group.Assignment.Title, group.Tasks.Count, isExpanded));
+            if (!isExpanded)
+            {
+                continue;
+            }
+
             foreach (var task in group.Tasks)
             {
                 TaskEntries.Add(TaskListEntryViewModel.Item(task));
@@ -2907,7 +3055,7 @@ public sealed class MainWindowViewModel : ObservableObject
         return new DateTimeOffset(value, TimeZoneInfo.Local.GetUtcOffset(value));
     }
 
-    private async Task<bool> RunBusyAsync(Func<Task> action, bool rethrow = false)
+    private async Task<bool> RunBusyAsync(Func<Task> action, bool rethrow = false, bool reportError = true)
     {
         await _operationGate.WaitAsync();
         IsBusy = true;
@@ -2918,7 +3066,10 @@ public sealed class MainWindowViewModel : ObservableObject
         }
         catch (Exception exception)
         {
-            StatusMessage = $"Could not complete that action: {exception.Message}";
+            if (reportError)
+            {
+                SetPersistentStatusMessage($"Could not complete that action: {exception.Message}");
+            }
             if (rethrow)
             {
                 throw;
@@ -2934,4 +3085,10 @@ public sealed class MainWindowViewModel : ObservableObject
 
     private static string? NullIfEmpty(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private void SetPersistentStatusMessage(string message)
+    {
+        StatusMessage = message;
+        IsStatusMessagePersistent = true;
+    }
 }

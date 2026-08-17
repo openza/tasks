@@ -232,6 +232,9 @@
                             <TextBlock Classes="page-title" Text="{Binding PageTitle}" />
                             <TextBlock Grid.Row="1" Classes="metadata" Margin="2,4,0,0" Text="{Binding PageSubtitle}" />
                             <StackPanel Grid.Column="1" Grid.RowSpan="2" VerticalAlignment="Center" Orientation="Horizontal" Spacing="4">
+                                <Button x:Name="ProjectsCommand" Padding="12,8" Classes="command" Click="OnProjectsCommandClicked" IsVisible="False">
+                                    <StackPanel Orientation="Horizontal" Spacing="8"><ic:FluentIcon Icon="Folder" FontSize="18" /><TextBlock Text="Projects" /></StackPanel>
+                                </Button>
                                 <Button x:Name="ConnectedTasksCommand" Padding="12,8" Classes="command" Click="OnConnectedTasksClicked" IsVisible="False">
                                     <StackPanel Orientation="Horizontal" Spacing="8"><ic:FluentIcon Icon="ArrowSync" FontSize="18" /><TextBlock Text="Review" /></StackPanel>
                                 </Button>
@@ -247,21 +250,24 @@
                             </StackPanel>
                         </Grid>
 
-                        <Grid Grid.Row="1" Margin="32,24,32,12" ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                        <Grid x:Name="TaskFilterGrid" Grid.Row="1" Margin="28,24,28,12" ColumnDefinitions="Auto,Auto,*" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="10">
                             <TextBox
                                 x:Name="SearchBox"
+                                Width="460"
                                 Height="42"
-                                MinWidth="240"
+                                MinWidth="280"
+                                HorizontalAlignment="Left"
                                 AutomationProperties.Name="Search tasks"
                                 PlaceholderText="Search tasks"
                                 Text="{Binding SearchText, Mode=TwoWay}"
+                                TextChanged="OnTaskSearchTextChanged"
                                 KeyDown="OnSearchKeyDown" />
-                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10">
-                                <Button MinWidth="162" Height="42" Padding="14,0">
-                                    <StackPanel Orientation="Horizontal" Spacing="8">
-                                        <ic:FluentIcon Icon="ArrowSort" FontSize="17" />
-                                        <TextBlock Text="{Binding SortSummary}" />
-                                    </StackPanel>
+                            <StackPanel x:Name="TaskFilterCommands" Grid.Column="1" Orientation="Horizontal" Spacing="10">
+                                <Button MinWidth="132" Height="42" Padding="14,0" Classes="list-command">
+                                    <Grid ColumnDefinitions="Auto,Auto" ColumnSpacing="8" VerticalAlignment="Center">
+                                        <ic:FluentIcon VerticalAlignment="Center" Icon="ArrowSort" FontSize="17" />
+                                        <TextBlock Grid.Column="1" VerticalAlignment="Center" Text="{Binding SortSummary}" />
+                                    </Grid>
                                     <Button.Flyout>
                                         <MenuFlyout Placement="BottomEdgeAlignedLeft">
                                             <MenuItem Header="Priority" Tag="0" Click="OnSortMenuItemClicked" />
@@ -275,11 +281,11 @@
                                         </MenuFlyout>
                                     </Button.Flyout>
                                 </Button>
-                                <Button MinWidth="152" Height="42" Padding="14,0">
-                                    <StackPanel Orientation="Horizontal" Spacing="8">
-                                        <ic:FluentIcon Icon="GroupList" FontSize="17" />
-                                        <TextBlock Text="{Binding GroupSummary}" />
-                                    </StackPanel>
+                                <Button MinWidth="132" Height="42" Padding="14,0" Classes="list-command">
+                                    <Grid ColumnDefinitions="Auto,Auto" ColumnSpacing="8" VerticalAlignment="Center">
+                                        <ic:FluentIcon VerticalAlignment="Center" Icon="GroupList" FontSize="17" />
+                                        <TextBlock Grid.Column="1" VerticalAlignment="Center" Text="{Binding GroupSummary}" />
+                                    </Grid>
                                     <Button.Flyout>
                                         <MenuFlyout Placement="BottomEdgeAlignedLeft">
                                             <MenuItem Header="None" Tag="0" Click="OnGroupMenuItemClicked" />
@@ -295,19 +301,26 @@
                                         </MenuFlyout>
                                     </Button.Flyout>
                                 </Button>
-                                <Button Height="42" Padding="16,0" Classes="filter-command">
-                                    <StackPanel Orientation="Horizontal" Spacing="8"><ic:FluentIcon Icon="Filter" FontSize="18" /><TextBlock Text="Filters" /></StackPanel>
+                                <Button MinWidth="104" Height="42" Padding="14,0" Classes="list-command" AutomationProperties.Name="{Binding FilterAutomationName}">
+                                    <Grid ColumnDefinitions="Auto,Auto" ColumnSpacing="8" VerticalAlignment="Center"><ic:FluentIcon VerticalAlignment="Center" Icon="Filter" FontSize="18" /><TextBlock Grid.Column="1" VerticalAlignment="Center" Text="{Binding FilterSummary}" /></Grid>
                                     <Button.Flyout>
                                         <Flyout Placement="BottomEdgeAlignedLeft">
                                             <StackPanel Width="260" Margin="4" Spacing="12">
                                                 <TextBlock FontSize="16" FontWeight="SemiBold" Text="Filters" />
-                                                <ComboBox SelectedIndex="{Binding PriorityFilterIndex, Mode=TwoWay}" SelectionChanged="OnListOptionsChanged"><ComboBoxItem Content="All priorities"/><ComboBoxItem Content="Highest"/><ComboBoxItem Content="High"/><ComboBoxItem Content="Normal"/><ComboBoxItem Content="Low"/></ComboBox>
+                                                <ComboBox SelectedIndex="{Binding PriorityFilterIndex, Mode=TwoWay}" SelectionChanged="OnListOptionsChanged"><ComboBoxItem Content="All priorities"/><ComboBoxItem Content="Urgent"/><ComboBoxItem Content="High"/><ComboBoxItem Content="Normal"/><ComboBoxItem Content="Low"/></ComboBox>
                                                 <ComboBox SelectedIndex="{Binding RepeatFilterIndex, Mode=TwoWay}" SelectionChanged="OnListOptionsChanged"><ComboBoxItem Content="Include repeating"/><ComboBoxItem Content="Exclude repeating"/><ComboBoxItem Content="Only repeating"/></ComboBox>
                                                 <ComboBox ItemsSource="{Binding LabelFilterOptions}" SelectedItem="{Binding SelectedLabelFilter, Mode=TwoWay}" SelectionChanged="OnListOptionsChanged"><ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Title}"/></DataTemplate></ComboBox.ItemTemplate></ComboBox>
+                                                <Button HorizontalAlignment="Stretch" IsVisible="{Binding HasActiveOptionFilters}" Click="OnClearAllFiltersClicked" Content="Reset filters" />
                                             </StackPanel>
                                         </Flyout>
                                     </Button.Flyout>
                                 </Button>
+                            </StackPanel>
+                            <StackPanel x:Name="ActiveFiltersPanel" Grid.Row="2" Grid.ColumnSpan="3" Orientation="Horizontal" Spacing="8" IsVisible="{Binding HasActiveOptionFilters}">
+                                <Button MinHeight="30" Padding="10,2" Classes="list-command" IsVisible="{Binding HasPriorityFilter}" Content="{Binding PriorityFilterChipText}" Click="OnClearPriorityFilterClicked" />
+                                <Button MinHeight="30" Padding="10,2" Classes="list-command" IsVisible="{Binding HasRepeatFilter}" Content="{Binding RepeatFilterChipText}" Click="OnClearRepeatFilterClicked" />
+                                <Button MinHeight="30" Padding="10,2" Classes="list-command" IsVisible="{Binding HasLabelFilter}" Content="{Binding LabelFilterChipText}" Click="OnClearLabelFilterClicked" />
+                                <Button MinHeight="30" Padding="10,2" Classes="command" Content="Clear all" Click="OnClearAllFiltersClicked" />
                             </StackPanel>
                         </Grid>
 
@@ -332,25 +345,26 @@
                                 <ListBox.ItemTemplate>
                                     <DataTemplate>
                                         <Grid>
-                                            <Border Margin="0,14,0,7" Padding="10,6" Background="{DynamicResource OpenzaChipBackgroundBrush}" BorderBrush="{DynamicResource OpenzaSeparatorBrush}" BorderThickness="1" CornerRadius="{DynamicResource OpenzaControlCornerRadius}" IsVisible="{Binding IsHeader}">
-                                                <Grid ColumnDefinitions="*,Auto">
-                                                    <TextBlock FontSize="14" FontWeight="SemiBold" Text="{Binding GroupTitle}" />
-                                                    <TextBlock Grid.Column="1" Classes="metadata" Text="{Binding GroupCount}" />
+                                            <Button Margin="0,14,0,7" Padding="10,6" HorizontalContentAlignment="Stretch" Background="{DynamicResource OpenzaChipBackgroundBrush}" BorderBrush="{DynamicResource OpenzaSeparatorBrush}" BorderThickness="1" CornerRadius="{DynamicResource OpenzaControlCornerRadius}" IsVisible="{Binding IsHeader}" AutomationProperties.Name="{Binding GroupTitle}" Click="OnTaskGroupHeaderClicked">
+                                                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+                                                    <TextBlock VerticalAlignment="Center" FontSize="13" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{Binding GroupExpandGlyph}" />
+                                                    <TextBlock Grid.Column="1" FontSize="14" FontWeight="SemiBold" Text="{Binding GroupTitle}" />
+                                                    <TextBlock Grid.Column="2" Classes="metadata" Text="{Binding GroupCount}" />
                                                 </Grid>
-                                            </Border>
+                                            </Button>
                                             <Border Classes="task-row" MinHeight="64" Padding="10,9" Background="Transparent" BorderBrush="{DynamicResource OpenzaSeparatorBrush}" BorderThickness="0,0,0,1" CornerRadius="{DynamicResource OpenzaRowCornerRadius}" IsVisible="{Binding IsTask}" Tapped="OnTaskRowTapped" PointerEntered="OnInteractiveSurfacePointerEntered" PointerExited="OnInteractiveSurfacePointerExited" PointerPressed="OnInteractiveSurfacePointerPressed" PointerReleased="OnInteractiveSurfacePointerReleased">
                                                 <Grid ColumnDefinitions="36,*,Auto" ColumnSpacing="12">
-                                                    <CheckBox Width="24" Height="24" VerticalAlignment="Top" AutomationProperties.Name="{Binding Task.Title, StringFormat='Complete {0}'}" IsChecked="{Binding Task.IsCompleted}" Click="OnTaskCompletionClicked" />
+                                                    <CheckBox Width="24" Height="24" VerticalAlignment="Top" AutomationProperties.Name="{Binding Task.Title, StringFormat='Complete {0}'}" IsChecked="{Binding Task.IsCompleted, Mode=OneWay}" Click="OnTaskCompletionClicked" />
                                                     <StackPanel Grid.Column="1" Spacing="5">
-                                                        <TextBlock FontSize="14" FontWeight="SemiBold" Text="{Binding Task.Title}" TextWrapping="Wrap" />
-                                                        <TextBlock Classes="metadata" Text="{Binding Task.MetadataText}" TextWrapping="Wrap" />
+                                                        <SelectableTextBlock FontSize="14" FontWeight="SemiBold" MaxLines="3" Text="{Binding Task.Title}" TextWrapping="Wrap" TextTrimming="CharacterEllipsis" />
+                                                        <SelectableTextBlock Classes="metadata" MaxLines="1" Text="{Binding Task.MetadataText}" TextTrimming="CharacterEllipsis" />
                                                     </StackPanel>
                                                     <Grid Grid.Column="2" HorizontalAlignment="Right" VerticalAlignment="Center">
                                                         <Border Classes="priority-chip" Padding="9,4" Background="{DynamicResource OpenzaChipBackgroundBrush}" CornerRadius="12" IsVisible="{Binding Task.HasPriority}">
                                                             <TextBlock Classes="metadata" Foreground="{DynamicResource OpenzaChipForegroundBrush}" Text="{Binding Task.PriorityText}" />
                                                         </Border>
-                                                        <StackPanel Classes="quick-actions" Orientation="Horizontal" Spacing="2">
-                                                            <Button Classes="row-action" AutomationProperties.Name="{Binding Task.Title, StringFormat='Change date for {0}'}" Content="Date" ToolTip.Tip="Change date">
+                                                        <StackPanel Width="260" Classes="quick-actions" Orientation="Horizontal" Spacing="4">
+                                                            <Button Classes="row-action" AutomationProperties.Name="{Binding Task.Title, StringFormat='Change date for {0}'}" ToolTip.Tip="Change date">
                                                                 <Button.Flyout>
                                                                     <Flyout Placement="Bottom">
                                                                         <StackPanel Width="270" Spacing="8">
@@ -359,8 +373,15 @@
                                                                         </StackPanel>
                                                                     </Flyout>
                                                                 </Button.Flyout>
+                                                                <ic:FluentIcon Icon="Calendar" FontSize="16" />
                                                             </Button>
-                                                            <Button Classes="row-action" AutomationProperties.Name="{Binding Task.Title, StringFormat='Change status for {0}'}" Content="Status" ToolTip.Tip="Change status">
+                                                            <Button Classes="row-action" AutomationProperties.Name="{Binding Task.Title, StringFormat='Change project for {0}'}" Click="OnRowProjectButtonClicked" ToolTip.Tip="Change project">
+                                                                <ic:FluentIcon Icon="FolderOpen" FontSize="16" />
+                                                            </Button>
+                                                            <Button Classes="row-action" AutomationProperties.Name="{Binding Task.Title, StringFormat='Change labels for {0}'}" Click="OnRowLabelsButtonClicked" ToolTip.Tip="Change labels">
+                                                                <ic:FluentIcon Icon="TagEdit" FontSize="16" />
+                                                            </Button>
+                                                            <Button Classes="row-action" AutomationProperties.Name="{Binding Task.Title, StringFormat='Change status for {0}'}" ToolTip.Tip="Change status">
                                                                 <Button.Flyout>
                                                                     <MenuFlyout Placement="Bottom">
                                                                         <MenuItem Header="Inbox" Tag="0" Click="OnRowStatusClicked"/>
@@ -369,8 +390,9 @@
                                                                         <MenuItem Header="Someday" Tag="3" Click="OnRowStatusClicked"/>
                                                                     </MenuFlyout>
                                                                 </Button.Flyout>
+                                                                <ic:FluentIcon Icon="TaskListSquare" FontSize="16" />
                                                             </Button>
-                                                            <Button Classes="row-action" AutomationProperties.Name="{Binding Task.Title, StringFormat='Change priority for {0}'}" Content="Priority" ToolTip.Tip="Change priority">
+                                                            <Button Classes="row-action" AutomationProperties.Name="{Binding Task.Title, StringFormat='Change priority for {0}'}" ToolTip.Tip="Change priority">
                                                                 <Button.Flyout>
                                                                     <MenuFlyout Placement="Bottom">
                                                                         <MenuItem Header="Urgent" Tag="1" Click="OnRowPriorityClicked"/>
@@ -379,17 +401,14 @@
                                                                         <MenuItem Header="Low" Tag="4" Click="OnRowPriorityClicked"/>
                                                                     </MenuFlyout>
                                                                 </Button.Flyout>
+                                                                <ic:FluentIcon Icon="Flag" FontSize="16" />
                                                             </Button>
-                                                            <Button Classes="row-action" AutomationProperties.Name="{Binding Task.Title, StringFormat='More actions for {0}'}" Content="More" ToolTip.Tip="More actions">
-                                                                <Button.Flyout>
-                                                                    <MenuFlyout Placement="Bottom">
-                                                                        <MenuItem Header="Change project" Click="OnRowProjectClicked"/>
-                                                                        <MenuItem Header="Change labels" Click="OnRowLabelsClicked"/>
-                                                                        <MenuItem Header="Move to Space" Click="OnRowMoveSpaceClicked"/>
-                                                                    </MenuFlyout>
-                                                                </Button.Flyout>
+                                                            <Button Classes="row-action" AutomationProperties.Name="{Binding Task.Title, StringFormat='Move {0} to another Space'}" Click="OnRowMoveSpaceButtonClicked" ToolTip.Tip="Move to Space">
+                                                                <ic:FluentIcon Icon="FolderArrowRight" FontSize="16" />
                                                             </Button>
-                                                            <Button Classes="row-action" AutomationProperties.Name="{Binding Task.Title, StringFormat='Delete {0}'}" Click="OnRowDeleteClicked" Content="Delete" ToolTip.Tip="Delete task"/>
+                                                            <Button Classes="row-action" AutomationProperties.Name="{Binding Task.Title, StringFormat='Delete {0}'}" Click="OnRowDeleteClicked" ToolTip.Tip="Delete task">
+                                                                <ic:FluentIcon Icon="DeleteDismiss" FontSize="16" />
+                                                            </Button>
                                                         </StackPanel>
                                                     </Grid>
                                                 </Grid>
@@ -403,7 +422,7 @@
                                 <ic:FluentIcon HorizontalAlignment="Center" Icon="CheckmarkCircle" FontSize="38" Foreground="{DynamicResource TextFillColorTertiaryBrush}" />
                                 <TextBlock HorizontalAlignment="Center" FontSize="24" FontWeight="SemiBold" Text="{Binding EmptyStateTitle}" />
                                 <TextBlock MaxWidth="460" HorizontalAlignment="Center" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{Binding EmptyStateMessage}" TextAlignment="Center" TextWrapping="Wrap" />
-                                <Button HorizontalAlignment="Center" Margin="0,6,0,0" Click="OnAddTaskClicked" Content="Add task" />
+                                <Button HorizontalAlignment="Center" Margin="0,6,0,0" Click="OnEmptyStateActionClicked" Content="{Binding EmptyStateActionText}" />
                             </StackPanel>
                         </Grid>
                     </Grid>
@@ -413,12 +432,12 @@
                         <Grid RowDefinitions="Auto,*,Auto">
                             <Border Padding="26,22" BorderBrush="{DynamicResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,0,1">
                                 <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="16">
-                                    <CheckBox Width="26" Height="26" VerticalAlignment="Center" AutomationProperties.Name="Complete task" IsChecked="{Binding SelectedTask.IsCompleted}" Click="OnToggleCompletionClicked" />
+                                    <CheckBox Width="26" Height="26" VerticalAlignment="Center" AutomationProperties.Name="Complete task" IsChecked="{Binding SelectedTask.IsCompleted, Mode=OneWay}" Click="OnToggleCompletionClicked" />
                                     <StackPanel Grid.Column="1" Spacing="4">
                                         <TextBox Padding="0" Background="Transparent" BorderThickness="0" FontSize="22" FontWeight="SemiBold" AutomationProperties.Name="Task title" Text="{Binding DetailTitle, Mode=TwoWay}" TextWrapping="Wrap" LostFocus="OnDetailEditorLostFocus" />
                                         <TextBlock FontSize="13" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{Binding SelectedTask.SourceText}" />
                                     </StackPanel>
-                                    <Button Grid.Column="2" Width="42" Height="42" Padding="0" AutomationProperties.Name="Close task details" Click="OnCloseDetailsClicked" ToolTip.Tip="Close details"><ic:FluentIcon Icon="DismissCircle" FontSize="20" /></Button>
+                                    <Button Grid.Column="2" Width="42" Height="42" Padding="0" AutomationProperties.Name="Close task details" Classes="quiet" Click="OnCloseDetailsClicked" ToolTip.Tip="Close details"><ic:FluentIcon Icon="DismissCircle" FontSize="20" /></Button>
                                 </Grid>
                             </Border>
                             <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
@@ -492,7 +511,7 @@
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate>
                                                     <Grid Margin="2,3" ColumnDefinitions="Auto,*" ColumnSpacing="9">
-                                                        <CheckBox VerticalAlignment="Top" AutomationProperties.Name="{Binding Title, StringFormat='Complete {0}'}" IsChecked="{Binding IsCompleted}" Click="OnSubtaskCompletionClicked"/>
+                                                        <CheckBox VerticalAlignment="Top" AutomationProperties.Name="{Binding Title, StringFormat='Complete {0}'}" IsChecked="{Binding IsCompleted, Mode=OneWay}" Click="OnSubtaskCompletionClicked"/>
                                                         <StackPanel Grid.Column="1" Spacing="2">
                                                             <TextBlock Text="{Binding Title}" TextWrapping="Wrap"/>
                                                             <TextBlock FontSize="12" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{Binding MetadataText}" TextTrimming="CharacterEllipsis"/>
@@ -681,10 +700,12 @@
                 </StackPanel>
             </ScrollViewer>
 
-            <Border x:Name="StatusOverlay" Grid.ColumnSpan="2" Margin="12" Padding="12,8" HorizontalAlignment="Right" VerticalAlignment="Bottom" Background="{DynamicResource OpenzaElevatedSurfaceBrush}" BorderBrush="{DynamicResource OpenzaBorderBrush}" BorderThickness="1" CornerRadius="6" IsVisible="False">
+            <Border x:Name="StatusOverlay" Grid.ColumnSpan="2" MinWidth="320" MaxWidth="560" Margin="20,16" Padding="12,8" HorizontalAlignment="Right" VerticalAlignment="Top" Background="{DynamicResource OpenzaElevatedSurfaceBrush}" BorderBrush="{DynamicResource OpenzaBorderBrush}" BorderThickness="1" CornerRadius="6" IsVisible="False">
                 <StackPanel Orientation="Horizontal" Spacing="10">
                     <ProgressBar Width="72" Height="4" VerticalAlignment="Center" IsIndeterminate="True" IsVisible="{Binding IsBusy}"/>
-                    <TextBlock MaxWidth="520" VerticalAlignment="Center" FontSize="12" Text="{Binding StatusMessage}" TextTrimming="CharacterEllipsis"/>
+                    <ic:FluentIcon Icon="Warning" FontSize="17" IsVisible="{Binding IsStatusMessagePersistent}" />
+                    <TextBlock MaxWidth="460" VerticalAlignment="Center" FontSize="12" Text="{Binding StatusMessage}" TextWrapping="Wrap"/>
+                    <Button Width="28" Height="28" Padding="0" Classes="quiet" Click="OnDismissStatusClicked" IsVisible="{Binding IsStatusMessagePersistent}" ToolTip.Tip="Dismiss"><ic:FluentIcon Icon="DismissCircle" FontSize="15" /></Button>
                 </StackPanel>
             </Border>
         </Grid>

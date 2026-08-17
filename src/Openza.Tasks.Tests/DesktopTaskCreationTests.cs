@@ -70,6 +70,38 @@ public sealed class DesktopTaskCreationTests : IDisposable
     }
 
     [Fact]
+    public void List_filter_summary_and_chips_follow_the_active_filters()
+    {
+        var viewModel = new MainWindowViewModel(
+            new SqliteTaskStore(Path.Combine(_directory, "filters.db")),
+            new InMemoryCredentialStore());
+
+        Assert.Equal("Filters", viewModel.FilterSummary);
+        Assert.False(viewModel.HasActiveOptionFilters);
+
+        viewModel.PriorityFilterIndex = 2;
+        viewModel.RepeatFilterIndex = 1;
+        viewModel.SelectedLabelFilter = new LabelOptionViewModel(new LabelItem
+        {
+            Id = "label-work",
+            Name = "Work",
+        });
+
+        Assert.Equal("Filters (3)", viewModel.FilterSummary);
+        Assert.Equal("Filters, 3 active", viewModel.FilterAutomationName);
+        Assert.Equal("Priority: High  ×", viewModel.PriorityFilterChipText);
+        Assert.Equal("Repeating: Exclude  ×", viewModel.RepeatFilterChipText);
+        Assert.Equal("Label: Work  ×", viewModel.LabelFilterChipText);
+        Assert.True(viewModel.HasActiveOptionFilters);
+
+        viewModel.SearchText = "missing";
+
+        Assert.True(viewModel.HasActiveListFilters);
+        Assert.Equal("No matching tasks", viewModel.EmptyStateTitle);
+        Assert.Equal("Clear filters", viewModel.EmptyStateActionText);
+    }
+
+    [Fact]
     public void Task_row_metadata_uses_the_calm_WinUI_information_hierarchy()
     {
         var task = CreateTask("metadata", "Metadata task") with
@@ -364,6 +396,152 @@ public sealed class DesktopTaskCreationTests : IDisposable
         Assert.Equal(TaskItemStatus.Waiting, task.Status);
         Assert.Equal(1, task.Priority);
         Assert.Null(viewModel.SelectedTask);
+    }
+
+    [Fact]
+    public async Task Completed_task_row_status_action_does_not_reopen_the_task()
+    {
+        var store = await CreateStoreAsync();
+        await store.UpsertTaskAsync(CreateTask("completed-row", "Completed row") with
+        {
+            CompletionState = TaskCompletionState.Completed,
+            CompletedAt = DateTimeOffset.UtcNow,
+        });
+        var viewModel = new MainWindowViewModel(store, new InMemoryCredentialStore());
+        await viewModel.SelectNavigationAsync(viewModel.NavigationItems.Single(item => item.Kind == TaskListKind.Completed));
+        var row = Assert.Single(viewModel.Tasks);
+
+        await viewModel.SetTaskStatusFromRowAsync(row, TaskItemStatus.Waiting);
+
+        var task = (await store.GetTaskAsync("completed-row"))!;
+        Assert.True(task.IsCompleted);
+        Assert.Equal(TaskWorkflowStatus.Inbox, task.WorkflowStatus);
+    }
+
+    [Fact]
+    public async Task Group_headers_collapse_and_restore_their_task_rows()
+    {
+        var store = await CreateStoreAsync();
+        await store.UpsertTaskAsync(CreateTask("group-inbox", "Inbox task"));
+        await store.UpsertTaskAsync(CreateTask("group-waiting", "Waiting task") with
+        {
+            WorkflowStatus = TaskWorkflowStatus.Waiting,
+        });
+        var viewModel = new MainWindowViewModel(store, new InMemoryCredentialStore())
+        {
+            GroupIndex = 3,
+        };
+        await viewModel.SelectNavigationAsync(viewModel.NavigationItems.Single(item => item.Kind == TaskListKind.Open));
+        var header = viewModel.TaskEntries.First(entry => entry.IsHeader);
+        var taskCount = viewModel.TaskEntries.Count(entry => entry.IsTask);
+
+        viewModel.ToggleTaskGroup(header.GroupKey);
+
+        Assert.Contains(viewModel.TaskEntries, entry => entry.IsHeader && entry.GroupKey == header.GroupKey && !entry.IsGroupExpanded);
+        Assert.True(viewModel.TaskEntries.Count(entry => entry.IsTask) < taskCount);
+
+        viewModel.ToggleTaskGroup(header.GroupKey);
+
+        Assert.Contains(viewModel.TaskEntries, entry => entry.IsHeader && entry.GroupKey == header.GroupKey && entry.IsGroupExpanded);
+        Assert.Equal(taskCount, viewModel.TaskEntries.Count(entry => entry.IsTask));
+    }
+
+    [Fact]
+    public async Task Collapsed_group_state_does_not_leak_to_another_task_view()
+    {
+        var store = await CreateStoreAsync();
+        await store.UpsertTaskAsync(CreateTask("group-inbox-context", "Inbox task"));
+        await store.UpsertTaskAsync(CreateTask("group-waiting-context", "Waiting task") with
+        {
+            WorkflowStatus = TaskWorkflowStatus.Waiting,
+        });
+        var viewModel = new MainWindowViewModel(store, new InMemoryCredentialStore())
+        {
+            GroupIndex = 3,
+        };
+        await viewModel.SelectNavigationAsync(viewModel.NavigationItems.Single(item => item.Kind == TaskListKind.Open));
+        var waitingHeader = viewModel.TaskEntries.Single(entry => entry.IsHeader && entry.GroupTitle == "Waiting For");
+
+        viewModel.ToggleTaskGroup(waitingHeader.GroupKey);
+        await viewModel.SelectNavigationAsync(viewModel.NavigationItems.Single(item => item.Kind == TaskListKind.Waiting));
+
+        Assert.Contains(viewModel.TaskEntries, entry => entry.IsHeader && entry.GroupKey == waitingHeader.GroupKey && entry.IsGroupExpanded);
+        Assert.Contains(viewModel.TaskEntries, entry => entry.IsTask && entry.Task?.Task.Id == "group-waiting-context");
+    }
+
+    [Fact]
+    public async Task Collapsed_group_state_resets_when_space_project_or_group_mode_changes()
+    {
+        var store = await CreateStoreAsync();
+        var otherSpace = new SpaceItem { Id = "group-other-space", Name = "Other space" };
+        var firstProject = new ProjectItem
+        {
+            Id = "group-first-project",
+            SpaceId = SpaceIds.Default,
+            IntegrationId = IntegrationIds.Local,
+            Name = "First project",
+        };
+        var secondProject = firstProject with
+        {
+            Id = "group-second-project",
+            Name = "Second project",
+        };
+        await store.UpsertSpaceAsync(otherSpace);
+        await store.UpsertProjectAsync(firstProject);
+        await store.UpsertProjectAsync(secondProject);
+        await store.UpsertTaskAsync(CreateTask("group-default-space", "Default-space task") with
+        {
+            WorkflowStatus = TaskWorkflowStatus.Waiting,
+        });
+        await store.UpsertTaskAsync(CreateTask("group-other-space-task", "Other-space task") with
+        {
+            SpaceId = otherSpace.Id,
+            WorkflowStatus = TaskWorkflowStatus.Waiting,
+        });
+        await store.UpsertTaskAsync(CreateTask("group-first-project-task", "First-project task") with
+        {
+            ProjectId = firstProject.Id,
+            WorkflowStatus = TaskWorkflowStatus.Waiting,
+        });
+        await store.UpsertTaskAsync(CreateTask("group-second-project-task", "Second-project task") with
+        {
+            ProjectId = secondProject.Id,
+            WorkflowStatus = TaskWorkflowStatus.Waiting,
+        });
+        var viewModel = new MainWindowViewModel(store, new InMemoryCredentialStore())
+        {
+            GroupIndex = 3,
+        };
+        var openView = viewModel.NavigationItems.Single(item => item.Kind == TaskListKind.Open);
+        var defaultSpace = new SpaceNavigationItemViewModel(new SpaceItem { Id = SpaceIds.Default, Name = "My space" });
+
+        await viewModel.SelectSpaceAsync(defaultSpace);
+        await viewModel.SelectNavigationAsync(openView);
+        var waitingKey = viewModel.TaskEntries.Single(entry => entry.IsHeader && entry.GroupTitle == "Waiting For").GroupKey;
+        viewModel.ToggleTaskGroup(waitingKey);
+
+        await viewModel.SelectSpaceAsync(new SpaceNavigationItemViewModel(otherSpace));
+
+        Assert.Contains(viewModel.TaskEntries, entry => entry.IsHeader && entry.GroupKey == waitingKey && entry.IsGroupExpanded);
+        Assert.Contains(viewModel.TaskEntries, entry => entry.IsTask && entry.Task?.Task.Id == "group-other-space-task");
+
+        await viewModel.SelectSpaceAsync(defaultSpace);
+        await viewModel.SelectProjectAsync(new ProjectNavigationItemViewModel(firstProject, 1));
+        viewModel.ToggleTaskGroup(waitingKey);
+
+        await viewModel.SelectProjectAsync(new ProjectNavigationItemViewModel(secondProject, 1));
+
+        Assert.Contains(viewModel.TaskEntries, entry => entry.IsHeader && entry.GroupKey == waitingKey && entry.IsGroupExpanded);
+        Assert.Contains(viewModel.TaskEntries, entry => entry.IsTask && entry.Task?.Task.Id == "group-second-project-task");
+
+        viewModel.ToggleTaskGroup(waitingKey);
+        viewModel.GroupIndex = 4;
+        await viewModel.ApplyListOptionsAsync();
+        viewModel.GroupIndex = 3;
+        await viewModel.ApplyListOptionsAsync();
+
+        Assert.Contains(viewModel.TaskEntries, entry => entry.IsHeader && entry.GroupKey == waitingKey && entry.IsGroupExpanded);
+        Assert.Contains(viewModel.TaskEntries, entry => entry.IsTask && entry.Task?.Task.Id == "group-second-project-task");
     }
 
     [Fact]

@@ -59,10 +59,11 @@
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderThickness" Value="0" />
         </Style>
-        <Style Selector="Button.filter-command">
+        <Style Selector="Button.list-command">
             <Setter Property="Background" Value="{DynamicResource ControlFillColorDefaultBrush}" />
             <Setter Property="BorderBrush" Value="{DynamicResource ControlStrokeColorDefaultBrush}" />
             <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
         </Style>
         <Style Selector="TextBlock.section-title">
             <Setter Property="FontSize" Value="{DynamicResource OpenzaSectionTitleSize}" />
@@ -116,13 +117,23 @@
         <Style Selector="Border.task-row:focus-within Border.priority-chip">
             <Setter Property="Opacity" Value="0" />
         </Style>
+        <Style Selector="ListBox.hide-row-actions StackPanel.quick-actions">
+            <Setter Property="IsVisible" Value="False" />
+            <Setter Property="IsEnabled" Value="False" />
+        </Style>
+        <Style Selector="ListBox.hide-row-actions Border.task-row:pointerover Border.priority-chip">
+            <Setter Property="Opacity" Value="1" />
+        </Style>
+        <Style Selector="ListBox.hide-row-actions Border.task-row:focus-within Border.priority-chip">
+            <Setter Property="Opacity" Value="1" />
+        </Style>
         <Style Selector="Button.row-action">
-            <Setter Property="MinWidth" Value="0" />
+            <Setter Property="Width" Value="32" />
+            <Setter Property="MinWidth" Value="32" />
             <Setter Property="Height" Value="32" />
-            <Setter Property="Padding" Value="8,0" />
+            <Setter Property="Padding" Value="0" />
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderThickness" Value="0" />
-            <Setter Property="FontSize" Value="12" />
         </Style>
     </Application.Styles>
 </Application>

@@ -6,6 +6,7 @@ using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Styling;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using System.ComponentModel;
 using Openza.Tasks.Core.Data;
 using Openza.Tasks.Core.Models;
@@ -28,7 +29,10 @@ public sealed partial class MainWindow : Window
     private readonly SemaphoreSlim _taskSelectionGate = new(1, 1);
     private bool _connectedPaneOpen;
     private bool _navigationCollapsed;
+    private bool _narrowProjectsOpen;
     private bool _automaticSyncRunning;
+    private bool _taskCompletionInProgress;
+    private bool _changingListFilters;
     private bool _closingAfterSave;
     private readonly DesktopPreferencesStore _preferencesStore = new();
     private readonly DispatcherTimer _automaticSyncTimer = new()
@@ -38,6 +42,10 @@ public sealed partial class MainWindow : Window
     private readonly DispatcherTimer _statusHideTimer = new()
     {
         Interval = TimeSpan.FromSeconds(4),
+    };
+    private readonly DispatcherTimer _taskSearchTimer = new()
+    {
+        Interval = TimeSpan.FromMilliseconds(250),
     };
     private static readonly IBrush LightHoverBrush = new SolidColorBrush(Color.Parse("#F0F3F6"));
     private static readonly IBrush LightPressedBrush = new SolidColorBrush(Color.Parse("#DDE3EA"));
@@ -59,6 +67,7 @@ public sealed partial class MainWindow : Window
         ViewModel.PropertyChanged += OnViewModelPropertyChanged;
         _automaticSyncTimer.Tick += OnAutomaticSyncTick;
         _statusHideTimer.Tick += OnStatusHideTick;
+        _taskSearchTimer.Tick += OnTaskSearchTick;
     }
 
     public MainWindowViewModel ViewModel { get; }
@@ -143,6 +152,8 @@ public sealed partial class MainWindow : Window
         _automaticSyncTimer.Tick -= OnAutomaticSyncTick;
         _statusHideTimer.Stop();
         _statusHideTimer.Tick -= OnStatusHideTick;
+        _taskSearchTimer.Stop();
+        _taskSearchTimer.Tick -= OnTaskSearchTick;
         ViewModel.PropertyChanged -= OnViewModelPropertyChanged;
     }
 
@@ -206,11 +217,13 @@ public sealed partial class MainWindow : Window
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName is nameof(MainWindowViewModel.StatusMessage) or nameof(MainWindowViewModel.IsBusy))
+        if (e.PropertyName is nameof(MainWindowViewModel.StatusMessage) or
+            nameof(MainWindowViewModel.IsBusy) or
+            nameof(MainWindowViewModel.IsStatusMessagePersistent))
         {
             StatusOverlay.IsVisible = ViewModel.IsBusy || !string.IsNullOrWhiteSpace(ViewModel.StatusMessage);
             _statusHideTimer.Stop();
-            if (!ViewModel.IsBusy)
+            if (!ViewModel.IsBusy && !ViewModel.IsStatusMessagePersistent)
             {
                 _statusHideTimer.Start();
             }
@@ -252,19 +265,44 @@ public sealed partial class MainWindow : Window
             (ViewModel.SelectedProject is not null || ViewModel.SelectedNavigation?.Kind == TaskListKind.Open);
         var showDetails = TaskWorkspace.IsVisible && ViewModel.HasSelectedTask && !_connectedPaneOpen;
         var narrow = width < 900;
+        TaskList.Classes.Set("hide-row-actions", showDetails);
+        UpdateTaskFilterLayout(width < 1120 || (width < 1360 && (showDetails || _connectedPaneOpen)));
 
-        if (narrow && showDetails)
+        ProjectsCommand.IsVisible = narrow && showProjects && !showDetails && !_connectedPaneOpen;
+
+        if (narrow && (showDetails || _connectedPaneOpen))
         {
             WorkbenchGrid.ColumnDefinitions[0].Width = new GridLength(0);
             WorkbenchGrid.ColumnDefinitions[1].Width = new GridLength(0);
-            WorkbenchGrid.ColumnDefinitions[2].Width = new GridLength(1, GridUnitType.Star);
-            WorkbenchGrid.ColumnDefinitions[3].Width = new GridLength(0);
+            WorkbenchGrid.ColumnDefinitions[2].Width = showDetails
+                ? new GridLength(1, GridUnitType.Star)
+                : new GridLength(0);
+            WorkbenchGrid.ColumnDefinitions[3].Width = _connectedPaneOpen
+                ? new GridLength(1, GridUnitType.Star)
+                : new GridLength(0);
             ProjectsPane.IsVisible = false;
             TaskListPane.IsVisible = false;
-            DetailsPane.IsVisible = true;
+            DetailsPane.IsVisible = showDetails;
+            ConnectedPane.IsVisible = _connectedPaneOpen;
+            return;
+        }
+
+        if (narrow)
+        {
+            WorkbenchGrid.ColumnDefinitions[0].Width = showProjects && _narrowProjectsOpen
+                ? new GridLength(Math.Min(300, width * 0.42))
+                : new GridLength(0);
+            WorkbenchGrid.ColumnDefinitions[1].Width = new GridLength(1, GridUnitType.Star);
+            WorkbenchGrid.ColumnDefinitions[2].Width = new GridLength(0);
+            WorkbenchGrid.ColumnDefinitions[3].Width = new GridLength(0);
+            ProjectsPane.IsVisible = showProjects && _narrowProjectsOpen;
+            TaskListPane.IsVisible = true;
+            DetailsPane.IsVisible = false;
             ConnectedPane.IsVisible = false;
             return;
         }
+
+        _narrowProjectsOpen = false;
 
         WorkbenchGrid.ColumnDefinitions[0].Width = showProjects
             ? new GridLength(width < 1250 ? 300 : 360)
@@ -280,6 +318,39 @@ public sealed partial class MainWindow : Window
         TaskListPane.IsVisible = true;
         DetailsPane.IsVisible = showDetails;
         ConnectedPane.IsVisible = _connectedPaneOpen;
+    }
+
+    private void OnProjectsCommandClicked(object? sender, RoutedEventArgs e)
+    {
+        _narrowProjectsOpen = !_narrowProjectsOpen;
+        UpdateWorkbenchLayout();
+    }
+
+    private void UpdateTaskFilterLayout(bool compact)
+    {
+        if (compact)
+        {
+            SearchBox.Width = double.NaN;
+            SearchBox.MaxWidth = double.PositiveInfinity;
+            SearchBox.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch;
+            Grid.SetRow(SearchBox, 0);
+            Grid.SetColumn(SearchBox, 0);
+            Grid.SetColumnSpan(SearchBox, 3);
+            Grid.SetRow(TaskFilterCommands, 1);
+            Grid.SetColumn(TaskFilterCommands, 0);
+            Grid.SetColumnSpan(TaskFilterCommands, 3);
+            return;
+        }
+
+        SearchBox.Width = 460;
+        SearchBox.MaxWidth = 480;
+        SearchBox.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Left;
+        Grid.SetRow(SearchBox, 0);
+        Grid.SetColumn(SearchBox, 0);
+        Grid.SetColumnSpan(SearchBox, 1);
+        Grid.SetRow(TaskFilterCommands, 0);
+        Grid.SetColumn(TaskFilterCommands, 1);
+        Grid.SetColumnSpan(TaskFilterCommands, 1);
     }
 
     private void UpdateConnectedPaneForCurrentView(bool autoOpen)
@@ -593,7 +664,7 @@ public sealed partial class MainWindow : Window
 
     private async void OnListOptionsChanged(object? sender, SelectionChangedEventArgs e)
     {
-        if (!_initialized)
+        if (!_initialized || _changingListFilters)
         {
             return;
         }
@@ -650,23 +721,105 @@ public sealed partial class MainWindow : Window
         }
 
         e.Handled = true;
+        _taskSearchTimer.Stop();
+        ViewModel.SearchText = SearchBox.Text ?? string.Empty;
         await ViewModel.ApplySearchAsync();
+    }
+
+    private void OnTaskSearchTextChanged(object? sender, TextChangedEventArgs e)
+    {
+        if (!_initialized || _changingListFilters)
+        {
+            return;
+        }
+
+        ViewModel.SearchText = SearchBox.Text ?? string.Empty;
+        _taskSearchTimer.Stop();
+        _taskSearchTimer.Start();
+    }
+
+    private async void OnTaskSearchTick(object? sender, EventArgs e)
+    {
+        _taskSearchTimer.Stop();
+        await ViewModel.ApplySearchAsync();
+    }
+
+    private async void OnClearPriorityFilterClicked(object? sender, RoutedEventArgs e) =>
+        await ChangeListFiltersAsync(() => ViewModel.PriorityFilterIndex = 0);
+
+    private async void OnClearRepeatFilterClicked(object? sender, RoutedEventArgs e) =>
+        await ChangeListFiltersAsync(() => ViewModel.RepeatFilterIndex = 0);
+
+    private async void OnClearLabelFilterClicked(object? sender, RoutedEventArgs e) =>
+        await ChangeListFiltersAsync(() => ViewModel.SelectedLabelFilter = ViewModel.LabelFilterOptions.FirstOrDefault());
+
+    private async void OnClearAllFiltersClicked(object? sender, RoutedEventArgs e) =>
+        await ChangeListFiltersAsync(() =>
+        {
+            ViewModel.SearchText = string.Empty;
+            ViewModel.PriorityFilterIndex = 0;
+            ViewModel.RepeatFilterIndex = 0;
+            ViewModel.SelectedLabelFilter = ViewModel.LabelFilterOptions.FirstOrDefault();
+        });
+
+    private async Task ChangeListFiltersAsync(Action change)
+    {
+        _changingListFilters = true;
+        try
+        {
+            change();
+        }
+        finally
+        {
+            _changingListFilters = false;
+        }
+
+        await ViewModel.ApplyListOptionsAsync();
+    }
+
+    private async void OnEmptyStateActionClicked(object? sender, RoutedEventArgs e)
+    {
+        if (ViewModel.HasActiveListFilters)
+        {
+            await ChangeListFiltersAsync(() =>
+            {
+                ViewModel.SearchText = string.Empty;
+                ViewModel.PriorityFilterIndex = 0;
+                ViewModel.RepeatFilterIndex = 0;
+                ViewModel.SelectedLabelFilter = ViewModel.LabelFilterOptions.FirstOrDefault();
+            });
+            return;
+        }
+
+        OnAddTaskClicked(sender, e);
     }
 
     private async void OnTaskCompletionClicked(object? sender, RoutedEventArgs e)
     {
-        if (sender is not CheckBox { DataContext: TaskListEntryViewModel { Task: { } item } })
-        {
-            return;
-        }
-
-        if (!await SelectTaskAfterSavingAsync(item))
-        {
-            return;
-        }
-
-        await ViewModel.ToggleSelectedCompletionAsync();
         e.Handled = true;
+        if (_taskCompletionInProgress ||
+            sender is not CheckBox { DataContext: TaskListEntryViewModel { Task: { } item } } checkbox)
+        {
+            return;
+        }
+
+        _taskCompletionInProgress = true;
+        checkbox.IsEnabled = false;
+        try
+        {
+            if (!await SelectTaskAfterSavingAsync(item))
+            {
+                return;
+            }
+
+            await ViewModel.ToggleSelectedCompletionAsync();
+        }
+        finally
+        {
+            checkbox.IsChecked = ViewModel.SelectedTask?.Task.IsCompleted ?? item.Task.IsCompleted;
+            checkbox.IsEnabled = true;
+            _taskCompletionInProgress = false;
+        }
     }
 
     private async void OnTaskEntrySelectionChanged(object? sender, SelectionChangedEventArgs e)
@@ -677,23 +830,35 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    private void OnTaskGroupHeaderClicked(object? sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        if (sender is Button { DataContext: TaskListEntryViewModel { IsHeader: true } header })
+        {
+            ViewModel.ToggleTaskGroup(header.GroupKey);
+        }
+    }
+
     private async void OnTaskRowTapped(object? sender, TappedEventArgs e)
     {
-        if (sender is Border { DataContext: TaskListEntryViewModel { Task: { } task } entry })
+        if (IsInteractiveElement(e.Source) ||
+            sender is not Border { DataContext: TaskListEntryViewModel { Task: { } task } entry })
         {
-            _changingTaskSelection = true;
-            TaskList.SelectedItem = entry;
-            _changingTaskSelection = false;
-            await SelectTaskAfterSavingAsync(task);
+            return;
         }
+
+        _changingTaskSelection = true;
+        TaskList.SelectedItem = entry;
+        _changingTaskSelection = false;
+        await SelectTaskAfterSavingAsync(task);
     }
 
     private async void OnRowDateChanged(object? sender, SelectionChangedEventArgs e)
     {
         if (sender is CalendarDatePicker { DataContext: TaskListEntryViewModel { Task: { } item }, SelectedDate: { } selectedDate })
         {
-            await ViewModel.SetTaskDateFromRowAsync(item, DateOnly.FromDateTime(selectedDate));
             e.Handled = true;
+            await ViewModel.SetTaskDateFromRowAsync(item, DateOnly.FromDateTime(selectedDate));
         }
     }
 
@@ -701,8 +866,8 @@ public sealed partial class MainWindow : Window
     {
         if (sender is Button { DataContext: TaskListEntryViewModel { Task: { } item } })
         {
-            await ViewModel.SetTaskDateFromRowAsync(item, null);
             e.Handled = true;
+            await ViewModel.SetTaskDateFromRowAsync(item, null);
         }
     }
 
@@ -721,8 +886,8 @@ public sealed partial class MainWindow : Window
             3 => Openza.Tasks.Core.Models.TaskItemStatus.Someday,
             _ => Openza.Tasks.Core.Models.TaskItemStatus.Inbox,
         };
-        await ViewModel.SetTaskStatusFromRowAsync(item, status);
         e.Handled = true;
+        await ViewModel.SetTaskStatusFromRowAsync(item, status);
     }
 
     private async void OnRowPriorityClicked(object? sender, RoutedEventArgs e)
@@ -730,14 +895,14 @@ public sealed partial class MainWindow : Window
         if (sender is MenuItem { DataContext: TaskListEntryViewModel { Task: { } item } } menuItem &&
             int.TryParse(menuItem.Tag?.ToString(), out var priority))
         {
-            await ViewModel.SetTaskPriorityFromRowAsync(item, priority);
             e.Handled = true;
+            await ViewModel.SetTaskPriorityFromRowAsync(item, priority);
         }
     }
 
-    private async void OnRowProjectClicked(object? sender, RoutedEventArgs e)
+    private async void OnRowProjectButtonClicked(object? sender, RoutedEventArgs e)
     {
-        if (sender is not MenuItem { DataContext: TaskListEntryViewModel { Task: { } item } })
+        if (sender is not Button { DataContext: TaskListEntryViewModel { Task: { } item } })
         {
             return;
         }
@@ -754,9 +919,9 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private async void OnRowLabelsClicked(object? sender, RoutedEventArgs e)
+    private async void OnRowLabelsButtonClicked(object? sender, RoutedEventArgs e)
     {
-        if (sender is not MenuItem { DataContext: TaskListEntryViewModel { Task: { } item } })
+        if (sender is not Button { DataContext: TaskListEntryViewModel { Task: { } item } })
         {
             return;
         }
@@ -770,9 +935,9 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private async void OnRowMoveSpaceClicked(object? sender, RoutedEventArgs e)
+    private async void OnRowMoveSpaceButtonClicked(object? sender, RoutedEventArgs e)
     {
-        if (sender is not MenuItem { DataContext: TaskListEntryViewModel { Task: { } item } })
+        if (sender is not Button { DataContext: TaskListEntryViewModel { Task: { } item } })
         {
             return;
         }
@@ -798,11 +963,52 @@ public sealed partial class MainWindow : Window
         }
 
         e.Handled = true;
-        var dialog = new ConfirmWindow("Delete task?", $"“{item.Title}” will be permanently removed from this local database.");
+        var dialog = new ConfirmWindow(
+            "Delete task?",
+            $"Delete “{item.Title}” from Openza? Tasks still linked to a provider must be deleted there first.");
         if (await dialog.ShowDialog<bool>(this))
         {
-            await ViewModel.DeleteTaskFromRowAsync(item);
+            try
+            {
+                await ViewModel.DeleteTaskFromRowAsync(item);
+            }
+            catch (ProviderLinkedTaskDeleteException exception)
+            {
+                var alert = new ConfirmWindow(
+                    "Task is linked",
+                    exception.Message,
+                    "Close",
+                    showCancel: false);
+                await alert.ShowDialog<bool>(this);
+            }
+            catch (Exception exception)
+            {
+                var alert = new ConfirmWindow(
+                    "Could not delete task",
+                    exception.Message,
+                    "Close",
+                    showCancel: false);
+                await alert.ShowDialog<bool>(this);
+            }
         }
+    }
+
+    private void OnDismissStatusClicked(object? sender, RoutedEventArgs e)
+    {
+        ViewModel.DismissStatusMessage();
+        StatusOverlay.IsVisible = false;
+        e.Handled = true;
+    }
+
+    private static bool IsInteractiveElement(object? source)
+    {
+        if (source is Button or CheckBox or ComboBox or TextBox or SelectableTextBlock or CalendarDatePicker)
+        {
+            return true;
+        }
+
+        return source is Visual visual && visual.GetVisualAncestors().Any(ancestor =>
+            ancestor is Button or CheckBox or ComboBox or TextBox or SelectableTextBlock or CalendarDatePicker);
     }
 
     private async Task<bool> SelectTaskAfterSavingAsync(TaskListItemViewModel task)
@@ -850,10 +1056,24 @@ public sealed partial class MainWindow : Window
 
     private async void OnSubtaskCompletionClicked(object? sender, RoutedEventArgs e)
     {
-        if (sender is CheckBox { DataContext: TaskListItemViewModel item })
+        e.Handled = true;
+        if (_taskCompletionInProgress || sender is not CheckBox { DataContext: TaskListItemViewModel item } checkbox)
+        {
+            return;
+        }
+
+        _taskCompletionInProgress = true;
+        checkbox.IsEnabled = false;
+        try
         {
             await ViewModel.ToggleSubtaskCompletionAsync(item);
-            e.Handled = true;
+        }
+        finally
+        {
+            checkbox.IsChecked = ViewModel.VisibleSubtasks.FirstOrDefault(subtask =>
+                string.Equals(subtask.Task.Id, item.Task.Id, StringComparison.Ordinal))?.IsCompleted ?? item.IsCompleted;
+            checkbox.IsEnabled = true;
+            _taskCompletionInProgress = false;
         }
     }
 
@@ -875,7 +1095,24 @@ public sealed partial class MainWindow : Window
 
     private async void OnToggleCompletionClicked(object? sender, RoutedEventArgs e)
     {
-        await ViewModel.ToggleSelectedCompletionAsync();
+        e.Handled = true;
+        if (_taskCompletionInProgress || sender is not CheckBox checkbox)
+        {
+            return;
+        }
+
+        _taskCompletionInProgress = true;
+        checkbox.IsEnabled = false;
+        try
+        {
+            await ViewModel.ToggleSelectedCompletionAsync();
+        }
+        finally
+        {
+            checkbox.IsChecked = ViewModel.SelectedTask?.Task.IsCompleted;
+            checkbox.IsEnabled = true;
+            _taskCompletionInProgress = false;
+        }
     }
 
     private async void OnSaveTaskClicked(object? sender, RoutedEventArgs e)
@@ -966,7 +1203,7 @@ public sealed partial class MainWindow : Window
 
         var dialog = new ConfirmWindow(
             "Delete task?",
-            $"“{ViewModel.SelectedTask.Title}” will be permanently removed from this local database.");
+            $"Delete “{ViewModel.SelectedTask.Title}” from Openza? Tasks still linked to a provider must be deleted there first.");
         if (await dialog.ShowDialog<bool>(this))
         {
             try
@@ -1016,6 +1253,7 @@ public sealed partial class MainWindow : Window
                 }
 
                 ViewModel.SearchText = string.Empty;
+                _taskSearchTimer.Stop();
                 await ViewModel.ApplySearchAsync();
                 TaskList.SelectedItem = null;
                 ViewModel.SelectedTask = null;

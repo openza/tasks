@@ -112,6 +112,34 @@ public sealed class DesktopTodoistRoutingRuleTests : IDisposable
 
         Assert.Equal(("todoist-task", "processed"), Assert.Single(provider.Moves));
         Assert.Contains("filed in Todoist", viewModel.StatusMessage);
+        Assert.False(viewModel.IsStatusMessagePersistent);
+    }
+
+    [Fact]
+    public async Task Todoist_post_import_filing_failure_remains_visible_until_dismissed()
+    {
+        var store = await CreateStoreAsync();
+        var credentials = new InMemoryCredentialStore();
+        await credentials.SaveAsync("todoist-token", "test-token");
+        var viewModel = new MainWindowViewModel(store, credentials, (_, _) => new FailingMoveProvider());
+        await viewModel.SaveTodoistRoutingRuleAsync(new TodoistRoutingRuleDraft(
+            null,
+            string.Empty,
+            SpaceIds.Default,
+            "processed",
+            MatchNoLabels: true));
+        await store.UpsertProviderSourceItemAsync(CreateTodoistSource());
+        await viewModel.LoadConnectedTasksAsync();
+
+        await viewModel.AdoptConnectedTaskAsync(Assert.Single(viewModel.FilteredConnectedTasks));
+
+        Assert.Contains("Todoist filing failed", viewModel.StatusMessage);
+        Assert.True(viewModel.IsStatusMessagePersistent);
+
+        viewModel.DismissStatusMessage();
+
+        Assert.Empty(viewModel.StatusMessage);
+        Assert.False(viewModel.IsStatusMessagePersistent);
     }
 
     [Fact]
@@ -210,6 +238,21 @@ public sealed class DesktopTodoistRoutingRuleTests : IDisposable
             Moves.Add((taskId, projectId));
             return Task.CompletedTask;
         }
+    }
+
+    private sealed class FailingMoveProvider : ITaskProjectMoveProvider
+    {
+        public string IntegrationId => IntegrationIds.Todoist;
+        public string ProviderConnectionId => "todoist_default";
+
+        public Task<ProviderSnapshot> FetchSnapshotAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(new ProviderSnapshot([], [], []));
+
+        public Task CompleteTaskAsync(PendingCompletion completion, CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
+
+        public Task MoveTaskAsync(string taskId, string projectId, CancellationToken cancellationToken = default) =>
+            Task.FromException(new InvalidOperationException("Todoist rejected the move"));
     }
 
     private async Task<SqliteTaskStore> CreateStoreAsync()
