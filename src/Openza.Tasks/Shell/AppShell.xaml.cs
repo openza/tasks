@@ -450,7 +450,7 @@ public sealed partial class AppShell : UserControl
 
     private void SetAddTaskBackground(string brushKey)
     {
-        if (Application.Current.Resources[brushKey] is Brush brush)
+        if (Microsoft.UI.Xaml.Application.Current.Resources[brushKey] is Brush brush)
         {
             AddTaskNavItem.Background = brush;
         }
@@ -800,13 +800,13 @@ public sealed partial class AppShell : UserControl
             _ => "OpenzaToastInfoBrush",
         };
 
-        if (Application.Current.Resources[brushKey] is Brush background)
+        if (Microsoft.UI.Xaml.Application.Current.Resources[brushKey] is Brush background)
         {
             StatusInfo.Background = background;
             StatusInfo.BorderBrush = background;
         }
 
-        if (Application.Current.Resources["OpenzaToastForegroundBrush"] is Brush foreground)
+        if (Microsoft.UI.Xaml.Application.Current.Resources["OpenzaToastForegroundBrush"] is Brush foreground)
         {
             StatusInfo.Foreground = foreground;
         }

@@ -14,7 +14,7 @@ using WindowsPackageVersion = Windows.ApplicationModel.PackageVersion;
 
 namespace Openza.Tasks;
 
-public partial class App : Application
+public partial class App : Microsoft.UI.Xaml.Application
 {
     private readonly DispatcherQueue _dispatcherQueue;
     private MainWindow? _window;

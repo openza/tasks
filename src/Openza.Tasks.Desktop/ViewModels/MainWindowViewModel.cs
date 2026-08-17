@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Openza.Tasks.Application.Tasks;
 using Openza.Tasks.Core.Data;
 using Openza.Tasks.Core.Credentials;
@@ -13,6 +14,7 @@ namespace Openza.Tasks.Desktop.ViewModels;
 
 public sealed class MainWindowViewModel : ObservableObject
 {
+    private const int SubtaskPreviewLimit = 5;
     private const string TodoistTokenKey = "todoist-token";
     private readonly ITaskStore _store;
     private readonly TaskApplicationService _taskService;
@@ -21,7 +23,10 @@ public sealed class MainWindowViewModel : ObservableObject
     private readonly TaskSyncEngine _syncEngine;
     private readonly Func<string, string, ITaskProjectMoveProvider> _todoistMoveProviderFactory;
     private readonly SemaphoreSlim _operationGate = new(1, 1);
+    private long _detailEditVersion;
     private int _detailUpdateDepth;
+    private bool _showAllSubtasks;
+    private string? _sourceDateMismatchAcknowledgementKey;
     private readonly GitHubIssueService _gitHubIssueService = new(new HttpClient());
     private readonly DesktopPreferencesStore _preferencesStore = new();
     private readonly Lazy<BackupService?> _backupService;
@@ -55,7 +60,7 @@ public sealed class MainWindowViewModel : ObservableObject
     private int _sortDirectionIndex;
     private readonly List<ConnectedTaskViewModel> _allConnectedTasks = [];
     private string _todoistToken = string.Empty;
-    private string _todoistConnectionText = "Token required on this Linux installation.";
+    private string _todoistConnectionText = "Not connected.";
     private int _priorityFilterIndex;
     private int _repeatFilterIndex;
     private int _groupIndex;
@@ -66,16 +71,14 @@ public sealed class MainWindowViewModel : ObservableObject
     private LabelOptionViewModel? _selectedLabelFilter;
     private RestorePointViewModel? _selectedRestorePoint;
     private string _gitHubToken = string.Empty;
-    private string _gitHubConnectionText = "Token required on this Linux installation.";
+    private string _gitHubConnectionText = "Not connected.";
     private string _gitHubDefaultRepository = string.Empty;
     private string _gitHubActionText = "Create GitHub issue";
     private TaskExternalLinkInfo? _selectedGitHubLink;
     private bool _automaticSyncEnabled = true;
 
     public MainWindowViewModel(ITaskStore store)
-        : this(store, new SecretToolCredentialStore(
-            DesktopDataPaths.Runtime.CredentialNamespace,
-            DesktopDataPaths.Runtime.DisplayName))
+        : this(store, DesktopCredentialStore.Create(DesktopDataPaths.Runtime))
     {
     }
 
@@ -111,6 +114,10 @@ public sealed class MainWindowViewModel : ObservableObject
         ?? typeof(MainWindowViewModel).Assembly.GetName().Version?.ToString(3)
         ?? "unknown";
 
+    private static string CredentialStoreDisplayName => OperatingSystem.IsWindows()
+        ? "Windows Credential Manager"
+        : "the desktop Secret Service";
+
     public ObservableCollection<NavigationItemViewModel> NavigationItems { get; } =
     [
         new("Inbox", TaskListKind.Inbox, Icon.MailInbox),
@@ -136,6 +143,8 @@ public sealed class MainWindowViewModel : ObservableObject
     public ObservableCollection<string> ConnectedSourceOptions { get; } = ["All sources"];
     public ObservableCollection<string> ConnectedProjectOptions { get; } = ["All lists"];
     public ObservableCollection<TaskListItemViewModel> Subtasks { get; } = [];
+    public ObservableCollection<TaskListItemViewModel> VisibleSubtasks { get; } = [];
+    public ObservableCollection<string> DetailLabelItems { get; } = [];
     public ObservableCollection<RestorePointViewModel> RestorePoints { get; } = [];
     public ObservableCollection<TodoistRoutingRuleViewModel> TodoistRoutingRules { get; } = [];
     public ObservableCollection<TodoistRoutingChoiceViewModel> TodoistRoutingLabelChoices { get; } = [];
@@ -151,7 +160,14 @@ public sealed class MainWindowViewModel : ObservableObject
     public NavigationItemViewModel? SelectedNavigation
     {
         get => _selectedNavigation;
-        set => SetProperty(ref _selectedNavigation, value);
+        set
+        {
+            if (SetProperty(ref _selectedNavigation, value))
+            {
+                OnPropertyChanged(nameof(EmptyStateTitle));
+                OnPropertyChanged(nameof(EmptyStateMessage));
+            }
+        }
     }
 
     public ProjectNavigationItemViewModel? SelectedProject
@@ -180,6 +196,7 @@ public sealed class MainWindowViewModel : ObservableObject
                 OnPropertyChanged(nameof(HasSelectedTask));
                 OnPropertyChanged(nameof(HasNoSelectedTask));
                 OnPropertyChanged(nameof(CompletionActionText));
+                NotifyTaskMetadataChanged();
             }
         }
     }
@@ -188,9 +205,75 @@ public sealed class MainWindowViewModel : ObservableObject
     public bool HasNoSelectedTask => !HasSelectedTask;
     public string CompletionActionText => SelectedTask?.Task.IsCompleted == true ? "Reopen" : "Complete";
     public bool HasNoTasks => Tasks.Count == 0;
+    public string EmptyStateTitle => SelectedNavigation?.Kind switch
+    {
+        TaskListKind.Inbox => "Inbox is clear",
+        TaskListKind.Today => "Nothing for today",
+        TaskListKind.Calendar => "No dated tasks",
+        TaskListKind.Overdue => "Nothing overdue",
+        TaskListKind.Waiting => "Nothing waiting",
+        TaskListKind.Someday => "No someday tasks",
+        TaskListKind.Completed => "No completed tasks yet",
+        _ => "Nothing here",
+    };
+    public string EmptyStateMessage => SelectedNavigation?.Kind switch
+    {
+        TaskListKind.Inbox when HasConnectedTasks => "Clarify captured tasks here, or review tasks waiting from connected apps.",
+        TaskListKind.Inbox => "Capture anything on your mind here. Clarify it later when you are ready.",
+        TaskListKind.NextActions => "Clarified next actions will appear here.",
+        TaskListKind.Today => "Tasks dated, scheduled, or repeating today will appear here.",
+        TaskListKind.Calendar => "Dated work will appear here.",
+        TaskListKind.Overdue => "Nothing needs recovery right now.",
+        TaskListKind.Waiting => "Delegated or blocked tasks you are waiting on will appear here.",
+        TaskListKind.Someday => "Ideas you may want later will appear here.",
+        TaskListKind.Completed => "Completed tasks will appear here.",
+        _ => "Create a task to start filling this list.",
+    };
     public string DatabasePath => (_store as SqliteTaskStore)?.DatabasePath ?? "Custom data store";
     public bool HasNoConnectedTasks => FilteredConnectedTasks.Count == 0;
+    public int ConnectedTaskCount => _allConnectedTasks.Count;
+    public int WaitingConnectedTaskCount => _allConnectedTasks.Count(item => !item.Source.IsSkipped);
+    public int SkippedConnectedTaskCount => _allConnectedTasks.Count(item => item.Source.IsSkipped);
+    public bool HasConnectedTasks => ConnectedTaskCount > 0;
+    public bool CanAddAllConnectedTasks => WaitingConnectedTaskCount > 0;
+    public string ConnectedTasksSummary => SkippedConnectedTaskCount == 0
+        ? WaitingConnectedTaskCount == 1
+            ? "1 task is waiting. Add it to Inbox first, then clarify it like any other task."
+            : $"{WaitingConnectedTaskCount} tasks are waiting. Add them to Inbox first, then clarify them like any other task."
+        : $"{WaitingConnectedTaskCount} waiting, {SkippedConnectedTaskCount} skipped. Skipped tasks stay recoverable here.";
     public bool HasSubtasks => Subtasks.Count > 0;
+    public string SubtasksProgressText => $"{Subtasks.Count(subtask => subtask.Task.IsCompleted)}/{Subtasks.Count}";
+    public bool CanToggleSubtasks => Subtasks.Count > SubtaskPreviewLimit;
+    public string SubtasksToggleText => _showAllSubtasks ? "Show fewer" : $"Show all {Subtasks.Count} subtasks";
+    public bool HasSourceTask => SelectedTask?.Task is { } task && (task.IsProviderTask || task.HasProviderSource);
+    public bool HasSourceDescription => !string.IsNullOrWhiteSpace(SelectedTask?.Task.SourceDescription);
+    public bool HasLocalTaskMetadata => SelectedTask?.Task.IntegrationId == IntegrationIds.Local;
+    public string SourceTaskName => IntegrationIds.DisplayName(
+        SelectedTask?.Task.SourceIntegrationId ?? SelectedTask?.Task.IntegrationId ?? IntegrationIds.Local);
+    public string SourceTaskHeader => $"Source: {SourceTaskName}";
+    public string SourceTaskTitle => string.IsNullOrWhiteSpace(SelectedTask?.Task.SourceTitle)
+        ? SelectedTask?.Task.Title ?? string.Empty
+        : SelectedTask.Task.SourceTitle;
+    public string SourceTaskDescription => SelectedTask?.Task.SourceDescription ?? string.Empty;
+    public string SourceTaskDescriptionHint => $"From {SourceTaskName}";
+    public string SourceTaskProject => string.IsNullOrWhiteSpace(SelectedTask?.Task.SourceProjectName)
+        ? "No source project"
+        : SelectedTask.Task.SourceProjectName;
+    public string SourceTaskDate => FormatTaskDate(SelectedTask?.Task.SourcePlannedMoment);
+    public string SourceTaskDeadline => FormatTaskDate(SelectedTask?.Task.SourceDeadlineMoment);
+    public string SourceTaskPriority => SelectedTask?.Task.SourcePriority is { } priority
+        ? FormatPriority(priority)
+        : "No priority";
+    public string SourceTaskCreated => SelectedTask?.Task is { } task ? FormatTaskDate(task.CreatedAt) : string.Empty;
+    public string SourceTaskRecurrence => string.IsNullOrWhiteSpace(SelectedTask?.Task.RecurrenceRule)
+        ? "Not recurring"
+        : SelectedTask.Task.RecurrenceRule;
+    public string LocalTaskCreated => SelectedTask?.Task is { } localTask ? FormatTaskDateTime(localTask.CreatedAt) : string.Empty;
+    public string LocalTaskUpdated => SelectedTask?.Task.UpdatedAt is { } updatedAt ? FormatTaskDateTime(updatedAt) : "Not modified";
+    public bool HasSourceDateMismatch => BuildSourceDateMismatch() is not null;
+    public string SourceDateMismatchTitle => BuildSourceDateMismatch()?.Title ?? string.Empty;
+    public string SourceDateMismatchMessage => BuildSourceDateMismatch()?.Message ?? string.Empty;
+    public string UseSourceDatesText => BuildSourceDateMismatch()?.UseSourceText ?? string.Empty;
     public bool HasNoTodoistRoutingRules => TodoistRoutingRules.Count == 0;
     public bool IsUpdatingDetails => _detailUpdateDepth > 0;
 
@@ -275,8 +358,28 @@ public sealed class MainWindowViewModel : ObservableObject
     public int GroupIndex
     {
         get => _groupIndex;
-        set => SetProperty(ref _groupIndex, value);
+        set
+        {
+            if (SetProperty(ref _groupIndex, value))
+            {
+                OnPropertyChanged(nameof(GroupSummary));
+            }
+        }
     }
+
+    public string GroupSummary => $"Group: {GroupIndex switch
+    {
+        1 => "Date",
+        2 => "Project",
+        3 => "Status",
+        4 => "Priority",
+        5 => "Label",
+        6 => "Source",
+        7 => "Repeating",
+        8 => "Created",
+        9 => "Completed",
+        _ => "None",
+    }}";
 
     public LabelOptionViewModel? SelectedLabelFilter
     {
@@ -335,49 +438,150 @@ public sealed class MainWindowViewModel : ObservableObject
     public string DetailTitle
     {
         get => _detailTitle;
-        set => SetProperty(ref _detailTitle, value);
+        set
+        {
+            if (SetProperty(ref _detailTitle, value))
+            {
+                MarkDetailEdited();
+            }
+        }
     }
 
     public string DetailNotes
     {
         get => _detailNotes;
-        set => SetProperty(ref _detailNotes, value);
+        set
+        {
+            if (SetProperty(ref _detailNotes, value))
+            {
+                MarkDetailEdited();
+            }
+        }
     }
 
     public int DetailStatusIndex
     {
         get => _detailStatusIndex;
-        set => SetProperty(ref _detailStatusIndex, value);
+        set
+        {
+            if (SetProperty(ref _detailStatusIndex, value))
+            {
+                MarkDetailEdited();
+            }
+        }
     }
 
     public int DetailPriorityIndex
     {
         get => _detailPriorityIndex;
-        set => SetProperty(ref _detailPriorityIndex, value);
+        set
+        {
+            if (SetProperty(ref _detailPriorityIndex, value))
+            {
+                MarkDetailEdited();
+            }
+        }
     }
 
     public DateTimeOffset? DetailDate
     {
         get => _detailDate;
-        set => SetProperty(ref _detailDate, value);
+        set
+        {
+            if (SetProperty(ref _detailDate, value))
+            {
+                MarkDetailEdited();
+                OnPropertyChanged(nameof(DetailCalendarDate));
+                NotifySourceDateMismatchChanged();
+            }
+        }
     }
 
     public DateTimeOffset? DetailDeadline
     {
         get => _detailDeadline;
-        set => SetProperty(ref _detailDeadline, value);
+        set
+        {
+            if (SetProperty(ref _detailDeadline, value))
+            {
+                MarkDetailEdited();
+                OnPropertyChanged(nameof(DetailCalendarDeadline));
+                NotifySourceDateMismatchChanged();
+            }
+        }
+    }
+
+    // CalendarDatePicker uses DateTime? while the application layer deliberately
+    // keeps a local offset so date-only values survive time-zone conversion.
+    public DateTime? DetailCalendarDate
+    {
+        get => DetailDate?.LocalDateTime.Date;
+        set => DetailDate = ToLocalDateTimeOffset(value);
+    }
+
+    public DateTime? DetailCalendarDeadline
+    {
+        get => DetailDeadline?.LocalDateTime.Date;
+        set => DetailDeadline = ToLocalDateTimeOffset(value);
     }
 
     public string DetailLabels
     {
         get => _detailLabels;
-        set => SetProperty(ref _detailLabels, value);
+        set
+        {
+            if (SetProperty(ref _detailLabels, value))
+            {
+                MarkDetailEdited();
+            }
+        }
+    }
+
+    public bool AddDetailLabels(string? labels)
+    {
+        var changed = false;
+        foreach (var label in (labels ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (DetailLabelItems.Any(selected => string.Equals(selected, label, StringComparison.CurrentCultureIgnoreCase)))
+            {
+                continue;
+            }
+
+            DetailLabelItems.Add(label);
+            changed = true;
+        }
+
+        if (changed)
+        {
+            SyncDetailLabels();
+        }
+
+        return changed;
+    }
+
+    public bool RemoveDetailLabel(string label)
+    {
+        var selected = DetailLabelItems.FirstOrDefault(item => string.Equals(item, label, StringComparison.CurrentCultureIgnoreCase));
+        if (selected is null)
+        {
+            return false;
+        }
+
+        DetailLabelItems.Remove(selected);
+        SyncDetailLabels();
+        return true;
     }
 
     public ProjectOptionViewModel? DetailProject
     {
         get => _detailProject;
-        set => SetProperty(ref _detailProject, value);
+        set
+        {
+            if (SetProperty(ref _detailProject, value))
+            {
+                MarkDetailEdited();
+            }
+        }
     }
 
     public string NewProjectName
@@ -389,14 +593,35 @@ public sealed class MainWindowViewModel : ObservableObject
     public int SortIndex
     {
         get => _sortIndex;
-        set => SetProperty(ref _sortIndex, value);
+        set
+        {
+            if (SetProperty(ref _sortIndex, value))
+            {
+                OnPropertyChanged(nameof(SortSummary));
+            }
+        }
     }
 
     public int SortDirectionIndex
     {
         get => _sortDirectionIndex;
-        set => SetProperty(ref _sortDirectionIndex, value);
+        set
+        {
+            if (SetProperty(ref _sortDirectionIndex, value))
+            {
+                OnPropertyChanged(nameof(SortSummary));
+            }
+        }
     }
+
+    public string SortSummary => $"Sort: {SortIndex switch
+    {
+        1 => "Date",
+        2 => "Newest",
+        3 => "Title",
+        4 => "Project",
+        _ => "Priority",
+    }} {(SortDirectionIndex == 1 ? "Desc" : "Asc")}";
 
     public async Task InitializeAsync()
     {
@@ -430,6 +655,7 @@ public sealed class MainWindowViewModel : ObservableObject
             _currentSpaceId = SelectedSpace.SpaceId;
             SelectedNavigation = NavigationItems[0];
             await RefreshAsyncCore();
+            await LoadConnectedTasksCoreAsync();
             StatusMessage = $"Local data · {_store.GetType().Name.Replace("TaskStore", string.Empty, StringComparison.Ordinal)}";
         });
     }
@@ -452,15 +678,20 @@ public sealed class MainWindowViewModel : ObservableObject
             ? "Tasks from every space."
             : $"Tasks in {item.Title}.";
         await RefreshAsync();
+        await LoadConnectedTasksCoreAsync();
     }
 
-    public Task<IReadOnlyList<GlobalSearchResult>> SearchGloballyAsync(string searchText) =>
+    public Task<IReadOnlyList<GlobalSearchResult>> SearchGloballyAsync(
+        string searchText,
+        bool includeAllSpaces,
+        bool includeCompletedTasks) =>
         _store.SearchAsync(new GlobalSearchQuery
         {
             SearchText = searchText,
-            IncludeAllSpaces = true,
-            IncludeCompletedTasks = true,
-            Limit = 50,
+            SpaceId = _currentSpaceId,
+            IncludeAllSpaces = includeAllSpaces || _currentSpaceId is null,
+            IncludeCompletedTasks = includeCompletedTasks,
+            Limit = 25,
         });
 
     public async Task OpenGlobalSearchResultAsync(GlobalSearchResult result)
@@ -746,15 +977,10 @@ public sealed class MainWindowViewModel : ObservableObject
     {
         await RunBusyAsync(async () =>
         {
-            var items = await _store.GetProviderSourceItemsAsync(
-                spaceId: _currentSpaceId,
-                includeAdopted: false,
-                includeIgnored: true);
-            _allConnectedTasks.Clear();
-            _allConnectedTasks.AddRange(items.Select(item => new ConnectedTaskViewModel(item)));
-            RebuildConnectedFilterOptions();
-            FilterConnectedTasks(string.Empty);
-            StatusMessage = $"{items.Count} connected task{(items.Count == 1 ? string.Empty : "s")} waiting";
+            await LoadConnectedTasksCoreAsync();
+            StatusMessage = WaitingConnectedTaskCount == 1
+                ? "1 connected task waiting"
+                : $"{WaitingConnectedTaskCount} connected tasks waiting";
         });
     }
 
@@ -764,8 +990,8 @@ public sealed class MainWindowViewModel : ObservableObject
         {
             var token = await _credentials.GetAsync(TodoistTokenKey);
             TodoistConnectionText = string.IsNullOrWhiteSpace(token)
-                ? "Token required on this Linux installation. Windows Credential Locker secrets are not copied."
-                : "Connected securely through the desktop Secret Service.";
+                ? "Not connected."
+                : $"Connected securely through {CredentialStoreDisplayName}.";
         }
         catch (Exception exception)
         {
@@ -967,9 +1193,9 @@ public sealed class MainWindowViewModel : ObservableObject
             var settings = GitHubIssueService.ReadSettings(connection?.SettingsJson);
             GitHubDefaultRepository = settings.DefaultRepositoryFullName;
             GitHubConnectionText = string.IsNullOrWhiteSpace(token)
-                ? "Token required on this Linux installation. Existing issue links remain available."
+                ? "Not connected. Existing issue links remain available."
                 : string.IsNullOrWhiteSpace(settings.Username)
-                    ? "Connected securely through the desktop Secret Service."
+                    ? $"Connected securely through {CredentialStoreDisplayName}."
                     : $"Connected as {settings.Username}.";
         }
         catch (Exception exception)
@@ -1037,7 +1263,7 @@ public sealed class MainWindowViewModel : ObservableObject
                 UpdatedAt = DateTimeOffset.UtcNow,
             });
             await _store.SetIntegrationConfiguredAsync(IntegrationIds.GitHub, false);
-            GitHubConnectionText = "Not connected on this Linux installation.";
+            GitHubConnectionText = "Not connected.";
             StatusMessage = "GitHub disconnected; existing issue links remain";
         });
     }
@@ -1100,7 +1326,7 @@ public sealed class MainWindowViewModel : ObservableObject
             await _store.SetIntegrationConfiguredAsync(IntegrationIds.Todoist, true);
             await _store.SetIntegrationActiveAsync(IntegrationIds.Todoist, true);
             TodoistToken = string.Empty;
-            TodoistConnectionText = "Connected securely through the desktop Secret Service.";
+            TodoistConnectionText = $"Connected securely through {CredentialStoreDisplayName}.";
             StatusMessage = "Todoist connected";
         });
     }
@@ -1112,7 +1338,7 @@ public sealed class MainWindowViewModel : ObservableObject
             await _credentials.RemoveAsync(TodoistTokenKey);
             await _store.SetIntegrationConfiguredAsync(IntegrationIds.Todoist, false);
             await _store.SetIntegrationActiveAsync(IntegrationIds.Todoist, false);
-            TodoistConnectionText = "Not connected on this Linux installation.";
+            TodoistConnectionText = "Not connected.";
             StatusMessage = "Todoist disconnected; imported tasks remain local";
         });
     }
@@ -1174,6 +1400,7 @@ public sealed class MainWindowViewModel : ObservableObject
     public void FilterConnectedTasks(string searchText)
     {
         _connectedSearchText = searchText.Trim();
+        var showSkipped = ShowSkippedConnectedTasks || WaitingConnectedTaskCount == 0;
         var source = ConnectedSourceFilterIndex > 0 && ConnectedSourceFilterIndex < ConnectedSourceOptions.Count
             ? ConnectedSourceOptions[ConnectedSourceFilterIndex]
             : null;
@@ -1182,7 +1409,7 @@ public sealed class MainWindowViewModel : ObservableObject
             : null;
         FilteredConnectedTasks.Clear();
         foreach (var item in _allConnectedTasks.Where(item =>
-                     (ShowSkippedConnectedTasks || !item.Source.IsSkipped) &&
+                     (showSkipped || !item.Source.IsSkipped) &&
                      (source is null || string.Equals(item.Source.SourceName, source, StringComparison.CurrentCultureIgnoreCase)) &&
                      (project is null || string.Equals(item.Source.SourceProjectName, project, StringComparison.CurrentCultureIgnoreCase)) &&
                      (_connectedSearchText.Length == 0 ||
@@ -1195,6 +1422,11 @@ public sealed class MainWindowViewModel : ObservableObject
     }
 
     public void ApplyConnectedFilters() => FilterConnectedTasks(_connectedSearchText);
+
+    public IReadOnlyList<ProjectOptionViewModel> GetProjectOptionsForSpace(string spaceId) =>
+        ProjectOptions
+            .Where(option => option.Project is null || string.Equals(option.Project.SpaceId, spaceId, StringComparison.Ordinal))
+            .ToArray();
 
     public async Task AdoptConnectedTaskAsync(ConnectedTaskViewModel item)
     {
@@ -1218,6 +1450,47 @@ public sealed class MainWindowViewModel : ObservableObject
             }
             await LoadConnectedTasksCoreAsync();
             await RefreshAsyncCore(task?.Id);
+        });
+    }
+
+    public async Task AdoptAllConnectedTasksAsync()
+    {
+        var items = _allConnectedTasks
+            .Where(item => !item.Source.IsSkipped)
+            .ToArray();
+        if (items.Length == 0)
+        {
+            return;
+        }
+
+        await RunBusyAsync(async () =>
+        {
+            string? lastTaskId = null;
+            var adoptedCount = 0;
+            var filingFailureCount = 0;
+            foreach (var item in items)
+            {
+                var targetSpaceId = _currentSpaceId ?? item.Source.SuggestedSpaceId ?? _defaultSpaceId;
+                var task = await _store.AdoptProviderSourceItemAsync(item.Source.Id, targetSpaceId);
+                if (task is null)
+                {
+                    continue;
+                }
+
+                adoptedCount++;
+                lastTaskId = task.Id;
+                var filing = await TryApplyTodoistPostImportFilingAsync(item.Source);
+                if (filing.Error.Length > 0)
+                {
+                    filingFailureCount++;
+                }
+            }
+
+            await LoadConnectedTasksCoreAsync();
+            await RefreshAsyncCore(lastTaskId);
+            StatusMessage = filingFailureCount > 0
+                ? $"Added {adoptedCount} tasks to Openza; {filingFailureCount} Todoist filing actions failed."
+                : $"Added {adoptedCount} tasks to Openza";
         });
     }
 
@@ -1326,6 +1599,35 @@ public sealed class MainWindowViewModel : ObservableObject
         });
     }
 
+    public async Task<bool> CreateProjectForSelectedTaskAsync(string name)
+    {
+        var trimmedName = name.Trim();
+        if (SelectedTask is null || trimmedName.Length == 0)
+        {
+            return false;
+        }
+
+        var project = new ProjectItem
+        {
+            Id = $"project_{Guid.NewGuid():N}",
+            SpaceId = SelectedTask.Task.SpaceId,
+            IntegrationId = IntegrationIds.Local,
+            Name = trimmedName,
+            Color = "#6B8AFD",
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow,
+        };
+        if (!await RunBusyAsync(() => _store.UpsertProjectAsync(project)))
+        {
+            return false;
+        }
+
+        var option = new ProjectOptionViewModel(project);
+        ProjectOptions.Add(option);
+        DetailProject = option;
+        return await SaveSelectedAsync();
+    }
+
     public async Task RenameSelectedProjectAsync(string name)
     {
         if (SelectedProject is null || string.IsNullOrWhiteSpace(name))
@@ -1345,6 +1647,39 @@ public sealed class MainWindowViewModel : ObservableObject
             StatusMessage = "Project renamed";
             await RefreshAsyncCore();
             SelectedProject = ProjectItems.FirstOrDefault(item => item.Project.Id == project.Id);
+        });
+    }
+
+    public async Task UpdateSelectedProjectAsync(string name, string projectStatus, bool isFavorite)
+    {
+        if (SelectedProject is null || string.IsNullOrWhiteSpace(name))
+        {
+            return;
+        }
+
+        var project = SelectedProject.Project;
+        var status = ProjectLifecycleStates.Normalize(projectStatus);
+        await RunBusyAsync(async () =>
+        {
+            await _store.UpsertProjectAsync(project with
+            {
+                Name = name.Trim(),
+                Status = status,
+                IsArchived = status == ProjectLifecycleStates.Archived,
+                IsFavorite = isFavorite,
+                UpdatedAt = DateTimeOffset.UtcNow,
+            });
+            PageTitle = name.Trim();
+            StatusMessage = "Project updated";
+            await RefreshAsyncCore();
+            SelectedProject = ProjectItems.FirstOrDefault(item => item.Project.Id == project.Id);
+            if (SelectedProject is null)
+            {
+                SelectedNavigation = NavigationItems.First(item => item.Kind == TaskListKind.Open);
+                PageTitle = SelectedNavigation.Title;
+                PageSubtitle = SubtitleFor(SelectedNavigation.Kind);
+                await RefreshAsyncCore();
+            }
         });
     }
 
@@ -1382,7 +1717,7 @@ public sealed class MainWindowViewModel : ObservableObject
             string.Empty,
             ProjectOptions.FirstOrDefault(option => option.ProjectId == SelectedProject?.Project.Id),
             StatusIndex(DefaultStatus()),
-            1,
+            2,
             SelectedNavigation?.Kind == TaskListKind.Today ? DateTimeOffset.Now : null,
             string.Empty,
             true));
@@ -1435,6 +1770,111 @@ public sealed class MainWindowViewModel : ObservableObject
         });
     }
 
+    public Task SetTaskDateFromRowAsync(TaskListItemViewModel item, DateOnly? plannedOn) =>
+        UpdateTaskFromRowAsync(
+            item,
+            new UpdateTaskRequest
+            {
+                TaskId = item.Task.Id,
+                PlannedOn = OptionalValue<DateOnly?>.Set(plannedOn),
+            },
+            plannedOn is null ? "Task date cleared" : "Task date changed");
+
+    public Task SetTaskStatusFromRowAsync(TaskListItemViewModel item, TaskItemStatus status) =>
+        UpdateTaskFromRowAsync(
+            item,
+            new UpdateTaskRequest
+            {
+                TaskId = item.Task.Id,
+                Status = OptionalValue<TaskWorkflowStatus>.Set(status.ToWorkflowStatus()),
+                Completed = OptionalValue<bool>.Set(false),
+            },
+            "Task status changed");
+
+    public Task SetTaskPriorityFromRowAsync(TaskListItemViewModel item, int priority) =>
+        UpdateTaskFromRowAsync(
+            item,
+            new UpdateTaskRequest
+            {
+                TaskId = item.Task.Id,
+                Priority = OptionalValue<int>.Set(Math.Clamp(priority, 1, 4)),
+            },
+            "Task priority changed");
+
+    public Task SetTaskProjectFromRowAsync(TaskListItemViewModel item, string? projectId) =>
+        UpdateTaskFromRowAsync(
+            item,
+            new UpdateTaskRequest
+            {
+                TaskId = item.Task.Id,
+                Project = OptionalValue<string?>.Set(string.IsNullOrWhiteSpace(projectId) ? null : projectId),
+            },
+            "Task project changed");
+
+    public Task SetTaskLabelsFromRowAsync(TaskListItemViewModel item, string labelsText) =>
+        UpdateTaskFromRowAsync(
+            item,
+            new UpdateTaskRequest
+            {
+                TaskId = item.Task.Id,
+                Labels = OptionalValue<IReadOnlyList<string>>.Set(labelsText
+                    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    .Distinct(StringComparer.CurrentCultureIgnoreCase)
+                    .ToArray()),
+            },
+            "Task labels changed");
+
+    public async Task MoveTaskFromRowAsync(TaskListItemViewModel item, string spaceId)
+    {
+        if (string.Equals(item.Task.SpaceId, spaceId, StringComparison.Ordinal))
+        {
+            StatusMessage = "Task is already in that space";
+            return;
+        }
+
+        var selectedId = SelectedTask?.Task.Id;
+        await RunBusyAsync(async () =>
+        {
+            await _store.MoveTaskToSpaceAsync(item.Task.Id, spaceId);
+            StatusMessage = "Task moved";
+            await RefreshAsyncCore(string.Equals(selectedId, item.Task.Id, StringComparison.Ordinal) ? null : selectedId);
+        });
+    }
+
+    public async Task DeleteTaskFromRowAsync(TaskListItemViewModel item)
+    {
+        var selectedId = SelectedTask?.Task.Id;
+        await RunBusyAsync(async () =>
+        {
+            var current = await _store.GetTaskAsync(item.Task.Id);
+            if (current is null)
+            {
+                return;
+            }
+
+            await _taskService.DeleteTaskAsync(current.Id, current.Revision);
+            StatusMessage = "Task deleted";
+            await RefreshAsyncCore(string.Equals(selectedId, current.Id, StringComparison.Ordinal) ? null : selectedId);
+        }, rethrow: true);
+    }
+
+    private async Task UpdateTaskFromRowAsync(TaskListItemViewModel item, UpdateTaskRequest request, string statusMessage)
+    {
+        var selectedId = SelectedTask?.Task.Id;
+        await RunBusyAsync(async () =>
+        {
+            var current = await _store.GetTaskAsync(item.Task.Id);
+            if (current is null)
+            {
+                return;
+            }
+
+            await _taskService.UpdateTaskAsync(request with { ExpectedRevision = current.Revision });
+            StatusMessage = statusMessage;
+            await RefreshAsyncCore(selectedId);
+        });
+    }
+
     public async Task<bool> SaveSelectedAsync()
     {
         if (SelectedTask is null)
@@ -1448,43 +1888,76 @@ public sealed class MainWindowViewModel : ObservableObject
             return false;
         }
 
-        var originalTaskId = SelectedTask.Task.Id;
-
-        return await RunBusyAsync(async () =>
+        var draft = CaptureDetailSaveDraft(SelectedTask.Task.Id);
+        var valid = true;
+        var succeeded = await RunBusyAsync(async () =>
         {
-            if (SelectedTask is null || !string.Equals(SelectedTask.Task.Id, originalTaskId, StringComparison.Ordinal))
+            while (SelectedTask is not null && string.Equals(SelectedTask.Task.Id, draft.TaskId, StringComparison.Ordinal))
             {
+                var original = await _store.GetTaskAsync(draft.TaskId);
+                if (original is null)
+                {
+                    return;
+                }
+
+                var completed = draft.Status == TaskItemStatus.Completed;
+                var localMetadataJson = WithSourceDateMismatchAcknowledgement(original.LocalMetadataJson, draft.SourceDateMismatchAcknowledgementKey);
+                TaskItem? updated = null;
+                if (HasDetailChanges(original, draft, completed, localMetadataJson))
+                {
+                    updated = await _taskService.UpdateTaskAsync(new UpdateTaskRequest
+                    {
+                        TaskId = original.Id,
+                        ExpectedRevision = original.Revision,
+                        Title = OptionalValue<string?>.Set(draft.Title),
+                        Notes = OptionalValue<string?>.Set(NullIfEmpty(draft.Notes)),
+                        Status = completed ? default : OptionalValue<TaskWorkflowStatus>.Set(draft.Status.ToWorkflowStatus()),
+                        Completed = OptionalValue<bool>.Set(completed),
+                        Priority = OptionalValue<int>.Set(draft.Priority),
+                        Project = OptionalValue<string?>.Set(draft.ProjectId),
+                        PlannedOn = OptionalValue<DateOnly?>.Set(draft.PlannedOn),
+                        DeadlineOn = OptionalValue<DateOnly?>.Set(draft.DeadlineOn),
+                        Labels = OptionalValue<IReadOnlyList<string>>.Set(draft.Labels.Select(label => label.Name).ToArray()),
+                        LocalMetadataJson = OptionalValue<string?>.Set(localMetadataJson),
+                    });
+                }
+
+                if (draft.Version != _detailEditVersion)
+                {
+                    if (string.IsNullOrWhiteSpace(DetailTitle))
+                    {
+                        StatusMessage = "A task title is required.";
+                        valid = false;
+                        return;
+                    }
+
+                    draft = CaptureDetailSaveDraft(draft.TaskId);
+                    continue;
+                }
+
+                StatusMessage = "Changes saved";
+                var selectedId = SelectedTask?.Task.Id;
+                await RefreshAsyncCore(string.Equals(selectedId, original.Id, StringComparison.Ordinal)
+                    ? updated?.Id ?? original.Id
+                    : selectedId);
                 return;
             }
-
-            var original = SelectedTask.Task;
-            var status = StatusFromIndex(DetailStatusIndex);
-            var completed = status == TaskItemStatus.Completed;
-            var taskLabels = ParseLabels(DetailLabels);
-            DateOnly? plannedOn = DetailDate is null ? null : DateOnly.FromDateTime(DetailDate.Value.LocalDateTime);
-            DateOnly? deadlineOn = DetailDeadline is null ? null : DateOnly.FromDateTime(DetailDeadline.Value.LocalDateTime);
-            var updated = await _taskService.UpdateTaskAsync(new UpdateTaskRequest
-            {
-                TaskId = original.Id,
-                ExpectedRevision = original.Revision,
-                Title = OptionalValue<string?>.Set(DetailTitle.Trim()),
-                Notes = OptionalValue<string?>.Set(NullIfEmpty(DetailNotes)),
-                Status = completed ? default : OptionalValue<TaskWorkflowStatus>.Set(status.ToWorkflowStatus()),
-                Completed = OptionalValue<bool>.Set(completed),
-                Priority = OptionalValue<int>.Set(Math.Clamp(DetailPriorityIndex + 1, 1, 4)),
-                Project = OptionalValue<string?>.Set(DetailProject?.ProjectId),
-                PlannedOn = OptionalValue<DateOnly?>.Set(plannedOn),
-                DeadlineOn = OptionalValue<DateOnly?>.Set(deadlineOn),
-                Labels = OptionalValue<IReadOnlyList<string>>.Set(taskLabels.Select(label => label.Name).ToArray()),
-            });
-
-            StatusMessage = "Changes saved";
-            var selectedId = SelectedTask?.Task.Id;
-            await RefreshAsyncCore(string.Equals(selectedId, original.Id, StringComparison.Ordinal)
-                ? updated.Id
-                : selectedId);
         });
+        return succeeded && valid;
     }
+
+    private DetailSaveDraft CaptureDetailSaveDraft(string taskId) => new(
+        taskId,
+        DetailTitle.Trim(),
+        DetailNotes,
+        StatusFromIndex(DetailStatusIndex),
+        Math.Clamp(DetailPriorityIndex + 1, 1, 4),
+        DetailProject?.ProjectId,
+        DetailDate is null ? null : DateOnly.FromDateTime(DetailDate.Value.LocalDateTime),
+        DetailDeadline is null ? null : DateOnly.FromDateTime(DetailDeadline.Value.LocalDateTime),
+        ParseLabels(DetailLabels),
+        _sourceDateMismatchAcknowledgementKey,
+        _detailEditVersion);
 
     public async Task DeleteSelectedAsync()
     {
@@ -1527,9 +2000,57 @@ public sealed class MainWindowViewModel : ObservableObject
 
     public async Task SelectTaskAsync(TaskListItemViewModel task)
     {
+        _showAllSubtasks = false;
         SelectedTask = task;
         await LoadSubtasksAsync();
         await LoadSelectedGitHubLinkAsync();
+    }
+
+    public void ToggleSubtasks()
+    {
+        if (!CanToggleSubtasks)
+        {
+            return;
+        }
+
+        _showAllSubtasks = !_showAllSubtasks;
+        RefreshVisibleSubtasks();
+    }
+
+    public async Task UseSourceDatesAsync()
+    {
+        if (SelectedTask?.Task is not { } task || !HasSourceDateMismatch)
+        {
+            return;
+        }
+
+        using (BeginDetailUpdate())
+        {
+            DetailDate = TaskDateValues.PreferredMoment(task.SourcePlannedOn, task.SourcePlannedAt);
+            DetailDeadline = TaskDateValues.PreferredMoment(task.SourceDeadlineOn, task.SourceDeadlineAt);
+            _sourceDateMismatchAcknowledgementKey = null;
+        }
+        MarkDetailEdited();
+        NotifySourceDateMismatchChanged();
+        await SaveSelectedAsync();
+    }
+
+    public async Task KeepOpenzaDatesAsync()
+    {
+        if (BuildSourceDateMismatch(ignoreAcknowledgement: true) is null)
+        {
+            return;
+        }
+
+        var previousAcknowledgementKey = _sourceDateMismatchAcknowledgementKey;
+        _sourceDateMismatchAcknowledgementKey = BuildSourceDateMismatchKey();
+        MarkDetailEdited();
+        NotifySourceDateMismatchChanged();
+        if (!await SaveSelectedAsync())
+        {
+            _sourceDateMismatchAcknowledgementKey = previousAcknowledgementKey;
+            NotifySourceDateMismatchChanged();
+        }
     }
 
     public async Task<string?> RunGitHubActionAsync()
@@ -1674,10 +2195,21 @@ public sealed class MainWindowViewModel : ObservableObject
             ?? LabelFilterOptions[0];
 
         Tasks.Clear();
+        var subtaskProgress = BuildSubtaskProgress(snapshot.AllSpaceTasks);
+        var matchingSubtasks = BuildMatchingSubtaskText(snapshot.VisibleTasks, SearchText);
+        var viewKind = SelectedProject is null
+            ? SelectedNavigation?.Kind ?? TaskListKind.Inbox
+            : TaskListKind.Open;
         foreach (var task in snapshot.VisibleTasks.Where(task => string.IsNullOrWhiteSpace(task.ParentId)))
         {
             projectNames.TryGetValue(task.ProjectId ?? string.Empty, out var projectName);
-            Tasks.Add(new TaskListItemViewModel(task, projectName));
+            Tasks.Add(new TaskListItemViewModel(
+                task,
+                projectName,
+                viewKind,
+                SelectedProject is not null,
+                subtaskProgress.GetValueOrDefault(task.Id, string.Empty),
+                matchingSubtasks.GetValueOrDefault(task.Id, string.Empty)));
         }
         BuildTaskEntries(projects);
         OnPropertyChanged(nameof(HasNoTasks));
@@ -1704,7 +2236,7 @@ public sealed class MainWindowViewModel : ObservableObject
         Subtasks.Clear();
         if (SelectedTask is null)
         {
-            OnPropertyChanged(nameof(HasSubtasks));
+            RefreshVisibleSubtasks();
             return;
         }
 
@@ -1721,7 +2253,61 @@ public sealed class MainWindowViewModel : ObservableObject
             Subtasks.Add(new TaskListItemViewModel(task, projectName));
         }
 
+        RefreshVisibleSubtasks();
+    }
+
+    private static Dictionary<string, string> BuildSubtaskProgress(IReadOnlyList<TaskItem> tasks) =>
+        tasks
+            .Where(task => !string.IsNullOrWhiteSpace(task.ParentId))
+            .GroupBy(task => task.ParentId!, StringComparer.Ordinal)
+            .ToDictionary(
+                group => group.Key,
+                group => $"{group.Count(task => task.IsCompleted)}/{group.Count()} subtasks",
+                StringComparer.Ordinal);
+
+    private static Dictionary<string, string> BuildMatchingSubtaskText(
+        IReadOnlyList<TaskItem> visibleTasks,
+        string? searchText)
+    {
+        if (string.IsNullOrWhiteSpace(searchText))
+        {
+            return [];
+        }
+
+        return visibleTasks
+            .Where(task => !string.IsNullOrWhiteSpace(task.ParentId))
+            .GroupBy(task => task.ParentId!, StringComparer.Ordinal)
+            .ToDictionary(
+                group => group.Key,
+                group =>
+                {
+                    var matches = group
+                        .Select(task => task.Title)
+                        .Where(title => !string.IsNullOrWhiteSpace(title))
+                        .Distinct(StringComparer.CurrentCultureIgnoreCase)
+                        .Take(2)
+                        .ToList();
+                    var remaining = Math.Max(0, group.Count() - matches.Count);
+                    var prefix = matches.Count == 1 && remaining == 0
+                        ? "Matching subtask"
+                        : "Matching subtasks";
+                    return $"{prefix}: {string.Join(", ", matches)}{(remaining > 0 ? $" +{remaining}" : string.Empty)}";
+                },
+                StringComparer.Ordinal);
+    }
+
+    private void RefreshVisibleSubtasks()
+    {
+        VisibleSubtasks.Clear();
+        foreach (var subtask in (_showAllSubtasks ? Subtasks : Subtasks.Take(SubtaskPreviewLimit)))
+        {
+            VisibleSubtasks.Add(subtask);
+        }
+
         OnPropertyChanged(nameof(HasSubtasks));
+        OnPropertyChanged(nameof(SubtasksProgressText));
+        OnPropertyChanged(nameof(CanToggleSubtasks));
+        OnPropertyChanged(nameof(SubtasksToggleText));
     }
 
     private void LoadRestorePointsCore()
@@ -1787,6 +2373,13 @@ public sealed class MainWindowViewModel : ObservableObject
         _allConnectedTasks.AddRange(items.Select(item => new ConnectedTaskViewModel(item)));
         RebuildConnectedFilterOptions();
         FilterConnectedTasks(string.Empty);
+        OnPropertyChanged(nameof(ConnectedTaskCount));
+        OnPropertyChanged(nameof(WaitingConnectedTaskCount));
+        OnPropertyChanged(nameof(SkippedConnectedTaskCount));
+        OnPropertyChanged(nameof(HasConnectedTasks));
+        OnPropertyChanged(nameof(CanAddAllConnectedTasks));
+        OnPropertyChanged(nameof(ConnectedTasksSummary));
+        OnPropertyChanged(nameof(EmptyStateMessage));
     }
 
     private void RebuildConnectedFilterOptions()
@@ -1881,6 +2474,7 @@ public sealed class MainWindowViewModel : ObservableObject
 
     private void LoadDetails(TaskItem? task)
     {
+        _sourceDateMismatchAcknowledgementKey = ReadSourceDateMismatchAcknowledgementKey(task?.LocalMetadataJson);
         DetailTitle = task?.Title ?? string.Empty;
         DetailNotes = task?.Notes ?? string.Empty;
         DetailStatusIndex = StatusIndex(task?.Status ?? TaskItemStatus.Inbox);
@@ -1891,15 +2485,237 @@ public sealed class MainWindowViewModel : ObservableObject
         DetailDeadline = task?.DeadlineOn is { } deadline
             ? ToLocalDateTimeOffset(deadline)
             : null;
-        DetailLabels = task is null ? string.Empty : string.Join(", ", task.Labels.Select(label => label.Name));
+        DetailLabelItems.Clear();
+        if (task is not null)
+        {
+            foreach (var label in task.Labels.OrderBy(label => label.Name, StringComparer.CurrentCultureIgnoreCase))
+            {
+                DetailLabelItems.Add(label.Name);
+            }
+        }
+        SyncDetailLabels();
         DetailProject = ProjectOptions.FirstOrDefault(option => option.ProjectId == task?.ProjectId)
             ?? ProjectOptions.FirstOrDefault();
+        NotifySourceDateMismatchChanged();
     }
+
+    private void SyncDetailLabels() => DetailLabels = string.Join(", ", DetailLabelItems);
+
+    private void NotifyTaskMetadataChanged()
+    {
+        OnPropertyChanged(nameof(HasSourceTask));
+        OnPropertyChanged(nameof(HasSourceDescription));
+        OnPropertyChanged(nameof(HasLocalTaskMetadata));
+        OnPropertyChanged(nameof(SourceTaskName));
+        OnPropertyChanged(nameof(SourceTaskHeader));
+        OnPropertyChanged(nameof(SourceTaskTitle));
+        OnPropertyChanged(nameof(SourceTaskDescription));
+        OnPropertyChanged(nameof(SourceTaskDescriptionHint));
+        OnPropertyChanged(nameof(SourceTaskProject));
+        OnPropertyChanged(nameof(SourceTaskDate));
+        OnPropertyChanged(nameof(SourceTaskDeadline));
+        OnPropertyChanged(nameof(SourceTaskPriority));
+        OnPropertyChanged(nameof(SourceTaskCreated));
+        OnPropertyChanged(nameof(SourceTaskRecurrence));
+        OnPropertyChanged(nameof(LocalTaskCreated));
+        OnPropertyChanged(nameof(LocalTaskUpdated));
+    }
+
+    private static string FormatPriority(int priority) => priority switch
+    {
+        1 => "Urgent",
+        2 => "High",
+        3 => "Normal",
+        _ => "Low",
+    };
+
+    private static string FormatTaskDate(DateTimeOffset? date)
+    {
+        if (date is null)
+        {
+            return "No date";
+        }
+
+        var localDate = date.Value.LocalDateTime.Date;
+        var today = DateTimeOffset.Now.Date;
+        if (localDate == today)
+        {
+            return "Today";
+        }
+
+        if (localDate == today.AddDays(1))
+        {
+            return "Tomorrow";
+        }
+
+        return date.Value.ToString("MMM d, yyyy", System.Globalization.CultureInfo.CurrentCulture);
+    }
+
+    private static string FormatTaskDateTime(DateTimeOffset date) =>
+        date.LocalDateTime.ToString("MMM d, yyyy h:mm tt", System.Globalization.CultureInfo.CurrentCulture);
+
+    private void NotifySourceDateMismatchChanged()
+    {
+        OnPropertyChanged(nameof(HasSourceDateMismatch));
+        OnPropertyChanged(nameof(SourceDateMismatchTitle));
+        OnPropertyChanged(nameof(SourceDateMismatchMessage));
+        OnPropertyChanged(nameof(UseSourceDatesText));
+    }
+
+    private SourceDateMismatchPresentation? BuildSourceDateMismatch(bool ignoreAcknowledgement = false)
+    {
+        if (SelectedTask?.Task is not { } task ||
+            !task.HasProviderSource ||
+            IsTodoistNonRecurringSourceTask(task) ||
+            !string.IsNullOrWhiteSpace(task.RecurrenceRule))
+        {
+            return null;
+        }
+
+        DateOnly? localDate = DetailDate is null ? null : DateOnly.FromDateTime(DetailDate.Value.LocalDateTime);
+        DateOnly? localDeadline = DetailDeadline is null ? null : DateOnly.FromDateTime(DetailDeadline.Value.LocalDateTime);
+        var sourceDate = TaskDateValues.FromDateTimeOffset(task.SourcePlannedMoment);
+        var sourceDeadline = TaskDateValues.FromDateTimeOffset(task.SourceDeadlineMoment);
+        var dateMismatch = localDate != sourceDate;
+        var deadlineMismatch = localDeadline != sourceDeadline;
+        if (!dateMismatch && !deadlineMismatch)
+        {
+            return null;
+        }
+
+        var key = BuildSourceDateMismatchKey(task.Id, localDate, sourceDate, localDeadline, sourceDeadline);
+        if (!ignoreAcknowledgement && string.Equals(_sourceDateMismatchAcknowledgementKey, key, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        var sourceName = SourceTaskName;
+        var title = dateMismatch && deadlineMismatch
+            ? $"{sourceName} dates changed"
+            : dateMismatch
+                ? $"{sourceName} date changed"
+                : $"{sourceName} deadline changed";
+        var message = dateMismatch && deadlineMismatch
+            ? $"{sourceName} date is {FormatDateOnly(sourceDate)} and deadline is {FormatDateOnly(sourceDeadline)}. Openza keeps {FormatDateOnly(localDate)} and {FormatDateOnly(localDeadline)} until you choose otherwise."
+            : dateMismatch
+                ? $"{sourceName} date is {FormatDateOnly(sourceDate)}. Openza date is {FormatDateOnly(localDate)}."
+                : $"{sourceName} deadline is {FormatDateOnly(sourceDeadline)}. Openza deadline is {FormatDateOnly(localDeadline)}.";
+        var useSourceText = dateMismatch && deadlineMismatch
+            ? $"Use {sourceName} dates"
+            : dateMismatch
+                ? $"Use {sourceName} date"
+                : $"Use {sourceName} deadline";
+        return new SourceDateMismatchPresentation(title, message, useSourceText);
+    }
+
+    private string BuildSourceDateMismatchKey()
+    {
+        var task = SelectedTask?.Task;
+        DateOnly? localDate = DetailDate is null ? null : DateOnly.FromDateTime(DetailDate.Value.LocalDateTime);
+        DateOnly? localDeadline = DetailDeadline is null ? null : DateOnly.FromDateTime(DetailDeadline.Value.LocalDateTime);
+        var sourceDate = TaskDateValues.FromDateTimeOffset(task?.SourcePlannedMoment);
+        var sourceDeadline = TaskDateValues.FromDateTimeOffset(task?.SourceDeadlineMoment);
+        return BuildSourceDateMismatchKey(task?.Id ?? string.Empty, localDate, sourceDate, localDeadline, sourceDeadline);
+    }
+
+    private static string BuildSourceDateMismatchKey(string taskId, DateOnly? localDate, DateOnly? sourceDate, DateOnly? localDeadline, DateOnly? sourceDeadline) =>
+        $"{taskId}|{string.Join('|', localDate?.ToString("O") ?? "", sourceDate?.ToString("O") ?? "", localDeadline?.ToString("O") ?? "", sourceDeadline?.ToString("O") ?? "")}";
+
+    private static string FormatDateOnly(DateOnly? date) =>
+        date?.ToString("MMM d, yyyy", System.Globalization.CultureInfo.CurrentCulture) ?? "no date";
+
+    private static bool IsTodoistNonRecurringSourceTask(TaskItem task) =>
+        string.Equals(task.SourceIntegrationId ?? task.IntegrationId, IntegrationIds.Todoist, StringComparison.Ordinal) &&
+        string.IsNullOrWhiteSpace(task.RecurrenceRule);
+
+    private static string? ReadSourceDateMismatchAcknowledgementKey(string? localMetadataJson)
+    {
+        if (string.IsNullOrWhiteSpace(localMetadataJson))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(localMetadataJson);
+            return document.RootElement.ValueKind == JsonValueKind.Object &&
+                document.RootElement.TryGetProperty("openza", out var openza) &&
+                openza.ValueKind == JsonValueKind.Object &&
+                openza.TryGetProperty("sourceDateMismatchAcknowledgementKey", out var value) &&
+                value.ValueKind == JsonValueKind.String
+                    ? value.GetString()
+                    : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static string? WithSourceDateMismatchAcknowledgement(string? localMetadataJson, string? acknowledgementKey)
+    {
+        var currentKey = ReadSourceDateMismatchAcknowledgementKey(localMetadataJson);
+        if (string.Equals(currentKey, acknowledgementKey, StringComparison.Ordinal) ||
+            (string.IsNullOrWhiteSpace(currentKey) && string.IsNullOrWhiteSpace(acknowledgementKey)))
+        {
+            return localMetadataJson;
+        }
+
+        JsonObject root;
+        try
+        {
+            root = string.IsNullOrWhiteSpace(localMetadataJson)
+                ? new JsonObject()
+                : JsonNode.Parse(localMetadataJson) as JsonObject ?? throw new JsonException("Task metadata must be a JSON object.");
+        }
+        catch (JsonException exception)
+        {
+            throw new InvalidOperationException("The task's existing metadata is not a JSON object, so its date choice could not be recorded safely.", exception);
+        }
+
+        var openza = root["openza"] as JsonObject;
+        if (openza is null)
+        {
+            if (root["openza"] is not null)
+            {
+                throw new InvalidOperationException("The task's existing Openza metadata is incompatible, so its date choice could not be recorded safely.");
+            }
+
+            openza = new JsonObject();
+            root["openza"] = openza;
+        }
+
+        if (string.IsNullOrWhiteSpace(acknowledgementKey))
+        {
+            openza.Remove("sourceDateMismatchAcknowledgementKey");
+        }
+        else
+        {
+            openza["sourceDateMismatchAcknowledgementKey"] = acknowledgementKey;
+        }
+
+        if (openza.Count == 0)
+        {
+            root.Remove("openza");
+        }
+
+        return root.Count == 0 ? null : root.ToJsonString();
+    }
+
+    private sealed record SourceDateMismatchPresentation(string Title, string Message, string UseSourceText);
 
     private IDisposable BeginDetailUpdate()
     {
         _detailUpdateDepth++;
         return new DetailUpdateScope(this);
+    }
+
+    private void MarkDetailEdited()
+    {
+        if (_detailUpdateDepth == 0)
+        {
+            _detailEditVersion++;
+        }
     }
 
     private sealed class DetailUpdateScope(MainWindowViewModel owner) : IDisposable
@@ -1974,6 +2790,44 @@ public sealed class MainWindowViewModel : ObservableObject
             .ToList();
     }
 
+    private static bool HasDetailChanges(
+        TaskItem original,
+        DetailSaveDraft draft,
+        bool completed,
+        string? localMetadataJson)
+    {
+        var originalLabels = original.Labels
+            .Select(label => label.Name)
+            .OrderBy(name => name, StringComparer.CurrentCultureIgnoreCase);
+        var editedLabels = draft.Labels
+            .Select(label => label.Name)
+            .OrderBy(name => name, StringComparer.CurrentCultureIgnoreCase);
+
+        return !string.Equals(original.Title, draft.Title, StringComparison.Ordinal)
+            || !string.Equals(NullIfEmpty(original.Notes), NullIfEmpty(draft.Notes), StringComparison.Ordinal)
+            || original.Status != draft.Status
+            || original.IsCompleted != completed
+            || original.Priority != draft.Priority
+            || !string.Equals(original.ProjectId, draft.ProjectId, StringComparison.Ordinal)
+            || original.PlannedOn != draft.PlannedOn
+            || original.DeadlineOn != draft.DeadlineOn
+            || !string.Equals(original.LocalMetadataJson, localMetadataJson, StringComparison.Ordinal)
+            || !originalLabels.SequenceEqual(editedLabels, StringComparer.CurrentCultureIgnoreCase);
+    }
+
+    private sealed record DetailSaveDraft(
+        string TaskId,
+        string Title,
+        string Notes,
+        TaskItemStatus Status,
+        int Priority,
+        string? ProjectId,
+        DateOnly? PlannedOn,
+        DateOnly? DeadlineOn,
+        IReadOnlyList<LabelItem> Labels,
+        string? SourceDateMismatchAcknowledgementKey,
+        long Version);
+
     private static TaskSortMode SortModeFromIndex(int index) => index switch
     {
         1 => TaskSortMode.Date,
@@ -2039,6 +2893,17 @@ public sealed class MainWindowViewModel : ObservableObject
     private static DateTimeOffset ToLocalDateTimeOffset(DateOnly date)
     {
         var value = date.ToDateTime(TimeOnly.MinValue);
+        return new DateTimeOffset(value, TimeZoneInfo.Local.GetUtcOffset(value));
+    }
+
+    private static DateTimeOffset? ToLocalDateTimeOffset(DateTime? date)
+    {
+        if (date is null)
+        {
+            return null;
+        }
+
+        var value = DateTime.SpecifyKind(date.Value.Date, DateTimeKind.Unspecified);
         return new DateTimeOffset(value, TimeZoneInfo.Local.GetUtcOffset(value));
     }
 

@@ -1,0 +1,38 @@
+<Window
+    x:Class="Openza.Tasks.Desktop.Dialogs.LabelPickerWindow"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Width="500"
+    Height="590"
+    MinWidth="420"
+    MinHeight="420"
+    CanResize="True"
+    ShowInTaskbar="False"
+    Title="Labels"
+    WindowStartupLocation="CenterOwner"
+    Opened="OnOpened">
+    <Grid RowDefinitions="Auto,Auto,*,Auto,Auto">
+        <StackPanel Margin="24,22,24,14" Spacing="4">
+            <TextBlock FontSize="22" FontWeight="SemiBold" Text="Labels" />
+            <TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="Choose existing labels or create new ones." />
+        </StackPanel>
+        <TextBox x:Name="SearchBox" Grid.Row="1" Margin="24,0,24,12" AutomationProperties.Name="Find labels" PlaceholderText="Find labels" TextChanged="OnSearchChanged" />
+        <ListBox x:Name="LabelsList" Grid.Row="2" Margin="18,0" AutomationProperties.Name="Available labels">
+            <ListBox.ItemTemplate>
+                <DataTemplate>
+                    <CheckBox Margin="8,6" Content="{Binding Name}" IsChecked="{Binding IsSelected, Mode=TwoWay}" />
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+        <StackPanel Grid.Row="3" Margin="24,12" Spacing="5">
+            <TextBlock FontSize="13" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="New labels" />
+            <TextBox x:Name="NewLabelsBox" PlaceholderText="Type one or more labels, separated by commas" />
+        </StackPanel>
+        <Border Grid.Row="4" Padding="24,14" BorderBrush="{DynamicResource DividerStrokeColorDefaultBrush}" BorderThickness="0,1,0,0">
+            <StackPanel HorizontalAlignment="Right" Orientation="Horizontal" Spacing="10">
+                <Button MinWidth="100" Click="OnCancelClicked" Content="Cancel" IsCancel="True" />
+                <Button MinWidth="100" Classes="accent" Click="OnApplyClicked" Content="Apply" IsDefault="True" />
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>

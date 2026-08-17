@@ -32,7 +32,7 @@ public sealed class DesktopTodoistRoutingRuleTests : IDisposable
             IntegrationId = IntegrationIds.Todoist,
             Name = "work",
         });
-        var viewModel = new MainWindowViewModel(store);
+        var viewModel = new MainWindowViewModel(store, new InMemoryCredentialStore());
 
         await viewModel.RefreshTodoistRoutingRulesAsync();
         await viewModel.SaveTodoistRoutingRuleAsync(new TodoistRoutingRuleDraft(
@@ -67,7 +67,7 @@ public sealed class DesktopTodoistRoutingRuleTests : IDisposable
     {
         var store = await CreateStoreAsync();
         await store.UpsertSpaceAsync(new SpaceItem { Id = "space_personal", Name = "Personal" });
-        var viewModel = new MainWindowViewModel(store);
+        var viewModel = new MainWindowViewModel(store, new InMemoryCredentialStore());
 
         await viewModel.SaveTodoistRoutingRuleAsync(new TodoistRoutingRuleDraft(
             null,
@@ -112,6 +112,72 @@ public sealed class DesktopTodoistRoutingRuleTests : IDisposable
 
         Assert.Equal(("todoist-task", "processed"), Assert.Single(provider.Moves));
         Assert.Contains("filed in Todoist", viewModel.StatusMessage);
+    }
+
+    [Fact]
+    public async Task Connected_task_intake_exposes_waiting_count_and_summary_without_review_click()
+    {
+        var store = await CreateStoreAsync();
+        await store.UpsertProviderSourceItemAsync(CreateTodoistSource());
+        var viewModel = new MainWindowViewModel(store, new InMemoryCredentialStore());
+
+        await viewModel.SelectNavigationAsync(viewModel.NavigationItems.Single(item => item.Kind == TaskListKind.Inbox));
+        await viewModel.LoadConnectedTasksAsync();
+
+        Assert.True(viewModel.HasConnectedTasks);
+        Assert.Equal(1, viewModel.ConnectedTaskCount);
+        Assert.Equal(1, viewModel.WaitingConnectedTaskCount);
+        Assert.Equal(0, viewModel.SkippedConnectedTaskCount);
+        Assert.Equal("1 task is waiting. Add it to Inbox first, then clarify it like any other task.", viewModel.ConnectedTasksSummary);
+        Assert.Equal("Clarify captured tasks here, or review tasks waiting from connected apps.", viewModel.EmptyStateMessage);
+        Assert.Single(viewModel.FilteredConnectedTasks);
+    }
+
+    [Fact]
+    public async Task Connected_task_intake_keeps_skipped_items_recoverable_when_none_are_waiting()
+    {
+        var store = await CreateStoreAsync();
+        await store.UpsertProviderSourceItemAsync(CreateTodoistSource());
+        Assert.True(await store.SkipProviderSourceItemAsync("source-todoist-task"));
+        var viewModel = new MainWindowViewModel(store, new InMemoryCredentialStore());
+        await viewModel.SelectNavigationAsync(viewModel.NavigationItems.Single(item => item.Kind == TaskListKind.Inbox));
+
+        await viewModel.LoadConnectedTasksAsync();
+
+        var skipped = Assert.Single(viewModel.FilteredConnectedTasks);
+        Assert.Equal(0, viewModel.WaitingConnectedTaskCount);
+        Assert.Equal(1, viewModel.SkippedConnectedTaskCount);
+        Assert.False(viewModel.CanAddAllConnectedTasks);
+        Assert.Equal("Unskip", skipped.PrimaryActionText);
+        Assert.Equal("Skipped", skipped.SecondaryActionText);
+        Assert.False(skipped.CanSkip);
+    }
+
+    [Fact]
+    public async Task Add_all_connected_tasks_ignores_display_filters_and_refreshes_the_intake()
+    {
+        var store = await CreateStoreAsync();
+        await store.UpsertProviderSourceItemAsync(CreateTodoistSource() with { SourceProjectName = "Inbox" });
+        await store.UpsertProviderSourceItemAsync(CreateTodoistSource() with
+        {
+            Id = "source-second",
+            ExternalId = "todoist-second",
+            ProviderTaskId = "todoist-second",
+            Title = "Second Todoist task",
+            SourceProjectId = "work",
+            SourceProjectName = "Work",
+        });
+        var viewModel = new MainWindowViewModel(store, new InMemoryCredentialStore());
+        await viewModel.LoadConnectedTasksAsync();
+        viewModel.ConnectedProjectFilterIndex = viewModel.ConnectedProjectOptions.IndexOf("Work");
+        viewModel.ApplyConnectedFilters();
+        Assert.Single(viewModel.FilteredConnectedTasks);
+
+        await viewModel.AdoptAllConnectedTasksAsync();
+
+        Assert.Equal(2, (await store.GetTasksAsync(new TaskQuery { Kind = TaskListKind.All })).Count);
+        Assert.Equal(0, viewModel.WaitingConnectedTaskCount);
+        Assert.Empty(viewModel.FilteredConnectedTasks);
     }
 
     private static ProviderSourceItem CreateTodoistSource() => new()

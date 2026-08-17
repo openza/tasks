@@ -10,27 +10,61 @@
     Title="Search Openza Tasks"
     WindowStartupLocation="CenterOwner"
     Opened="OnOpened">
-    <Grid Margin="24" RowDefinitions="Auto,Auto,*,Auto" RowSpacing="14">
+    <Grid Margin="24" RowDefinitions="Auto,Auto,Auto,*,Auto" RowSpacing="14">
         <StackPanel Spacing="4">
             <TextBlock FontSize="24" FontWeight="SemiBold" Text="Search" />
             <TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="Find tasks and projects across every space." />
         </StackPanel>
         <Grid Grid.Row="1" ColumnDefinitions="*,Auto" ColumnSpacing="8">
-            <TextBox x:Name="SearchBox" PlaceholderText="Search tasks and projects" KeyDown="OnSearchKeyDown" />
+            <TextBox x:Name="SearchBox" AutomationProperties.Name="Search tasks and projects" PlaceholderText="Search tasks and projects" KeyDown="OnSearchKeyDown" TextChanged="OnSearchTextChanged" />
             <Button Grid.Column="1" Classes="accent" Click="OnSearchClicked" Content="Search" />
         </Grid>
-        <ListBox x:Name="ResultsList" Grid.Row="2" DoubleTapped="OnResultsDoubleTapped">
-            <ListBox.ItemTemplate>
-                <DataTemplate>
-                    <StackPanel Margin="8" Spacing="4">
-                        <TextBlock FontWeight="SemiBold" Text="{Binding Title}" TextWrapping="Wrap" />
-                        <TextBlock FontSize="12" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{Binding Subtitle}" />
-                        <TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}" IsVisible="{Binding Snippet, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" Text="{Binding Snippet}" TextWrapping="Wrap" />
-                    </StackPanel>
-                </DataTemplate>
-            </ListBox.ItemTemplate>
-        </ListBox>
-        <Grid Grid.Row="3" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+        <Grid Grid.Row="2" ColumnDefinitions="Auto,Auto,*" ColumnSpacing="16">
+            <ComboBox x:Name="ScopeSelector" MinWidth="150" SelectionChanged="OnSearchOptionsChanged">
+                <ComboBoxItem Content="Current space" />
+                <ComboBoxItem Content="All spaces" />
+            </ComboBox>
+            <CheckBox x:Name="IncludeCompletedBox" Grid.Column="1" VerticalAlignment="Center" Content="Include completed" IsCheckedChanged="OnSearchOptionsChanged" />
+        </Grid>
+        <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto">
+            <StackPanel Spacing="16">
+                <StackPanel x:Name="TaskResultsSection" Spacing="6" IsVisible="False">
+                    <TextBlock FontWeight="SemiBold" Text="Tasks" />
+                    <ListBox x:Name="TaskResultsList"
+                             AutomationProperties.Name="Task search results"
+                             DoubleTapped="OnResultsDoubleTapped"
+                             SelectionChanged="OnTaskSelectionChanged">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <StackPanel Margin="8" Spacing="4">
+                                    <TextBlock FontWeight="SemiBold" Text="{Binding Title}" TextWrapping="Wrap" />
+                                    <TextBlock FontSize="12" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{Binding Subtitle}" />
+                                    <TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}" IsVisible="{Binding Snippet, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" Text="{Binding Snippet}" TextWrapping="Wrap" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </StackPanel>
+                <StackPanel x:Name="ProjectResultsSection" Spacing="6" IsVisible="False">
+                    <TextBlock FontWeight="SemiBold" Text="Projects" />
+                    <ListBox x:Name="ProjectResultsList"
+                             AutomationProperties.Name="Project search results"
+                             DoubleTapped="OnResultsDoubleTapped"
+                             SelectionChanged="OnProjectSelectionChanged">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <StackPanel Margin="8" Spacing="4">
+                                    <TextBlock FontWeight="SemiBold" Text="{Binding Title}" TextWrapping="Wrap" />
+                                    <TextBlock FontSize="12" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{Binding Subtitle}" />
+                                    <TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}" IsVisible="{Binding Snippet, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" Text="{Binding Snippet}" TextWrapping="Wrap" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </StackPanel>
+            </StackPanel>
+        </ScrollViewer>
+        <Grid Grid.Row="4" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
             <TextBlock x:Name="ResultStatus" VerticalAlignment="Center" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="Enter a search term." />
             <Button Grid.Column="1" Click="OnCancelClicked" Content="Cancel" />
             <Button Grid.Column="2" Classes="accent" Click="OnOpenClicked" Content="Open selected" />

@@ -1,0 +1,69 @@
+<ResourceDictionary
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <ResourceDictionary.ThemeDictionaries>
+        <ResourceDictionary x:Key="Light">
+            <SolidColorBrush x:Key="OpenzaAppCanvasBrush" Color="#F6F8FA" />
+            <SolidColorBrush x:Key="OpenzaPaneBackgroundBrush" Color="#F8FAFC" />
+            <SolidColorBrush x:Key="OpenzaDetailPaneBackgroundBrush" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="OpenzaElevatedSurfaceBrush" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="OpenzaSurfaceAltBrush" Color="#F1F5F9" />
+            <SolidColorBrush x:Key="OpenzaBorderBrush" Color="#DDE5EE" />
+            <SolidColorBrush x:Key="OpenzaSeparatorBrush" Color="#E5EAF0" />
+            <SolidColorBrush x:Key="OpenzaTextPrimaryBrush" Color="#111827" />
+            <SolidColorBrush x:Key="OpenzaTextSecondaryBrush" Color="#475569" />
+            <SolidColorBrush x:Key="OpenzaTextTertiaryBrush" Color="#64748B" />
+            <SolidColorBrush x:Key="OpenzaRowBackgroundBrush" Color="#00FFFFFF" />
+            <SolidColorBrush x:Key="OpenzaRowHoverBrush" Color="#F0F3F6" />
+            <SolidColorBrush x:Key="OpenzaRowSelectedBrush" Color="#E9EDF2" />
+            <SolidColorBrush x:Key="OpenzaChipBackgroundBrush" Color="#ECEFF3" />
+            <SolidColorBrush x:Key="OpenzaChipForegroundBrush" Color="#475569" />
+            <SolidColorBrush x:Key="OpenzaAccentBrush" Color="#1E293B" />
+            <SolidColorBrush x:Key="OpenzaAccentHoverBrush" Color="#334155" />
+            <SolidColorBrush x:Key="OpenzaAccentPressedBrush" Color="#0F172A" />
+            <SolidColorBrush x:Key="OpenzaOnAccentBrush" Color="#FFFFFFFF" />
+            <SolidColorBrush x:Key="OpenzaNavSelectedBrush" Color="#EEF1F5" />
+            <SolidColorBrush x:Key="OpenzaNavSelectedHoverBrush" Color="#E7EBF0" />
+            <SolidColorBrush x:Key="OpenzaNavSelectedPressedBrush" Color="#DDE3EA" />
+            <SolidColorBrush x:Key="OpenzaDangerBrush" Color="#B42318" />
+            <SolidColorBrush x:Key="OpenzaOnDangerBrush" Color="#FFFFFFFF" />
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="Dark">
+            <SolidColorBrush x:Key="OpenzaAppCanvasBrush" Color="#0F172A" />
+            <SolidColorBrush x:Key="OpenzaPaneBackgroundBrush" Color="#111827" />
+            <SolidColorBrush x:Key="OpenzaDetailPaneBackgroundBrush" Color="#182030" />
+            <SolidColorBrush x:Key="OpenzaElevatedSurfaceBrush" Color="#1E293B" />
+            <SolidColorBrush x:Key="OpenzaSurfaceAltBrush" Color="#162033" />
+            <SolidColorBrush x:Key="OpenzaBorderBrush" Color="#334155" />
+            <SolidColorBrush x:Key="OpenzaSeparatorBrush" Color="#253044" />
+            <SolidColorBrush x:Key="OpenzaTextPrimaryBrush" Color="#E5E7EB" />
+            <SolidColorBrush x:Key="OpenzaTextSecondaryBrush" Color="#94A3B8" />
+            <SolidColorBrush x:Key="OpenzaTextTertiaryBrush" Color="#64748B" />
+            <SolidColorBrush x:Key="OpenzaRowBackgroundBrush" Color="#00FFFFFF" />
+            <SolidColorBrush x:Key="OpenzaRowHoverBrush" Color="#172033" />
+            <SolidColorBrush x:Key="OpenzaRowSelectedBrush" Color="#223044" />
+            <SolidColorBrush x:Key="OpenzaChipBackgroundBrush" Color="#243044" />
+            <SolidColorBrush x:Key="OpenzaChipForegroundBrush" Color="#CBD5E1" />
+            <SolidColorBrush x:Key="OpenzaAccentBrush" Color="#CBD5E1" />
+            <SolidColorBrush x:Key="OpenzaAccentHoverBrush" Color="#E2E8F0" />
+            <SolidColorBrush x:Key="OpenzaAccentPressedBrush" Color="#94A3B8" />
+            <SolidColorBrush x:Key="OpenzaOnAccentBrush" Color="#0F172A" />
+            <SolidColorBrush x:Key="OpenzaNavSelectedBrush" Color="#1E293B" />
+            <SolidColorBrush x:Key="OpenzaNavSelectedHoverBrush" Color="#263447" />
+            <SolidColorBrush x:Key="OpenzaNavSelectedPressedBrush" Color="#334155" />
+            <SolidColorBrush x:Key="OpenzaDangerBrush" Color="#F87171" />
+            <SolidColorBrush x:Key="OpenzaOnDangerBrush" Color="#1F0A0A" />
+        </ResourceDictionary>
+    </ResourceDictionary.ThemeDictionaries>
+
+    <Thickness x:Key="OpenzaPagePadding">28</Thickness>
+    <Thickness x:Key="OpenzaPanePadding">24</Thickness>
+    <CornerRadius x:Key="OpenzaControlCornerRadius">4</CornerRadius>
+    <CornerRadius x:Key="OpenzaRowCornerRadius">6</CornerRadius>
+    <CornerRadius x:Key="OpenzaCardCornerRadius">7</CornerRadius>
+    <x:Double x:Key="OpenzaPageTitleSize">28</x:Double>
+    <x:Double x:Key="OpenzaSectionTitleSize">16</x:Double>
+    <x:Double x:Key="OpenzaBodySize">14</x:Double>
+    <x:Double x:Key="OpenzaMetadataSize">12</x:Double>
+</ResourceDictionary>

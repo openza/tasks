@@ -30,6 +30,7 @@ public sealed record UpdateTaskRequest
     public OptionalValue<DateOnly?> PlannedOn { get; init; }
     public OptionalValue<DateOnly?> DeadlineOn { get; init; }
     public OptionalValue<IReadOnlyList<string>> Labels { get; init; }
+    public OptionalValue<string?> LocalMetadataJson { get; init; }
 }
 
 public sealed class TaskConflictException(string taskId)

@@ -35,10 +35,14 @@ public sealed partial class MainWindow : Window
     {
         Interval = TimeSpan.FromMinutes(5),
     };
-    private static readonly IBrush LightHoverBrush = new SolidColorBrush(Color.Parse("#E2E8F0"));
-    private static readonly IBrush LightPressedBrush = new SolidColorBrush(Color.Parse("#D3DCE8"));
-    private static readonly IBrush DarkHoverBrush = new SolidColorBrush(Color.Parse("#344052"));
-    private static readonly IBrush DarkPressedBrush = new SolidColorBrush(Color.Parse("#3F4C60"));
+    private readonly DispatcherTimer _statusHideTimer = new()
+    {
+        Interval = TimeSpan.FromSeconds(4),
+    };
+    private static readonly IBrush LightHoverBrush = new SolidColorBrush(Color.Parse("#F0F3F6"));
+    private static readonly IBrush LightPressedBrush = new SolidColorBrush(Color.Parse("#DDE3EA"));
+    private static readonly IBrush DarkHoverBrush = new SolidColorBrush(Color.Parse("#263447"));
+    private static readonly IBrush DarkPressedBrush = new SolidColorBrush(Color.Parse("#334155"));
 
     public MainWindow()
         : this(new MainWindowViewModel(new SqliteTaskStore(DesktopDataPaths.DatabasePath)))
@@ -54,11 +58,12 @@ public sealed partial class MainWindow : Window
         DetailLabelsBox.TextSelector = SelectLabelSuggestion;
         ViewModel.PropertyChanged += OnViewModelPropertyChanged;
         _automaticSyncTimer.Tick += OnAutomaticSyncTick;
+        _statusHideTimer.Tick += OnStatusHideTick;
     }
 
     public MainWindowViewModel ViewModel { get; }
 
-    private static bool FilterLabelSuggestion(string? search, string? suggestion)
+    private bool FilterLabelSuggestion(string? search, string? suggestion)
     {
         if (string.IsNullOrWhiteSpace(suggestion))
         {
@@ -66,31 +71,12 @@ public sealed partial class MainWindow : Window
         }
 
         search ??= string.Empty;
-        var segments = search.Split(',', StringSplitOptions.TrimEntries);
-        var currentSearch = segments.LastOrDefault() ?? string.Empty;
-        var alreadySelected = segments
-            .Take(Math.Max(0, segments.Length - 1))
-            .Any(label => string.Equals(label, suggestion, StringComparison.CurrentCultureIgnoreCase));
-
-        return !alreadySelected &&
-            suggestion.Contains(currentSearch, StringComparison.CurrentCultureIgnoreCase);
+        return !ViewModel.DetailLabelItems.Any(label => string.Equals(label, suggestion, StringComparison.CurrentCultureIgnoreCase)) &&
+            suggestion.Contains(search, StringComparison.CurrentCultureIgnoreCase);
     }
 
     private static string SelectLabelSuggestion(string? search, string? suggestion)
-    {
-        search ??= string.Empty;
-        suggestion ??= string.Empty;
-        var separatorIndex = search.LastIndexOf(',');
-        if (separatorIndex < 0)
-        {
-            return suggestion;
-        }
-
-        var existingLabels = search[..separatorIndex].Trim();
-        return existingLabels.Length == 0
-            ? suggestion
-            : $"{existingLabels}, {suggestion}";
-    }
+        => suggestion ?? string.Empty;
 
     private async void OnOpened(object? sender, EventArgs e)
     {
@@ -103,6 +89,7 @@ public sealed partial class MainWindow : Window
         _initialized = true;
         AutomaticSyncToggle.IsChecked = ViewModel.AutomaticSyncEnabled;
         UpdateAutomaticSyncTimer();
+        UpdateConnectedPaneForCurrentView(autoOpen: true);
         UpdateWorkbenchLayout();
     }
 
@@ -154,6 +141,8 @@ public sealed partial class MainWindow : Window
     {
         _automaticSyncTimer.Stop();
         _automaticSyncTimer.Tick -= OnAutomaticSyncTick;
+        _statusHideTimer.Stop();
+        _statusHideTimer.Tick -= OnStatusHideTick;
         ViewModel.PropertyChanged -= OnViewModelPropertyChanged;
     }
 
@@ -206,6 +195,7 @@ public sealed partial class MainWindow : Window
     private void OnNavigationCollapseClicked(object? sender, RoutedEventArgs e)
     {
         _navigationCollapsed = !_navigationCollapsed;
+        ShellGrid.Classes.Set("navigation-compact", _navigationCollapsed);
         ShellGrid.ColumnDefinitions[0].Width = new GridLength(
             _navigationCollapsed ? CompactNavigationWidth : ExpandedNavigationWidth);
         ToolTip.SetTip(
@@ -216,11 +206,36 @@ public sealed partial class MainWindow : Window
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
+        if (e.PropertyName is nameof(MainWindowViewModel.StatusMessage) or nameof(MainWindowViewModel.IsBusy))
+        {
+            StatusOverlay.IsVisible = ViewModel.IsBusy || !string.IsNullOrWhiteSpace(ViewModel.StatusMessage);
+            _statusHideTimer.Stop();
+            if (!ViewModel.IsBusy)
+            {
+                _statusHideTimer.Start();
+            }
+        }
+
         if (e.PropertyName is nameof(MainWindowViewModel.SelectedNavigation) or
             nameof(MainWindowViewModel.SelectedProject) or
             nameof(MainWindowViewModel.SelectedTask))
         {
             UpdateWorkbenchLayout();
+        }
+
+        if (e.PropertyName == nameof(MainWindowViewModel.ConnectedTaskCount))
+        {
+            UpdateConnectedPaneForCurrentView(autoOpen: true);
+            UpdateWorkbenchLayout();
+        }
+    }
+
+    private void OnStatusHideTick(object? sender, EventArgs e)
+    {
+        _statusHideTimer.Stop();
+        if (!ViewModel.IsBusy)
+        {
+            StatusOverlay.IsVisible = false;
         }
     }
 
@@ -256,7 +271,7 @@ public sealed partial class MainWindow : Window
             : new GridLength(0);
         WorkbenchGrid.ColumnDefinitions[1].Width = new GridLength(1, GridUnitType.Star);
         WorkbenchGrid.ColumnDefinitions[2].Width = showDetails
-            ? new GridLength(Math.Clamp(width * 0.55, 520, 850))
+            ? new GridLength(Math.Clamp(width * 0.42, 460, 620))
             : new GridLength(0);
         WorkbenchGrid.ColumnDefinitions[3].Width = _connectedPaneOpen
             ? new GridLength(width < 1250 ? 420 : 520)
@@ -265,6 +280,23 @@ public sealed partial class MainWindow : Window
         TaskListPane.IsVisible = true;
         DetailsPane.IsVisible = showDetails;
         ConnectedPane.IsVisible = _connectedPaneOpen;
+    }
+
+    private void UpdateConnectedPaneForCurrentView(bool autoOpen)
+    {
+        var isInbox = TaskWorkspace.IsVisible &&
+            ViewModel.SelectedNavigation?.Kind == TaskListKind.Inbox;
+        ConnectedTasksCommand.IsVisible = isInbox && ViewModel.HasConnectedTasks;
+        if (!isInbox || !ViewModel.HasConnectedTasks)
+        {
+            _connectedPaneOpen = false;
+            return;
+        }
+
+        if (autoOpen && !ViewModel.HasSelectedTask)
+        {
+            _connectedPaneOpen = true;
+        }
     }
 
     private async void OnNavigationSelectionChanged(object? sender, SelectionChangedEventArgs e)
@@ -326,6 +358,8 @@ public sealed partial class MainWindow : Window
             ProjectList.SelectedItem = null;
             NavigationList.SelectedItem = item;
             await ViewModel.SelectNavigationAsync(item);
+            UpdateConnectedPaneForCurrentView(autoOpen: true);
+            UpdateWorkbenchLayout();
         }
         finally
         {
@@ -358,9 +392,22 @@ public sealed partial class MainWindow : Window
 
         ProjectList.SelectedItem = null;
         await ViewModel.SelectSpaceAsync(item);
+        UpdateConnectedPaneForCurrentView(autoOpen: true);
+        UpdateWorkbenchLayout();
         var preferences = _preferencesStore.Load();
         await _preferencesStore.SaveAsync(preferences with { SelectedSpaceId = item.SpaceId });
         _changingNavigation = false;
+    }
+
+    private void OnCompactSpaceSelected(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { DataContext: SpaceNavigationItemViewModel item })
+        {
+            return;
+        }
+
+        SpacePicker.SelectedItem = item;
+        CompactSpacePickerButton.Flyout?.Hide();
     }
 
     private async void OnProjectSelectionChanged(object? sender, SelectionChangedEventArgs e)
@@ -488,6 +535,12 @@ public sealed partial class MainWindow : Window
 
     private async void OnConnectedTasksClicked(object? sender, RoutedEventArgs e)
     {
+        if (ViewModel.SelectedNavigation?.Kind != TaskListKind.Inbox)
+        {
+            var inbox = ViewModel.NavigationItems.First(item => item.Kind == TaskListKind.Inbox);
+            await NavigateToAsync(inbox);
+        }
+
         ShowTaskWorkspace();
         _connectedPaneOpen = true;
         ViewModel.SelectedTask = null;
@@ -507,18 +560,18 @@ public sealed partial class MainWindow : Window
         await ViewModel.CreateProjectAsync();
     }
 
-    private async void OnRenameProjectClicked(object? sender, RoutedEventArgs e)
+    private async void OnEditProjectClicked(object? sender, RoutedEventArgs e)
     {
         if (ViewModel.SelectedProject is null)
         {
             return;
         }
 
-        var prompt = new TextPromptWindow("Rename project", ViewModel.SelectedProject.Title);
-        var name = await prompt.ShowDialog<string?>(this);
-        if (!string.IsNullOrWhiteSpace(name))
+        var dialog = new ProjectEditorWindow(ViewModel.SelectedProject.Project);
+        var draft = await dialog.ShowDialog<ProjectEditDraft?>(this);
+        if (draft is not null)
         {
-            await ViewModel.RenameSelectedProjectAsync(name);
+            await ViewModel.UpdateSelectedProjectAsync(draft.Name, draft.Status, draft.IsFavorite);
         }
     }
 
@@ -545,6 +598,39 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        await ViewModel.ApplyListOptionsAsync();
+    }
+
+    private async void OnSortMenuItemClicked(object? sender, RoutedEventArgs e)
+    {
+        if (!_initialized || sender is not MenuItem { Tag: string value } || !int.TryParse(value, out var index))
+        {
+            return;
+        }
+
+        ViewModel.SortIndex = index;
+        await ViewModel.ApplyListOptionsAsync();
+    }
+
+    private async void OnSortDirectionMenuItemClicked(object? sender, RoutedEventArgs e)
+    {
+        if (!_initialized || sender is not MenuItem { Tag: string value } || !int.TryParse(value, out var index))
+        {
+            return;
+        }
+
+        ViewModel.SortDirectionIndex = index;
+        await ViewModel.ApplyListOptionsAsync();
+    }
+
+    private async void OnGroupMenuItemClicked(object? sender, RoutedEventArgs e)
+    {
+        if (!_initialized || sender is not MenuItem { Tag: string value } || !int.TryParse(value, out var index))
+        {
+            return;
+        }
+
+        ViewModel.GroupIndex = index;
         await ViewModel.ApplyListOptionsAsync();
     }
 
@@ -602,6 +688,123 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    private async void OnRowDateChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (sender is CalendarDatePicker { DataContext: TaskListEntryViewModel { Task: { } item }, SelectedDate: { } selectedDate })
+        {
+            await ViewModel.SetTaskDateFromRowAsync(item, DateOnly.FromDateTime(selectedDate));
+            e.Handled = true;
+        }
+    }
+
+    private async void OnClearRowDateClicked(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Button { DataContext: TaskListEntryViewModel { Task: { } item } })
+        {
+            await ViewModel.SetTaskDateFromRowAsync(item, null);
+            e.Handled = true;
+        }
+    }
+
+    private async void OnRowStatusClicked(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not MenuItem { DataContext: TaskListEntryViewModel { Task: { } item } } menuItem ||
+            !int.TryParse(menuItem.Tag?.ToString(), out var statusIndex))
+        {
+            return;
+        }
+
+        var status = statusIndex switch
+        {
+            1 => Openza.Tasks.Core.Models.TaskItemStatus.Next,
+            2 => Openza.Tasks.Core.Models.TaskItemStatus.Waiting,
+            3 => Openza.Tasks.Core.Models.TaskItemStatus.Someday,
+            _ => Openza.Tasks.Core.Models.TaskItemStatus.Inbox,
+        };
+        await ViewModel.SetTaskStatusFromRowAsync(item, status);
+        e.Handled = true;
+    }
+
+    private async void OnRowPriorityClicked(object? sender, RoutedEventArgs e)
+    {
+        if (sender is MenuItem { DataContext: TaskListEntryViewModel { Task: { } item } } menuItem &&
+            int.TryParse(menuItem.Tag?.ToString(), out var priority))
+        {
+            await ViewModel.SetTaskPriorityFromRowAsync(item, priority);
+            e.Handled = true;
+        }
+    }
+
+    private async void OnRowProjectClicked(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not MenuItem { DataContext: TaskListEntryViewModel { Task: { } item } })
+        {
+            return;
+        }
+
+        e.Handled = true;
+        var options = ViewModel.GetProjectOptionsForSpace(item.Task.SpaceId)
+            .Select(option => new PickerOption(option.ProjectId ?? string.Empty, option.Title))
+            .ToList();
+        var dialog = new OptionPickerWindow("Change project", "Choose where this task belongs.", options, item.Task.ProjectId ?? string.Empty);
+        var projectId = await dialog.ShowDialog<string?>(this);
+        if (projectId is not null)
+        {
+            await ViewModel.SetTaskProjectFromRowAsync(item, projectId);
+        }
+    }
+
+    private async void OnRowLabelsClicked(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not MenuItem { DataContext: TaskListEntryViewModel { Task: { } item } })
+        {
+            return;
+        }
+
+        e.Handled = true;
+        var dialog = new LabelPickerWindow(ViewModel.LabelSuggestions, item.Task.Labels.Select(label => label.Name));
+        var labels = await dialog.ShowDialog<string?>(this);
+        if (labels is not null)
+        {
+            await ViewModel.SetTaskLabelsFromRowAsync(item, labels);
+        }
+    }
+
+    private async void OnRowMoveSpaceClicked(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not MenuItem { DataContext: TaskListEntryViewModel { Task: { } item } })
+        {
+            return;
+        }
+
+        e.Handled = true;
+        var options = ViewModel.EditableSpaceItems
+            .Where(space => !string.IsNullOrWhiteSpace(space.SpaceId))
+            .Select(space => new PickerOption(space.SpaceId!, space.Title))
+            .ToList();
+        var dialog = new OptionPickerWindow("Move to Space", "Move this task and its local organization to another Space.", options, item.Task.SpaceId);
+        var spaceId = await dialog.ShowDialog<string?>(this);
+        if (!string.IsNullOrWhiteSpace(spaceId))
+        {
+            await ViewModel.MoveTaskFromRowAsync(item, spaceId);
+        }
+    }
+
+    private async void OnRowDeleteClicked(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { DataContext: TaskListEntryViewModel { Task: { } item } })
+        {
+            return;
+        }
+
+        e.Handled = true;
+        var dialog = new ConfirmWindow("Delete task?", $"“{item.Title}” will be permanently removed from this local database.");
+        if (await dialog.ShowDialog<bool>(this))
+        {
+            await ViewModel.DeleteTaskFromRowAsync(item);
+        }
+    }
+
     private async Task<bool> SelectTaskAfterSavingAsync(TaskListItemViewModel task)
     {
         await _taskSelectionGate.WaitAsync();
@@ -654,6 +857,22 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    private void OnToggleSubtasksClicked(object? sender, RoutedEventArgs e) => ViewModel.ToggleSubtasks();
+
+    private async void OnUseSourceDatesClicked(object? sender, RoutedEventArgs e) => await ViewModel.UseSourceDatesAsync();
+
+    private async void OnKeepOpenzaDatesClicked(object? sender, RoutedEventArgs e) => await ViewModel.KeepOpenzaDatesAsync();
+
+    private async void OnCreateDetailProjectClicked(object? sender, RoutedEventArgs e)
+    {
+        var prompt = new TextPromptWindow("Create project", string.Empty);
+        var name = await prompt.ShowDialog<string?>(this);
+        if (!string.IsNullOrWhiteSpace(name))
+        {
+            await ViewModel.CreateProjectForSelectedTaskAsync(name);
+        }
+    }
+
     private async void OnToggleCompletionClicked(object? sender, RoutedEventArgs e)
     {
         await ViewModel.ToggleSelectedCompletionAsync();
@@ -672,6 +891,56 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    private void OnDetailLabelBoxGotFocus(object? sender, RoutedEventArgs e) => DetailLabelsBox.IsDropDownOpen = true;
+
+    private async void OnDetailLabelSelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (DetailLabelsBox.SelectedItem is not string label)
+        {
+            return;
+        }
+
+        var changed = ViewModel.AddDetailLabels(label);
+        DetailLabelsBox.SelectedItem = null;
+        DetailLabelsBox.Text = string.Empty;
+        if (changed && _initialized && ViewModel.HasSelectedTask && !ViewModel.IsUpdatingDetails)
+        {
+            await ViewModel.SaveSelectedAsync();
+        }
+    }
+
+    private async void OnDetailLabelKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Key is not (Key.Enter or Key.OemComma))
+        {
+            return;
+        }
+
+        var changed = ViewModel.AddDetailLabels(DetailLabelsBox.Text);
+        DetailLabelsBox.Text = string.Empty;
+        DetailLabelsBox.SelectedItem = null;
+        DetailLabelsBox.IsDropDownOpen = false;
+        e.Handled = true;
+        if (changed && _initialized && ViewModel.HasSelectedTask && !ViewModel.IsUpdatingDetails)
+        {
+            await ViewModel.SaveSelectedAsync();
+        }
+    }
+
+    private async void OnRemoveDetailLabelClicked(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { DataContext: string label } || !ViewModel.RemoveDetailLabel(label))
+        {
+            return;
+        }
+
+        if (_initialized && ViewModel.HasSelectedTask && !ViewModel.IsUpdatingDetails)
+        {
+            await ViewModel.SaveSelectedAsync();
+        }
+        DetailLabelsBox.Focus();
+    }
+
     private async void OnDetailEditorSelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
         if (_initialized && ViewModel.HasSelectedTask && !ViewModel.IsUpdatingDetails)
@@ -680,7 +949,7 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private async void OnDetailDateChanged(object? sender, DatePickerSelectedValueChangedEventArgs e)
+    private async void OnDetailDateChanged(object? sender, SelectionChangedEventArgs e)
     {
         if (_initialized && ViewModel.HasSelectedTask && !ViewModel.IsUpdatingDetails)
         {
@@ -736,6 +1005,28 @@ public sealed partial class MainWindow : Window
 
     private async void OnWindowKeyDown(object? sender, KeyEventArgs e)
     {
+        if (e.Key == Key.Escape)
+        {
+            if (TaskWorkspace.IsVisible)
+            {
+                if (!await ViewModel.SaveSelectedAsync())
+                {
+                    e.Handled = true;
+                    return;
+                }
+
+                ViewModel.SearchText = string.Empty;
+                await ViewModel.ApplySearchAsync();
+                TaskList.SelectedItem = null;
+                ViewModel.SelectedTask = null;
+                _connectedPaneOpen = false;
+                UpdateWorkbenchLayout();
+            }
+
+            e.Handled = true;
+            return;
+        }
+
         if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key == Key.K)
         {
             await OpenGlobalSearchAsync();
@@ -745,14 +1036,38 @@ public sealed partial class MainWindow : Window
 
         if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key == Key.N)
         {
+            if (!TaskWorkspace.IsVisible)
+            {
+                ShowTaskWorkspace();
+                var inbox = ViewModel.NavigationItems.First(item => item.Kind == Openza.Tasks.Core.Data.TaskListKind.Inbox);
+                await ViewModel.SelectNavigationAsync(inbox);
+            }
             OnAddTaskClicked(this, new RoutedEventArgs());
+            e.Handled = true;
+            return;
+        }
+
+        if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key == Key.F)
+        {
+            if (TaskWorkspace.IsVisible)
+            {
+                SearchBox.Focus();
+                SearchBox.SelectAll();
+            }
             e.Handled = true;
             return;
         }
 
         if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key == Key.S)
         {
-            await ViewModel.SaveSelectedAsync();
+            if (TaskWorkspace.IsVisible && ViewModel.HasSelectedTask)
+            {
+                await ViewModel.SaveSelectedAsync();
+            }
+            else
+            {
+                await ViewModel.RunTodoistSyncAsync();
+            }
             e.Handled = true;
         }
     }
@@ -843,10 +1158,7 @@ public sealed partial class MainWindow : Window
 
     private async void OnAddAllConnectedClicked(object? sender, RoutedEventArgs e)
     {
-        foreach (var item in ViewModel.FilteredConnectedTasks.Where(item => !item.Source.IsSkipped).ToArray())
-        {
-            await ViewModel.AdoptConnectedTaskAsync(item);
-        }
+        await ViewModel.AdoptAllConnectedTasksAsync();
     }
 
     private async void OnSyncNowClicked(object? sender, RoutedEventArgs e) => await ViewModel.RunTodoistSyncAsync();

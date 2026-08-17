@@ -103,6 +103,7 @@ public sealed class TaskApplicationService(ITaskStore store)
             DeadlineOn = deadlineOn,
             DeadlineAt = ProviderWriteBackPlanner.PreserveExactTime(deadlineOn, original.DeadlineOn, original.DeadlineAt),
             Labels = labels,
+            LocalMetadataJson = request.LocalMetadataJson.IsSpecified ? request.LocalMetadataJson.Value : original.LocalMetadataJson,
             UpdatedAt = now,
         };
         var pendingCompletion = original.IsCompleted == completed

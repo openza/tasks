@@ -466,7 +466,7 @@ public sealed partial class AppShell
                 {
                     Padding = new Thickness(12),
                     CornerRadius = new CornerRadius(6),
-                    BorderBrush = (Brush)Application.Current.Resources["OpenzaBorderBrush"],
+                    BorderBrush = (Brush)Microsoft.UI.Xaml.Application.Current.Resources["OpenzaBorderBrush"],
                     BorderThickness = new Thickness(1),
                     Child = new StackPanel
                     {
@@ -477,7 +477,7 @@ public sealed partial class AppShell
                             new TextBlock
                             {
                                 Text = link.Url,
-                                Style = (Style)Application.Current.Resources["OpenzaCaptionTextBlockStyle"],
+                                Style = (Style)Microsoft.UI.Xaml.Application.Current.Resources["OpenzaCaptionTextBlockStyle"],
                                 TextWrapping = TextWrapping.Wrap,
                             },
                         },
@@ -598,7 +598,7 @@ public sealed partial class AppShell
         var repositoryStatusText = new TextBlock
         {
             Text = "Loading repositories from your GitHub account.",
-            Style = (Style)Application.Current.Resources["OpenzaCaptionTextBlockStyle"],
+            Style = (Style)Microsoft.UI.Xaml.Application.Current.Resources["OpenzaCaptionTextBlockStyle"],
             TextWrapping = TextWrapping.Wrap,
         };
         GitHubRepositoryInfo? selectedRepository = null;

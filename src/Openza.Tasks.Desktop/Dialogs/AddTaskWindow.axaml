@@ -9,15 +9,36 @@
     Title="Add task"
     WindowStartupLocation="CenterOwner"
     Opened="OnOpened">
+    <Window.Styles>
+        <Style Selector="Button.labelChip">
+            <Setter Property="Padding" Value="10,5" />
+            <Setter Property="MinHeight" Value="30" />
+            <Setter Property="CornerRadius" Value="15" />
+            <Setter Property="Background" Value="{DynamicResource SubtleFillColorSecondaryBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource ControlStrokeColorDefaultBrush}" />
+        </Style>
+        <Style Selector="Button.dialogAction">
+            <Setter Property="MinWidth" Value="112" />
+        </Style>
+    </Window.Styles>
     <Grid RowDefinitions="*,Auto">
         <StackPanel Margin="26,24,26,28" Spacing="14">
             <TextBlock FontSize="24" FontWeight="SemiBold" Text="Add task" />
-            <StackPanel Spacing="5"><TextBlock Text="Task"/><TextBox x:Name="TitleBox" PlaceholderText="What needs doing?"/></StackPanel>
+            <StackPanel Spacing="5">
+                <TextBlock Text="Task" />
+                <TextBox x:Name="TitleBox" PlaceholderText="What needs doing?" TextChanged="OnTitleTextChanged" />
+                <TextBlock
+                    x:Name="TitleValidation"
+                    FontSize="12"
+                    Foreground="{DynamicResource SystemFillColorCriticalBrush}"
+                    IsVisible="False"
+                    Text="Enter a task title." />
+            </StackPanel>
             <StackPanel Spacing="5"><TextBlock Text="Notes"/><TextBox x:Name="NotesBox" MinHeight="90" AcceptsReturn="True" VerticalContentAlignment="Top" TextWrapping="Wrap"/></StackPanel>
             <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto" ColumnSpacing="12" RowSpacing="12">
                 <StackPanel Spacing="5"><TextBlock Text="Project"/><ComboBox x:Name="ProjectPicker" ItemsSource="{Binding ProjectOptions}"><ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Title}"/></DataTemplate></ComboBox.ItemTemplate></ComboBox></StackPanel>
-                <StackPanel Grid.Column="1" Spacing="5"><TextBlock Text="Status"/><ComboBox x:Name="StatusPicker"><ComboBoxItem Content="Inbox"/><ComboBoxItem Content="Next"/><ComboBoxItem Content="Waiting"/><ComboBoxItem Content="Someday"/></ComboBox></StackPanel>
-                <StackPanel Grid.Row="1" Spacing="5"><TextBlock Text="Priority"/><ComboBox x:Name="PriorityPicker"><ComboBoxItem Content="Highest"/><ComboBoxItem Content="High"/><ComboBoxItem Content="Normal"/><ComboBoxItem Content="Low"/></ComboBox></StackPanel>
+                <StackPanel Grid.Column="1" Spacing="5"><TextBlock Text="Status"/><ComboBox x:Name="StatusPicker"><ComboBoxItem Content="Inbox"/><ComboBoxItem Content="Next"/><ComboBoxItem Content="Waiting For"/><ComboBoxItem Content="Someday"/></ComboBox></StackPanel>
+                <StackPanel Grid.Row="1" Spacing="5"><TextBlock Text="Priority"/><ComboBox x:Name="PriorityPicker"><ComboBoxItem Content="Urgent"/><ComboBoxItem Content="High"/><ComboBoxItem Content="Normal"/><ComboBoxItem Content="Low"/></ComboBox></StackPanel>
                 <StackPanel Grid.Row="1" Grid.Column="1" Spacing="5"><TextBlock Text="Date"/><DatePicker x:Name="DatePicker"/></StackPanel>
             </Grid>
             <StackPanel Spacing="5">
@@ -26,16 +47,44 @@
                     x:Name="LabelsBox"
                     ItemsSource="{Binding LabelSuggestions}"
                     MaxDropDownHeight="240"
-                    MinimumPrefixLength="1"
-                    PlaceholderText="Add label" />
+                    MinimumPrefixLength="0"
+                    PlaceholderText="Add label"
+                    GotFocus="OnLabelBoxGotFocus"
+                    KeyDown="OnLabelKeyDown"
+                    SelectionChanged="OnLabelSelectionChanged" />
+                <ItemsControl x:Name="SelectedLabelChips">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <WrapPanel Orientation="Horizontal" />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Button
+                                Classes="labelChip"
+                                Click="OnRemoveLabelClicked"
+                                Margin="0,3,6,0"
+                                ToolTip.Tip="Remove label">
+                                <StackPanel Orientation="Horizontal" Spacing="7">
+                                    <TextBlock Text="{Binding}" />
+                                    <TextBlock FontSize="14" Text="&#x00D7;" />
+                                </StackPanel>
+                            </Button>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
                 <TextBlock
                     FontSize="12"
                     Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                    Text="Separate multiple labels with commas." />
+                    Text="Press Enter to add a label. Select a chip to remove it." />
             </StackPanel>
         </StackPanel>
         <Border Grid.Row="1" Padding="26,16" Background="{DynamicResource LayerFillColorDefaultBrush}" BorderBrush="{DynamicResource DividerStrokeColorDefaultBrush}" BorderThickness="0,1,0,0">
-            <Grid ColumnDefinitions="*,*,*" ColumnSpacing="10"><Button Classes="accent" Click="OnCreateClicked" Content="Create"/><Button Grid.Column="1" Click="OnCreateAndOpenClicked" Content="Create and open"/><Button Grid.Column="2" Click="OnCancelClicked" Content="Cancel"/></Grid>
+            <StackPanel HorizontalAlignment="Right" Orientation="Horizontal" Spacing="10">
+                <Button Classes="dialogAction" Click="OnCancelClicked" Content="Cancel" IsCancel="True" />
+                <Button Classes="dialogAction" Click="OnCreateAndOpenClicked" Content="Create and open" />
+                <Button Classes="accent dialogAction" Click="OnCreateClicked" Content="Create" IsDefault="True" />
+            </StackPanel>
         </Border>
     </Grid>
 </Window>
