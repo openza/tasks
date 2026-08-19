@@ -1,6 +1,6 @@
 name: openza-tasks
 title: Openza Tasks
-version: '0.1.6'
+version: '0.1.7'
 summary: Local-first task management
 description: |
   Openza Tasks is a local-first task manager for Linux with optional Todoist
@@ -62,8 +62,8 @@ parts:
     dotnet-properties:
       OpenzaPackagingProfile: Production
       _IsPublishing: 'true'
-      Version: '0.1.6'
-      InformationalVersion: '0.1.6'
+      Version: '0.1.7'
+      InformationalVersion: '0.1.7'
       PublishSingleFile: 'true'
       IncludeNativeLibrariesForSelfExtract: 'true'
       DebugType: None
@@ -83,8 +83,8 @@ parts:
     dotnet-properties:
       OpenzaPackagingProfile: Production
       _IsPublishing: 'true'
-      Version: '0.1.6'
-      InformationalVersion: '0.1.6'
+      Version: '0.1.7'
+      InformationalVersion: '0.1.7'
       PublishSingleFile: 'true'
       IncludeNativeLibrariesForSelfExtract: 'true'
       DebugType: None
