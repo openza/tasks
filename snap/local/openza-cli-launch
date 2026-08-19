@@ -1,0 +1,9 @@
+#!/bin/sh
+set -eu
+
+extract_root="$SNAP_USER_COMMON/dotnet/cli"
+mkdir -p "$extract_root"
+chmod 700 "$extract_root"
+export DOTNET_BUNDLE_EXTRACT_BASE_DIR="$extract_root"
+
+exec "$SNAP/opt/openza-tasks/cli/openza" "$@"

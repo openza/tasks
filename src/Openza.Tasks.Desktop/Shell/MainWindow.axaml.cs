@@ -24,6 +24,8 @@ public sealed partial class MainWindow : Window
     private const double CompactNavigationWidth = 64;
     private bool _initialized;
     private bool _changingNavigation;
+    private bool _suppressNavigationSelection;
+    private NavigationItemViewModel? _suppressedNavigationItem;
     private NavigationItemViewModel? _pendingNavigationItem;
     private bool _changingTaskSelection;
     private readonly SemaphoreSlim _taskSelectionGate = new(1, 1);
@@ -33,6 +35,8 @@ public sealed partial class MainWindow : Window
     private bool _automaticSyncRunning;
     private bool _taskCompletionInProgress;
     private bool _changingListFilters;
+    private bool _applyingListOptions;
+    private bool _pendingListOptionsApply;
     private bool _closingAfterSave;
     private readonly DesktopPreferencesStore _preferencesStore = new();
     private readonly DispatcherTimer _automaticSyncTimer = new()
@@ -129,8 +133,7 @@ public sealed partial class MainWindow : Window
 
         var enabled = AutomaticSyncToggle.IsChecked == true;
         ViewModel.SetAutomaticSyncEnabled(enabled);
-        var preferences = _preferencesStore.Load();
-        await _preferencesStore.SaveAsync(preferences with { AutomaticSyncEnabled = enabled });
+        await _preferencesStore.UpdateAsync(preferences => preferences with { AutomaticSyncEnabled = enabled });
         UpdateAutomaticSyncTimer();
     }
 
@@ -377,8 +380,18 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        if (_suppressNavigationSelection && ReferenceEquals(item, _suppressedNavigationItem))
+        {
+            return;
+        }
+
         if (_changingNavigation)
         {
+            if (ReferenceEquals(ViewModel.SelectedNavigation, item))
+            {
+                return;
+            }
+
             _pendingNavigationItem = item;
             return;
         }
@@ -437,13 +450,7 @@ public sealed partial class MainWindow : Window
             _changingNavigation = false;
         }
 
-        var pendingItem = _pendingNavigationItem;
-        _pendingNavigationItem = null;
-        if (pendingItem is not null &&
-            (!TaskWorkspace.IsVisible || !ReferenceEquals(ViewModel.SelectedNavigation, pendingItem)))
-        {
-            await NavigateToAsync(pendingItem);
-        }
+        await DrainPendingNavigationAsync();
     }
 
     private async void OnSpaceSelectionChanged(object? sender, SelectionChangedEventArgs e)
@@ -454,20 +461,49 @@ public sealed partial class MainWindow : Window
         }
 
         _changingNavigation = true;
-        if (!await ViewModel.SaveSelectedAsync())
+        try
         {
-            SpacePicker.SelectedItem = ViewModel.SelectedSpace;
+            if (!await ViewModel.SaveSelectedAsync())
+            {
+                SpacePicker.SelectedItem = ViewModel.SelectedSpace;
+                return;
+            }
+
+            _suppressedNavigationItem = ViewModel.SelectedProject is not null
+                ? ViewModel.NavigationItems.FirstOrDefault(navigation => navigation.Kind == TaskListKind.Open)
+                : null;
+            _suppressNavigationSelection = true;
+            try
+            {
+                await ViewModel.SelectSpaceAsync(item);
+            }
+            finally
+            {
+                _suppressNavigationSelection = false;
+                _suppressedNavigationItem = null;
+            }
+
+            UpdateConnectedPaneForCurrentView(autoOpen: true);
+            UpdateWorkbenchLayout();
+            await _preferencesStore.UpdateAsync(preferences => preferences with { SelectedSpaceId = item.SpaceId });
+        }
+        finally
+        {
             _changingNavigation = false;
-            return;
         }
 
-        ProjectList.SelectedItem = null;
-        await ViewModel.SelectSpaceAsync(item);
-        UpdateConnectedPaneForCurrentView(autoOpen: true);
-        UpdateWorkbenchLayout();
-        var preferences = _preferencesStore.Load();
-        await _preferencesStore.SaveAsync(preferences with { SelectedSpaceId = item.SpaceId });
-        _changingNavigation = false;
+        await DrainPendingNavigationAsync();
+    }
+
+    private async Task DrainPendingNavigationAsync()
+    {
+        var pendingItem = _pendingNavigationItem;
+        _pendingNavigationItem = null;
+        if (pendingItem is not null &&
+            (!TaskWorkspace.IsVisible || !ReferenceEquals(ViewModel.SelectedNavigation, pendingItem)))
+        {
+            await NavigateToAsync(pendingItem);
+        }
     }
 
     private void OnCompactSpaceSelected(object? sender, RoutedEventArgs e)
@@ -664,12 +700,36 @@ public sealed partial class MainWindow : Window
 
     private async void OnListOptionsChanged(object? sender, SelectionChangedEventArgs e)
     {
-        if (!_initialized || _changingListFilters)
+        if (!_initialized || _changingNavigation || _changingListFilters)
         {
             return;
         }
 
-        await ViewModel.ApplyListOptionsAsync();
+        await ApplyListOptionsCoalescedAsync();
+    }
+
+    private async Task ApplyListOptionsCoalescedAsync()
+    {
+        if (_applyingListOptions)
+        {
+            _pendingListOptionsApply = true;
+            return;
+        }
+
+        _applyingListOptions = true;
+        try
+        {
+            do
+            {
+                _pendingListOptionsApply = false;
+                await ViewModel.ApplyListOptionsAsync();
+            }
+            while (_pendingListOptionsApply);
+        }
+        finally
+        {
+            _applyingListOptions = false;
+        }
     }
 
     private async void OnSortMenuItemClicked(object? sender, RoutedEventArgs e)
@@ -680,7 +740,7 @@ public sealed partial class MainWindow : Window
         }
 
         ViewModel.SortIndex = index;
-        await ViewModel.ApplyListOptionsAsync();
+        await ApplyListOptionsCoalescedAsync();
     }
 
     private async void OnSortDirectionMenuItemClicked(object? sender, RoutedEventArgs e)
@@ -691,7 +751,7 @@ public sealed partial class MainWindow : Window
         }
 
         ViewModel.SortDirectionIndex = index;
-        await ViewModel.ApplyListOptionsAsync();
+        await ApplyListOptionsCoalescedAsync();
     }
 
     private async void OnGroupMenuItemClicked(object? sender, RoutedEventArgs e)
@@ -702,7 +762,7 @@ public sealed partial class MainWindow : Window
         }
 
         ViewModel.GroupIndex = index;
-        await ViewModel.ApplyListOptionsAsync();
+        await ApplyListOptionsCoalescedAsync();
     }
 
     private async void OnMoveTaskToSpaceClicked(object? sender, RoutedEventArgs e)
@@ -774,7 +834,7 @@ public sealed partial class MainWindow : Window
             _changingListFilters = false;
         }
 
-        await ViewModel.ApplyListOptionsAsync();
+        await ApplyListOptionsCoalescedAsync();
     }
 
     private async void OnEmptyStateActionClicked(object? sender, RoutedEventArgs e)
@@ -911,11 +971,15 @@ public sealed partial class MainWindow : Window
         var options = ViewModel.GetProjectOptionsForSpace(item.Task.SpaceId)
             .Select(option => new PickerOption(option.ProjectId ?? string.Empty, option.Title))
             .ToList();
-        var dialog = new OptionPickerWindow("Change project", "Choose where this task belongs.", options, item.Task.ProjectId ?? string.Empty);
-        var projectId = await dialog.ShowDialog<string?>(this);
-        if (projectId is not null)
+        var dialog = new ProjectPickerWindow(options, item.Task.ProjectId);
+        var result = await dialog.ShowDialog<ProjectPickerResult?>(this);
+        if (!string.IsNullOrWhiteSpace(result?.NewProjectName))
         {
-            await ViewModel.SetTaskProjectFromRowAsync(item, projectId);
+            await ViewModel.CreateProjectForTaskFromRowAsync(item, result.NewProjectName);
+        }
+        else if (result is not null)
+        {
+            await ViewModel.SetTaskProjectFromRowAsync(item, result.ProjectId);
         }
     }
 
@@ -1083,14 +1147,32 @@ public sealed partial class MainWindow : Window
 
     private async void OnKeepOpenzaDatesClicked(object? sender, RoutedEventArgs e) => await ViewModel.KeepOpenzaDatesAsync();
 
-    private async void OnCreateDetailProjectClicked(object? sender, RoutedEventArgs e)
+    private async void OnDetailProjectPickerClicked(object? sender, RoutedEventArgs e)
     {
-        var prompt = new TextPromptWindow("Create project", string.Empty);
-        var name = await prompt.ShowDialog<string?>(this);
-        if (!string.IsNullOrWhiteSpace(name))
+        if (ViewModel.SelectedTask is null)
         {
-            await ViewModel.CreateProjectForSelectedTaskAsync(name);
+            return;
         }
+
+        var options = ViewModel.GetProjectOptionsForSpace(ViewModel.SelectedTask.Task.SpaceId)
+            .Select(option => new PickerOption(option.ProjectId ?? string.Empty, option.Title))
+            .ToList();
+        var dialog = new ProjectPickerWindow(options, ViewModel.DetailProject?.ProjectId);
+        var result = await dialog.ShowDialog<ProjectPickerResult?>(this);
+        if (!string.IsNullOrWhiteSpace(result?.NewProjectName))
+        {
+            await ViewModel.CreateProjectForSelectedTaskAsync(result.NewProjectName);
+            return;
+        }
+
+        if (result is null)
+        {
+            return;
+        }
+
+        ViewModel.DetailProject = ViewModel.ProjectOptions.FirstOrDefault(option =>
+            string.Equals(option.ProjectId ?? string.Empty, result.ProjectId ?? string.Empty, StringComparison.Ordinal));
+        await ViewModel.SaveSelectedAsync();
     }
 
     private async void OnToggleCompletionClicked(object? sender, RoutedEventArgs e)
@@ -1426,8 +1508,7 @@ public sealed partial class MainWindow : Window
             "Dark" => ThemeVariant.Dark,
             _ => ThemeVariant.Default,
         };
-        var preferences = _preferencesStore.Load();
-        await _preferencesStore.SaveAsync(preferences with { Theme = theme });
+        await _preferencesStore.UpdateAsync(preferences => preferences with { Theme = theme });
     }
 
     private async void OnExportDatabaseFromShellClicked(object? sender, RoutedEventArgs e)

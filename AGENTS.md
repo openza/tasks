@@ -18,7 +18,7 @@ Also follow the shared Openza guidance in `../AGENTS.md`. Keep this file limited
 - From `src/Openza.Tasks.Desktop`, `dotnet restore` and `dotnet build -c Release --no-restore` validate the Avalonia app with its Linux-compatible SDK selection.
 - On Linux, `./dev.sh` launches the Avalonia app.
 - `./dev-cli.sh` runs the CLI against the isolated Dev channel; never override it to use Production during development.
-- `./packaging/linux/build-deb.sh <version>` builds the self-contained DEB; `APPIMAGETOOL=/path/to/appimagetool ./packaging/linux/build-appimage.sh <version>` builds the AppImage. Outputs belong under ignored `artifacts/linux/`.
+- `snapcraft pack` builds the strict Production Snap containing the Avalonia app and CLI. Snap artifacts belong under ignored `artifacts/snap/`; do not publish or install them without explicit approval.
 
 ## Coding Style & Naming Conventions
 - Follow existing C# naming and nullable annotations.
@@ -60,7 +60,7 @@ Also follow the shared Openza guidance in `../AGENTS.md`. Keep this file limited
 - Obsidian is out of scope unless explicitly brought back into scope.
 - For WinUI settings or control layout changes, use the `winui-design` skill and check the official WinUI Gallery reference in the shared Openza guidance: https://github.com/microsoft/WinUI-Gallery.
 - Treat both Production (`Openza.OpenzaTasks`) and Preview (`Openza.OpenzaTasks.Preview`) as the user's live daily apps. Do not close, stop, build over, install, update, relaunch, or otherwise disrupt either package unless the user explicitly confirms that specific action.
-- Treat the installed Linux app and its real data as a live daily driver. Source launches must remain on the built-in Dev channel; use `OPENZA_TASKS_DEV_DATA_DIR` only for disposable Dev isolation, and do not build or install DEB/AppImage packages unless explicitly requested.
+- Treat the installed Linux app and its real data as a live daily driver. Source launches must remain on the built-in Dev channel; use `OPENZA_TASKS_DEV_DATA_DIR` only for disposable Dev isolation, and do not install, upload, or release Snap packages unless explicitly requested.
 - Test builds, installs, and launches against the dev package (`Openza.OpenzaTasks.Dev`) first by default. If Preview validation is needed and the app is running or may be in use, stop and ask before proceeding.
 - For local Preview MSIX signing, reuse the existing Openza Reader temporary certificate when present: `..\reader\src\Openza.Reader\Openza.Reader_TemporaryKey.pfx`. Do not create a new local signing certificate unless the user explicitly asks.
 - If WinUI `dotnet build` or MSIX packaging commands hang, time out, or fail because the sandbox blocks certificate access, retry the same command with escalated permissions before changing build strategy.

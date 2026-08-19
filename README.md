@@ -27,6 +27,10 @@ Openza Tasks V1 is live on the Microsoft Store:
 - [Install from Microsoft Store](https://apps.microsoft.com/detail/9NQGDKXGRGF8)
 - [Open in the Store app](ms-windows-store://pdp/?ProductId=9NQGDKXGRGF8)
 
+The Linux edition is being prepared as the single `openza-tasks` Snap. Its
+Snap Store listing is not public yet; the repository does not advertise a
+Linux install command until that listing is live.
+
 Legacy Flutter-era packages remain available in older GitHub releases, but they are no longer the active product line. Store V1 starts with a clean WinUI workspace and can reconnect integrations.
 
 ## Building From Source
@@ -43,16 +47,21 @@ Source launches always use the isolated maintainer-only Dev directory. For dispo
 
 Run the matching Dev CLI with `./dev-cli.sh`. See [docs/cli.md](docs/cli.md) for its command contract.
 
-The Linux app currently includes smart lists, Spaces, projects, search, sorting, filtering, grouping, task details, labels, dates and deadlines, subtasks, Markdown import/export, restore points, connected-task intake, Todoist synchronization, and GitHub issue linking. Provider tokens are stored through the desktop Secret Service; install `libsecret-tools` before connecting an account.
+The Linux app currently includes smart lists, Spaces, projects, search, sorting, filtering, grouping, task details, labels, dates and deadlines, subtasks, Markdown import/export, restore points, connected-task intake, Todoist synchronization, and GitHub issue linking. The Snap bundles Secret Service tooling and accesses the desktop Secret Portal; source runs require the host `libsecret-tools` package before connecting an account.
 
-Build Linux packages from the repository root:
+Build the strict Linux Snap from the repository root:
 
 ```bash
-./packaging/linux/build-deb.sh 0.1.0
-APPIMAGETOOL=/path/to/appimagetool ./packaging/linux/build-appimage.sh 0.1.0
+snapcraft pack --output artifacts/snap/
 ```
 
-Generated packages are written under the ignored `artifacts/linux/` directory.
+The Snap contains both the `openza-tasks` desktop command and the namespaced
+`openza-tasks.openza` CLI. The short `openza` command is requested as a Snap
+Store automatic alias before public release. Generated packages are written
+under the ignored `artifacts/snap/` directory.
+
+Maintainer registration, edge testing, and same-revision promotion are
+documented in [docs/snap-release.md](docs/snap-release.md).
 
 ### Windows prerequisites
 

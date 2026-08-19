@@ -7,6 +7,7 @@
     Height="800"
     MinWidth="920"
     MinHeight="600"
+    Background="{DynamicResource OpenzaAppCanvasBrush}"
     WindowState="Maximized"
     Title="Openza Tasks"
     Icon="avares://Openza.Tasks.Desktop/Assets/openza-tasks.png"
@@ -447,10 +448,7 @@
                                         <StackPanel Classes="field-row"><TextBlock Classes="field-label" Text="Status" /><ComboBox SelectedIndex="{Binding DetailStatusIndex, Mode=TwoWay}" SelectionChanged="OnDetailEditorSelectionChanged"><ComboBoxItem Content="Inbox"/><ComboBoxItem Content="Next"/><ComboBoxItem Content="Waiting For"/><ComboBoxItem Content="Someday"/><ComboBoxItem Content="Completed"/></ComboBox></StackPanel>
                                         <StackPanel Grid.Column="1" Classes="field-row">
                                             <TextBlock Classes="field-label" Text="Project"/>
-                                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
-                                                <ComboBox ItemsSource="{Binding ProjectOptions}" SelectedItem="{Binding DetailProject, Mode=TwoWay}" SelectionChanged="OnDetailEditorSelectionChanged"><ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Title}"/></DataTemplate></ComboBox.ItemTemplate></ComboBox>
-                                                <Button Grid.Column="1" Width="36" Height="36" Padding="0" AutomationProperties.Name="Create project" Click="OnCreateDetailProjectClicked" ToolTip.Tip="Create project"><ic:FluentIcon Icon="Add" FontSize="15"/></Button>
-                                            </Grid>
+                                            <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" AutomationProperties.Name="Find or create project" Click="OnDetailProjectPickerClicked" Content="{Binding DetailProject.Title}" />
                                         </StackPanel>
                                         <StackPanel Grid.Row="1" Classes="field-row"><TextBlock Classes="field-label" Text="Date"/><CalendarDatePicker HorizontalAlignment="Stretch" PlaceholderText="Choose a date" SelectedDate="{Binding DetailCalendarDate, Mode=TwoWay}" SelectedDateChanged="OnDetailDateChanged"/></StackPanel>
                                         <StackPanel Grid.Row="1" Grid.Column="1" Classes="field-row"><TextBlock Classes="field-label" Text="Deadline"/><CalendarDatePicker HorizontalAlignment="Stretch" PlaceholderText="Choose a deadline" SelectedDate="{Binding DetailCalendarDeadline, Mode=TwoWay}" SelectedDateChanged="OnDetailDateChanged"/></StackPanel>

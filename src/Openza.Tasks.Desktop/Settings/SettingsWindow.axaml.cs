@@ -62,8 +62,7 @@ public sealed partial class SettingsWindow : Window
             "Dark" => ThemeVariant.Dark,
             _ => ThemeVariant.Default,
         };
-        var preferences = _preferencesStore.Load();
-        await _preferencesStore.SaveAsync(preferences with { Theme = theme });
+        await _preferencesStore.UpdateAsync(preferences => preferences with { Theme = theme });
     }
 
     private async void OnAddSpaceClicked(object? sender, RoutedEventArgs e)

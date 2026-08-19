@@ -44,17 +44,25 @@ Linux hosts use independent data, settings, restore points, locks, and Secret Se
 
 | Channel | Data directory | Launch policy |
 | --- | --- | --- |
-| Production | `~/.local/share/Openza/Tasks` | Published packages only |
+| Production (Snap) | `$SNAP_USER_COMMON/tasks` | Published Snap only |
+| Production (unconfined legacy build) | `~/.local/share/Openza/Tasks` | No longer a public Linux package lane |
 | Preview | `~/.local/share/Openza/Tasks Preview` | Explicit maintainer build |
 | Dev | `~/.local/share/Openza/Tasks Dev` | `./dev.sh` and `./dev-cli.sh` |
 
 Source runs default to Dev. `OPENZA_TASKS_DEV_DATA_DIR` may override only the Dev directory for isolated tests. There is intentionally no runtime channel selector. Passing `-p:OpenzaChannel=Production` or `Preview` to an ordinary source build is rejected. Non-Dev channels are selected only when the packaging scripts publish the dedicated `*.Package.csproj` entry projects with a fixed packaging profile. The normal app projects reject packaging profiles even if internal MSBuild properties are supplied on the command line. Runtime also requires the matching `.openza-channel` marker copied only to genuine publish output; a packaging-project build has Production/Preview metadata but still runs as Dev without that marker. Packaging profiles use separate build-output directories so a later source run cannot reuse a published Production or Preview assembly.
 
-Linux packaging defaults to Production. Maintainers can explicitly select Preview by setting `OPENZA_PACKAGE_CHANNEL=Preview` when invoking a packaging script. Do not use that setting for ordinary source runs.
+Linux packaging is Snap-only. The strict Production `openza-tasks` Snap contains
+the Avalonia desktop app and CLI, and both use `$SNAP_USER_COMMON/tasks` so data,
+settings, and restore points survive automatic Snap refreshes. Both hosts derive
+the same coordination locks from that shared data path. Provider credentials use
+the desktop Secret Portal and remain isolated by the Snap security domain.
+Source runs and maintainer Preview/Dev environments remain outside the Snap and
+retain their existing channel isolation.
 
-Preview Linux packages are independently named and install alongside Production: Debian package `openza-tasks-preview`, app launcher `openza-tasks-preview`, CLI launcher `openza-preview`, desktop ID `com.openza.Tasks.Preview`, and display name **Openza Tasks Preview**. Preview AppImages use the `Openza_Tasks_Preview` artifact and AppDir names. Production retains `openza-tasks`, `openza`, `com.openza.Tasks`, and `Openza_Tasks`.
-
-The DEB packages the desktop app and the host CLI together. The GUI AppImage is standalone and does not install or advertise a host `openza` command; use the DEB when both commands are required.
+The Snap initially supports amd64. Its CLI is available as
+`openza-tasks.openza`; request the `openza` automatic alias from the Snap Store
+before public release. There is no runtime channel selector and no DEB, RPM, or
+AppImage public package lane.
 
 To create a sync-disabled, independent Dev or Preview snapshot from the current Production database:
 

@@ -1,0 +1,104 @@
+name: openza-tasks
+title: Openza Tasks
+version: '0.1.6'
+summary: Local-first task management
+description: |
+  Openza Tasks is a local-first task manager for Linux with optional Todoist
+  synchronization. The snap contains the Avalonia desktop app and the Openza
+  command-line interface over one private, shared task database.
+license: MIT
+website: https://solanky.dev/openza/tasks/
+source-code: https://github.com/openza/tasks
+issues: https://github.com/openza/tasks/issues
+contact: https://github.com/openza/tasks/issues
+icon: assets/icons/icon-512.png
+base: core24
+grade: stable
+confinement: strict
+
+platforms:
+  amd64:
+
+apps:
+  openza-tasks:
+    command: bin/openza-tasks-launch
+    desktop: meta/gui/openza-tasks.desktop
+    common-id: com.openza.Tasks
+    extensions: [gnome]
+    plugs:
+      - home
+      - network
+      - removable-media
+  openza:
+    command: bin/openza-cli-launch
+    plugs:
+      - desktop
+      - network
+
+parts:
+  runtime-dependencies:
+    plugin: nil
+    stage-packages:
+      - libbrotli1
+      - libfontconfig1
+      - libfreetype6
+      - libice6
+      - libicu74
+      - liblttng-ust1t64
+      - libsecret-tools
+      - libsm6
+      - libssl3t64
+      - libunwind8
+      - libx11-6
+
+  desktop:
+    after: [runtime-dependencies]
+    plugin: dotnet
+    source: .
+    dotnet-version: '10.0'
+    dotnet-project: src/Openza.Tasks.Desktop/Openza.Tasks.Desktop.Package.csproj
+    dotnet-configuration: Release
+    dotnet-self-contained: true
+    dotnet-properties:
+      OpenzaPackagingProfile: Production
+      _IsPublishing: 'true'
+      Version: '0.1.6'
+      InformationalVersion: '0.1.6'
+      PublishSingleFile: 'true'
+      IncludeNativeLibrariesForSelfExtract: 'true'
+      DebugType: None
+      DebugSymbols: 'false'
+    organize:
+      'Openza.Tasks.Desktop': opt/openza-tasks/desktop/Openza.Tasks.Desktop
+      '.openza-channel': opt/openza-tasks/desktop/.openza-channel
+
+  cli:
+    after: [runtime-dependencies]
+    plugin: dotnet
+    source: .
+    dotnet-version: '10.0'
+    dotnet-project: src/Openza.Tasks.Cli/Openza.Tasks.Cli.Package.csproj
+    dotnet-configuration: Release
+    dotnet-self-contained: true
+    dotnet-properties:
+      OpenzaPackagingProfile: Production
+      _IsPublishing: 'true'
+      Version: '0.1.6'
+      InformationalVersion: '0.1.6'
+      PublishSingleFile: 'true'
+      IncludeNativeLibrariesForSelfExtract: 'true'
+      DebugType: None
+      DebugSymbols: 'false'
+    organize:
+      'openza': opt/openza-tasks/cli/openza
+      '.openza-channel': opt/openza-tasks/cli/.openza-channel
+
+  snap-metadata:
+    plugin: nil
+    source: snap
+    override-build: |
+      install -D -m 0755 local/openza-tasks-launch "$CRAFT_PART_INSTALL/bin/openza-tasks-launch"
+      install -D -m 0755 local/openza-cli-launch "$CRAFT_PART_INSTALL/bin/openza-cli-launch"
+      install -D -m 0644 gui/openza-tasks.desktop "$CRAFT_PART_INSTALL/meta/gui/openza-tasks.desktop"
+      install -D -m 0644 gui/com.openza.Tasks.metainfo.xml "$CRAFT_PART_INSTALL/usr/share/metainfo/com.openza.Tasks.metainfo.xml"
+      install -D -m 0644 "$CRAFT_PROJECT_DIR/assets/icons/icon-512.png" "$CRAFT_PART_INSTALL/meta/gui/openza-tasks.png"

@@ -28,7 +28,7 @@ public sealed class MainWindowViewModel : ObservableObject
     private bool _showAllSubtasks;
     private string? _sourceDateMismatchAcknowledgementKey;
     private readonly GitHubIssueService _gitHubIssueService = new(new HttpClient());
-    private readonly DesktopPreferencesStore _preferencesStore = new();
+    private readonly DesktopPreferencesStore _preferencesStore;
     private readonly Lazy<BackupService?> _backupService;
     private readonly List<ProjectItem> _projects = [];
     private readonly List<LabelItem> _labels = [];
@@ -71,6 +71,8 @@ public sealed class MainWindowViewModel : ObservableObject
     private bool _showSkippedConnectedTasks;
     private string _connectedSearchText = string.Empty;
     private LabelOptionViewModel? _selectedLabelFilter;
+    private string? _restoredLabelFilterId;
+    private string? _activeTaskViewSettingsKey;
     private RestorePointViewModel? _selectedRestorePoint;
     private string _gitHubToken = string.Empty;
     private string _gitHubConnectionText = "Not connected.";
@@ -87,11 +89,13 @@ public sealed class MainWindowViewModel : ObservableObject
     public MainWindowViewModel(
         ITaskStore store,
         ICredentialStore credentials,
-        Func<string, string, ITaskProjectMoveProvider>? todoistMoveProviderFactory = null)
+        Func<string, string, ITaskProjectMoveProvider>? todoistMoveProviderFactory = null,
+        DesktopPreferencesStore? preferencesStore = null)
     {
         _store = store;
         _taskService = new TaskApplicationService(store);
         _credentials = credentials;
+        _preferencesStore = preferencesStore ?? CreatePreferencesStore(store);
         _syncEngine = new TaskSyncEngine(store);
         _todoistMoveProviderFactory = todoistMoveProviderFactory ??
             ((token, connectionId) => new TodoistProvider(_httpClient, token, connectionId));
@@ -115,6 +119,17 @@ public sealed class MainWindowViewModel : ObservableObject
             .FirstOrDefault()?.InformationalVersion.Split('+')[0]
         ?? typeof(MainWindowViewModel).Assembly.GetName().Version?.ToString(3)
         ?? "unknown";
+
+    private static DesktopPreferencesStore CreatePreferencesStore(ITaskStore store)
+    {
+        if (store is SqliteTaskStore sqliteStore &&
+            Path.GetDirectoryName(sqliteStore.DatabasePath) is { } dataDirectory)
+        {
+            return new DesktopPreferencesStore(Path.Combine(dataDirectory, "settings.json"));
+        }
+
+        return new DesktopPreferencesStore();
+    }
 
     private static string CredentialStoreDisplayName => OperatingSystem.IsWindows()
         ? "Windows Credential Manager"
@@ -423,6 +438,7 @@ public sealed class MainWindowViewModel : ObservableObject
         {
             if (SetProperty(ref _selectedLabelFilter, value))
             {
+                _restoredLabelFilterId = value?.LabelId;
                 NotifyListFilterStateChanged();
             }
         }
@@ -782,9 +798,15 @@ public sealed class MainWindowViewModel : ObservableObject
 
     public async Task SelectSpaceAsync(SpaceNavigationItemViewModel item)
     {
+        var wasProjectView = SelectedProject is not null;
         SelectedSpace = item;
         _currentSpaceId = item.SpaceId;
         SelectedProject = null;
+        if (wasProjectView)
+        {
+            SelectedNavigation = NavigationItems.Single(navigation => navigation.Kind == TaskListKind.Open);
+            PageTitle = SelectedNavigation.Title;
+        }
         PageSubtitle = item.Space is null
             ? "Tasks from every space."
             : $"Tasks in {item.Title}.";
@@ -931,7 +953,11 @@ public sealed class MainWindowViewModel : ObservableObject
 
     public Task ApplySearchAsync() => RefreshAsync();
 
-    public Task ApplyListOptionsAsync() => RefreshAsync();
+    public async Task ApplyListOptionsAsync()
+    {
+        await SaveTaskViewPreferencesAsync();
+        await RefreshAsync();
+    }
 
     public void ToggleTaskGroup(string groupKey)
     {
@@ -1748,6 +1774,13 @@ public sealed class MainWindowViewModel : ObservableObject
             return false;
         }
 
+        var existing = FindProjectOption(SelectedTask.Task.SpaceId, trimmedName);
+        if (existing is not null)
+        {
+            DetailProject = existing;
+            return await SaveSelectedAsync();
+        }
+
         var project = new ProjectItem
         {
             Id = $"project_{Guid.NewGuid():N}",
@@ -1768,6 +1801,46 @@ public sealed class MainWindowViewModel : ObservableObject
         DetailProject = option;
         return await SaveSelectedAsync();
     }
+
+    public async Task<bool> CreateProjectForTaskFromRowAsync(TaskListItemViewModel item, string name)
+    {
+        var trimmedName = name.Trim();
+        if (trimmedName.Length == 0)
+        {
+            return false;
+        }
+
+        var existing = FindProjectOption(item.Task.SpaceId, trimmedName);
+        if (existing is not null)
+        {
+            await SetTaskProjectFromRowAsync(item, existing.ProjectId);
+            return true;
+        }
+
+        var project = new ProjectItem
+        {
+            Id = $"project_{Guid.NewGuid():N}",
+            SpaceId = item.Task.SpaceId,
+            IntegrationId = IntegrationIds.Local,
+            Name = trimmedName,
+            Color = "#6B8AFD",
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow,
+        };
+        if (!await RunBusyAsync(() => _store.UpsertProjectAsync(project)))
+        {
+            return false;
+        }
+
+        await SetTaskProjectFromRowAsync(item, project.Id);
+        return true;
+    }
+
+    private ProjectOptionViewModel? FindProjectOption(string spaceId, string name) =>
+        ProjectOptions.FirstOrDefault(option =>
+            option.Project is not null &&
+            string.Equals(option.Project.SpaceId, spaceId, StringComparison.Ordinal) &&
+            string.Equals(option.Title, name, StringComparison.CurrentCultureIgnoreCase));
 
     public async Task RenameSelectedProjectAsync(string name)
     {
@@ -2282,6 +2355,9 @@ public sealed class MainWindowViewModel : ObservableObject
     private async Task RefreshAsyncCore(string? selectTaskId = null)
     {
         using var detailUpdate = BeginDetailUpdate();
+        ApplyTaskViewPreferencesForCurrentContext();
+        var labels = await _store.GetLabelsAsync();
+        await ClearStaleLabelFilterAsync(labels);
         var snapshot = await _store.GetTaskListRefreshSnapshotAsync(new TaskQuery
         {
             SpaceId = _currentSpaceId,
@@ -2299,10 +2375,9 @@ public sealed class MainWindowViewModel : ObservableObject
                 2 => TaskRepeatScope.Only,
                 _ => TaskRepeatScope.Include,
             },
-            LabelId = SelectedLabelFilter?.LabelId,
+            LabelId = _restoredLabelFilterId,
         });
         var projects = await _store.GetProjectsAsync(_currentSpaceId, includeArchived: true);
-        var labels = await _store.GetLabelsAsync();
         _projects.Clear();
         _projects.AddRange(projects);
         _labels.Clear();
@@ -2326,15 +2401,7 @@ public sealed class MainWindowViewModel : ObservableObject
             ProjectOptions.Add(new ProjectOptionViewModel(project));
         }
 
-        var selectedLabelId = SelectedLabelFilter?.LabelId;
-        LabelFilterOptions.Clear();
-        LabelFilterOptions.Add(new LabelOptionViewModel(null));
-        foreach (var label in labels.OrderBy(label => label.Name, StringComparer.CurrentCultureIgnoreCase))
-        {
-            LabelFilterOptions.Add(new LabelOptionViewModel(label));
-        }
-        SelectedLabelFilter = LabelFilterOptions.FirstOrDefault(option => option.LabelId == selectedLabelId)
-            ?? LabelFilterOptions[0];
+        RefreshLabelFilterOptions(labels);
 
         Tasks.Clear();
         var subtaskProgress = BuildSubtaskProgress(snapshot.AllSpaceTasks);
@@ -2372,6 +2439,129 @@ public sealed class MainWindowViewModel : ObservableObject
         await LoadSelectedGitHubLinkAsync();
         OnPropertyChanged(nameof(HasNoSelectedTask));
     }
+
+    private void RefreshLabelFilterOptions(IReadOnlyList<LabelItem> labels)
+    {
+        var orderedLabels = labels
+            .OrderBy(label => label.Name, StringComparer.CurrentCultureIgnoreCase)
+            .ToArray();
+        var optionsAreCurrent = LabelFilterOptions.Count == orderedLabels.Length + 1 &&
+            LabelFilterOptions[0].LabelId is null &&
+            orderedLabels.Select((label, index) => (label, option: LabelFilterOptions[index + 1]))
+                .All(pair =>
+                    string.Equals(pair.label.Id, pair.option.LabelId, StringComparison.Ordinal) &&
+                    string.Equals(pair.label.Name, pair.option.Title, StringComparison.Ordinal));
+
+        if (optionsAreCurrent &&
+            SelectedLabelFilter is not null &&
+            LabelFilterOptions.Contains(SelectedLabelFilter))
+        {
+            return;
+        }
+
+        var selectedLabelId = _restoredLabelFilterId;
+        if (!optionsAreCurrent)
+        {
+            LabelFilterOptions.Clear();
+            LabelFilterOptions.Add(new LabelOptionViewModel(null));
+            foreach (var label in orderedLabels)
+            {
+                LabelFilterOptions.Add(new LabelOptionViewModel(label));
+            }
+        }
+
+        SelectedLabelFilter = LabelFilterOptions.FirstOrDefault(option => option.LabelId == selectedLabelId)
+            ?? LabelFilterOptions[0];
+    }
+
+    private void ApplyTaskViewPreferencesForCurrentContext()
+    {
+        var key = TaskViewSettingsKey();
+        if (string.Equals(_activeTaskViewSettingsKey, key, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        var preferences = _preferencesStore.Load();
+        var stored = preferences.TaskViewSettings.GetValueOrDefault(key);
+        _activeTaskViewSettingsKey = key;
+
+        SortIndex = stored?.SortIndex ?? 0;
+        SortDirectionIndex = stored?.SortDirectionIndex ?? 0;
+        GroupIndex = stored?.GroupIndex ?? DefaultGroupIndexForCurrentView();
+        PriorityFilterIndex = stored?.PriorityFilterIndex ?? 0;
+        RepeatFilterIndex = stored?.RepeatFilterIndex ?? 0;
+        SelectedLabelFilter = LabelFilterOptions.FirstOrDefault(option =>
+                string.Equals(option.LabelId, stored?.LabelFilterId, StringComparison.Ordinal))
+            ?? LabelFilterOptions.FirstOrDefault();
+        _restoredLabelFilterId = stored?.LabelFilterId;
+    }
+
+    private async Task SaveTaskViewPreferencesAsync()
+    {
+        var key = TaskViewSettingsKey();
+        var viewPreferences = new DesktopTaskViewPreferences
+        {
+            SortIndex = SortIndex,
+            SortDirectionIndex = SortDirectionIndex,
+            GroupIndex = GroupIndex,
+            PriorityFilterIndex = PriorityFilterIndex,
+            RepeatFilterIndex = RepeatFilterIndex,
+            LabelFilterId = _restoredLabelFilterId,
+        };
+        _activeTaskViewSettingsKey = key;
+        await _preferencesStore.UpdateAsync(preferences =>
+        {
+            preferences.TaskViewSettings[key] = viewPreferences;
+            return preferences;
+        });
+    }
+
+    private async Task ClearStaleLabelFilterAsync(IReadOnlyList<LabelItem> labels)
+    {
+        if (_restoredLabelFilterId is null ||
+            labels.Any(label => string.Equals(label.Id, _restoredLabelFilterId, StringComparison.Ordinal)))
+        {
+            return;
+        }
+
+        _restoredLabelFilterId = null;
+        SelectedLabelFilter = LabelFilterOptions.FirstOrDefault(option => option.LabelId is null);
+        await SaveTaskViewPreferencesAsync();
+    }
+
+    private string TaskViewSettingsKey()
+    {
+        var view = SelectedProject is not null ? "tasks" : ViewKey(SelectedNavigation?.Kind ?? TaskListKind.Inbox);
+        var project = string.Equals(view, "tasks", StringComparison.Ordinal)
+            ? SelectedProject?.Project.Id ?? "all"
+            : "all";
+        return $"{_currentSpaceId ?? "all"}|{view}|{project}";
+    }
+
+    private int DefaultGroupIndexForCurrentView() => SelectedProject is not null
+        ? 2
+        : SelectedNavigation?.Kind switch
+        {
+            TaskListKind.Overdue or TaskListKind.Calendar => 1,
+            TaskListKind.Completed => 9,
+            TaskListKind.Open => 2,
+            _ => 0,
+        };
+
+    private static string ViewKey(TaskListKind kind) => kind switch
+    {
+        TaskListKind.Inbox => "inbox",
+        TaskListKind.NextActions => "next",
+        TaskListKind.Today => "today",
+        TaskListKind.Calendar => "calendar",
+        TaskListKind.Overdue => "overdue",
+        TaskListKind.Waiting => "waiting",
+        TaskListKind.Someday => "someday",
+        TaskListKind.Open => "tasks",
+        TaskListKind.Completed => "completed",
+        _ => "inbox",
+    };
 
     private async Task LoadSubtasksAsync()
     {

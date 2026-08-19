@@ -35,6 +35,43 @@ public sealed class RuntimeIsolationTests : IDisposable
         Assert.Equal(production.DataDirectory, OpenzaRuntimeContext.Create(OpenzaChannel.Production, Path.Combine(_directory, "ignored")).DataDirectory);
     }
 
+    [Fact]
+    public void Production_snap_uses_the_refresh_stable_common_data_directory()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        var snapRoot = Path.Combine(_directory, "snap", "openza-tasks", "current");
+        var snapUserCommon = Path.Combine(_directory, "home", "snap", "openza-tasks", "common");
+
+        Assert.Equal(
+            Path.Combine(snapUserCommon, "tasks"),
+            OpenzaRuntimeContext.ResolveSnapDataDirectory(
+                OpenzaChannel.Production,
+                snapRoot,
+                "openza-tasks",
+                snapUserCommon));
+    }
+
+    [Theory]
+    [InlineData(OpenzaChannel.Dev, "/snap/openza-tasks/current", "openza-tasks", "/home/user/snap/openza-tasks/common")]
+    [InlineData(OpenzaChannel.Preview, "/snap/openza-tasks/current", "openza-tasks", "/home/user/snap/openza-tasks/common")]
+    [InlineData(OpenzaChannel.Production, null, "openza-tasks", "/home/user/snap/openza-tasks/common")]
+    [InlineData(OpenzaChannel.Production, "relative", "openza-tasks", "/home/user/snap/openza-tasks/common")]
+    [InlineData(OpenzaChannel.Production, "/snap/openza-tasks/current", "another-snap", "/home/user/snap/openza-tasks/common")]
+    [InlineData(OpenzaChannel.Production, "/snap/openza-tasks/current", "openza-tasks", null)]
+    [InlineData(OpenzaChannel.Production, "/snap/openza-tasks/current", "openza-tasks", "relative")]
+    public void Untrusted_or_nonproduction_snap_environment_cannot_select_snap_data(
+        OpenzaChannel channel,
+        string? snapRoot,
+        string? snapName,
+        string? snapUserCommon)
+    {
+        Assert.Null(OpenzaRuntimeContext.ResolveSnapDataDirectory(channel, snapRoot, snapName, snapUserCommon));
+    }
+
     [Theory]
     [InlineData(null, null, null)]
     [InlineData("invalid", null, null)]

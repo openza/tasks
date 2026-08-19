@@ -124,26 +124,20 @@ activates a provider implicitly.
 
 ## Linux installation
 
-The desktop app and CLI are separate packages. Install `openza-cli` when you
-want the `openza` command; the desktop package is not required. Both packages
-use the same Production data directory when installed together.
+The public Linux distribution is the single strict `openza-tasks` Snap. It
+contains the desktop app and CLI over the same refresh-stable Production data
+directory. Until the Snap Store grants the requested automatic alias, the CLI
+command is namespaced as `openza-tasks.openza`; the public release is intended
+to expose the normal `openza` alias.
 
-For the one-time transition from the earlier combined `openza-tasks` 0.1.0
-package, the CLI package declares `Replaces` only for the old embedded CLI
-files. This permits either safe order: installing the CLI first transfers those
-files without removing the existing desktop app, while upgrading the desktop
-first removes its old embedded CLI before the standalone CLI is installed.
-Neither new package depends on or breaks the other.
-
-Maintainers can build the ignored local Debian package with:
+Maintainers can build the ignored local Snap with:
 
 ```bash
-./packaging/linux/build-cli-deb.sh VERSION amd64
-sudo apt install ./artifacts/linux/openza-cli_VERSION_amd64.deb
+snapcraft pack --output artifacts/snap/
 ```
 
-The GUI package owns `openza-tasks` only. Preview packages use the distinct
-`openza-cli-preview` package and `openza-preview` command.
+Registration, installation, alias creation, upload, and channel promotion are
+separate maintainer actions and are never performed by a source run.
 
 Read-only commands (`status`, `search`, task/reference `list`, and `task show`)
 open an existing database in SQLite read-only mode and do not run schema
@@ -159,6 +153,5 @@ read-only data directory remains usable. Linux always uses the same hardened
 `/tmp/openza-runtime-<uid>` coordination root for an OS user, independent of
 `XDG_RUNTIME_DIR`, `TMPDIR`, or sandbox visibility, so the GUI and an agent CLI
 cannot select different locks. Mutating commands retain the normal writable
-store. The installed launcher selects an extraction cache
-under `XDG_CACHE_HOME` and falls back to a per-user directory under `/tmp` when
-the home cache is not writable, which supports managed/headless agent sandboxes.
+store. Snap launchers use separate private extraction caches below
+`$SNAP_USER_COMMON` for the single-file desktop and CLI bundles.

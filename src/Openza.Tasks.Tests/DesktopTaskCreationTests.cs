@@ -1,6 +1,7 @@
 using Openza.Tasks.Core.Data;
 using Openza.Tasks.Core.Credentials;
 using Openza.Tasks.Core.Models;
+using Openza.Tasks.Desktop.Services;
 using Openza.Tasks.Desktop.ViewModels;
 
 namespace Openza.Tasks.Tests;
@@ -99,6 +100,28 @@ public sealed class DesktopTaskCreationTests : IDisposable
         Assert.True(viewModel.HasActiveListFilters);
         Assert.Equal("No matching tasks", viewModel.EmptyStateTitle);
         Assert.Equal("Clear filters", viewModel.EmptyStateActionText);
+    }
+
+    [Fact]
+    public async Task List_refresh_preserves_label_filter_objects_and_selection()
+    {
+        var store = await CreateStoreAsync();
+        await store.UpsertLabelAsync(new LabelItem { Id = "label-focus", Name = "Focus" });
+        await store.UpsertLabelAsync(new LabelItem { Id = "label-work", Name = "Work" });
+        var viewModel = new MainWindowViewModel(store, new InMemoryCredentialStore());
+
+        await viewModel.SelectNavigationAsync(
+            viewModel.NavigationItems.Single(item => item.Kind == TaskListKind.Open));
+        var originalOptions = viewModel.LabelFilterOptions.ToArray();
+        var selected = viewModel.LabelFilterOptions.Single(option => option.LabelId == "label-work");
+        viewModel.SelectedLabelFilter = selected;
+
+        await viewModel.ApplyListOptionsAsync();
+        await viewModel.ApplyListOptionsAsync();
+
+        Assert.Equal(originalOptions.Length, viewModel.LabelFilterOptions.Count);
+        Assert.True(originalOptions.SequenceEqual(viewModel.LabelFilterOptions));
+        Assert.Same(selected, viewModel.SelectedLabelFilter);
     }
 
     [Fact]
@@ -427,11 +450,10 @@ public sealed class DesktopTaskCreationTests : IDisposable
         {
             WorkflowStatus = TaskWorkflowStatus.Waiting,
         });
-        var viewModel = new MainWindowViewModel(store, new InMemoryCredentialStore())
-        {
-            GroupIndex = 3,
-        };
+        var viewModel = new MainWindowViewModel(store, new InMemoryCredentialStore());
         await viewModel.SelectNavigationAsync(viewModel.NavigationItems.Single(item => item.Kind == TaskListKind.Open));
+        viewModel.GroupIndex = 3;
+        await viewModel.ApplyListOptionsAsync();
         var header = viewModel.TaskEntries.First(entry => entry.IsHeader);
         var taskCount = viewModel.TaskEntries.Count(entry => entry.IsTask);
 
@@ -455,15 +477,16 @@ public sealed class DesktopTaskCreationTests : IDisposable
         {
             WorkflowStatus = TaskWorkflowStatus.Waiting,
         });
-        var viewModel = new MainWindowViewModel(store, new InMemoryCredentialStore())
-        {
-            GroupIndex = 3,
-        };
+        var viewModel = new MainWindowViewModel(store, new InMemoryCredentialStore());
         await viewModel.SelectNavigationAsync(viewModel.NavigationItems.Single(item => item.Kind == TaskListKind.Open));
+        viewModel.GroupIndex = 3;
+        await viewModel.ApplyListOptionsAsync();
         var waitingHeader = viewModel.TaskEntries.Single(entry => entry.IsHeader && entry.GroupTitle == "Waiting For");
 
         viewModel.ToggleTaskGroup(waitingHeader.GroupKey);
         await viewModel.SelectNavigationAsync(viewModel.NavigationItems.Single(item => item.Kind == TaskListKind.Waiting));
+        viewModel.GroupIndex = 3;
+        await viewModel.ApplyListOptionsAsync();
 
         Assert.Contains(viewModel.TaskEntries, entry => entry.IsHeader && entry.GroupKey == waitingHeader.GroupKey && entry.IsGroupExpanded);
         Assert.Contains(viewModel.TaskEntries, entry => entry.IsTask && entry.Task?.Task.Id == "group-waiting-context");
@@ -508,28 +531,33 @@ public sealed class DesktopTaskCreationTests : IDisposable
             ProjectId = secondProject.Id,
             WorkflowStatus = TaskWorkflowStatus.Waiting,
         });
-        var viewModel = new MainWindowViewModel(store, new InMemoryCredentialStore())
-        {
-            GroupIndex = 3,
-        };
+        var viewModel = new MainWindowViewModel(store, new InMemoryCredentialStore());
         var openView = viewModel.NavigationItems.Single(item => item.Kind == TaskListKind.Open);
         var defaultSpace = new SpaceNavigationItemViewModel(new SpaceItem { Id = SpaceIds.Default, Name = "My space" });
 
         await viewModel.SelectSpaceAsync(defaultSpace);
         await viewModel.SelectNavigationAsync(openView);
+        viewModel.GroupIndex = 3;
+        await viewModel.ApplyListOptionsAsync();
         var waitingKey = viewModel.TaskEntries.Single(entry => entry.IsHeader && entry.GroupTitle == "Waiting For").GroupKey;
         viewModel.ToggleTaskGroup(waitingKey);
 
         await viewModel.SelectSpaceAsync(new SpaceNavigationItemViewModel(otherSpace));
+        viewModel.GroupIndex = 3;
+        await viewModel.ApplyListOptionsAsync();
 
         Assert.Contains(viewModel.TaskEntries, entry => entry.IsHeader && entry.GroupKey == waitingKey && entry.IsGroupExpanded);
         Assert.Contains(viewModel.TaskEntries, entry => entry.IsTask && entry.Task?.Task.Id == "group-other-space-task");
 
         await viewModel.SelectSpaceAsync(defaultSpace);
         await viewModel.SelectProjectAsync(new ProjectNavigationItemViewModel(firstProject, 1));
+        viewModel.GroupIndex = 3;
+        await viewModel.ApplyListOptionsAsync();
         viewModel.ToggleTaskGroup(waitingKey);
 
         await viewModel.SelectProjectAsync(new ProjectNavigationItemViewModel(secondProject, 1));
+        viewModel.GroupIndex = 3;
+        await viewModel.ApplyListOptionsAsync();
 
         Assert.Contains(viewModel.TaskEntries, entry => entry.IsHeader && entry.GroupKey == waitingKey && entry.IsGroupExpanded);
         Assert.Contains(viewModel.TaskEntries, entry => entry.IsTask && entry.Task?.Task.Id == "group-second-project-task");
@@ -542,6 +570,225 @@ public sealed class DesktopTaskCreationTests : IDisposable
 
         Assert.Contains(viewModel.TaskEntries, entry => entry.IsHeader && entry.GroupKey == waitingKey && entry.IsGroupExpanded);
         Assert.Contains(viewModel.TaskEntries, entry => entry.IsTask && entry.Task?.Task.Id == "group-second-project-task");
+    }
+
+    [Fact]
+    public async Task List_preferences_are_isolated_and_persisted_by_space_view_and_project()
+    {
+        var store = await CreateStoreAsync();
+        var preferencesPath = Path.Combine(_directory, "view-settings.json");
+        var preferencesStore = new DesktopPreferencesStore(preferencesPath);
+        var label = new LabelItem { Id = "view-label", Name = "Focused" };
+        var otherSpace = new SpaceItem { Id = "view-other-space", Name = "Other space" };
+        var project = new ProjectItem
+        {
+            Id = "view-project",
+            SpaceId = SpaceIds.Default,
+            IntegrationId = IntegrationIds.Local,
+            Name = "View project",
+        };
+        await store.UpsertSpaceAsync(otherSpace);
+        await store.UpsertLabelAsync(label);
+        await store.UpsertProjectAsync(project);
+        await store.UpsertTaskAsync(CreateTask("view-inbox", "Inbox task"));
+        await store.UpsertTaskAsync(CreateTask("view-project-task", "Project task") with { ProjectId = project.Id });
+        await store.UpsertTaskAsync(CreateTask("view-other-task", "Other-space task") with { SpaceId = otherSpace.Id });
+
+        var viewModel = new MainWindowViewModel(
+            store,
+            new InMemoryCredentialStore(),
+            preferencesStore: preferencesStore);
+        await viewModel.InitializeAsync();
+
+        viewModel.SortIndex = 3;
+        viewModel.SortDirectionIndex = 1;
+        viewModel.GroupIndex = 4;
+        viewModel.PriorityFilterIndex = 2;
+        viewModel.RepeatFilterIndex = 1;
+        viewModel.SelectedLabelFilter = viewModel.LabelFilterOptions.Single(option => option.LabelId == label.Id);
+        await viewModel.ApplyListOptionsAsync();
+
+        await viewModel.SelectNavigationAsync(
+            viewModel.NavigationItems.Single(item => item.Kind == TaskListKind.Today));
+
+        Assert.Equal(0, viewModel.SortIndex);
+        Assert.Equal(0, viewModel.SortDirectionIndex);
+        Assert.Equal(0, viewModel.GroupIndex);
+        Assert.Equal(0, viewModel.PriorityFilterIndex);
+        Assert.Equal(0, viewModel.RepeatFilterIndex);
+        Assert.Null(viewModel.SelectedLabelFilter?.LabelId);
+
+        viewModel.PriorityFilterIndex = 3;
+        await viewModel.ApplyListOptionsAsync();
+        await viewModel.SelectNavigationAsync(
+            viewModel.NavigationItems.Single(item => item.Kind == TaskListKind.Inbox));
+
+        Assert.Equal(3, viewModel.SortIndex);
+        Assert.Equal(1, viewModel.SortDirectionIndex);
+        Assert.Equal(4, viewModel.GroupIndex);
+        Assert.Equal(2, viewModel.PriorityFilterIndex);
+        Assert.Equal(1, viewModel.RepeatFilterIndex);
+        Assert.Equal(label.Id, viewModel.SelectedLabelFilter?.LabelId);
+
+        var defaultSpace = viewModel.SelectedSpace!;
+        await viewModel.SelectSpaceAsync(new SpaceNavigationItemViewModel(otherSpace));
+
+        Assert.Equal(0, viewModel.SortIndex);
+        Assert.Equal(0, viewModel.PriorityFilterIndex);
+        Assert.Null(viewModel.SelectedLabelFilter?.LabelId);
+
+        viewModel.PriorityFilterIndex = 1;
+        await viewModel.ApplyListOptionsAsync();
+        await viewModel.SelectSpaceAsync(defaultSpace);
+
+        Assert.Equal(3, viewModel.SortIndex);
+        Assert.Equal(2, viewModel.PriorityFilterIndex);
+        Assert.Equal(label.Id, viewModel.SelectedLabelFilter?.LabelId);
+
+        await viewModel.SelectProjectAsync(new ProjectNavigationItemViewModel(project, 1));
+
+        Assert.Equal(0, viewModel.SortIndex);
+        Assert.Equal(0, viewModel.SortDirectionIndex);
+        Assert.Equal(2, viewModel.GroupIndex);
+        Assert.Equal(0, viewModel.PriorityFilterIndex);
+        Assert.Equal(0, viewModel.RepeatFilterIndex);
+        Assert.Null(viewModel.SelectedLabelFilter?.LabelId);
+
+        viewModel.PriorityFilterIndex = 4;
+        await viewModel.ApplyListOptionsAsync();
+
+        var restored = new MainWindowViewModel(
+            store,
+            new InMemoryCredentialStore(),
+            preferencesStore: new DesktopPreferencesStore(preferencesPath));
+        await restored.InitializeAsync();
+        await restored.SelectProjectAsync(new ProjectNavigationItemViewModel(project, 1));
+
+        Assert.Equal(4, restored.PriorityFilterIndex);
+        Assert.Equal(2, restored.GroupIndex);
+    }
+
+    [Fact]
+    public async Task Switching_space_from_project_preserves_tasks_view_and_restores_space_profile()
+    {
+        var store = await CreateStoreAsync();
+        var preferencesStore = new DesktopPreferencesStore(Path.Combine(_directory, "project-space-settings.json"));
+        var otherSpace = new SpaceItem { Id = "project-space-target", Name = "Target space" };
+        var project = new ProjectItem
+        {
+            Id = "project-space-project",
+            SpaceId = SpaceIds.Default,
+            IntegrationId = IntegrationIds.Local,
+            Name = "Source project",
+        };
+        await store.UpsertSpaceAsync(otherSpace);
+        await store.UpsertProjectAsync(project);
+        await store.UpsertTaskAsync(CreateTask("project-space-source", "Source task") with { ProjectId = project.Id });
+        await store.UpsertTaskAsync(CreateTask("project-space-target-task", "Target task") with { SpaceId = otherSpace.Id });
+        await preferencesStore.UpdateAsync(preferences =>
+        {
+            preferences.TaskViewSettings[$"{otherSpace.Id}|tasks|all"] = new DesktopTaskViewPreferences
+            {
+                SortIndex = 1,
+                GroupIndex = 5,
+                PriorityFilterIndex = 3,
+            };
+            return preferences;
+        });
+        var viewModel = new MainWindowViewModel(
+            store,
+            new InMemoryCredentialStore(),
+            preferencesStore: preferencesStore);
+        await viewModel.InitializeAsync();
+        await viewModel.SelectProjectAsync(new ProjectNavigationItemViewModel(project, 1));
+
+        await viewModel.SelectSpaceAsync(new SpaceNavigationItemViewModel(otherSpace));
+
+        Assert.Null(viewModel.SelectedProject);
+        Assert.Equal(TaskListKind.Open, viewModel.SelectedNavigation?.Kind);
+        Assert.Equal("Tasks", viewModel.PageTitle);
+        Assert.Equal(1, viewModel.SortIndex);
+        Assert.Equal(5, viewModel.GroupIndex);
+        Assert.Equal(3, viewModel.PriorityFilterIndex);
+    }
+
+    [Fact]
+    public async Task Stale_persisted_label_filter_is_cleared_before_initial_query()
+    {
+        var store = await CreateStoreAsync();
+        await store.UpsertTaskAsync(CreateTask("stale-label-visible", "Visible task"));
+        var preferencesStore = new DesktopPreferencesStore(Path.Combine(_directory, "stale-label-settings.json"));
+        await preferencesStore.UpdateAsync(preferences =>
+        {
+            preferences.TaskViewSettings[$"{SpaceIds.Default}|inbox|all"] = new DesktopTaskViewPreferences
+            {
+                LabelFilterId = "deleted-label",
+            };
+            return preferences;
+        });
+        var viewModel = new MainWindowViewModel(
+            store,
+            new InMemoryCredentialStore(),
+            preferencesStore: preferencesStore);
+
+        await viewModel.InitializeAsync();
+
+        Assert.Contains(viewModel.Tasks, task => task.Task.Id == "stale-label-visible");
+        Assert.Null(viewModel.SelectedLabelFilter?.LabelId);
+        Assert.Null(preferencesStore.Load().TaskViewSettings[$"{SpaceIds.Default}|inbox|all"].LabelFilterId);
+    }
+
+    [Fact]
+    public async Task Preference_updates_from_multiple_store_instances_are_serialized_and_atomic()
+    {
+        var path = Path.Combine(_directory, "concurrent-settings.json");
+        var firstStore = new DesktopPreferencesStore(path);
+        var secondStore = new DesktopPreferencesStore(path);
+        using var start = new ManualResetEventSlim();
+        var updates = Enumerable.Range(0, 40)
+            .Select(index => Task.Run(async () =>
+            {
+                start.Wait();
+                await (index % 2 == 0 ? firstStore : secondStore).UpdateAsync(preferences =>
+                {
+                    preferences.TaskViewSettings[$"space|view|project-{index}"] = new DesktopTaskViewPreferences
+                    {
+                        PriorityFilterIndex = index % 5,
+                    };
+                    return preferences;
+                });
+            }))
+            .ToArray();
+
+        start.Set();
+        await Task.WhenAll(updates);
+
+        var preferences = firstStore.Load();
+        Assert.Equal(40, preferences.TaskViewSettings.Count);
+        Assert.Equal(3, preferences.TaskViewSettings["space|view|project-38"].PriorityFilterIndex);
+        Assert.Empty(Directory.EnumerateFiles(_directory, ".concurrent-settings.json.*.tmp"));
+    }
+
+    [Fact]
+    public void Preference_update_completes_without_posting_an_async_continuation()
+    {
+        var path = Path.Combine(_directory, "synchronous-settings.json");
+        var store = new DesktopPreferencesStore(path);
+        var previousContext = SynchronizationContext.Current;
+        var context = new CountingSynchronizationContext();
+        SynchronizationContext.SetSynchronizationContext(context);
+        try
+        {
+            var update = store.UpdateAsync(preferences => preferences with { Theme = "Dark" });
+
+            Assert.True(update.IsCompletedSuccessfully);
+            Assert.Equal("Dark", store.Load().Theme);
+            Assert.Equal(0, context.PostCount);
+        }
+        finally
+        {
+            SynchronizationContext.SetSynchronizationContext(previousContext);
+        }
     }
 
     [Fact]
@@ -570,6 +817,30 @@ public sealed class DesktopTaskCreationTests : IDisposable
         Assert.Null(task.ProjectId);
         Assert.Equal(new[] { "Urgent", "Work" }, task.Labels.Select(label => label.Name).Order());
         Assert.Null(viewModel.SelectedTask);
+    }
+
+    [Fact]
+    public async Task Inline_project_picker_can_create_and_reuse_a_project()
+    {
+        var store = await CreateStoreAsync();
+        await store.UpsertTaskAsync(CreateTask("project-create-first", "First task"));
+        await store.UpsertTaskAsync(CreateTask("project-create-second", "Second task"));
+        var viewModel = new MainWindowViewModel(store, new InMemoryCredentialStore());
+        await viewModel.SelectNavigationAsync(
+            viewModel.NavigationItems.Single(item => item.Kind == TaskListKind.Open));
+        var first = viewModel.Tasks.Single(item => item.Task.Id == "project-create-first");
+
+        Assert.True(await viewModel.CreateProjectForTaskFromRowAsync(first, " Launch "));
+
+        var createdProject = Assert.Single(await store.GetProjectsAsync(SpaceIds.Default, includeArchived: true));
+        Assert.Equal("Launch", createdProject.Name);
+        Assert.Equal(createdProject.Id, (await store.GetTaskAsync(first.Task.Id))!.ProjectId);
+
+        var second = viewModel.Tasks.Single(item => item.Task.Id == "project-create-second");
+        Assert.True(await viewModel.CreateProjectForTaskFromRowAsync(second, "launch"));
+
+        Assert.Single(await store.GetProjectsAsync(SpaceIds.Default, includeArchived: true));
+        Assert.Equal(createdProject.Id, (await store.GetTaskAsync(second.Task.Id))!.ProjectId);
     }
 
     [Fact]
@@ -792,6 +1063,16 @@ public sealed class DesktopTaskCreationTests : IDisposable
         CreatedAt = DateTimeOffset.UtcNow,
         UpdatedAt = DateTimeOffset.UtcNow,
     };
+
+    private sealed class CountingSynchronizationContext : SynchronizationContext
+    {
+        public int PostCount { get; private set; }
+
+        public override void Post(SendOrPostCallback d, object? state)
+        {
+            PostCount++;
+        }
+    }
 
     public void Dispose() => TestDirectory.Delete(_directory);
 }

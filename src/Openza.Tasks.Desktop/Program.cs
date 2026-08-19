@@ -1,5 +1,4 @@
 using Avalonia;
-
 namespace Openza.Tasks.Desktop;
 
 internal static class Program

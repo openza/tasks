@@ -8,6 +8,7 @@ namespace Openza.Tasks.Application.Runtime;
 public sealed record OpenzaRuntimeContext
 {
     private const string PublishedChannelMarkerFileName = ".openza-channel";
+    private const string ProductionSnapName = "openza-tasks";
     public required OpenzaChannel Channel { get; init; }
     public required string DataDirectory { get; init; }
 
@@ -38,19 +39,45 @@ public sealed record OpenzaRuntimeContext
 
     public static OpenzaRuntimeContext Create(OpenzaChannel channel, string? devDataDirectory = null)
     {
-        var dataDirectory = channel == OpenzaChannel.Dev && !string.IsNullOrWhiteSpace(devDataDirectory)
-            ? Path.GetFullPath(devDataDirectory)
-            : Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "Openza",
-                channel switch
-                {
-                    OpenzaChannel.Preview => "Tasks Preview",
-                    OpenzaChannel.Dev => "Tasks Dev",
-                    _ => "Tasks",
-                });
+        var snapDataDirectory = ResolveSnapDataDirectory(
+            channel,
+            Environment.GetEnvironmentVariable("SNAP"),
+            Environment.GetEnvironmentVariable("SNAP_NAME"),
+            Environment.GetEnvironmentVariable("SNAP_USER_COMMON"));
+        var dataDirectory = snapDataDirectory
+            ?? (channel == OpenzaChannel.Dev && !string.IsNullOrWhiteSpace(devDataDirectory)
+                ? Path.GetFullPath(devDataDirectory)
+                : Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "Openza",
+                    channel switch
+                    {
+                        OpenzaChannel.Preview => "Tasks Preview",
+                        OpenzaChannel.Dev => "Tasks Dev",
+                        _ => "Tasks",
+                    }));
 
         return new OpenzaRuntimeContext { Channel = channel, DataDirectory = dataDirectory };
+    }
+
+    public static string? ResolveSnapDataDirectory(
+        OpenzaChannel channel,
+        string? snapRoot,
+        string? snapName,
+        string? snapUserCommon)
+    {
+        if (channel != OpenzaChannel.Production
+            || !OperatingSystem.IsLinux()
+            || string.IsNullOrWhiteSpace(snapRoot)
+            || !Path.IsPathFullyQualified(snapRoot)
+            || !string.Equals(snapName, ProductionSnapName, StringComparison.Ordinal)
+            || string.IsNullOrWhiteSpace(snapUserCommon)
+            || !Path.IsPathFullyQualified(snapUserCommon))
+        {
+            return null;
+        }
+
+        return Path.Combine(Path.GetFullPath(snapUserCommon), "tasks");
     }
 
     public static OpenzaChannel ReadChannel(Assembly assembly)
