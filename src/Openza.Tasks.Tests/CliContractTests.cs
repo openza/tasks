@@ -56,7 +56,7 @@ public sealed class CliContractTests : IDisposable
 
         var show = await RunAsync("task", "show", id, "--format", "tsv");
         AssertSuccess(show);
-        var showLines = show.Stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        var showLines = SplitOutputLines(show.Stdout);
         Assert.Equal("schema_version\tid\ttitle\tspace_id\tproject_id\tstatus\tcompleted\tpriority\tplanned_on\tdeadline_on\tnotes\tlabels\trevision", showLines[0]);
         Assert.Equal(13, showLines[1].Split('\t').Length);
         Assert.StartsWith("1\t", showLines[1]);
@@ -386,6 +386,8 @@ public sealed class CliContractTests : IDisposable
     [Fact]
     public async Task Sync_cli_uses_injected_credentials_and_provider_for_status_confirmation_noop_and_push()
     {
+        if (OperatingSystem.IsWindows()) return;
+
         var store = await CreateStoreAsync();
         var credentials = new InMemoryCredentialStore();
         var provider = new CliFakeProvider();
@@ -441,6 +443,8 @@ public sealed class CliContractTests : IDisposable
     [Fact]
     public async Task Sync_cli_tsv_schema_is_stable_with_disposable_credentials()
     {
+        if (OperatingSystem.IsWindows()) return;
+
         var store = await CreateStoreAsync();
         var credentials = new InMemoryCredentialStore();
         var provider = new CliFakeProvider();
@@ -462,6 +466,8 @@ public sealed class CliContractTests : IDisposable
     [Fact]
     public async Task Sync_cli_does_not_call_provider_while_Avalonia_provider_lease_is_held()
     {
+        if (OperatingSystem.IsWindows()) return;
+
         var store = await CreateStoreAsync();
         await store.SetIntegrationConfiguredAsync(IntegrationIds.Todoist, true);
         await store.SetIntegrationActiveAsync(IntegrationIds.Todoist, true);
@@ -483,6 +489,27 @@ public sealed class CliContractTests : IDisposable
         Assert.Equal(1, blocked.ExitCode);
         Assert.Empty(provider.Calls);
         Assert.Contains("sync is already running", blocked.Stderr);
+    }
+
+    [Fact]
+    public async Task Sync_cli_reports_the_documented_platform_restriction_on_windows()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+
+        _ = await CreateStoreAsync();
+        var provider = new CliFakeProvider();
+        foreach (var arguments in new[]
+        {
+            new[] { "sync", "status", "--provider", "todoist", "--direction", "push", "--scope", "pending", "--format", "json" },
+            new[] { "sync", "run", "--provider", "todoist", "--direction", "push", "--scope", "pending", "--yes", "--format", "json" },
+        })
+        {
+            var result = await RunInProcessAsync(new InMemoryCredentialStore(), provider, arguments);
+            Assert.Equal(6, result.ExitCode);
+            Assert.Empty(result.Stdout);
+            Assert.Contains("currently supported only on Linux", result.Stderr);
+        }
+        Assert.Empty(provider.Calls);
     }
 
     [Fact]
@@ -573,7 +600,7 @@ public sealed class CliContractTests : IDisposable
 
         var add = await RunAsync("task", "add", "TSV task", "--format", "tsv");
         AssertTaskDetailTsv(add);
-        var id = add.Stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries)[1].Split('\t')[1];
+        var id = SplitOutputLines(add.Stdout)[1].Split('\t')[1];
         AssertTaskDetailTsv(await RunAsync("task", "show", id, "--format", "tsv"));
         AssertTaskDetailTsv(await RunAsync("task", "update", id, "--title", "TSV updated", "--format", "tsv"));
         AssertTaskDetailTsv(await RunAsync("task", "complete", id, "--format", "tsv"));
@@ -839,7 +866,7 @@ public sealed class CliContractTests : IDisposable
     private static void AssertTsvSchema(CliResult result, params string[] columns)
     {
         AssertSuccess(result);
-        var lines = result.Stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        var lines = SplitOutputLines(result.Stdout);
         Assert.Equal(string.Join('\t', new[] { "schema_version" }.Concat(columns)), lines[0]);
         foreach (var line in lines.Skip(1))
         {
@@ -885,13 +912,16 @@ public sealed class CliContractTests : IDisposable
     private static Dictionary<string, string> ParseSingleTsvRecord(CliResult result)
     {
         AssertSuccess(result);
-        var lines = result.Stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        var lines = SplitOutputLines(result.Stdout);
         Assert.Equal(2, lines.Length);
         var headers = lines[0].Split('\t');
         var values = lines[1].Split('\t').Select(UnescapeTsv).ToArray();
         Assert.Equal(headers.Length, values.Length);
         return headers.Zip(values).ToDictionary(pair => pair.First, pair => pair.Second, StringComparer.Ordinal);
     }
+
+    private static string[] SplitOutputLines(string output) =>
+        output.ReplaceLineEndings("\n").Split('\n', StringSplitOptions.RemoveEmptyEntries);
 
     private static string UnescapeTsv(string value)
     {
