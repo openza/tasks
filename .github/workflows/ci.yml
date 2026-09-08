@@ -21,6 +21,9 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
+      - name: Install desktop metadata validators
+        run: sudo apt-get update && sudo apt-get install --yes appstream desktop-file-utils
+
       - name: Restore desktop app
         working-directory: src/Openza.Tasks.Desktop
         run: dotnet restore Openza.Tasks.Desktop.csproj
