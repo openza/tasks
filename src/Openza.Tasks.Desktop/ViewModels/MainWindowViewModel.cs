@@ -120,6 +120,8 @@ public sealed class MainWindowViewModel : ObservableObject
         ?? typeof(MainWindowViewModel).Assembly.GetName().Version?.ToString(3)
         ?? "unknown";
 
+    public string AppVersion => CurrentAppVersion;
+
     private static DesktopPreferencesStore CreatePreferencesStore(ITaskStore store)
     {
         if (store is SqliteTaskStore sqliteStore &&
@@ -2763,6 +2765,7 @@ public sealed class MainWindowViewModel : ObservableObject
 
     private void RebuildProjectItems()
     {
+        var selectedProjectId = SelectedProject?.Project.Id;
         var search = ProjectSearchText.Trim();
         var projects = _projects.Where(project => ProjectFilterIndex switch
         {
@@ -2782,6 +2785,10 @@ public sealed class MainWindowViewModel : ObservableObject
             _projectCounts.TryGetValue(project.Id, out var count);
             ProjectItems.Add(new ProjectNavigationItemViewModel(project, count));
         }
+
+        SelectedProject = selectedProjectId is null
+            ? null
+            : ProjectItems.FirstOrDefault(item => item.Project.Id == selectedProjectId);
     }
 
     private void UpdateNavigationCounts(TaskCountSummary counts)

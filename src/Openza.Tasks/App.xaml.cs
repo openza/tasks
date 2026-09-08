@@ -57,7 +57,7 @@ public partial class App : Microsoft.UI.Xaml.Application
             var appData = ApplicationData.Current.LocalFolder.Path;
             var databasePath = Path.Combine(appData, CoreAppDataPaths.DatabaseFileName);
             var packageIdentity = WindowsPackage.Current.Id.Name;
-            var packageVersion = FormatPackageVersion(WindowsPackage.Current.Id.Version);
+            var packageVersion = CurrentPackageVersion;
             AppLog.Write("Store V1 uses a fresh local Openza Tasks database.");
 
             var backupService = new BackupService(
@@ -113,4 +113,7 @@ public partial class App : Microsoft.UI.Xaml.Application
 
     private static string FormatPackageVersion(WindowsPackageVersion version) =>
         $"{version.Major}.{version.Minor}.{version.Build}.{version.Revision}";
+
+    internal static string CurrentPackageVersion =>
+        FormatPackageVersion(WindowsPackage.Current.Id.Version);
 }

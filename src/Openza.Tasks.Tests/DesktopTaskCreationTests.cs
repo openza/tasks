@@ -14,6 +14,17 @@ public sealed class DesktopTaskCreationTests : IDisposable
         Guid.NewGuid().ToString("N"));
 
     [Fact]
+    public void About_version_uses_the_desktop_assembly_version()
+    {
+        var viewModel = new MainWindowViewModel(
+            new SqliteTaskStore(Path.Combine(_directory, "about-version.db")),
+            new InMemoryCredentialStore());
+
+        Assert.False(string.IsNullOrWhiteSpace(viewModel.AppVersion));
+        Assert.NotEqual("unknown", viewModel.AppVersion);
+    }
+
+    [Fact]
     public async Task CreateTaskAsync_parses_trims_and_deduplicates_comma_separated_labels()
     {
         Directory.CreateDirectory(_directory);
@@ -197,6 +208,36 @@ public sealed class DesktopTaskCreationTests : IDisposable
         Assert.Equal("Finished project", project.Name);
         Assert.Equal(ProjectLifecycleStates.Completed, project.EffectiveStatus);
         Assert.True(project.IsFavorite);
+    }
+
+    [Fact]
+    public async Task Project_selection_survives_task_list_refresh()
+    {
+        var store = await CreateStoreAsync();
+        await store.UpsertProjectAsync(new ProjectItem
+        {
+            Id = "project-selected",
+            SpaceId = SpaceIds.Default,
+            IntegrationId = IntegrationIds.Local,
+            Name = "Selected project",
+            CreatedAt = DateTimeOffset.UtcNow,
+        });
+        await store.UpsertTaskAsync(CreateTask("project-task", "Project task") with
+        {
+            ProjectId = "project-selected",
+        });
+        var viewModel = new MainWindowViewModel(store, new InMemoryCredentialStore());
+        await viewModel.InitializeAsync();
+
+        await viewModel.SelectProjectAsync(
+            Assert.Single(viewModel.ProjectItems, item => item.Project.Id == "project-selected"));
+
+        Assert.NotNull(viewModel.SelectedProject);
+        Assert.Equal("project-selected", viewModel.SelectedProject.Project.Id);
+        Assert.Same(
+            viewModel.SelectedProject,
+            Assert.Single(viewModel.ProjectItems, item => item.Project.Id == "project-selected"));
+        Assert.Equal("Selected project", viewModel.PageTitle);
     }
 
     [Fact]

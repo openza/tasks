@@ -57,6 +57,7 @@ public sealed partial class SettingsPage : UserControl
     public SettingsPage()
     {
         InitializeComponent();
+        AppVersionText.Text = $"Version {global::Openza.Tasks.App.CurrentPackageVersion}";
     }
 
     public string SelectedTheme => (ThemeCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "System";

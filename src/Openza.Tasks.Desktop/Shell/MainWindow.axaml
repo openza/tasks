@@ -695,6 +695,20 @@
 
                     <TextBlock Classes="section-title" Margin="0,8,0,0" Text="Data and recovery"/>
                     <Border Padding="20" Classes="settings-card"><StackPanel Spacing="14"><Grid ColumnDefinitions="*,Auto"><StackPanel><TextBlock FontWeight="SemiBold" Text="Local database"/><TextBlock FontFamily="monospace" FontSize="12" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{Binding DatabasePath}" TextWrapping="Wrap"/></StackPanel><WrapPanel Grid.Column="1"><Button Margin="0,0,8,8" Click="OnBackupClicked" Content="Create restore point"/><Button Margin="0,0,8,8" Click="OnExportDatabaseFromShellClicked" Content="Export backup file"/><Button Margin="0,0,8,8" Click="OnRestoreDatabaseFromShellClicked" Content="Restore from file"/><Button Margin="0,0,0,8" Click="OnOpenDataFolderFromShellClicked" Content="Open data folder"/></WrapPanel></Grid><TextBlock FontWeight="SemiBold" Text="Restore points"/><ListBox MaxHeight="220" ItemsSource="{Binding RestorePoints}" SelectedItem="{Binding SelectedRestorePoint}"><ListBox.ItemTemplate><DataTemplate><StackPanel Margin="4" Spacing="2"><TextBlock FontWeight="SemiBold" Text="{Binding Title}"/><TextBlock FontSize="12" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{Binding Details}"/></StackPanel></DataTemplate></ListBox.ItemTemplate></ListBox><StackPanel Orientation="Horizontal" Spacing="8"><Button Click="OnRestoreSelectedPointFromShellClicked" Content="Restore selected"/><Button Click="OnDeleteSelectedPointFromShellClicked" Content="Delete selected"/></StackPanel><TextBlock FontSize="12" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="Restore always creates a safety restore point first."/></StackPanel></Border>
+
+                    <TextBlock Classes="section-title" Margin="0,8,0,0" Text="About"/>
+                    <Border Padding="20" Classes="settings-card">
+                        <Grid ColumnDefinitions="32,*" ColumnSpacing="14">
+                            <ic:FluentIcon Icon="TaskListSquare" FontSize="21"/>
+                            <StackPanel Grid.Column="1" Spacing="4">
+                                <TextBlock FontWeight="SemiBold" Text="Openza Tasks"/>
+                                <TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="A local-first task app under the Openza umbrella."/>
+                                <TextBlock Margin="0,6,0,0" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{Binding AppVersion, StringFormat='Version {0}'}"/>
+                                <TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="Local data format: V1"/>
+                                <TextBlock Foreground="{DynamicResource TextFillColorTertiaryBrush}" Text="Maintainer contact: deependra@solanky.dev" TextWrapping="Wrap"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
                 </StackPanel>
             </ScrollViewer>
 
