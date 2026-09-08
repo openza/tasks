@@ -66,6 +66,7 @@ public sealed record TaskItem
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
     public DateTimeOffset? UpdatedAt { get; init; }
     public DateTimeOffset? CompletedAt { get; init; }
+    public long Revision { get; init; }
     public IReadOnlyList<LabelItem> Labels { get; init; } = [];
 
     public bool IsCompleted => CompletionState == TaskCompletionState.Completed;

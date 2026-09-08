@@ -4,9 +4,12 @@
     <Platform Name="x64" />
   </Configurations>
   <Folder Name="/src/">
+    <Project Path="src/Openza.Tasks.Application/Openza.Tasks.Application.csproj" />
+    <Project Path="src/Openza.Tasks.Cli/Openza.Tasks.Cli.csproj" />
     <Project Path="src/Openza.Tasks.Core/Openza.Tasks.Core.csproj">
       <Platform Solution="*|x64" Project="x64" />
     </Project>
+    <Project Path="src/Openza.Tasks.Desktop/Openza.Tasks.Desktop.csproj" />
     <Project Path="src/Openza.Tasks.Tests/Openza.Tasks.Tests.csproj">
       <Platform Solution="*|x64" Project="x64" />
     </Project>

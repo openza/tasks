@@ -1,0 +1,39 @@
+<Window
+    x:Class="Openza.Tasks.Desktop.Dialogs.ProjectEditorWindow"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Width="460"
+    Height="390"
+    CanResize="False"
+    ShowInTaskbar="False"
+    Title="Edit project"
+    WindowStartupLocation="CenterOwner"
+    Opened="OnOpened">
+    <Grid Margin="24" RowDefinitions="Auto,*,Auto" RowSpacing="20">
+        <StackPanel Spacing="4">
+            <TextBlock FontSize="24" FontWeight="SemiBold" Text="Edit project" />
+            <TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                       Text="Update how this project appears and where it belongs in your workflow."
+                       TextWrapping="Wrap" />
+        </StackPanel>
+        <StackPanel Grid.Row="1" Spacing="14">
+            <StackPanel Spacing="6">
+                <TextBlock FontWeight="SemiBold" Text="Name" />
+                <TextBox x:Name="NameBox" AutomationProperties.Name="Project name" KeyDown="OnNameKeyDown" />
+            </StackPanel>
+            <StackPanel Spacing="6">
+                <TextBlock FontWeight="SemiBold" Text="Status" />
+                <ComboBox x:Name="StatusSelector" AutomationProperties.Name="Project status">
+                    <ComboBoxItem Content="Active" />
+                    <ComboBoxItem Content="Completed" />
+                    <ComboBoxItem Content="Archived" />
+                </ComboBox>
+            </StackPanel>
+            <CheckBox x:Name="FavoriteBox" Content="Favorite project" />
+        </StackPanel>
+        <Grid Grid.Row="2" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+            <Button Grid.Column="1" Click="OnCancelClicked" Content="Cancel" />
+            <Button Grid.Column="2" Classes="accent" Click="OnSaveClicked" Content="Save" />
+        </Grid>
+    </Grid>
+</Window>

@@ -210,7 +210,7 @@ public sealed partial class TaskRowControl : UserControl
         RowSurface.Background = ResourceBrush("OpenzaRowBackgroundBrush");
     }
 
-    private static Brush ResourceBrush(string key) => (Brush)Application.Current.Resources[key];
+    private static Brush ResourceBrush(string key) => (Brush)Microsoft.UI.Xaml.Application.Current.Resources[key];
 
     private static bool IsInteractiveElement(DependencyObject? element)
     {

@@ -2,24 +2,49 @@ using System.Data;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Openza.Tasks.Core.Models;
+using Openza.Tasks.Core.Services;
 
 namespace Openza.Tasks.Core.Data;
 
-public sealed class SqliteTaskStore(string databasePath) : ITaskStore
+public sealed class SqliteTaskStore(string databasePath, bool readOnly = false) : ITaskStore
 {
-    public const int CurrentSchemaVersion = 5;
+    public const int CurrentSchemaVersion = 6;
+    public const int MinimumReadOnlySchemaVersion = 5;
 
     private sealed record ParentTaskContext(string Id, string SpaceId, string? ProjectId, TaskWorkflowStatus WorkflowStatus);
 
     public string DatabasePath { get; } = databasePath;
+    public bool IsReadOnly { get; } = readOnly;
 
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
-        Directory.CreateDirectory(Path.GetDirectoryName(DatabasePath) ?? ".");
+        if (IsReadOnly)
+        {
+            if (!File.Exists(DatabasePath))
+            {
+                throw new FileNotFoundException("The Openza database does not exist.", DatabasePath);
+            }
+
+            await using var readOnlyConnection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+            var command = readOnlyConnection.CreateCommand();
+            command.CommandText = "PRAGMA user_version";
+            var schemaVersion = Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), System.Globalization.CultureInfo.InvariantCulture);
+            if (schemaVersion < MinimumReadOnlySchemaVersion || schemaVersion > CurrentSchemaVersion)
+            {
+                throw new InvalidOperationException(
+                    $"The Openza database schema is version {schemaVersion}; read-only CLI commands support versions " +
+                    $"{MinimumReadOnlySchemaVersion} through {CurrentSchemaVersion}.");
+            }
+            return;
+        }
+
+        PrivateFilePermissions.EnsureDirectory(Path.GetDirectoryName(DatabasePath) ?? ".");
         await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         await EnsureLegacySchemaCompatibilityAsync(connection, cancellationToken).ConfigureAwait(false);
         await CreateSchemaAsync(connection, cancellationToken).ConfigureAwait(false);
         await InsertDefaultDataAsync(connection, cancellationToken).ConfigureAwait(false);
+        await connection.CloseAsync().ConfigureAwait(false);
+        PrivateFilePermissions.EnsureFile(DatabasePath);
     }
 
     public async Task<IReadOnlyList<TaskItem>> GetTasksAsync(TaskQuery query, CancellationToken cancellationToken = default)
@@ -83,9 +108,11 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
             filtered = filtered.Where(t => t.ParentId == query.ParentId);
         }
 
-        if (!string.IsNullOrWhiteSpace(query.LabelId))
+        if (!string.IsNullOrWhiteSpace(query.LabelId) || !string.IsNullOrWhiteSpace(query.LabelName))
         {
-            filtered = filtered.Where(t => t.Labels.Any(label => label.Id == query.LabelId));
+            filtered = filtered.Where(t => t.Labels.Any(label =>
+                (!string.IsNullOrWhiteSpace(query.LabelId) && label.Id == query.LabelId) ||
+                (!string.IsNullOrWhiteSpace(query.LabelName) && string.Equals(label.Name, query.LabelName, StringComparison.CurrentCultureIgnoreCase))));
         }
 
         if (query.Priority is not null)
@@ -210,8 +237,7 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
                 };
             })
             .OrderByDescending(result => result.Score)
-            .ThenBy(result => result.Title, StringComparer.CurrentCultureIgnoreCase)
-            .Take(limit);
+            .ThenBy(result => result.Title, StringComparer.CurrentCultureIgnoreCase);
 
         var projectResults = projects
             .Where(project => activeSpaceIds is null || activeSpaceIds.Contains(project.SpaceId))
@@ -227,10 +253,15 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
                 Score = CalculateSearchScore(query.SearchText, tokens, project.Name, project.Description),
             })
             .OrderByDescending(result => result.Score)
-            .ThenBy(result => result.Title, StringComparer.CurrentCultureIgnoreCase)
-            .Take(limit);
+            .ThenBy(result => result.Title, StringComparer.CurrentCultureIgnoreCase);
 
-        return taskResults.Concat(projectResults).ToList();
+        return taskResults
+            .Concat(projectResults)
+            .OrderByDescending(result => result.Score)
+            .ThenBy(result => result.Kind)
+            .ThenBy(result => result.Title, StringComparer.CurrentCultureIgnoreCase)
+            .Take(limit)
+            .ToList();
     }
 
     private static IReadOnlyList<TaskItem> ArrangeWithSubtasks(
@@ -868,7 +899,8 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
                     source_provider_task_id = NULL,
                     source_url = NULL,
                     source_metadata = NULL,
-                    updated_at = @updated_at
+                    updated_at = @updated_at,
+                    revision = revision + 1
                 WHERE id = @task_id
                 """;
             taskCommand.Parameters.AddWithValue("@task_id", source.AdoptedTaskId);
@@ -1245,6 +1277,60 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task UpsertTaskWithPendingUpdatesAsync(
+        TaskItem task,
+        PendingCompletion? completion,
+        PendingTaskDateUpdate? dateUpdate,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        await UpsertTaskCoreAsync(connection, task, cancellationToken).ConfigureAwait(false);
+        await SetTaskLabelsCoreAsync(connection, task.Id, task.Labels, cancellationToken).ConfigureAwait(false);
+        if (completion is not null)
+        {
+            await QueueCompletionCoreAsync(connection, completion, cancellationToken).ConfigureAwait(false);
+        }
+        if (dateUpdate is not null)
+        {
+            await QueueTaskDateUpdateCoreAsync(connection, dateUpdate, cancellationToken).ConfigureAwait(false);
+        }
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<bool> TryUpsertTaskWithPendingUpdatesAsync(
+        TaskItem task,
+        long expectedRevision,
+        PendingCompletion? completion,
+        PendingTaskDateUpdate? dateUpdate,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        var revisionCommand = connection.CreateCommand();
+        revisionCommand.CommandText = "SELECT revision FROM tasks WHERE id = @id";
+        revisionCommand.Parameters.AddWithValue("@id", task.Id);
+        var current = await revisionCommand.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+        if (current is null || current is DBNull || Convert.ToInt64(current) != expectedRevision)
+        {
+            await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
+            return false;
+        }
+
+        await UpsertTaskCoreAsync(connection, task, cancellationToken).ConfigureAwait(false);
+        await SetTaskLabelsCoreAsync(connection, task.Id, task.Labels, cancellationToken).ConfigureAwait(false);
+        if (completion is not null)
+        {
+            await QueueCompletionCoreAsync(connection, completion, cancellationToken).ConfigureAwait(false);
+        }
+        if (dateUpdate is not null)
+        {
+            await QueueTaskDateUpdateCoreAsync(connection, dateUpdate, cancellationToken).ConfigureAwait(false);
+        }
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return true;
+    }
+
     public async Task MoveTaskToSpaceAsync(string taskId, string targetSpaceId, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(taskId))
@@ -1296,7 +1382,8 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
             SET space_id = @space_id,
                 project_id = NULL,
                 parent_id = CASE WHEN id = @task_id AND @clear_parent = 1 THEN NULL ELSE parent_id END,
-                updated_at = @updated_at
+                updated_at = @updated_at,
+                revision = revision + 1
             WHERE id IN (SELECT id FROM moved_tasks)
             """;
         updateCommand.Parameters.AddWithValue("@task_id", taskId);
@@ -1360,7 +1447,7 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
     public async Task UpsertLabelAsync(LabelItem label, CancellationToken cancellationToken = default)
     {
         await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
-        await ResolveAndUpsertLabelCoreAsync(connection, label, cancellationToken).ConfigureAwait(false);
+        await ResolveAndUpsertLabelCoreAsync(connection, label, cancellationToken, preserveExistingId: false).ConfigureAwait(false);
     }
 
     public async Task SetTaskLabelsAsync(string taskId, IReadOnlyList<LabelItem> labels, CancellationToken cancellationToken = default)
@@ -1373,8 +1460,29 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
 
     public async Task DeleteTaskAsync(string taskId, CancellationToken cancellationToken = default)
     {
+        _ = await DeleteTaskCoreAsync(taskId, expectedRevision: null, cancellationToken).ConfigureAwait(false);
+    }
+
+    public Task<bool> TryDeleteTaskAsync(string taskId, long expectedRevision, CancellationToken cancellationToken = default) =>
+        DeleteTaskCoreAsync(taskId, expectedRevision, cancellationToken);
+
+    private async Task<bool> DeleteTaskCoreAsync(string taskId, long? expectedRevision, CancellationToken cancellationToken)
+    {
         await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        if (expectedRevision is not null)
+        {
+            var revisionCommand = connection.CreateCommand();
+            revisionCommand.CommandText = "SELECT revision FROM tasks WHERE id = @id";
+            revisionCommand.Parameters.AddWithValue("@id", taskId);
+            var current = await revisionCommand.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+            if (current is null || current is DBNull || Convert.ToInt64(current) != expectedRevision)
+            {
+                await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
+                return false;
+            }
+        }
+
         var linkedProvider = await ReadAdoptedProviderLinkAsync(connection, taskId, cancellationToken).ConfigureAwait(false);
         if (linkedProvider is not null)
         {
@@ -1405,6 +1513,7 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         command.Parameters.AddWithValue("@id", taskId);
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return true;
     }
 
     public async Task DeleteProjectAsync(string projectId, bool moveTasksToInbox, CancellationToken cancellationToken = default)
@@ -1414,7 +1523,7 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
 
         var taskCommand = connection.CreateCommand();
         taskCommand.CommandText = moveTasksToInbox
-            ? "UPDATE tasks SET project_id = NULL, workflow_status = CASE WHEN completion_state = 'open' THEN 'inbox' ELSE workflow_status END, updated_at = @updated_at WHERE project_id = @project_id"
+            ? "UPDATE tasks SET project_id = NULL, workflow_status = CASE WHEN completion_state = 'open' THEN 'inbox' ELSE workflow_status END, updated_at = @updated_at, revision = revision + 1 WHERE project_id = @project_id"
             : "DELETE FROM tasks WHERE project_id = @project_id";
         taskCommand.Parameters.AddWithValue("@project_id", projectId);
         if (moveTasksToInbox)
@@ -1444,6 +1553,27 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
     public async Task QueueCompletionAsync(PendingCompletion completion, CancellationToken cancellationToken = default)
     {
         await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await QueueCompletionCoreAsync(connection, completion, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task SetTaskCompletionWithPendingUpdateAsync(
+        string taskId,
+        bool completed,
+        PendingCompletion? completion,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        if (completion is not null)
+        {
+            await QueueCompletionCoreAsync(connection, completion, cancellationToken).ConfigureAwait(false);
+        }
+        await SetCompletionStateCoreAsync(connection, taskId, completed, cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task QueueCompletionCoreAsync(SqliteConnection connection, PendingCompletion completion, CancellationToken cancellationToken)
+    {
         await EnsurePendingCompletionsTableAsync(connection, cancellationToken).ConfigureAwait(false);
         var command = connection.CreateCommand();
         command.CommandText = """
@@ -1495,6 +1625,46 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         return completions;
     }
 
+    public async Task<PendingProviderWriteSummary> GetPendingProviderWriteSummaryAsync(
+        string provider,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        var completions = 0;
+        var reopens = 0;
+        var dateUpdates = 0;
+
+        if (await TableExistsAsync(connection, "pending_completions", cancellationToken).ConfigureAwait(false))
+        {
+            var command = connection.CreateCommand();
+            command.CommandText = """
+                SELECT
+                    COALESCE(SUM(CASE WHEN completed = 1 THEN 1 ELSE 0 END), 0),
+                    COALESCE(SUM(CASE WHEN completed = 0 THEN 1 ELSE 0 END), 0)
+                FROM pending_completions
+                WHERE provider = @provider
+                """;
+            command.Parameters.AddWithValue("@provider", provider);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                completions = reader.GetInt32(0);
+                reopens = reader.GetInt32(1);
+            }
+        }
+
+        if (await TableExistsAsync(connection, "pending_task_date_updates", cancellationToken).ConfigureAwait(false))
+        {
+            var command = connection.CreateCommand();
+            command.CommandText = "SELECT COUNT(*) FROM pending_task_date_updates WHERE provider = @provider";
+            command.Parameters.AddWithValue("@provider", provider);
+            dateUpdates = Convert.ToInt32(
+                await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false));
+        }
+
+        return new PendingProviderWriteSummary(completions, reopens, dateUpdates);
+    }
+
     public async Task MarkCompletionSyncedAsync(string completionId, CancellationToken cancellationToken = default)
     {
         await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
@@ -1507,6 +1677,11 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
     public async Task QueueTaskDateUpdateAsync(PendingTaskDateUpdate update, CancellationToken cancellationToken = default)
     {
         await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await QueueTaskDateUpdateCoreAsync(connection, update, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task QueueTaskDateUpdateCoreAsync(SqliteConnection connection, PendingTaskDateUpdate update, CancellationToken cancellationToken)
+    {
         await EnsurePendingTaskDateUpdatesTableAsync(connection, cancellationToken).ConfigureAwait(false);
         var (plannedOn, plannedAt) = NormalizeDatePair(update.PlannedOn, update.PlannedAt);
         var command = connection.CreateCommand();
@@ -1618,20 +1793,30 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
     private async Task SetCompletionStateAsync(string taskId, bool completed, CancellationToken cancellationToken)
     {
         await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await SetCompletionStateCoreAsync(connection, taskId, completed, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task SetCompletionStateCoreAsync(SqliteConnection connection, string taskId, bool completed, CancellationToken cancellationToken)
+    {
         var now = DateTimeOffset.UtcNow;
         var command = connection.CreateCommand();
         command.CommandText = """
             UPDATE tasks
             SET completion_state = @completion_state,
                 completed_at = @completed_at,
-                updated_at = @updated_at
+                updated_at = @updated_at,
+                revision = revision + 1
             WHERE id = @id
             """;
         command.Parameters.AddWithValue("@id", taskId);
         command.Parameters.AddWithValue("@completion_state", completed ? "completed" : "open");
         command.Parameters.AddWithValue("@completed_at", completed ? ToDbDate(now) : DBNull.Value);
         command.Parameters.AddWithValue("@updated_at", ToDbDate(now));
-        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        var changed = await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        if (changed == 0)
+        {
+            throw new InvalidOperationException("The task no longer exists.");
+        }
     }
 
     private async Task UpdateIntegrationFlagsAsync(string id, bool? configured, bool? active, CancellationToken cancellationToken)
@@ -1839,6 +2024,7 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
                     ELSE recurrence_rule
                 END,
                 updated_at = @updated_at,
+                revision = revision + 1,
                 completed_at = CASE
                     WHEN @completion_state = 'completed' THEN COALESCE(completed_at, @updated_at)
                     ELSE NULL
@@ -1992,6 +2178,8 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
     private async Task<IReadOnlyList<TaskItem>> ReadTasksAsync(SqliteConnection connection, CancellationToken cancellationToken)
     {
         var labelsByTask = await ReadLabelsByTaskAsync(connection, cancellationToken).ConfigureAwait(false);
+        var taskColumns = await GetColumnNamesAsync(connection, "tasks", cancellationToken).ConfigureAwait(false);
+        var revisionProjection = taskColumns.Contains("revision") ? "t.revision" : "0 AS revision";
         var command = connection.CreateCommand();
         command.CommandText = """
             SELECT t.id, t.external_id, t.space_id, t.integration_id, t.title, t.description, t.source_description, t.project_id, t.parent_id,
@@ -2000,12 +2188,12 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
                    t.deadline_on, t.deadline_at, t.scheduled_start, t.scheduled_end, t.duration_minutes, t.recurrence_rule,
                    t.notes, t.provider_metadata, t.source_metadata, t.local_metadata,
                    t.created_at, t.updated_at, t.completed_at, t.provider_connection_id, psi.title, psi.source_project_name,
-                   psi.priority, psi.planned_on, psi.planned_at, psi.deadline_on, psi.deadline_at
+                   psi.priority, psi.planned_on, psi.planned_at, psi.deadline_on, psi.deadline_at, @revision_projection
             FROM tasks t
             LEFT JOIN provider_source_items psi
               ON psi.provider_connection_id = t.source_connection_id
              AND psi.external_id = t.source_external_id
-            """;
+            """.Replace("@revision_projection", revisionProjection, StringComparison.Ordinal);
 
         var tasks = new List<TaskItem>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
@@ -2054,6 +2242,7 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
                 SourcePlannedAt = ReadDate(reader, 37),
                 SourceDeadlineOn = ReadDateOnly(reader, 38),
                 SourceDeadlineAt = ReadDate(reader, 39),
+                Revision = reader.GetInt64(40),
                 Labels = labelsByTask.GetValueOrDefault(id, []),
             });
         }
@@ -2113,13 +2302,13 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
                                source_url, completion_state, workflow_status, planned_on, planned_at, deadline_on, deadline_at,
                                scheduled_start, scheduled_end, duration_minutes, recurrence_rule,
                                notes, provider_metadata, source_metadata, local_metadata,
-                               created_at, updated_at, completed_at)
+                               created_at, updated_at, completed_at, revision)
             VALUES (@id, @external_id, @space_id, @integration_id, @provider_connection_id, @title, @description, @source_description, @project_id, @parent_id,
                     @priority, @source_integration_id, @source_connection_id, @source_external_id, @source_provider_task_id,
                     @source_url, @completion_state, @workflow_status, @planned_on, @planned_at, @deadline_on, @deadline_at,
                     @scheduled_start, @scheduled_end, @duration_minutes, @recurrence_rule,
                     @notes, @provider_metadata, @source_metadata, @local_metadata,
-                    @created_at, @updated_at, @completed_at)
+                    @created_at, @updated_at, @completed_at, @revision)
             ON CONFLICT(id) DO UPDATE SET
                 external_id = excluded.external_id,
                 space_id = excluded.space_id,
@@ -2151,7 +2340,8 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
                 source_metadata = excluded.source_metadata,
                 local_metadata = excluded.local_metadata,
                 updated_at = excluded.updated_at,
-                completed_at = excluded.completed_at
+                completed_at = excluded.completed_at,
+                revision = tasks.revision + 1
             """;
         command.Parameters.AddWithValue("@id", task.Id);
         command.Parameters.AddWithValue("@external_id", ToDbValue(task.ExternalId));
@@ -2186,6 +2376,7 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         command.Parameters.AddWithValue("@created_at", ToDbDate(task.CreatedAt));
         command.Parameters.AddWithValue("@updated_at", ToDbValue(task.UpdatedAt));
         command.Parameters.AddWithValue("@completed_at", ToDbValue(task.CompletedAt));
+        command.Parameters.AddWithValue("@revision", task.Revision);
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
@@ -2207,8 +2398,23 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         }
     }
 
-    private static async Task<string> ResolveAndUpsertLabelCoreAsync(SqliteConnection connection, LabelItem label, CancellationToken cancellationToken)
+    private static async Task<string> ResolveAndUpsertLabelCoreAsync(
+        SqliteConnection connection,
+        LabelItem label,
+        CancellationToken cancellationToken,
+        bool preserveExistingId = true)
     {
+        if (preserveExistingId)
+        {
+            var idCommand = connection.CreateCommand();
+            idCommand.CommandText = "SELECT id FROM labels WHERE id = @id LIMIT 1";
+            idCommand.Parameters.AddWithValue("@id", label.Id);
+            if (await idCommand.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is string existingExactId)
+            {
+                return existingExactId;
+            }
+        }
+
         var existingId = await FindLabelIdByNameAsync(connection, label.Name, cancellationToken).ConfigureAwait(false);
         if (!string.IsNullOrWhiteSpace(existingId) && !string.Equals(existingId, label.Id, StringComparison.Ordinal))
         {
@@ -2344,15 +2550,18 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         var connection = new SqliteConnection(new SqliteConnectionStringBuilder
         {
             DataSource = DatabasePath,
-            Mode = SqliteOpenMode.ReadWriteCreate,
+            Mode = IsReadOnly ? SqliteOpenMode.ReadOnly : SqliteOpenMode.ReadWriteCreate,
             Cache = SqliteCacheMode.Default,
             Pooling = false,
         }.ToString());
 
         await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
-        await ExecutePragmaAsync(connection, "PRAGMA journal_mode = DELETE", cancellationToken).ConfigureAwait(false);
+        if (!IsReadOnly)
+        {
+            await ExecutePragmaAsync(connection, "PRAGMA journal_mode = DELETE", cancellationToken).ConfigureAwait(false);
+            await ExecutePragmaAsync(connection, "PRAGMA synchronous = FULL", cancellationToken).ConfigureAwait(false);
+        }
         await ExecutePragmaAsync(connection, "PRAGMA busy_timeout = 5000", cancellationToken).ConfigureAwait(false);
-        await ExecutePragmaAsync(connection, "PRAGMA synchronous = FULL", cancellationToken).ConfigureAwait(false);
         await ExecutePragmaAsync(connection, "PRAGMA foreign_keys = ON", cancellationToken).ConfigureAwait(false);
         return connection;
     }
@@ -2739,6 +2948,7 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
         await AddColumnIfMissingAsync(connection, "tasks", "created_at", "INTEGER", cancellationToken).ConfigureAwait(false);
         await AddColumnIfMissingAsync(connection, "tasks", "updated_at", "INTEGER", cancellationToken).ConfigureAwait(false);
         await AddColumnIfMissingAsync(connection, "tasks", "completed_at", "INTEGER", cancellationToken).ConfigureAwait(false);
+        await AddColumnIfMissingAsync(connection, "tasks", "revision", "INTEGER NOT NULL DEFAULT 0", cancellationToken).ConfigureAwait(false);
 
         await ExecuteNonQueryAsync(connection, """
             UPDATE tasks
@@ -3326,6 +3536,7 @@ public sealed class SqliteTaskStore(string databasePath) : ITaskStore
           created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
           updated_at INTEGER,
           completed_at INTEGER
+          , revision INTEGER NOT NULL DEFAULT 0
         );
 
         CREATE TABLE IF NOT EXISTS provider_source_items (

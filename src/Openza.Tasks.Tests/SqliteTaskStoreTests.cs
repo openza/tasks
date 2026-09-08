@@ -30,7 +30,77 @@ public sealed class SqliteTaskStoreTests : IDisposable
     }
 
     [Fact]
-    public async Task Initialize_creates_v3_schema_for_planning_and_sync_routes()
+    public async Task Atomic_completion_rolls_back_provider_outbox_when_local_task_is_missing()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        var pending = new PendingCompletion
+        {
+            Id = "completion_missing",
+            TaskId = "missing",
+            Provider = IntegrationIds.Todoist,
+            ProviderTaskId = "todoist-task",
+            Completed = true,
+            CompletedAt = DateTimeOffset.UtcNow,
+            CreatedAt = DateTimeOffset.UtcNow,
+        };
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            store.SetTaskCompletionWithPendingUpdateAsync("missing", completed: true, pending));
+
+        Assert.Empty(await store.GetPendingCompletionsAsync(IntegrationIds.Todoist));
+    }
+
+    [Fact]
+    public async Task Pending_write_summary_is_read_only_when_queue_tables_do_not_exist()
+    {
+        Directory.CreateDirectory(_directory);
+        var databasePath = Path.Combine(_directory, "no-outbox-tables.db");
+        await using (var connection = new SqliteConnection($"Data Source={databasePath}"))
+        {
+            await connection.OpenAsync();
+            var command = connection.CreateCommand();
+            command.CommandText = $"PRAGMA user_version = {SqliteTaskStore.CurrentSchemaVersion}";
+            await command.ExecuteNonQueryAsync();
+        }
+
+        var store = new SqliteTaskStore(databasePath, readOnly: true);
+        await store.InitializeAsync();
+        var summary = await store.GetPendingProviderWriteSummaryAsync(IntegrationIds.Todoist);
+
+        Assert.Equal(0, summary.Total);
+    }
+
+    [Fact]
+    public async Task Initialize_makes_database_private_without_changing_an_existing_parent_on_unix()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var store = CreateStore();
+        Directory.CreateDirectory(_directory);
+        File.SetUnixFileMode(
+            _directory,
+            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
+            UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.GroupExecute |
+            UnixFileMode.OtherRead | UnixFileMode.OtherWrite | UnixFileMode.OtherExecute);
+
+        await store.InitializeAsync();
+
+        Assert.Equal(
+            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
+            UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.GroupExecute |
+            UnixFileMode.OtherRead | UnixFileMode.OtherWrite | UnixFileMode.OtherExecute,
+            File.GetUnixFileMode(_directory));
+        Assert.Equal(
+            UnixFileMode.UserRead | UnixFileMode.UserWrite,
+            File.GetUnixFileMode(store.DatabasePath));
+    }
+
+    [Fact]
+    public async Task Initialize_creates_current_schema_for_planning_and_sync_routes()
     {
         var store = CreateStore();
         await store.InitializeAsync();
@@ -43,7 +113,8 @@ public sealed class SqliteTaskStoreTests : IDisposable
         }.ToString());
         await connection.OpenAsync();
 
-        Assert.Equal(5L, await ExecuteScalarAsync(connection, "PRAGMA user_version"));
+        Assert.Equal(SqliteTaskStore.CurrentSchemaVersion, await ExecuteScalarAsync(connection, "PRAGMA user_version"));
+        Assert.Equal(1L, await ExecuteScalarAsync(connection, "SELECT COUNT(*) FROM pragma_table_info('tasks') WHERE name = 'revision'"));
         Assert.Equal(1L, await ExecuteScalarAsync(connection, "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'provider_connections'"));
         Assert.Equal(1L, await ExecuteScalarAsync(connection, "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'provider_source_items'"));
         Assert.Equal(1L, await ExecuteScalarAsync(connection, "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'sync_routes'"));
@@ -1315,6 +1386,33 @@ public sealed class SqliteTaskStoreTests : IDisposable
         Assert.Equal(1, counts.Open);
         Assert.Equal(1, counts.All);
         Assert.Equal(new[] { "task_parent", "task_child" }, tasks.Select(task => task.Id).ToArray());
+    }
+
+    [Fact]
+    public async Task Read_only_store_initializes_and_queries_without_writing_database_directory()
+    {
+        if (OperatingSystem.IsWindows()) return;
+
+        var store = CreateStore();
+        await store.InitializeAsync();
+        await store.UpsertTaskAsync(new TaskItem { Id = "task_read_only", Title = "Read only" });
+        var directory = Path.GetDirectoryName(store.DatabasePath)!;
+        var originalMode = File.GetUnixFileMode(directory);
+        try
+        {
+            File.SetUnixFileMode(directory, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+            var readOnlyStore = new SqliteTaskStore(store.DatabasePath, readOnly: true);
+
+            await readOnlyStore.InitializeAsync();
+            var task = Assert.Single(await readOnlyStore.GetTasksAsync(new TaskQuery { Kind = TaskListKind.Open }));
+
+            Assert.Equal("task_read_only", task.Id);
+            Assert.False(File.Exists(Path.Combine(directory, ".runtime.lock")));
+        }
+        finally
+        {
+            File.SetUnixFileMode(directory, originalMode);
+        }
     }
 
     [Fact]

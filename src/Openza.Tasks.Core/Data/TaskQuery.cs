@@ -8,6 +8,7 @@ public sealed record TaskQuery
     public string? ProjectId { get; init; }
     public string? ParentId { get; init; }
     public string? LabelId { get; init; }
+    public string? LabelName { get; init; }
     public string? SearchText { get; init; }
     public TaskItemStatus? Status { get; init; }
     public TaskListKind Kind { get; init; } = TaskListKind.All;

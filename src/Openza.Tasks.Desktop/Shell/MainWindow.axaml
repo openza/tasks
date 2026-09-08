@@ -1,0 +1,725 @@
+<Window
+    x:Class="Openza.Tasks.Desktop.Shell.MainWindow"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:ic="using:FluentIcons.Avalonia"
+    Width="1440"
+    Height="800"
+    MinWidth="920"
+    MinHeight="600"
+    Background="{DynamicResource OpenzaAppCanvasBrush}"
+    WindowState="Maximized"
+    Title="Openza Tasks"
+    Icon="avares://Openza.Tasks.Desktop/Assets/openza-tasks.png"
+    Opened="OnOpened"
+    Closing="OnClosing"
+    Closed="OnClosed"
+    SizeChanged="OnWindowSizeChanged"
+    KeyDown="OnWindowKeyDown">
+
+    <Grid x:Name="ShellGrid" Background="{DynamicResource OpenzaAppCanvasBrush}">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="220" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+        <!-- App navigation -->
+        <Border
+            Grid.Column="0"
+            Background="{DynamicResource OpenzaPaneBackgroundBrush}"
+            BorderBrush="{DynamicResource OpenzaSeparatorBrush}"
+            BorderThickness="0,0,1,0">
+            <Grid RowDefinitions="Auto,Auto,Auto,*,Auto,Auto,Auto" Margin="0,10,0,12">
+                <Button x:Name="NavigationCollapseButton" Width="44" Height="42" Margin="8,0,0,10" Padding="0" HorizontalAlignment="Left" AutomationProperties.Name="Collapse navigation" Classes="quiet" ToolTip.Tip="Collapse navigation" Click="OnNavigationCollapseClicked">
+                    <ic:FluentIcon Icon="Navigation" FontSize="20" />
+                </Button>
+
+                <Button Grid.Row="1" Height="46" Margin="8,0" Padding="14,0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" AutomationProperties.Name="Add task" Classes="primary-command" Click="OnAddTaskClicked" ToolTip.Tip="Add task (Ctrl+N)">
+                    <StackPanel Orientation="Horizontal" Spacing="14">
+                        <ic:FluentIcon Icon="AddCircle" FontSize="20" />
+                        <TextBlock Classes="nav-label" VerticalAlignment="Center" FontWeight="SemiBold" Text="Add task" />
+                    </StackPanel>
+                </Button>
+
+                <Button Grid.Row="2" Height="48" Margin="8,8,8,0" Padding="14,0" HorizontalContentAlignment="Left" AutomationProperties.Name="Search tasks and projects" Classes="nav-command" Click="OnSearchCommandClicked" PointerEntered="OnInteractiveSurfacePointerEntered" PointerExited="OnInteractiveSurfacePointerExited" PointerPressed="OnInteractiveSurfacePointerPressed" PointerReleased="OnInteractiveSurfacePointerReleased" ToolTip.Tip="Search tasks and projects (Ctrl+K)">
+                    <StackPanel Orientation="Horizontal" Spacing="14">
+                        <ic:FluentIcon Icon="SearchSquare" FontSize="20" />
+                        <TextBlock Classes="nav-label" VerticalAlignment="Center" Text="Search" />
+                    </StackPanel>
+                </Button>
+
+                <ListBox
+                    x:Name="NavigationList"
+                    Grid.Row="3"
+                    Margin="0,6,0,0"
+                    Background="Transparent"
+                    BorderThickness="0"
+                    ItemsSource="{Binding NavigationItems}"
+                    SelectedItem="{Binding SelectedNavigation}"
+                    SelectionChanged="OnNavigationSelectionChanged">
+                    <ListBox.ItemContainerTheme>
+                        <ControlTheme TargetType="ListBoxItem">
+                            <Setter Property="Height" Value="48" />
+                            <Setter Property="Margin" Value="4,1" />
+                            <Setter Property="Padding" Value="0" />
+                                <Setter Property="CornerRadius" Value="{DynamicResource OpenzaControlCornerRadius}" />
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                            <Setter Property="Background" Value="Transparent" />
+                            <Style Selector="^:pointerover">
+                                <Setter Property="Background" Value="{DynamicResource OpenzaNavSelectedHoverBrush}" />
+                            </Style>
+                            <Style Selector="^:selected">
+                                <Setter Property="Background" Value="{DynamicResource OpenzaNavSelectedBrush}" />
+                            </Style>
+                        </ControlTheme>
+                    </ListBox.ItemContainerTheme>
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <Border Padding="12,0" Background="Transparent" CornerRadius="4" Tapped="OnNavigationItemTapped" PointerEntered="OnInteractiveSurfacePointerEntered" PointerExited="OnInteractiveSurfacePointerExited" PointerPressed="OnInteractiveSurfacePointerPressed" PointerReleased="OnInteractiveSurfacePointerReleased">
+                                <Grid ColumnDefinitions="26,*,Auto" ColumnSpacing="12">
+                                    <ic:FluentIcon VerticalAlignment="Center" Icon="{Binding Icon}" FontSize="19" />
+                                    <TextBlock Grid.Column="1" Classes="nav-label" VerticalAlignment="Center" FontSize="14" Text="{Binding Title}" />
+                                    <Border Grid.Column="2" Classes="nav-badge" MinWidth="22" Height="22" Padding="6,0" VerticalAlignment="Center" Background="{DynamicResource OpenzaChipBackgroundBrush}" CornerRadius="11" IsVisible="{Binding HasCount}">
+                                        <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="12" Text="{Binding CountText}" />
+                                    </Border>
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+
+                <Button Grid.Row="4" Height="46" Margin="8,2" Padding="14,0" HorizontalContentAlignment="Left" Classes="nav-command" Click="OnSyncNavigationClicked" PointerEntered="OnInteractiveSurfacePointerEntered" PointerExited="OnInteractiveSurfacePointerExited" PointerPressed="OnInteractiveSurfacePointerPressed" PointerReleased="OnInteractiveSurfacePointerReleased">
+                    <StackPanel Orientation="Horizontal" Spacing="14">
+                        <ic:FluentIcon Icon="ArrowSync" FontSize="20" />
+                        <TextBlock Classes="nav-label" VerticalAlignment="Center" Text="Sync" />
+                    </StackPanel>
+                </Button>
+
+                <ComboBox
+                    x:Name="SpacePicker"
+                    Classes="space-picker"
+                    Grid.Row="5"
+                    Height="44"
+                    Margin="8,4"
+                    ItemsSource="{Binding SpaceItems}"
+                    SelectedItem="{Binding SelectedSpace}"
+                    SelectionChanged="OnSpaceSelectionChanged">
+                    <ComboBox.ItemTemplate>
+                        <DataTemplate>
+                            <Grid ColumnDefinitions="26,*" ColumnSpacing="10">
+                                <ic:FluentIcon Icon="FolderOpen" FontSize="18" />
+                                <TextBlock Grid.Column="1" Classes="nav-label" VerticalAlignment="Center" Text="{Binding Title}" />
+                            </Grid>
+                        </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                </ComboBox>
+
+                <Button
+                    x:Name="CompactSpacePickerButton"
+                    Grid.Row="5"
+                    Width="48"
+                    Height="44"
+                    Margin="8,4"
+                    Padding="0"
+                    HorizontalAlignment="Left"
+                    AutomationProperties.Name="Switch space"
+                    Classes="nav-command compact-only"
+                    ToolTip.Tip="Switch space">
+                    <ic:FluentIcon Icon="FolderOpen" FontSize="18" />
+                    <Button.Flyout>
+                        <Flyout Placement="RightEdgeAlignedBottom">
+                            <ItemsControl MinWidth="180" ItemsSource="{Binding SpaceItems}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Button
+                                            MinWidth="180"
+                                            Padding="12,8"
+                                            HorizontalContentAlignment="Left"
+                                            Click="OnCompactSpaceSelected">
+                                            <StackPanel Orientation="Horizontal" Spacing="10">
+                                                <ic:FluentIcon Icon="FolderOpen" FontSize="17" />
+                                                <TextBlock Text="{Binding Title}" />
+                                            </StackPanel>
+                                        </Button>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </Flyout>
+                    </Button.Flyout>
+                </Button>
+
+                <Button Grid.Row="6" Height="46" Margin="8,2" Padding="14,0" HorizontalContentAlignment="Left" Classes="nav-command" Click="OnSettingsClicked" PointerEntered="OnInteractiveSurfacePointerEntered" PointerExited="OnInteractiveSurfacePointerExited" PointerPressed="OnInteractiveSurfacePointerPressed" PointerReleased="OnInteractiveSurfacePointerReleased">
+                    <StackPanel Orientation="Horizontal" Spacing="14">
+                        <ic:FluentIcon Icon="SettingsCogMultiple" FontSize="20" />
+                        <TextBlock Classes="nav-label" VerticalAlignment="Center" Text="Settings" />
+                    </StackPanel>
+                </Button>
+            </Grid>
+        </Border>
+
+        <Grid Grid.Column="1">
+            <!-- Tasks shell: Projects | list | details/intake -->
+            <Grid x:Name="TaskWorkspace" IsVisible="True">
+                <Grid x:Name="WorkbenchGrid">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="0" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="0" />
+                        <ColumnDefinition Width="0" />
+                    </Grid.ColumnDefinitions>
+
+                    <Border
+                        x:Name="ProjectsPane"
+                        Grid.Column="0"
+                        Padding="28,30,26,22"
+                        Background="{DynamicResource OpenzaAppCanvasBrush}"
+                        BorderBrush="{DynamicResource OpenzaSeparatorBrush}"
+                        BorderThickness="0,0,1,0"
+                        IsVisible="False">
+                        <Grid RowDefinitions="Auto,Auto,Auto,*" RowSpacing="12">
+                            <Grid ColumnDefinitions="*,Auto">
+                                <StackPanel Spacing="4">
+                                    <TextBlock FontSize="24" FontWeight="SemiBold" Text="Projects" />
+                                    <TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="Filter all tasks" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4">
+                                    <Button Width="44" Height="44" Padding="0" AutomationProperties.Name="Create project" Click="OnCreateProjectClicked" ToolTip.Tip="Create project">
+                                        <ic:FluentIcon Icon="AddCircle" FontSize="21" />
+                                    </Button>
+                                    <Button Width="44" Height="44" Padding="0" AutomationProperties.Name="Project actions" IsVisible="{Binding HasSelectedProject}" ToolTip.Tip="Project actions">
+                                        <ic:FluentIcon Icon="MoreHorizontal" FontSize="20" />
+                                        <Button.Flyout>
+                                            <Flyout><StackPanel MinWidth="150"><Button HorizontalContentAlignment="Left" Click="OnEditProjectClicked" Content="Edit project"/><Button HorizontalContentAlignment="Left" Click="OnDeleteProjectClicked" Content="Delete project"/></StackPanel></Flyout>
+                                        </Button.Flyout>
+                                    </Button>
+                                </StackPanel>
+                            </Grid>
+                            <TextBox
+                                x:Name="ProjectSearchBox"
+                                Grid.Row="1"
+                                Height="42"
+                                PlaceholderText="Filter projects"
+                                Text="{Binding ProjectSearchText, Mode=TwoWay}"
+                                TextChanged="OnProjectSearchChanged" />
+                            <ComboBox Grid.Row="2" Height="42" SelectedIndex="{Binding ProjectFilterIndex, Mode=TwoWay}" SelectionChanged="OnProjectFilterChanged">
+                                <ComboBoxItem Content="Active" />
+                                <ComboBoxItem Content="All projects" />
+                                <ComboBoxItem Content="Completed" />
+                                <ComboBoxItem Content="Archived" />
+                            </ComboBox>
+                            <ListBox
+                                x:Name="ProjectList"
+                                Grid.Row="3"
+                                Margin="-8,4"
+                                Background="Transparent"
+                                BorderThickness="0"
+                                ItemsSource="{Binding ProjectItems}"
+                                SelectedItem="{Binding SelectedProject}"
+                                SelectionChanged="OnProjectSelectionChanged">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid Height="44" Margin="8,0" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+                                            <Border Width="8" Height="8" VerticalAlignment="Center" CornerRadius="4" Background="{Binding Color}" />
+                                            <TextBlock Grid.Column="1" VerticalAlignment="Center" Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Grid.Column="2" VerticalAlignment="Center" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{Binding CountText}" />
+                                        </Grid>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                        </Grid>
+                    </Border>
+
+                    <Grid x:Name="TaskListPane" Grid.Column="1" Background="{DynamicResource OpenzaAppCanvasBrush}" RowDefinitions="Auto,Auto,*">
+                        <Grid Margin="32,30,32,0" ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto">
+                            <TextBlock Classes="page-title" Text="{Binding PageTitle}" />
+                            <TextBlock Grid.Row="1" Classes="metadata" Margin="2,4,0,0" Text="{Binding PageSubtitle}" />
+                            <StackPanel Grid.Column="1" Grid.RowSpan="2" VerticalAlignment="Center" Orientation="Horizontal" Spacing="4">
+                                <Button x:Name="ProjectsCommand" Padding="12,8" Classes="command" Click="OnProjectsCommandClicked" IsVisible="False">
+                                    <StackPanel Orientation="Horizontal" Spacing="8"><ic:FluentIcon Icon="Folder" FontSize="18" /><TextBlock Text="Projects" /></StackPanel>
+                                </Button>
+                                <Button x:Name="ConnectedTasksCommand" Padding="12,8" Classes="command" Click="OnConnectedTasksClicked" IsVisible="False">
+                                    <StackPanel Orientation="Horizontal" Spacing="8"><ic:FluentIcon Icon="ArrowSync" FontSize="18" /><TextBlock Text="Review" /></StackPanel>
+                                </Button>
+                                <Button Padding="12,8" Classes="command" Click="OnAddTaskClicked">
+                                    <StackPanel Orientation="Horizontal" Spacing="8"><ic:FluentIcon Icon="AddCircle" FontSize="18" /><TextBlock Text="Add task" /></StackPanel>
+                                </Button>
+                                <Button Width="42" Height="40" Padding="0" Classes="command" ToolTip.Tip="More actions">
+                                    <ic:FluentIcon Icon="MoreHorizontal" FontSize="20" />
+                                    <Button.Flyout>
+                                        <Flyout><StackPanel MinWidth="150"><Button HorizontalContentAlignment="Left" Click="OnImportClicked" Content="Import Markdown"/><Button HorizontalContentAlignment="Left" Click="OnExportClicked" Content="Export Markdown"/></StackPanel></Flyout>
+                                    </Button.Flyout>
+                                </Button>
+                            </StackPanel>
+                        </Grid>
+
+                        <Grid x:Name="TaskFilterGrid" Grid.Row="1" Margin="28,24,28,12" ColumnDefinitions="Auto,Auto,*" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="10">
+                            <TextBox
+                                x:Name="SearchBox"
+                                Width="460"
+                                Height="42"
+                                MinWidth="280"
+                                HorizontalAlignment="Left"
+                                AutomationProperties.Name="Search tasks"
+                                PlaceholderText="Search tasks"
+                                Text="{Binding SearchText, Mode=TwoWay}"
+                                TextChanged="OnTaskSearchTextChanged"
+                                KeyDown="OnSearchKeyDown" />
+                            <StackPanel x:Name="TaskFilterCommands" Grid.Column="1" Orientation="Horizontal" Spacing="10">
+                                <Button MinWidth="132" Height="42" Padding="14,0" Classes="list-command">
+                                    <Grid ColumnDefinitions="Auto,Auto" ColumnSpacing="8" VerticalAlignment="Center">
+                                        <ic:FluentIcon VerticalAlignment="Center" Icon="ArrowSort" FontSize="17" />
+                                        <TextBlock Grid.Column="1" VerticalAlignment="Center" Text="{Binding SortSummary}" />
+                                    </Grid>
+                                    <Button.Flyout>
+                                        <MenuFlyout Placement="BottomEdgeAlignedLeft">
+                                            <MenuItem Header="Priority" Tag="0" Click="OnSortMenuItemClicked" />
+                                            <MenuItem Header="Date" Tag="1" Click="OnSortMenuItemClicked" />
+                                            <MenuItem Header="Newest" Tag="2" Click="OnSortMenuItemClicked" />
+                                            <MenuItem Header="Title" Tag="3" Click="OnSortMenuItemClicked" />
+                                            <MenuItem Header="Project" Tag="4" Click="OnSortMenuItemClicked" />
+                                            <Separator />
+                                            <MenuItem Header="Ascending" Tag="0" Click="OnSortDirectionMenuItemClicked" />
+                                            <MenuItem Header="Descending" Tag="1" Click="OnSortDirectionMenuItemClicked" />
+                                        </MenuFlyout>
+                                    </Button.Flyout>
+                                </Button>
+                                <Button MinWidth="132" Height="42" Padding="14,0" Classes="list-command">
+                                    <Grid ColumnDefinitions="Auto,Auto" ColumnSpacing="8" VerticalAlignment="Center">
+                                        <ic:FluentIcon VerticalAlignment="Center" Icon="GroupList" FontSize="17" />
+                                        <TextBlock Grid.Column="1" VerticalAlignment="Center" Text="{Binding GroupSummary}" />
+                                    </Grid>
+                                    <Button.Flyout>
+                                        <MenuFlyout Placement="BottomEdgeAlignedLeft">
+                                            <MenuItem Header="None" Tag="0" Click="OnGroupMenuItemClicked" />
+                                            <MenuItem Header="Date" Tag="1" Click="OnGroupMenuItemClicked" />
+                                            <MenuItem Header="Project" Tag="2" Click="OnGroupMenuItemClicked" />
+                                            <MenuItem Header="Status" Tag="3" Click="OnGroupMenuItemClicked" />
+                                            <MenuItem Header="Priority" Tag="4" Click="OnGroupMenuItemClicked" />
+                                            <MenuItem Header="Label" Tag="5" Click="OnGroupMenuItemClicked" />
+                                            <MenuItem Header="Source" Tag="6" Click="OnGroupMenuItemClicked" />
+                                            <MenuItem Header="Repeating" Tag="7" Click="OnGroupMenuItemClicked" />
+                                            <MenuItem Header="Created date" Tag="8" Click="OnGroupMenuItemClicked" />
+                                            <MenuItem Header="Completed date" Tag="9" Click="OnGroupMenuItemClicked" />
+                                        </MenuFlyout>
+                                    </Button.Flyout>
+                                </Button>
+                                <Button MinWidth="104" Height="42" Padding="14,0" Classes="list-command" AutomationProperties.Name="{Binding FilterAutomationName}">
+                                    <Grid ColumnDefinitions="Auto,Auto" ColumnSpacing="8" VerticalAlignment="Center"><ic:FluentIcon VerticalAlignment="Center" Icon="Filter" FontSize="18" /><TextBlock Grid.Column="1" VerticalAlignment="Center" Text="{Binding FilterSummary}" /></Grid>
+                                    <Button.Flyout>
+                                        <Flyout Placement="BottomEdgeAlignedLeft">
+                                            <StackPanel Width="260" Margin="4" Spacing="12">
+                                                <TextBlock FontSize="16" FontWeight="SemiBold" Text="Filters" />
+                                                <ComboBox SelectedIndex="{Binding PriorityFilterIndex, Mode=TwoWay}" SelectionChanged="OnListOptionsChanged"><ComboBoxItem Content="All priorities"/><ComboBoxItem Content="Urgent"/><ComboBoxItem Content="High"/><ComboBoxItem Content="Normal"/><ComboBoxItem Content="Low"/></ComboBox>
+                                                <ComboBox SelectedIndex="{Binding RepeatFilterIndex, Mode=TwoWay}" SelectionChanged="OnListOptionsChanged"><ComboBoxItem Content="Include repeating"/><ComboBoxItem Content="Exclude repeating"/><ComboBoxItem Content="Only repeating"/></ComboBox>
+                                                <ComboBox ItemsSource="{Binding LabelFilterOptions}" SelectedItem="{Binding SelectedLabelFilter, Mode=TwoWay}" SelectionChanged="OnListOptionsChanged"><ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Title}"/></DataTemplate></ComboBox.ItemTemplate></ComboBox>
+                                                <Button HorizontalAlignment="Stretch" IsVisible="{Binding HasActiveOptionFilters}" Click="OnClearAllFiltersClicked" Content="Reset filters" />
+                                            </StackPanel>
+                                        </Flyout>
+                                    </Button.Flyout>
+                                </Button>
+                            </StackPanel>
+                            <StackPanel x:Name="ActiveFiltersPanel" Grid.Row="2" Grid.ColumnSpan="3" Orientation="Horizontal" Spacing="8" IsVisible="{Binding HasActiveOptionFilters}">
+                                <Button MinHeight="30" Padding="10,2" Classes="list-command" IsVisible="{Binding HasPriorityFilter}" Content="{Binding PriorityFilterChipText}" Click="OnClearPriorityFilterClicked" />
+                                <Button MinHeight="30" Padding="10,2" Classes="list-command" IsVisible="{Binding HasRepeatFilter}" Content="{Binding RepeatFilterChipText}" Click="OnClearRepeatFilterClicked" />
+                                <Button MinHeight="30" Padding="10,2" Classes="list-command" IsVisible="{Binding HasLabelFilter}" Content="{Binding LabelFilterChipText}" Click="OnClearLabelFilterClicked" />
+                                <Button MinHeight="30" Padding="10,2" Classes="command" Content="Clear all" Click="OnClearAllFiltersClicked" />
+                            </StackPanel>
+                        </Grid>
+
+                        <Grid Grid.Row="2">
+                            <ListBox
+                                x:Name="TaskList"
+                                Margin="28,0,22,0"
+                                Background="Transparent"
+                                BorderThickness="0"
+                                ItemsSource="{Binding TaskEntries}"
+                                SelectionChanged="OnTaskEntrySelectionChanged">
+                                <ListBox.ItemContainerTheme>
+                                    <ControlTheme TargetType="ListBoxItem">
+                                        <Setter Property="Padding" Value="0" />
+                                        <Setter Property="Margin" Value="0" />
+                                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                        <Setter Property="CornerRadius" Value="{DynamicResource OpenzaRowCornerRadius}" />
+                                        <Setter Property="Background" Value="Transparent" />
+                                        <Style Selector="^:selected"><Setter Property="Background" Value="{DynamicResource OpenzaRowSelectedBrush}" /></Style>
+                                    </ControlTheme>
+                                </ListBox.ItemContainerTheme>
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid>
+                                            <Button Margin="0,14,0,7" Padding="10,6" HorizontalContentAlignment="Stretch" Background="{DynamicResource OpenzaChipBackgroundBrush}" BorderBrush="{DynamicResource OpenzaSeparatorBrush}" BorderThickness="1" CornerRadius="{DynamicResource OpenzaControlCornerRadius}" IsVisible="{Binding IsHeader}" AutomationProperties.Name="{Binding GroupTitle}" Click="OnTaskGroupHeaderClicked">
+                                                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+                                                    <TextBlock VerticalAlignment="Center" FontSize="13" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{Binding GroupExpandGlyph}" />
+                                                    <TextBlock Grid.Column="1" FontSize="14" FontWeight="SemiBold" Text="{Binding GroupTitle}" />
+                                                    <TextBlock Grid.Column="2" Classes="metadata" Text="{Binding GroupCount}" />
+                                                </Grid>
+                                            </Button>
+                                            <Border Classes="task-row" MinHeight="64" Padding="10,9" Background="Transparent" BorderBrush="{DynamicResource OpenzaSeparatorBrush}" BorderThickness="0,0,0,1" CornerRadius="{DynamicResource OpenzaRowCornerRadius}" IsVisible="{Binding IsTask}" Tapped="OnTaskRowTapped" PointerEntered="OnInteractiveSurfacePointerEntered" PointerExited="OnInteractiveSurfacePointerExited" PointerPressed="OnInteractiveSurfacePointerPressed" PointerReleased="OnInteractiveSurfacePointerReleased">
+                                                <Grid ColumnDefinitions="36,*,Auto" ColumnSpacing="12">
+                                                    <CheckBox Width="24" Height="24" VerticalAlignment="Top" AutomationProperties.Name="{Binding Task.Title, StringFormat='Complete {0}'}" IsChecked="{Binding Task.IsCompleted, Mode=OneWay}" Click="OnTaskCompletionClicked" />
+                                                    <StackPanel Grid.Column="1" Spacing="5">
+                                                        <SelectableTextBlock FontSize="14" FontWeight="SemiBold" MaxLines="3" Text="{Binding Task.Title}" TextWrapping="Wrap" TextTrimming="CharacterEllipsis" />
+                                                        <SelectableTextBlock Classes="metadata" MaxLines="1" Text="{Binding Task.MetadataText}" TextTrimming="CharacterEllipsis" />
+                                                    </StackPanel>
+                                                    <Grid Grid.Column="2" HorizontalAlignment="Right" VerticalAlignment="Center">
+                                                        <Border Classes="priority-chip" Padding="9,4" Background="{DynamicResource OpenzaChipBackgroundBrush}" CornerRadius="12" IsVisible="{Binding Task.HasPriority}">
+                                                            <TextBlock Classes="metadata" Foreground="{DynamicResource OpenzaChipForegroundBrush}" Text="{Binding Task.PriorityText}" />
+                                                        </Border>
+                                                        <StackPanel Width="260" Classes="quick-actions" Orientation="Horizontal" Spacing="4">
+                                                            <Button Classes="row-action" AutomationProperties.Name="{Binding Task.Title, StringFormat='Change date for {0}'}" ToolTip.Tip="Change date">
+                                                                <Button.Flyout>
+                                                                    <Flyout Placement="Bottom">
+                                                                        <StackPanel Width="270" Spacing="8">
+                                                                            <CalendarDatePicker HorizontalAlignment="Stretch" PlaceholderText="Choose a date" SelectedDateChanged="OnRowDateChanged"/>
+                                                                            <Button HorizontalAlignment="Stretch" Click="OnClearRowDateClicked" Content="Clear date"/>
+                                                                        </StackPanel>
+                                                                    </Flyout>
+                                                                </Button.Flyout>
+                                                                <ic:FluentIcon Icon="Calendar" FontSize="16" />
+                                                            </Button>
+                                                            <Button Classes="row-action" AutomationProperties.Name="{Binding Task.Title, StringFormat='Change project for {0}'}" Click="OnRowProjectButtonClicked" ToolTip.Tip="Change project">
+                                                                <ic:FluentIcon Icon="FolderOpen" FontSize="16" />
+                                                            </Button>
+                                                            <Button Classes="row-action" AutomationProperties.Name="{Binding Task.Title, StringFormat='Change labels for {0}'}" Click="OnRowLabelsButtonClicked" ToolTip.Tip="Change labels">
+                                                                <ic:FluentIcon Icon="TagEdit" FontSize="16" />
+                                                            </Button>
+                                                            <Button Classes="row-action" AutomationProperties.Name="{Binding Task.Title, StringFormat='Change status for {0}'}" ToolTip.Tip="Change status">
+                                                                <Button.Flyout>
+                                                                    <MenuFlyout Placement="Bottom">
+                                                                        <MenuItem Header="Inbox" Tag="0" Click="OnRowStatusClicked"/>
+                                                                        <MenuItem Header="Next" Tag="1" Click="OnRowStatusClicked"/>
+                                                                        <MenuItem Header="Waiting For" Tag="2" Click="OnRowStatusClicked"/>
+                                                                        <MenuItem Header="Someday" Tag="3" Click="OnRowStatusClicked"/>
+                                                                    </MenuFlyout>
+                                                                </Button.Flyout>
+                                                                <ic:FluentIcon Icon="TaskListSquare" FontSize="16" />
+                                                            </Button>
+                                                            <Button Classes="row-action" AutomationProperties.Name="{Binding Task.Title, StringFormat='Change priority for {0}'}" ToolTip.Tip="Change priority">
+                                                                <Button.Flyout>
+                                                                    <MenuFlyout Placement="Bottom">
+                                                                        <MenuItem Header="Urgent" Tag="1" Click="OnRowPriorityClicked"/>
+                                                                        <MenuItem Header="High" Tag="2" Click="OnRowPriorityClicked"/>
+                                                                        <MenuItem Header="Normal" Tag="3" Click="OnRowPriorityClicked"/>
+                                                                        <MenuItem Header="Low" Tag="4" Click="OnRowPriorityClicked"/>
+                                                                    </MenuFlyout>
+                                                                </Button.Flyout>
+                                                                <ic:FluentIcon Icon="Flag" FontSize="16" />
+                                                            </Button>
+                                                            <Button Classes="row-action" AutomationProperties.Name="{Binding Task.Title, StringFormat='Move {0} to another Space'}" Click="OnRowMoveSpaceButtonClicked" ToolTip.Tip="Move to Space">
+                                                                <ic:FluentIcon Icon="FolderArrowRight" FontSize="16" />
+                                                            </Button>
+                                                            <Button Classes="row-action" AutomationProperties.Name="{Binding Task.Title, StringFormat='Delete {0}'}" Click="OnRowDeleteClicked" ToolTip.Tip="Delete task">
+                                                                <ic:FluentIcon Icon="DeleteDismiss" FontSize="16" />
+                                                            </Button>
+                                                        </StackPanel>
+                                                    </Grid>
+                                                </Grid>
+                                            </Border>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+
+                            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10" IsVisible="{Binding HasNoTasks}">
+                                <ic:FluentIcon HorizontalAlignment="Center" Icon="CheckmarkCircle" FontSize="38" Foreground="{DynamicResource TextFillColorTertiaryBrush}" />
+                                <TextBlock HorizontalAlignment="Center" FontSize="24" FontWeight="SemiBold" Text="{Binding EmptyStateTitle}" />
+                                <TextBlock MaxWidth="460" HorizontalAlignment="Center" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{Binding EmptyStateMessage}" TextAlignment="Center" TextWrapping="Wrap" />
+                                <Button HorizontalAlignment="Center" Margin="0,6,0,0" Click="OnEmptyStateActionClicked" Content="{Binding EmptyStateActionText}" />
+                            </StackPanel>
+                        </Grid>
+                    </Grid>
+
+                    <!-- Task editor -->
+                    <Border x:Name="DetailsPane" Grid.Column="2" Background="{DynamicResource OpenzaDetailPaneBackgroundBrush}" BorderBrush="{DynamicResource OpenzaSeparatorBrush}" BorderThickness="1,0,0,0" IsVisible="False">
+                        <Grid RowDefinitions="Auto,*,Auto">
+                            <Border Padding="26,22" BorderBrush="{DynamicResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,0,1">
+                                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="16">
+                                    <CheckBox Width="26" Height="26" VerticalAlignment="Center" AutomationProperties.Name="Complete task" IsChecked="{Binding SelectedTask.IsCompleted, Mode=OneWay}" Click="OnToggleCompletionClicked" />
+                                    <StackPanel Grid.Column="1" Spacing="4">
+                                        <TextBox Padding="0" Background="Transparent" BorderThickness="0" FontSize="22" FontWeight="SemiBold" AutomationProperties.Name="Task title" Text="{Binding DetailTitle, Mode=TwoWay}" TextWrapping="Wrap" LostFocus="OnDetailEditorLostFocus" />
+                                        <TextBlock FontSize="13" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{Binding SelectedTask.SourceText}" />
+                                    </StackPanel>
+                                    <Button Grid.Column="2" Width="42" Height="42" Padding="0" AutomationProperties.Name="Close task details" Classes="quiet" Click="OnCloseDetailsClicked" ToolTip.Tip="Close details"><ic:FluentIcon Icon="DismissCircle" FontSize="20" /></Button>
+                                </Grid>
+                            </Border>
+                            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                                <StackPanel Margin="28,26,28,34" Spacing="24">
+                                    <TextBlock FontSize="16" FontWeight="SemiBold" Text="Organize" />
+                                    <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="28" RowSpacing="10">
+                                        <StackPanel Classes="field-row"><TextBlock Classes="field-label" Text="Status" /><ComboBox SelectedIndex="{Binding DetailStatusIndex, Mode=TwoWay}" SelectionChanged="OnDetailEditorSelectionChanged"><ComboBoxItem Content="Inbox"/><ComboBoxItem Content="Next"/><ComboBoxItem Content="Waiting For"/><ComboBoxItem Content="Someday"/><ComboBoxItem Content="Completed"/></ComboBox></StackPanel>
+                                        <StackPanel Grid.Column="1" Classes="field-row">
+                                            <TextBlock Classes="field-label" Text="Project"/>
+                                            <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" AutomationProperties.Name="Find or create project" Click="OnDetailProjectPickerClicked" Content="{Binding DetailProject.Title}" />
+                                        </StackPanel>
+                                        <StackPanel Grid.Row="1" Classes="field-row"><TextBlock Classes="field-label" Text="Date"/><CalendarDatePicker HorizontalAlignment="Stretch" PlaceholderText="Choose a date" SelectedDate="{Binding DetailCalendarDate, Mode=TwoWay}" SelectedDateChanged="OnDetailDateChanged"/></StackPanel>
+                                        <StackPanel Grid.Row="1" Grid.Column="1" Classes="field-row"><TextBlock Classes="field-label" Text="Deadline"/><CalendarDatePicker HorizontalAlignment="Stretch" PlaceholderText="Choose a deadline" SelectedDate="{Binding DetailCalendarDeadline, Mode=TwoWay}" SelectedDateChanged="OnDetailDateChanged"/></StackPanel>
+                                        <StackPanel Grid.Row="2" Classes="field-row"><TextBlock Classes="field-label" Text="Priority"/><ComboBox SelectedIndex="{Binding DetailPriorityIndex, Mode=TwoWay}" SelectionChanged="OnDetailEditorSelectionChanged"><ComboBoxItem Content="Urgent"/><ComboBoxItem Content="High"/><ComboBoxItem Content="Normal"/><ComboBoxItem Content="Low"/></ComboBox></StackPanel>
+                                        <StackPanel Grid.Row="2" Grid.Column="1" Classes="field-row">
+                                            <TextBlock Classes="field-label" Text="Labels"/>
+                                            <ItemsControl ItemsSource="{Binding DetailLabelItems}">
+                                                <ItemsControl.ItemsPanel>
+                                                    <ItemsPanelTemplate><WrapPanel Orientation="Horizontal"/></ItemsPanelTemplate>
+                                                </ItemsControl.ItemsPanel>
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <Button
+                                                            Margin="0,3,6,0"
+                                                            MinHeight="30"
+                                                            Padding="10,5"
+                                                            Background="{DynamicResource OpenzaChipBackgroundBrush}"
+                                                            BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}"
+                                                            Click="OnRemoveDetailLabelClicked"
+                                                            CornerRadius="15"
+                                                            ToolTip.Tip="Remove label">
+                                                            <StackPanel Orientation="Horizontal" Spacing="7"><TextBlock Text="{Binding}"/><TextBlock FontSize="14" Text="&#x00D7;"/></StackPanel>
+                                                        </Button>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                            <AutoCompleteBox
+                                                x:Name="DetailLabelsBox"
+                                                ItemsSource="{Binding LabelSuggestions}"
+                                                MaxDropDownHeight="240"
+                                                MinimumPrefixLength="0"
+                                                PlaceholderText="Find or create label"
+                                                GotFocus="OnDetailLabelBoxGotFocus"
+                                                KeyDown="OnDetailLabelKeyDown"
+                                                SelectionChanged="OnDetailLabelSelectionChanged"/>
+                                        </StackPanel>
+                                    </Grid>
+                                    <StackPanel Spacing="8"><TextBlock FontSize="16" FontWeight="SemiBold" Text="Notes"/><TextBox MinHeight="150" AcceptsReturn="True" VerticalContentAlignment="Top" Text="{Binding DetailNotes, Mode=TwoWay}" TextWrapping="Wrap" LostFocus="OnDetailEditorLostFocus"/></StackPanel>
+                                    <Border Padding="16" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="7">
+                                        <Grid ColumnDefinitions="*,Auto"><StackPanel Spacing="4"><TextBlock FontWeight="SemiBold" Text="GitHub"/><TextBlock FontSize="13" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="Create a GitHub issue from this task."/></StackPanel><Button Grid.Column="1" Click="OnGitHubActionClicked" Content="{Binding GitHubActionText}"/></Grid>
+                                    </Border>
+                                    <Border IsVisible="{Binding HasSourceDateMismatch}" Padding="12" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="7">
+                                        <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
+                                            <StackPanel Spacing="3">
+                                                <TextBlock FontWeight="SemiBold" Text="{Binding SourceDateMismatchTitle}"/>
+                                                <TextBlock FontSize="12" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{Binding SourceDateMismatchMessage}" TextWrapping="Wrap"/>
+                                            </StackPanel>
+                                            <Button Grid.Column="1" Click="OnUseSourceDatesClicked" Content="{Binding UseSourceDatesText}"/>
+                                            <Button Grid.Column="2" Click="OnKeepOpenzaDatesClicked" Content="Keep Openza date"/>
+                                        </Grid>
+                                    </Border>
+                                    <StackPanel IsVisible="{Binding HasSubtasks}" Spacing="8">
+                                        <Grid ColumnDefinitions="*,Auto">
+                                            <TextBlock FontSize="16" FontWeight="SemiBold" Text="Subtasks"/>
+                                            <Border Grid.Column="1" Padding="8,2" Background="{DynamicResource OpenzaChipBackgroundBrush}" CornerRadius="10"><TextBlock FontSize="12" Text="{Binding SubtasksProgressText}"/></Border>
+                                        </Grid>
+                                        <ItemsControl ItemsSource="{Binding VisibleSubtasks}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Grid Margin="2,3" ColumnDefinitions="Auto,*" ColumnSpacing="9">
+                                                        <CheckBox VerticalAlignment="Top" AutomationProperties.Name="{Binding Title, StringFormat='Complete {0}'}" IsChecked="{Binding IsCompleted, Mode=OneWay}" Click="OnSubtaskCompletionClicked"/>
+                                                        <StackPanel Grid.Column="1" Spacing="2">
+                                                            <TextBlock Text="{Binding Title}" TextWrapping="Wrap"/>
+                                                            <TextBlock FontSize="12" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{Binding MetadataText}" TextTrimming="CharacterEllipsis"/>
+                                                        </StackPanel>
+                                                    </Grid>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                        <Button HorizontalAlignment="Left" Padding="0,4" Background="Transparent" BorderThickness="0" Click="OnToggleSubtasksClicked" Content="{Binding SubtasksToggleText}" IsVisible="{Binding CanToggleSubtasks}"/>
+                                    </StackPanel>
+                                    <Expander Header="{Binding SourceTaskHeader}" IsExpanded="{Binding HasSourceDescription}" IsVisible="{Binding HasSourceTask}">
+                                        <StackPanel Margin="0,10,0,0" Spacing="12">
+                                            <StackPanel IsVisible="{Binding HasSourceDescription}" Spacing="6">
+                                                <TextBlock Classes="field-label" Text="Source description" />
+                                                <Border Padding="12" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="7">
+                                                    <StackPanel Spacing="6">
+                                                        <TextBlock Text="{Binding SourceTaskDescription}" TextWrapping="Wrap" />
+                                                        <TextBlock FontSize="12" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{Binding SourceTaskDescriptionHint}" />
+                                                    </StackPanel>
+                                                </Border>
+                                            </StackPanel>
+                                            <Border Padding="14" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="7">
+                                                <StackPanel Spacing="12">
+                                                    <StackPanel Spacing="3"><TextBlock Classes="field-label" Text="Title"/><TextBlock FontWeight="SemiBold" Text="{Binding SourceTaskTitle}" TextWrapping="Wrap"/></StackPanel>
+                                                    <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto,Auto,Auto" ColumnSpacing="20" RowSpacing="10">
+                                                        <StackPanel Spacing="3"><TextBlock Classes="field-label" Text="Project"/><TextBlock Text="{Binding SourceTaskProject}" TextWrapping="Wrap"/></StackPanel>
+                                                        <StackPanel Grid.Column="1" Spacing="3"><TextBlock Classes="field-label" Text="Date"/><TextBlock Text="{Binding SourceTaskDate}"/></StackPanel>
+                                                        <StackPanel Grid.Row="1" Spacing="3"><TextBlock Classes="field-label" Text="Deadline"/><TextBlock Text="{Binding SourceTaskDeadline}"/></StackPanel>
+                                                        <StackPanel Grid.Row="1" Grid.Column="1" Spacing="3"><TextBlock Classes="field-label" Text="Priority"/><TextBlock Text="{Binding SourceTaskPriority}"/></StackPanel>
+                                                        <StackPanel Grid.Row="2" Spacing="3"><TextBlock Classes="field-label" Text="Source"/><TextBlock Text="{Binding SourceTaskName}"/></StackPanel>
+                                                        <StackPanel Grid.Row="2" Grid.Column="1" Spacing="3"><TextBlock Classes="field-label" Text="Created"/><TextBlock Text="{Binding SourceTaskCreated}"/></StackPanel>
+                                                        <StackPanel Grid.Row="3" Grid.ColumnSpan="2" Spacing="3"><TextBlock Classes="field-label" Text="Recurring"/><TextBlock Text="{Binding SourceTaskRecurrence}" TextWrapping="Wrap"/></StackPanel>
+                                                    </Grid>
+                                                </StackPanel>
+                                            </Border>
+                                        </StackPanel>
+                                    </Expander>
+                                    <StackPanel IsVisible="{Binding HasLocalTaskMetadata}" Spacing="8">
+                                        <TextBlock FontSize="16" FontWeight="SemiBold" Text="Task information" />
+                                        <Border Padding="14" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="7">
+                                            <Grid ColumnDefinitions="*,*" ColumnSpacing="20">
+                                                <StackPanel Spacing="3"><TextBlock Classes="field-label" Text="Created"/><TextBlock Text="{Binding LocalTaskCreated}"/></StackPanel>
+                                                <StackPanel Grid.Column="1" Spacing="3"><TextBlock Classes="field-label" Text="Updated"/><TextBlock Text="{Binding LocalTaskUpdated}"/></StackPanel>
+                                            </Grid>
+                                        </Border>
+                                    </StackPanel>
+                                </StackPanel>
+                            </ScrollViewer>
+                            <Border Grid.Row="2" Padding="18,14" BorderBrush="{DynamicResource DividerStrokeColorDefaultBrush}" BorderThickness="0,1,0,0">
+                                <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="10">
+                                    <Button Grid.Column="1" Content="Move to space">
+                                        <Button.Flyout><Flyout><ItemsControl ItemsSource="{Binding EditableSpaceItems}"><ItemsControl.ItemTemplate><DataTemplate><Button MinWidth="160" HorizontalContentAlignment="Left" Click="OnMoveTaskToSpaceClicked" Content="{Binding Title}"/></DataTemplate></ItemsControl.ItemTemplate></ItemsControl></Flyout></Button.Flyout>
+                                    </Button>
+                                    <Button Grid.Column="2" Click="OnDeleteTaskClicked" Content="Delete"/>
+                                    <Button Grid.Column="3" Click="OnToggleCompletionClicked" Content="{Binding CompletionActionText}"/>
+                                </Grid>
+                            </Border>
+                        </Grid>
+                    </Border>
+
+                    <!-- Connected provider intake -->
+                    <Border x:Name="ConnectedPane" Grid.Column="3" Background="{DynamicResource OpenzaDetailPaneBackgroundBrush}" BorderBrush="{DynamicResource OpenzaSeparatorBrush}" BorderThickness="1,0,0,0" IsVisible="False">
+                        <Grid RowDefinitions="Auto,Auto,Auto,* ,Auto">
+                            <Grid Margin="28,30,20,10" ColumnDefinitions="*,Auto"><StackPanel Spacing="8"><TextBlock FontSize="24" FontWeight="SemiBold" Text="Connected app tasks"/><TextBlock MaxWidth="420" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{Binding ConnectedTasksSummary}" TextWrapping="Wrap"/></StackPanel><Button Grid.Column="1" Width="44" Height="44" Padding="0" AutomationProperties.Name="Close connected app tasks" Click="OnCloseConnectedTasksClicked" ToolTip.Tip="Close"><ic:FluentIcon Icon="DismissCircle" FontSize="20"/></Button></Grid>
+                            <TextBox x:Name="ConnectedSearchBox" Grid.Row="1" Height="42" Margin="28,4,28,10" PlaceholderText="Search" TextChanged="OnConnectedSearchChanged"/>
+                            <StackPanel Grid.Row="2" Margin="28,0,28,10" Orientation="Horizontal" Spacing="12"><ComboBox Width="145" ItemsSource="{Binding ConnectedSourceOptions}" SelectedIndex="{Binding ConnectedSourceFilterIndex, Mode=TwoWay}" SelectionChanged="OnConnectedFilterChanged"/><ComboBox Width="145" ItemsSource="{Binding ConnectedProjectOptions}" SelectedIndex="{Binding ConnectedProjectFilterIndex, Mode=TwoWay}" SelectionChanged="OnConnectedFilterChanged"/><ToggleSwitch VerticalAlignment="Center" OnContent="Skipped shown" OffContent="Skipped hidden" IsChecked="{Binding ShowSkippedConnectedTasks, Mode=TwoWay}" IsCheckedChanged="OnShowSkippedChanged"/></StackPanel>
+                            <ListBox Grid.Row="3" Margin="18,0" Background="Transparent" BorderThickness="0" ItemsSource="{Binding FilteredConnectedTasks}"><ListBox.ItemTemplate><DataTemplate><Border Padding="12,16" BorderBrush="{DynamicResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,0,1"><Grid ColumnDefinitions="*,Auto" ColumnSpacing="12"><StackPanel Spacing="5"><TextBlock FontWeight="SemiBold" MaxLines="3" Text="{Binding Title}" TextTrimming="CharacterEllipsis" TextWrapping="Wrap"/><StackPanel Orientation="Horizontal" Spacing="6"><Border Padding="7,1" Background="{DynamicResource OpenzaChipBackgroundBrush}" CornerRadius="8"><TextBlock FontSize="12" Text="{Binding SourceName}"/></Border><TextBlock VerticalAlignment="Center" FontSize="13" Foreground="{DynamicResource TextFillColorSecondaryBrush}" MaxLines="1" Text="{Binding MetadataText}" TextTrimming="CharacterEllipsis"/></StackPanel><TextBlock FontSize="13" Foreground="{DynamicResource TextFillColorSecondaryBrush}" MaxLines="2" Text="{Binding Description}" TextTrimming="CharacterEllipsis" TextWrapping="Wrap"/></StackPanel><StackPanel Grid.Column="1" VerticalAlignment="Center" Orientation="Horizontal" Spacing="8"><Button Click="OnConnectedPrimaryClicked" Content="{Binding PrimaryActionText}"/><Button IsEnabled="{Binding CanSkip}" Click="OnConnectedSkipClicked" Content="{Binding SecondaryActionText}" ToolTip.Tip="Hide from Inbox intake"/></StackPanel></Grid></Border></DataTemplate></ListBox.ItemTemplate></ListBox>
+                            <Border Grid.Row="4" Padding="18,14" BorderBrush="{DynamicResource DividerStrokeColorDefaultBrush}" BorderThickness="0,1,0,0"><Button HorizontalAlignment="Right" Classes="primary-command" IsEnabled="{Binding CanAddAllConnectedTasks}" Click="OnAddAllConnectedClicked" Content="Add all to Inbox"/></Border>
+                        </Grid>
+                    </Border>
+                </Grid>
+            </Grid>
+
+            <!-- In-shell Sync workspace -->
+            <ScrollViewer x:Name="SyncWorkspace" IsVisible="False" VerticalScrollBarVisibility="Auto">
+                <StackPanel MaxWidth="960" Margin="34,34,40,40" HorizontalAlignment="Left" Spacing="28">
+                    <Grid ColumnDefinitions="*,Auto"><StackPanel Spacing="6"><TextBlock Classes="page-title" Text="Sync"/><TextBlock Foreground="{DynamicResource OpenzaTextSecondaryBrush}" Text="Use Openza Tasks locally, connect integrations, or prepare future automation routes." TextWrapping="Wrap"/></StackPanel><Button Grid.Column="1" Classes="accent" Click="OnSyncNowClicked" Content="Sync now"/></Grid>
+                    <StackPanel Spacing="10"><TextBlock FontWeight="SemiBold" Text="How Openza sync works"/><Border Padding="18" Classes="settings-card"><TextBlock Text="Local tasks  ·  Your offline Openza workspace is always available and remains the core task database." TextWrapping="Wrap"/></Border><Border Padding="18" Classes="settings-card"><TextBlock Text="Connected integrations  ·  Todoist tasks are imported and completion changes are written back on sync." TextWrapping="Wrap"/></Border><Border Padding="18" Classes="settings-card"><TextBlock Text="Sync routes  ·  Future automation can route tasks between connected services and Openza." TextWrapping="Wrap"/></Border></StackPanel>
+                    <StackPanel Spacing="10"><TextBlock FontWeight="SemiBold" Text="Integrations"/><Border Padding="18" Classes="settings-card"><Grid ColumnDefinitions="*,Auto"><StackPanel><TextBlock FontWeight="SemiBold" Text="Connection status"/><TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="Manage provider connections in Settings."/></StackPanel><Button Grid.Column="1" Click="OnSettingsClicked" Content="Integration settings"/></Grid></Border><Border Padding="18" Classes="settings-card"><Grid ColumnDefinitions="*,Auto"><StackPanel><TextBlock FontWeight="SemiBold" Text="Last result"/><TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{Binding StatusMessage}"/></StackPanel><Button Grid.Column="1" Click="OnConnectedTasksClicked" Content="Open Inbox"/></Grid></Border></StackPanel>
+                </StackPanel>
+            </ScrollViewer>
+
+            <!-- In-shell Settings workspace -->
+            <ScrollViewer x:Name="SettingsWorkspace" IsVisible="False" VerticalScrollBarVisibility="Auto">
+                <StackPanel MaxWidth="960" Margin="34,34,44,48" HorizontalAlignment="Left" Spacing="24">
+                    <TextBlock Classes="page-title" Text="Settings" />
+                    <TextBlock Classes="section-title" Text="Appearance" />
+                    <Border Padding="20" Classes="settings-card"><Grid ColumnDefinitions="32,*,Auto" ColumnSpacing="14"><ic:FluentIcon Icon="Color" FontSize="21"/><StackPanel Grid.Column="1"><TextBlock FontWeight="SemiBold" Text="Theme"/><TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="Follow the desktop or choose a fixed appearance."/></StackPanel><ComboBox x:Name="ShellThemePicker" Grid.Column="2" Width="150" SelectionChanged="OnShellThemeChanged"><ComboBoxItem Content="System"/><ComboBoxItem Content="Light"/><ComboBoxItem Content="Dark"/></ComboBox></Grid></Border>
+                    <TextBlock Classes="section-title" Text="Integrations" />
+                    <Border Padding="20" Classes="settings-card"><Grid ColumnDefinitions="32,*,Auto" ColumnSpacing="14"><ic:FluentIcon Icon="ArrowSync" FontSize="21"/><StackPanel Grid.Column="1"><TextBlock FontWeight="SemiBold" Text="Automatic sync"/><TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="Refresh connected apps every five minutes while Openza Tasks is running."/></StackPanel><ToggleSwitch x:Name="AutomaticSyncToggle" Grid.Column="2" OnContent="On" OffContent="Off" IsCheckedChanged="OnAutomaticSyncChanged"/></Grid></Border>
+
+                    <Border Classes="settings-card">
+                        <Expander HorizontalContentAlignment="Stretch">
+                            <Expander.Header>
+                                <Grid Margin="8,2" ColumnDefinitions="32,*,Auto" ColumnSpacing="14">
+                                    <ic:FluentIcon Icon="CheckmarkCircle" FontSize="21"/>
+                                    <StackPanel Grid.Column="1">
+                                        <TextBlock FontWeight="SemiBold" Text="Todoist"/>
+                                        <TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="Import tasks, projects, labels, dates, and priorities from Todoist."/>
+                                    </StackPanel>
+                                    <TextBlock Grid.Column="2" VerticalAlignment="Center" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{Binding TodoistConnectionText}" TextWrapping="Wrap" MaxWidth="300"/>
+                                </Grid>
+                            </Expander.Header>
+                            <StackPanel>
+                            <Border Padding="20" BorderBrush="{DynamicResource DividerStrokeColorDefaultBrush}" BorderThickness="0,1,0,0">
+                                <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+                                    <TextBox PasswordChar="●" RevealPassword="False" PlaceholderText="Todoist API token" Text="{Binding TodoistToken, Mode=TwoWay}"/>
+                                    <Button Grid.Column="1" Classes="accent" Click="OnConnectTodoistFromShellClicked" Content="Connect"/>
+                                    <Button Grid.Column="2" Click="OnDisconnectTodoistFromShellClicked" Content="Disconnect"/>
+                                </Grid>
+                            </Border>
+                            <Border Padding="20" BorderBrush="{DynamicResource DividerStrokeColorDefaultBrush}" BorderThickness="0,1,0,0">
+                                <StackPanel Spacing="12">
+                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                                        <StackPanel Spacing="3">
+                                            <TextBlock FontWeight="SemiBold" Text="Rules"/>
+                                            <TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="Send new Todoist tasks to a Space by label, or when they have no labels." TextWrapping="Wrap"/>
+                                            <TextBlock FontSize="12" Foreground="{DynamicResource TextFillColorTertiaryBrush}" Text="Todoist labels stay hidden from your normal task labels." TextWrapping="Wrap"/>
+                                        </StackPanel>
+                                        <Button Grid.Column="1" VerticalAlignment="Top" Classes="accent" Click="OnAddTodoistRuleClicked" Content="Add rule"/>
+                                    </Grid>
+                                    <TextBlock
+                                        Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                        IsVisible="{Binding HasNoTodoistRoutingRules}"
+                                        Text="No rules yet. Sync Todoist once to load its labels and projects, then add your routing rules."
+                                        TextWrapping="Wrap"/>
+                                    <ItemsControl ItemsSource="{Binding TodoistRoutingRules}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Border Margin="0,0,0,8" Padding="12" BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="6">
+                                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                                                        <StackPanel Spacing="3">
+                                                            <TextBlock FontWeight="SemiBold" Text="{Binding LabelText}"/>
+                                                            <TextBlock FontSize="12" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{Binding SummaryText}" TextWrapping="Wrap"/>
+                                                        </StackPanel>
+                                                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Orientation="Horizontal" Spacing="8">
+                                                            <Button Click="OnEditTodoistRuleClicked" Content="Edit"/>
+                                                            <Button Click="OnDeleteTodoistRuleClicked" Content="Delete"/>
+                                                        </StackPanel>
+                                                    </Grid>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </Border>
+                            </StackPanel>
+                        </Expander>
+                    </Border>
+
+                    <Border Padding="20" Classes="settings-card"><Grid ColumnDefinitions="32,*,Auto" ColumnSpacing="14"><ic:FluentIcon Icon="Calendar" FontSize="21"/><StackPanel Grid.Column="1"><TextBlock FontWeight="SemiBold" Text="Microsoft To Do"/><TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="Choose the Microsoft account Openza uses for Microsoft To Do."/></StackPanel><TextBlock Grid.Column="2" VerticalAlignment="Center" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="Not connected"/></Grid></Border>
+
+                    <Border Classes="settings-card">
+                        <Expander HorizontalContentAlignment="Stretch">
+                            <Expander.Header>
+                                <Grid Margin="8,2" ColumnDefinitions="32,*,Auto" ColumnSpacing="14">
+                                    <ic:FluentIcon Icon="DocumentCode" FontSize="21"/>
+                                    <StackPanel Grid.Column="1">
+                                        <TextBlock FontWeight="SemiBold" Text="GitHub"/>
+                                        <TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="Create GitHub issues from Openza tasks."/>
+                                    </StackPanel>
+                                    <TextBlock Grid.Column="2" VerticalAlignment="Center" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{Binding GitHubConnectionText}" MaxWidth="300" TextWrapping="Wrap"/>
+                                </Grid>
+                            </Expander.Header>
+                            <Border Padding="20" BorderBrush="{DynamicResource OpenzaSeparatorBrush}" BorderThickness="0,1,0,0">
+                                <StackPanel Spacing="10">
+                                    <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+                                        <TextBox PasswordChar="●" RevealPassword="False" PlaceholderText="GitHub token" Text="{Binding GitHubToken, Mode=TwoWay}"/>
+                                        <Button Grid.Column="1" Classes="accent" Click="OnConnectGitHubFromShellClicked" Content="Connect"/>
+                                        <Button Grid.Column="2" Click="OnDisconnectGitHubFromShellClicked" Content="Disconnect"/>
+                                    </Grid>
+                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                        <TextBox PlaceholderText="Default repository, for example openza/tasks" Text="{Binding GitHubDefaultRepository, Mode=TwoWay}"/>
+                                        <Button Grid.Column="1" Click="OnSaveGitHubRepositoryFromShellClicked" Content="Save repository"/>
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
+                        </Expander>
+                    </Border>
+
+                    <TextBlock Classes="section-title" Margin="0,8,0,0" Text="Spaces"/>
+                    <Border Padding="20" Classes="settings-card"><StackPanel Spacing="14"><Grid ColumnDefinitions="32,*,Auto" ColumnSpacing="14"><ic:FluentIcon Icon="FolderAdd" FontSize="21"/><StackPanel Grid.Column="1"><TextBlock FontWeight="SemiBold" Text="Add space"/><TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="Create another place to keep tasks and projects separate."/></StackPanel><Grid Grid.Column="2" ColumnDefinitions="260,Auto" ColumnSpacing="8"><TextBox x:Name="ShellNewSpaceBox" PlaceholderText="Space name"/><Button Grid.Column="1" Click="OnAddSpaceFromShellClicked" Content="Add"/></Grid></Grid><ItemsControl ItemsSource="{Binding EditableSpaceItems}"><ItemsControl.ItemTemplate><DataTemplate><Grid Margin="44,4,0,0" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8"><TextBlock VerticalAlignment="Center" Text="{Binding Title}"/><Button Grid.Column="1" Click="OnRenameSpaceFromShellClicked" Content="Rename"/><Button Grid.Column="2" Click="OnArchiveSpaceFromShellClicked" Content="Archive"/></Grid></DataTemplate></ItemsControl.ItemTemplate></ItemsControl></StackPanel></Border>
+
+                    <TextBlock Classes="section-title" Margin="0,8,0,0" Text="Data and recovery"/>
+                    <Border Padding="20" Classes="settings-card"><StackPanel Spacing="14"><Grid ColumnDefinitions="*,Auto"><StackPanel><TextBlock FontWeight="SemiBold" Text="Local database"/><TextBlock FontFamily="monospace" FontSize="12" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{Binding DatabasePath}" TextWrapping="Wrap"/></StackPanel><WrapPanel Grid.Column="1"><Button Margin="0,0,8,8" Click="OnBackupClicked" Content="Create restore point"/><Button Margin="0,0,8,8" Click="OnExportDatabaseFromShellClicked" Content="Export backup file"/><Button Margin="0,0,8,8" Click="OnRestoreDatabaseFromShellClicked" Content="Restore from file"/><Button Margin="0,0,0,8" Click="OnOpenDataFolderFromShellClicked" Content="Open data folder"/></WrapPanel></Grid><TextBlock FontWeight="SemiBold" Text="Restore points"/><ListBox MaxHeight="220" ItemsSource="{Binding RestorePoints}" SelectedItem="{Binding SelectedRestorePoint}"><ListBox.ItemTemplate><DataTemplate><StackPanel Margin="4" Spacing="2"><TextBlock FontWeight="SemiBold" Text="{Binding Title}"/><TextBlock FontSize="12" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{Binding Details}"/></StackPanel></DataTemplate></ListBox.ItemTemplate></ListBox><StackPanel Orientation="Horizontal" Spacing="8"><Button Click="OnRestoreSelectedPointFromShellClicked" Content="Restore selected"/><Button Click="OnDeleteSelectedPointFromShellClicked" Content="Delete selected"/></StackPanel><TextBlock FontSize="12" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="Restore always creates a safety restore point first."/></StackPanel></Border>
+
+                    <TextBlock Classes="section-title" Margin="0,8,0,0" Text="About"/>
+                    <Border Padding="20" Classes="settings-card">
+                        <Grid ColumnDefinitions="32,*" ColumnSpacing="14">
+                            <ic:FluentIcon Icon="TaskListSquare" FontSize="21"/>
+                            <StackPanel Grid.Column="1" Spacing="4">
+                                <TextBlock FontWeight="SemiBold" Text="Openza Tasks"/>
+                                <TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="A local-first task app under the Openza umbrella."/>
+                                <TextBlock Margin="0,6,0,0" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{Binding AppVersion, StringFormat='Version {0}'}"/>
+                                <TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="Local data format: V1"/>
+                                <TextBlock Foreground="{DynamicResource TextFillColorTertiaryBrush}" Text="Maintainer contact: deependra@solanky.dev" TextWrapping="Wrap"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+
+            <Border x:Name="StatusOverlay" Grid.ColumnSpan="2" MinWidth="320" MaxWidth="560" Margin="20,16" Padding="12,8" HorizontalAlignment="Right" VerticalAlignment="Top" Background="{DynamicResource OpenzaElevatedSurfaceBrush}" BorderBrush="{DynamicResource OpenzaBorderBrush}" BorderThickness="1" CornerRadius="6" IsVisible="False">
+                <StackPanel Orientation="Horizontal" Spacing="10">
+                    <ProgressBar Width="72" Height="4" VerticalAlignment="Center" IsIndeterminate="True" IsVisible="{Binding IsBusy}"/>
+                    <ic:FluentIcon Icon="Warning" FontSize="17" IsVisible="{Binding IsStatusMessagePersistent}" />
+                    <TextBlock MaxWidth="460" VerticalAlignment="Center" FontSize="12" Text="{Binding StatusMessage}" TextWrapping="Wrap"/>
+                    <Button Width="28" Height="28" Padding="0" Classes="quiet" Click="OnDismissStatusClicked" IsVisible="{Binding IsStatusMessagePersistent}" ToolTip.Tip="Dismiss"><ic:FluentIcon Icon="DismissCircle" FontSize="15" /></Button>
+                </StackPanel>
+            </Border>
+        </Grid>
+    </Grid>
+</Window>

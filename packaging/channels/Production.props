@@ -1,0 +1,14 @@
+<Project>
+  <PropertyGroup>
+    <OpenzaPackagedChannel>Production</OpenzaPackagedChannel>
+    <OpenzaChannel>Production</OpenzaChannel>
+    <OutputPath>bin\packaging\Production\$(Configuration)\</OutputPath>
+    <IntermediateOutputPath>obj\packaging\Production\$(Configuration)\</IntermediateOutputPath>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="$(MSBuildThisFileDirectory)Production.channel"
+          Link=".openza-channel"
+          CopyToOutputDirectory="Never"
+          CopyToPublishDirectory="Always" />
+  </ItemGroup>
+</Project>

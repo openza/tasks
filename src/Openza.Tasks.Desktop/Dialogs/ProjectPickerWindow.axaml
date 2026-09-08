@@ -1,0 +1,56 @@
+<Window
+    x:Class="Openza.Tasks.Desktop.Dialogs.ProjectPickerWindow"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Width="480"
+    Height="540"
+    MinWidth="400"
+    MinHeight="380"
+    CanResize="True"
+    ShowInTaskbar="False"
+    WindowStartupLocation="CenterOwner"
+    Opened="OnOpened">
+    <Grid RowDefinitions="Auto,Auto,*,Auto,Auto">
+        <StackPanel Margin="24,22,24,14" Spacing="4">
+            <TextBlock FontSize="22" FontWeight="SemiBold" Text="Change project" />
+            <TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="Choose where this task belongs." TextWrapping="Wrap" />
+        </StackPanel>
+        <TextBox
+            x:Name="SearchBox"
+            Grid.Row="1"
+            Margin="24,0,24,14"
+            AutomationProperties.Name="Find or create project"
+            PlaceholderText="Find or create project"
+            TextChanged="OnSearchTextChanged"
+            KeyDown="OnSearchKeyDown" />
+        <ListBox
+            x:Name="ProjectsList"
+            Grid.Row="2"
+            Margin="18,0"
+            AutomationProperties.Name="Projects"
+            DoubleTapped="OnProjectDoubleTapped">
+            <ListBox.ItemTemplate>
+                <DataTemplate>
+                    <StackPanel Margin="8,7" Spacing="3">
+                        <TextBlock FontWeight="SemiBold" Text="{Binding Title}" />
+                        <TextBlock FontSize="12" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{Binding Subtitle}" TextWrapping="Wrap" />
+                    </StackPanel>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+        <Button
+            x:Name="CreateProjectButton"
+            Grid.Row="3"
+            Margin="24,10,24,0"
+            HorizontalAlignment="Stretch"
+            HorizontalContentAlignment="Left"
+            IsVisible="False"
+            Click="OnCreateProjectClicked" />
+        <Border Grid.Row="4" Margin="0,14,0,0" Padding="24,14" BorderBrush="{DynamicResource DividerStrokeColorDefaultBrush}" BorderThickness="0,1,0,0">
+            <StackPanel HorizontalAlignment="Right" Orientation="Horizontal" Spacing="10">
+                <Button MinWidth="100" Click="OnCancelClicked" Content="Cancel" IsCancel="True" />
+                <Button MinWidth="100" Classes="accent" Click="OnChooseClicked" Content="Choose" IsDefault="True" />
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>

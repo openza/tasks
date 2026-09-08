@@ -1,0 +1,99 @@
+<Window
+    x:Class="Openza.Tasks.Desktop.Dialogs.TodoistRoutingRuleWindow"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Width="560"
+    SizeToContent="Height"
+    CanResize="False"
+    ShowInTaskbar="False"
+    Title="Add Todoist rule"
+    WindowStartupLocation="CenterOwner"
+    Opened="OnOpened">
+    <Grid RowDefinitions="*,Auto">
+        <StackPanel Margin="26,24,26,28" Spacing="14">
+            <TextBlock x:Name="HeadingText" FontSize="24" FontWeight="SemiBold" Text="Add Todoist rule" />
+            <TextBlock
+                Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                Text="Choose a Todoist label, or match tasks that have no Todoist labels. Todoist labels stay hidden from normal Openza task labels."
+                TextWrapping="Wrap" />
+
+            <CheckBox
+                x:Name="NoLabelsCheck"
+                Click="OnNoLabelsChanged"
+                Content="Match Todoist tasks with no labels" />
+
+            <StackPanel x:Name="LabelSection" Spacing="6">
+                <TextBlock FontWeight="SemiBold" Text="Todoist label" />
+                <TextBox
+                    x:Name="LabelBox"
+                    PlaceholderText="Choose a Todoist label"
+                    TextChanged="OnLabelTextChanged" />
+                <Border
+                    x:Name="LabelSuggestionsBorder"
+                    MaxHeight="128"
+                    BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}"
+                    BorderThickness="1"
+                    CornerRadius="4"
+                    IsVisible="False">
+                    <ListBox
+                        x:Name="LabelSuggestionsList"
+                        BorderThickness="0"
+                        SelectionChanged="OnLabelSuggestionSelected">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Margin="8,4" Text="{Binding Name}" />
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Border>
+            </StackPanel>
+
+            <Grid ColumnDefinitions="*,*" ColumnSpacing="12">
+                <StackPanel Spacing="6">
+                    <TextBlock FontWeight="SemiBold" Text="Send to Space" />
+                    <ComboBox
+                        x:Name="SpaceBox"
+                        HorizontalAlignment="Stretch"
+                        ItemsSource="{Binding SpaceChoices}">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding Name}" />
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
+                </StackPanel>
+                <StackPanel Grid.Column="1" Spacing="6">
+                    <TextBlock FontWeight="SemiBold" Text="After adding to Openza" />
+                    <ComboBox
+                        x:Name="MoveProjectBox"
+                        HorizontalAlignment="Stretch"
+                        ItemsSource="{Binding MoveProjectChoices}">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding Name}" />
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
+                </StackPanel>
+            </Grid>
+
+            <TextBlock
+                x:Name="ValidationText"
+                Foreground="{DynamicResource SystemFillColorCriticalBrush}"
+                IsVisible="False"
+                TextWrapping="Wrap" />
+        </StackPanel>
+
+        <Border
+            Grid.Row="1"
+            Padding="20,14"
+            Background="{DynamicResource SolidBackgroundFillColorSecondaryBrush}"
+            BorderBrush="{DynamicResource DividerStrokeColorDefaultBrush}"
+            BorderThickness="0,1,0,0">
+            <StackPanel HorizontalAlignment="Right" Orientation="Horizontal" Spacing="8">
+                <Button MinWidth="108" Click="OnCancelClicked" Content="Cancel" />
+                <Button MinWidth="108" Classes="accent" Click="OnSaveClicked" Content="Save" />
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>

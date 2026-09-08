@@ -299,7 +299,7 @@ public sealed partial class AppShell
                         new TextBlock
                         {
                             Text = deviceCode.UserCode,
-                            Style = (Style)Application.Current.Resources["TitleTextBlockStyle"],
+                            Style = (Style)Microsoft.UI.Xaml.Application.Current.Resources["TitleTextBlockStyle"],
                             TextAlignment = TextAlignment.Center,
                         },
                         copyButton,

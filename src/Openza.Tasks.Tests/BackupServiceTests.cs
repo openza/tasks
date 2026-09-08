@@ -65,6 +65,45 @@ public sealed class BackupServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Backup_storage_makes_existing_and_new_files_private_on_unix()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var databasePath = await CreateDatabaseAsync("permissions-source.db", taskId: "task_permissions");
+        var backupDirectory = Path.Combine(_directory, "permission-backups");
+        Directory.CreateDirectory(backupDirectory);
+        var existingDirectoryMode =
+            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
+            UnixFileMode.GroupRead | UnixFileMode.GroupExecute |
+            UnixFileMode.OtherRead | UnixFileMode.OtherExecute;
+        File.SetUnixFileMode(backupDirectory, existingDirectoryMode);
+        var existingDatabase = Path.Combine(backupDirectory, "existing.db");
+        var existingMetadata = $"{existingDatabase}.json";
+        await File.WriteAllTextAsync(existingDatabase, "existing");
+        await File.WriteAllTextAsync(existingMetadata, "existing");
+        var permissiveFileMode =
+            UnixFileMode.UserRead | UnixFileMode.UserWrite |
+            UnixFileMode.GroupRead | UnixFileMode.GroupWrite |
+            UnixFileMode.OtherRead | UnixFileMode.OtherWrite;
+        File.SetUnixFileMode(existingDatabase, permissiveFileMode);
+        File.SetUnixFileMode(existingMetadata, permissiveFileMode);
+
+        var service = CreateService(databasePath, backupDirectory);
+        _ = service.ListBackups();
+        var createdDatabase = await service.CreateBackupAsync(BackupReasons.Manual);
+
+        var privateFileMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+        Assert.Equal(existingDirectoryMode, File.GetUnixFileMode(backupDirectory));
+        Assert.Equal(privateFileMode, File.GetUnixFileMode(existingDatabase));
+        Assert.Equal(privateFileMode, File.GetUnixFileMode(existingMetadata));
+        Assert.Equal(privateFileMode, File.GetUnixFileMode(createdDatabase));
+        Assert.Equal(privateFileMode, File.GetUnixFileMode($"{createdDatabase}.json"));
+    }
+
+    [Fact]
     public async Task MigrateLegacyBackups_copies_valid_backups_once()
     {
         var databasePath = await CreateDatabaseAsync("legacy-source.db", taskId: "task_legacy");
@@ -145,6 +184,24 @@ public sealed class BackupServiceTests : IDisposable
         Assert.Null(await restoredStore.GetTaskAsync("task_current"));
         Assert.NotNull(await restoredStore.GetTaskAsync("task_restored"));
         Assert.Single(backups, backup => backup.Reason == BackupReasons.PreRestore);
+    }
+
+    [Fact]
+    public async Task Restore_holds_the_configured_database_replacement_lease()
+    {
+        var currentPath = await CreateDatabaseAsync("leased-current.db", taskId: "task_current");
+        var restoreSourcePath = await CreateDatabaseAsync("leased-source.db", taskId: "task_restored");
+        var lease = new TrackingDisposable();
+        var service = new BackupService(
+            currentPath,
+            Path.Combine(_directory, "leased-backups"),
+            context: new BackupContext("test.identity", "test", "1.2.3.4"),
+            databaseReplacementLeaseFactory: () => lease);
+
+        await service.RestoreBackupAsync(restoreSourcePath);
+
+        Assert.True(lease.WasDisposed);
+        Assert.NotNull(await new SqliteTaskStore(currentPath).GetTaskAsync("task_restored"));
     }
 
     [Fact]
@@ -248,6 +305,12 @@ public sealed class BackupServiceTests : IDisposable
             backupDirectory ?? Path.Combine(_directory, "backups"),
             retentionPolicy,
             new BackupContext("test.identity", "test", "1.2.3.4"));
+
+    private sealed class TrackingDisposable : IDisposable
+    {
+        public bool WasDisposed { get; private set; }
+        public void Dispose() => WasDisposed = true;
+    }
 
     private async Task<string> CreateDatabaseAsync(string fileName, string? taskId = null, string? projectId = null)
     {

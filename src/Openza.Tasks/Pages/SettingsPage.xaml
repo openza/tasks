@@ -568,6 +568,7 @@
                             <FontIcon Glyph="&#xE946;" />
                         </toolkit:SettingsCard.HeaderIcon>
                         <StackPanel Spacing="4">
+                            <TextBlock x:Name="AppVersionText" Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
                             <TextBlock Text="Local data format: V1" Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
                             <TextBlock
                                 Text="Maintainer and Microsoft publisher contact: deependra@solanky.dev"

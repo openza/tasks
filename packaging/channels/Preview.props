@@ -1,0 +1,14 @@
+<Project>
+  <PropertyGroup>
+    <OpenzaPackagedChannel>Preview</OpenzaPackagedChannel>
+    <OpenzaChannel>Preview</OpenzaChannel>
+    <OutputPath>bin\packaging\Preview\$(Configuration)\</OutputPath>
+    <IntermediateOutputPath>obj\packaging\Preview\$(Configuration)\</IntermediateOutputPath>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="$(MSBuildThisFileDirectory)Preview.channel"
+          Link=".openza-channel"
+          CopyToOutputDirectory="Never"
+          CopyToPublishDirectory="Always" />
+  </ItemGroup>
+</Project>

@@ -8,6 +8,7 @@ using Openza.Tasks.Controls;
 using Openza.Tasks.Core.Data;
 using Openza.Tasks.Core.Models;
 using Openza.Tasks.Core.Services;
+using Openza.Tasks.Core.Sync;
 using Openza.Tasks.Pages;
 using Openza.Tasks.Services;
 using Openza.Tasks.ViewModels;
@@ -465,7 +466,7 @@ public sealed partial class AppShell
                 {
                     Padding = new Thickness(12),
                     CornerRadius = new CornerRadius(6),
-                    BorderBrush = (Brush)Application.Current.Resources["OpenzaBorderBrush"],
+                    BorderBrush = (Brush)Microsoft.UI.Xaml.Application.Current.Resources["OpenzaBorderBrush"],
                     BorderThickness = new Thickness(1),
                     Child = new StackPanel
                     {
@@ -476,7 +477,7 @@ public sealed partial class AppShell
                             new TextBlock
                             {
                                 Text = link.Url,
-                                Style = (Style)Application.Current.Resources["OpenzaCaptionTextBlockStyle"],
+                                Style = (Style)Microsoft.UI.Xaml.Application.Current.Resources["OpenzaCaptionTextBlockStyle"],
                                 TextWrapping = TextWrapping.Wrap,
                             },
                         },
@@ -597,7 +598,7 @@ public sealed partial class AppShell
         var repositoryStatusText = new TextBlock
         {
             Text = "Loading repositories from your GitHub account.",
-            Style = (Style)Application.Current.Resources["OpenzaCaptionTextBlockStyle"],
+            Style = (Style)Microsoft.UI.Xaml.Application.Current.Resources["OpenzaCaptionTextBlockStyle"],
             TextWrapping = TextWrapping.Wrap,
         };
         GitHubRepositoryInfo? selectedRepository = null;
@@ -1246,19 +1247,10 @@ public sealed partial class AppShell
         }
 
         var completed = !task.IsCompleted;
-        if ((task.HasProviderSource || task.IsProviderTask) &&
-            (!string.IsNullOrWhiteSpace(task.SourceProviderTaskId) || !string.IsNullOrWhiteSpace(task.ExternalId)))
+        var pendingCompletion = ProviderWriteBackPlanner.CreateCompletion(task, completed, DateTimeOffset.UtcNow);
+        if (pendingCompletion is not null)
         {
-            await _store.QueueCompletionAsync(new PendingCompletion
-            {
-                Id = $"completion_{task.Id}_{DateTimeOffset.UtcNow.ToUnixTimeSeconds()}",
-                TaskId = task.Id,
-                Provider = task.SourceIntegrationId ?? task.IntegrationId,
-                ProviderTaskId = BuildProviderTaskId(task),
-                Completed = completed,
-                CompletedAt = completed ? DateTimeOffset.UtcNow : null,
-                CreatedAt = DateTimeOffset.UtcNow,
-            }).ConfigureAwait(true);
+            await _store.QueueCompletionAsync(pendingCompletion).ConfigureAwait(true);
         }
 
         if (completed)

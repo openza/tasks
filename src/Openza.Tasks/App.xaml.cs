@@ -1,6 +1,7 @@
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.Windows.AppLifecycle;
+using Openza.Tasks.Application.Runtime;
 using Openza.Tasks.Core.Data;
 using Openza.Tasks.Core.Services;
 using Openza.Tasks.Core.Sync;
@@ -13,7 +14,7 @@ using WindowsPackageVersion = Windows.ApplicationModel.PackageVersion;
 
 namespace Openza.Tasks;
 
-public partial class App : Application
+public partial class App : Microsoft.UI.Xaml.Application
 {
     private readonly DispatcherQueue _dispatcherQueue;
     private MainWindow? _window;
@@ -56,7 +57,7 @@ public partial class App : Application
             var appData = ApplicationData.Current.LocalFolder.Path;
             var databasePath = Path.Combine(appData, CoreAppDataPaths.DatabaseFileName);
             var packageIdentity = WindowsPackage.Current.Id.Name;
-            var packageVersion = FormatPackageVersion(WindowsPackage.Current.Id.Version);
+            var packageVersion = CurrentPackageVersion;
             AppLog.Write("Store V1 uses a fresh local Openza Tasks database.");
 
             var backupService = new BackupService(
@@ -66,7 +67,13 @@ public partial class App : Application
                 new BackupContext(
                     packageIdentity,
                     BackupPaths.GetAppFlavor(packageIdentity),
-                    packageVersion));
+                    packageVersion),
+                databaseReplacementLeaseFactory: () =>
+                    ChannelRuntimeLease.AcquireDatabaseReplacement(new OpenzaRuntimeContext
+                    {
+                        Channel = OpenzaChannel.Production,
+                        DataDirectory = appData,
+                    }));
             var legacyRestorePointDirectories = new[]
                 {
                     BackupPaths.GetLegacyPackageBackupDirectory(appData),
@@ -106,4 +113,7 @@ public partial class App : Application
 
     private static string FormatPackageVersion(WindowsPackageVersion version) =>
         $"{version.Major}.{version.Minor}.{version.Build}.{version.Revision}";
+
+    internal static string CurrentPackageVersion =>
+        FormatPackageVersion(WindowsPackage.Current.Id.Version);
 }

@@ -70,6 +70,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Openza.Tasks.Core\Openza.Tasks.Core.csproj" />
+    <ProjectReference Include="..\Openza.Tasks.Application\Openza.Tasks.Application.csproj" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(Configuration)' == 'Debug'">

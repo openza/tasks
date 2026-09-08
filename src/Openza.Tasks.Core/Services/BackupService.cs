@@ -9,7 +9,8 @@ public sealed class BackupService(
     string databasePath,
     string backupDirectory,
     BackupRetentionPolicy? retentionPolicy = null,
-    BackupContext? context = null)
+    BackupContext? context = null,
+    Func<IDisposable>? databaseReplacementLeaseFactory = null)
 {
     private static readonly JsonSerializerOptions MetadataJsonOptions = new() { WriteIndented = true };
 
@@ -17,6 +18,7 @@ public sealed class BackupService(
     public string BackupDirectory { get; } = backupDirectory;
     public BackupRetentionPolicy RetentionPolicy { get; } = retentionPolicy ?? BackupRetentionPolicy.Default;
     public BackupContext Context { get; } = context ?? BackupContext.Unknown;
+    private Func<IDisposable>? DatabaseReplacementLeaseFactory { get; } = databaseReplacementLeaseFactory;
 
     public Task<string> CreateBackupAsync(CancellationToken cancellationToken = default) =>
         CreateBackupAsync(BackupReasons.Manual, cancellationToken);
@@ -29,7 +31,7 @@ public sealed class BackupService(
     private async Task<string> CreateBackupAsync(string reason, bool pruneAfterCreate, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        Directory.CreateDirectory(BackupDirectory);
+        EnsureBackupStoragePermissions();
         var backupPath = CreateUniqueBackupPath(BackupDirectory);
         await CopyDatabaseOnlineAsync(DatabasePath, backupPath, overwrite: false, cancellationToken).ConfigureAwait(false);
         await WriteMetadataAsync(backupPath, reason, DateTimeOffset.Now, cancellationToken).ConfigureAwait(false);
@@ -43,6 +45,7 @@ public sealed class BackupService(
 
     public IReadOnlyList<string> ListBackups()
     {
+        EnsureBackupStoragePermissions();
         if (!Directory.Exists(BackupDirectory))
         {
             return [];
@@ -69,7 +72,7 @@ public sealed class BackupService(
     public async Task<int> MigrateLegacyBackupsAsync(IEnumerable<string> legacyDirectories, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        Directory.CreateDirectory(BackupDirectory);
+        EnsureBackupStoragePermissions();
         var knownHashes = new HashSet<string>(
             ListBackups().Select(path => ComputeFileHash(path)),
             StringComparer.OrdinalIgnoreCase);
@@ -98,6 +101,7 @@ public sealed class BackupService(
 
                 var destinationPath = CreateUniqueBackupPath(BackupDirectory, Path.GetFileName(sourcePath));
                 File.Copy(sourcePath, destinationPath, overwrite: false);
+                PrivateFilePermissions.EnsureFile(destinationPath);
                 if (!TryCopyMetadata(sourcePath, destinationPath))
                 {
                     var createdAt = new DateTimeOffset(File.GetLastWriteTime(destinationPath));
@@ -178,6 +182,7 @@ public sealed class BackupService(
         ValidateSqliteFile(sourcePath);
         Directory.CreateDirectory(Path.GetDirectoryName(destinationPath) ?? ".");
         File.Copy(sourcePath, destinationPath, overwrite: true);
+        PrivateFilePermissions.EnsureFile(destinationPath);
         return Task.CompletedTask;
     }
 
@@ -204,6 +209,7 @@ public sealed class BackupService(
 
     public async Task RestoreBackupAsync(string sourcePath, CancellationToken cancellationToken = default)
     {
+        using var replacementLease = DatabaseReplacementLeaseFactory?.Invoke();
         cancellationToken.ThrowIfCancellationRequested();
         ValidateSqliteFile(sourcePath);
         Directory.CreateDirectory(Path.GetDirectoryName(DatabasePath) ?? ".");
@@ -221,12 +227,14 @@ public sealed class BackupService(
         {
             File.Copy(sourcePath, restoreTempPath, overwrite: false);
             File.Copy(restoreTempPath, DatabasePath, overwrite: true);
+            PrivateFilePermissions.EnsureFile(DatabasePath);
         }
         catch
         {
             if (!string.IsNullOrWhiteSpace(safetyBackupPath) && File.Exists(safetyBackupPath))
             {
                 File.Copy(safetyBackupPath, DatabasePath, overwrite: true);
+                PrivateFilePermissions.EnsureFile(DatabasePath);
             }
 
             throw;
@@ -282,6 +290,9 @@ public sealed class BackupService(
 
         await using var stream = File.Create(MetadataPath(backupPath));
         await JsonSerializer.SerializeAsync(stream, metadata, MetadataJsonOptions, cancellationToken).ConfigureAwait(false);
+        await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
+        stream.Close();
+        PrivateFilePermissions.EnsureFile(MetadataPath(backupPath));
     }
 
     private static BackupMetadata? ReadMetadata(string backupPath)
@@ -417,6 +428,7 @@ public sealed class BackupService(
             await source.CloseAsync().ConfigureAwait(false);
 
             File.Move(tempPath, finalDestinationPath, overwrite);
+            PrivateFilePermissions.EnsureFile(finalDestinationPath);
         }
         finally
         {
@@ -561,6 +573,7 @@ public sealed class BackupService(
         try
         {
             File.Copy(sourceMetadataPath, MetadataPath(destinationPath), overwrite: false);
+            PrivateFilePermissions.EnsureFile(MetadataPath(destinationPath));
             return true;
         }
         catch (IOException)
@@ -574,6 +587,12 @@ public sealed class BackupService(
     }
 
     private static string MetadataPath(string backupPath) => $"{backupPath}.json";
+
+    private void EnsureBackupStoragePermissions()
+    {
+        PrivateFilePermissions.EnsureFiles(BackupDirectory, "*.db");
+        PrivateFilePermissions.EnsureFiles(BackupDirectory, "*.db.json");
+    }
 
     private sealed record DatabaseSnapshot(int TaskCount, int ProjectCount, int SpaceCount, string IntegrityStatus);
 }

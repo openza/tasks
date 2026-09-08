@@ -51,6 +51,13 @@ app.*.map.json
 .claude/
 
 # Build artifacts
+artifacts/
+design-qa.md
+*.snap
+/.snapcraft/
+/parts/
+/prime/
+/stage/
 *.AppImage
 *.flatpak
 Openza.AppDir/

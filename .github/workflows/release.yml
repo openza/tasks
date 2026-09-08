@@ -31,39 +31,23 @@ jobs:
       - name: Build app
         run: dotnet build src\Openza.Tasks\Openza.Tasks.csproj -c Release -p:Platform=x64 --no-restore
 
-  release:
-    needs: validate-windows
+  validate-linux:
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
-    permissions:
-      contents: write
 
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Get version from tag
-        id: get_version
-        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
-
-      - name: Extract changelog for version
-        id: changelog
-        run: |
-          VERSION="${{ steps.get_version.outputs.VERSION }}"
-          CHANGELOG=$(awk "/^## \[$VERSION\]/{flag=1; next} /^## \[/{flag=0} flag" CHANGELOG.md)
-          echo "CONTENT<<EOF" >> $GITHUB_OUTPUT
-          echo "$CHANGELOG" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-
-      - name: Create draft release
-        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
-          name: Openza Tasks v${{ steps.get_version.outputs.VERSION }}
-          draft: true
-          prerelease: false
-          body: |
-            ${{ steps.changelog.outputs.CONTENT }}
+          dotnet-version: '10.0.x'
 
-            Openza Tasks is Store-first. Build and upload Store MSIX packages from the Visual Studio Store packaging flow after associating the app with Partner Center.
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Test Core
+        run: dotnet test src/Openza.Tasks.Tests/Openza.Tasks.Tests.csproj -c Release
+
+      - name: Validate Linux metadata
+        run: bash packaging/snap/test-snap-package.sh
+
+      - name: Build strict Snap
+        uses: snapcore/action-build@3bdaa03e1ba6bf59a65f84a751d943d549a54e79 # v1

@@ -1,0 +1,40 @@
+<Window
+    x:Class="Openza.Tasks.Desktop.Dialogs.OptionPickerWindow"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Width="480"
+    Height="520"
+    MinWidth="400"
+    MinHeight="360"
+    CanResize="True"
+    ShowInTaskbar="False"
+    WindowStartupLocation="CenterOwner"
+    Opened="OnOpened">
+    <Grid RowDefinitions="Auto,*,Auto">
+        <StackPanel Margin="24,22,24,14" Spacing="4">
+            <TextBlock x:Name="TitleText" FontSize="22" FontWeight="SemiBold" />
+            <TextBlock x:Name="DescriptionText" Foreground="{DynamicResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
+        </StackPanel>
+        <ListBox
+            x:Name="OptionsList"
+            Grid.Row="1"
+            Margin="18,0"
+            AutomationProperties.Name="Options"
+            DoubleTapped="OnOptionDoubleTapped">
+            <ListBox.ItemTemplate>
+                <DataTemplate>
+                    <StackPanel Margin="8,7" Spacing="3">
+                        <TextBlock FontWeight="SemiBold" Text="{Binding Title}" />
+                        <TextBlock FontSize="12" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{Binding Subtitle}" TextWrapping="Wrap" />
+                    </StackPanel>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+        <Border Grid.Row="2" Padding="24,14" BorderBrush="{DynamicResource DividerStrokeColorDefaultBrush}" BorderThickness="0,1,0,0">
+            <StackPanel HorizontalAlignment="Right" Orientation="Horizontal" Spacing="10">
+                <Button MinWidth="100" Click="OnCancelClicked" Content="Cancel" IsCancel="True" />
+                <Button MinWidth="100" Classes="accent" Click="OnChooseClicked" Content="Choose" IsDefault="True" />
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>

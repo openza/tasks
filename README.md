@@ -1,8 +1,8 @@
 # Openza Tasks
 
-**Windows Native. Local First. Open Source.**
+**Linux First. Windows Native. Local First. Open Source.**
 
-Openza Tasks is a Windows-native task manager for people who want fast local task capture with optional provider sync. The active app is built with WinUI 3 and stores data locally in SQLite.
+Openza Tasks is a task manager for people who want fast local capture with optional provider sync. The Windows edition remains a native WinUI 3 app, while the new Avalonia desktop edition targets Linux first and keeps Windows and macOS compatibility. Both use the same local-first SQLite core.
 
 Openza Tasks is maintained by Deependra Solanky as a personal open-source project. Microsoft sign-in may show the Openza app name with the `solanky.dev` publisher/contact identity.
 
@@ -10,6 +10,7 @@ User guide: [solanky.dev/openza/tasks](https://solanky.dev/openza/tasks/)
 
 ## Features
 
+- **Linux-first desktop app** - Avalonia with first-class keyboard and desktop workflows
 - **Native Windows app** - WinUI 3, MSIX packaging, Mica where available
 - **Local-first storage** - tasks, projects, labels, backups, and imports live on your device
 - **Provider sync** - optional Todoist and Microsoft To Do reconnect/sync
@@ -26,11 +27,43 @@ Openza Tasks V1 is live on the Microsoft Store:
 - [Install from Microsoft Store](https://apps.microsoft.com/detail/9NQGDKXGRGF8)
 - [Open in the Store app](ms-windows-store://pdp/?ProductId=9NQGDKXGRGF8)
 
+The Linux edition is being prepared as the single `openza-tasks` Snap. Its
+Snap Store listing is not public yet; the repository does not advertise a
+Linux install command until that listing is live.
+
 Legacy Flutter-era packages remain available in older GitHub releases, but they are no longer the active product line. Store V1 starts with a clean WinUI workspace and can reconnect integrations.
 
 ## Building From Source
 
-### Prerequisites
+### Linux desktop development
+
+Install the .NET 10 SDK, then run:
+
+```bash
+./dev.sh
+```
+
+Source launches always use the isolated maintainer-only Dev directory. For disposable testing, `OPENZA_TASKS_DEV_DATA_DIR` may override that Dev path; Production builds ignore it.
+
+Run the matching Dev CLI with `./dev-cli.sh`. See [docs/cli.md](docs/cli.md) for its command contract.
+
+The Linux app currently includes smart lists, Spaces, projects, search, sorting, filtering, grouping, task details, labels, dates and deadlines, subtasks, Markdown import/export, restore points, connected-task intake, Todoist synchronization, and GitHub issue linking. The Snap bundles Secret Service tooling and accesses the desktop Secret Portal; source runs require the host `libsecret-tools` package before connecting an account.
+
+Build the strict Linux Snap from the repository root:
+
+```bash
+snapcraft pack --output artifacts/snap/
+```
+
+The Snap contains both the `openza-tasks` desktop command and the namespaced
+`openza-tasks.openza` CLI. The short `openza` command is requested as a Snap
+Store automatic alias before public release. Generated packages are written
+under the ignored `artifacts/snap/` directory.
+
+Maintainer registration, edge testing, and same-revision promotion are
+documented in [docs/snap-release.md](docs/snap-release.md).
+
+### Windows prerequisites
 
 - Windows 10 22H2 or Windows 11
 - .NET 10 SDK
@@ -66,6 +99,7 @@ dotnet build src\Openza.Tasks\Openza.Tasks.csproj -c Release -p:Platform=x64 --n
 ```text
 src/
   Openza.Tasks/        WinUI 3 packaged app
+  Openza.Tasks.Desktop/ Avalonia desktop app
   Openza.Tasks.Core/   SQLite data, backups, import/export, provider sync
   Openza.Tasks.Tests/  Unit, repository, backup, and sync tests
 ```

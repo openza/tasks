@@ -13,6 +13,7 @@ Openza Tasks depends on third-party packages and platform components. This file 
 | Microsoft.WindowsAppSDK | 2.0.1 | Package license file | WinUI 3 and Windows App SDK runtime |
 | Microsoft.Data.Sqlite | 10.0.0 | MIT | SQLite data access |
 | Microsoft.Extensions.Logging.Abstractions | 10.0.0 | MIT | Logging abstractions |
+| System.CommandLine | 2.0.11 | MIT | CLI parsing, help, and completion support |
 | SQLitePCLRaw.bundle_e_sqlite3 | 3.0.3 | Apache-2.0; bundled SQLite is public domain | Native SQLite bundle |
 | System.Security.Cryptography.ProtectedData | 10.0.7 | MIT | Windows protected-data integration |
 
