@@ -37,7 +37,7 @@
             <StackPanel Spacing="5"><TextBlock Text="Notes"/><TextBox x:Name="NotesBox" MinHeight="90" AcceptsReturn="True" VerticalContentAlignment="Top" TextWrapping="Wrap"/></StackPanel>
             <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto" ColumnSpacing="12" RowSpacing="12">
                 <StackPanel Spacing="5"><TextBlock Text="Project"/><ComboBox x:Name="ProjectPicker" ItemsSource="{Binding ProjectOptions}"><ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Title}"/></DataTemplate></ComboBox.ItemTemplate></ComboBox></StackPanel>
-                <StackPanel Grid.Column="1" Spacing="5"><TextBlock Text="Status"/><ComboBox x:Name="StatusPicker"><ComboBoxItem Content="Inbox"/><ComboBoxItem Content="Next"/><ComboBoxItem Content="Waiting For"/><ComboBoxItem Content="Someday"/></ComboBox></StackPanel>
+                <StackPanel Grid.Column="1" Spacing="5"><TextBlock Text="Status"/><ComboBox x:Name="StatusPicker"><ComboBoxItem Content="Inbox" Tag="0"/><ComboBoxItem Content="Next" Tag="1"/><ComboBoxItem Content="Waiting For" Tag="2"/><ComboBoxItem Content="Someday" Tag="3"/><ComboBoxItem Content="None" Tag="5"/></ComboBox></StackPanel>
                 <StackPanel Grid.Row="1" Spacing="5"><TextBlock Text="Priority"/><ComboBox x:Name="PriorityPicker"><ComboBoxItem Content="Urgent"/><ComboBoxItem Content="High"/><ComboBoxItem Content="Normal"/><ComboBoxItem Content="Low"/></ComboBox></StackPanel>
                 <StackPanel Grid.Row="1" Grid.Column="1" Spacing="5"><TextBlock Text="Date"/><DatePicker x:Name="DatePicker"/></StackPanel>
             </Grid>

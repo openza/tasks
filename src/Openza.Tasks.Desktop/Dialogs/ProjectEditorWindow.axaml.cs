@@ -16,6 +16,7 @@ public sealed partial class ProjectEditorWindow : Window
     {
         InitializeComponent();
         NameBox.Text = project.Name;
+        ColorBox.Text = project.Color;
         StatusSelector.SelectedIndex = project.EffectiveStatus switch
         {
             ProjectLifecycleStates.Completed => 1,
@@ -64,8 +65,15 @@ public sealed partial class ProjectEditorWindow : Window
             2 => ProjectLifecycleStates.Archived,
             _ => ProjectLifecycleStates.Active,
         };
-        Close(new ProjectEditDraft(name, status, FavoriteBox.IsChecked == true));
+        var color = string.IsNullOrWhiteSpace(ColorBox.Text) ? "#808080" : ColorBox.Text.Trim();
+        if (!Avalonia.Media.Color.TryParse(color, out _))
+        {
+            ColorError.IsVisible = true;
+            ColorBox.Focus();
+            return;
+        }
+        Close(new ProjectEditDraft(name, status, FavoriteBox.IsChecked == true, color));
     }
 }
 
-public sealed record ProjectEditDraft(string Name, string Status, bool IsFavorite);
+public sealed record ProjectEditDraft(string Name, string Status, bool IsFavorite, string Color);

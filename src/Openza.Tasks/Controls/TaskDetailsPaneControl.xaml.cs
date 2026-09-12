@@ -82,6 +82,7 @@ public sealed partial class TaskDetailsPaneControl : UserControl
         (WorkflowEditor?.SelectedItem as ComboBoxItem)?.Tag?.ToString() switch
         {
             "inbox" => TaskItemStatus.Inbox,
+            "none" => TaskItemStatus.None,
             "next" => TaskItemStatus.Next,
             "waiting" => TaskItemStatus.Waiting,
             "someday" => TaskItemStatus.Someday,
@@ -411,6 +412,7 @@ public sealed partial class TaskDetailsPaneControl : UserControl
     {
         var tag = status switch
         {
+            TaskItemStatus.None => "none",
             TaskItemStatus.Inbox => "inbox",
             TaskItemStatus.Next => "next",
             TaskItemStatus.Waiting => "waiting",
@@ -779,6 +781,7 @@ public sealed partial class TaskDetailsPaneControl : UserControl
 
         var status = tag switch
         {
+            "none" => TaskItemStatus.None,
             "next" => TaskItemStatus.Next,
             "waiting" => TaskItemStatus.Waiting,
             "someday" => TaskItemStatus.Someday,

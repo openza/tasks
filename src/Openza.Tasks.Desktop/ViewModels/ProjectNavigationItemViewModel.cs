@@ -13,7 +13,9 @@ public sealed class ProjectNavigationItemViewModel
     }
 
     public ProjectItem Project { get; }
+    public bool CanEdit => Project.IntegrationId == IntegrationIds.Local;
     public string Title => Project.Name;
     public string Color => Project.Color;
+    public string AccessibleName => $"{Title}, {Project.EffectiveStatus}, {_count} open tasks, {IntegrationIds.DisplayName(Project.IntegrationId)}";
     public string CountText => _count == 0 ? string.Empty : _count.ToString();
 }

@@ -43,6 +43,9 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
+      - name: Install desktop metadata validators
+        run: sudo apt-get update && sudo apt-get install --yes appstream desktop-file-utils
+
       - name: Test Core
         run: dotnet test src/Openza.Tasks.Tests/Openza.Tasks.Tests.csproj -c Release
 
@@ -50,4 +53,25 @@ jobs:
         run: bash packaging/snap/test-snap-package.sh
 
       - name: Build strict Snap
+        id: snapcraft
         uses: snapcore/action-build@3bdaa03e1ba6bf59a65f84a751d943d549a54e79 # v1
+
+      - name: Inspect built Snap
+        env:
+          SNAP_ARTIFACT: ${{ steps.snapcraft.outputs.snap }}
+        run: bash packaging/snap/inspect-snap-package.sh "$SNAP_ARTIFACT"
+
+      - name: Smoke test packaged CLI
+        env:
+          SNAP_ARTIFACT: ${{ steps.snapcraft.outputs.snap }}
+        run: |
+          sudo snap install --dangerous "$SNAP_ARTIFACT"
+          openza-tasks.openza --help
+          openza-tasks.openza --version
+
+      - name: Preserve verified Snap
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: openza-tasks-release-snap
+          path: ${{ steps.snapcraft.outputs.snap }}
+          if-no-files-found: error

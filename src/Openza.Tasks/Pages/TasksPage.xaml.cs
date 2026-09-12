@@ -42,6 +42,10 @@ public sealed partial class TasksPage : UserControl
     public event EventHandler? LabelChanged;
     public event TypedEventHandler<AutoSuggestBox, AutoSuggestBoxTextChangedEventArgs>? ProjectSearchTextChanged;
     public event TypedEventHandler<TasksPage, string>? ProjectFilterChanged;
+    public event TypedEventHandler<TasksPage, ProjectSortSettings>? ProjectSortChanged;
+    public void SetProjectSort(ProjectSortSettings settings) => ProjectsPane.SetProjectSort(settings);
+    public void SetProjectSortBusy(bool busy) => ProjectsPane.SetProjectSortBusy(busy);
+    private void OnProjectSortChanged(ProjectsPaneControl sender, ProjectSortSettings settings) => ProjectSortChanged?.Invoke(this, settings);
     public event TypedEventHandler<TasksPage, string?>? ProjectSelected;
     public event RoutedEventHandler? ClearProjectClicked;
     public event RoutedEventHandler? AddProjectClicked;
@@ -456,6 +460,7 @@ public sealed partial class TasksPage : UserControl
         workflowBox.Items.Add(new ComboBoxItem { Content = "Next", Tag = "next", IsSelected = defaultStatus == TaskItemStatus.Next });
         workflowBox.Items.Add(new ComboBoxItem { Content = "Waiting For", Tag = "waiting", IsSelected = defaultStatus == TaskItemStatus.Waiting });
         workflowBox.Items.Add(new ComboBoxItem { Content = "Someday", Tag = "someday", IsSelected = defaultStatus == TaskItemStatus.Someday });
+        workflowBox.Items.Add(new ComboBoxItem { Content = "None", Tag = "none", IsSelected = defaultStatus == TaskItemStatus.None });
         var priorityBox = new ComboBox { Header = "Priority", HorizontalAlignment = HorizontalAlignment.Stretch };
         priorityBox.Items.Add(new ComboBoxItem { Content = "Urgent", Tag = "1" });
         priorityBox.Items.Add(new ComboBoxItem { Content = "High", Tag = "2" });
@@ -637,6 +642,7 @@ public sealed partial class TasksPage : UserControl
 
     private static TaskItemStatus StatusFromTag(string? tag) => tag switch
     {
+        "none" => TaskItemStatus.None,
         "next" => TaskItemStatus.Next,
         "waiting" => TaskItemStatus.Waiting,
         "someday" => TaskItemStatus.Someday,

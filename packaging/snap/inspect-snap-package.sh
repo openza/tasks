@@ -30,6 +30,9 @@ grep -Fqx 'base: core24' "$metadata"
 grep -Fqx 'confinement: strict' "$metadata"
 grep -Fq 'command: bin/openza-tasks-launch' "$metadata"
 grep -Fq 'command: bin/openza-cli-launch' "$metadata"
+awk '/^  openza:$/ { cli = 1; next } cli && /^[^ ]|^  [^ ]/ { exit } cli { print }' "$metadata" \
+  | grep -Fq 'snap/command-chain/gpu-2404-wrapper'
+test -x "$root/snap/command-chain/gpu-2404-wrapper"
 
 test -x "$root/bin/openza-tasks-launch"
 test -x "$root/bin/openza-cli-launch"

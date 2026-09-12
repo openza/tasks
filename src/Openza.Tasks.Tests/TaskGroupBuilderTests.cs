@@ -46,6 +46,30 @@ public sealed class TaskGroupBuilderTests
     }
 
     [Fact]
+    public void Unassigned_openza_tasks_share_no_project_group_regardless_of_source_list()
+    {
+        var native = new TaskItem { Id = "native", Title = "Native" };
+        var adopted = native with
+        {
+            Id = "adopted", SourceIntegrationId = IntegrationIds.Todoist,
+            SourceExternalId = "provider-task", SourceProjectName = "Provider list",
+        };
+        var group = Assert.Single(TaskGroupBuilder.GetAssignments(native, null, TaskGroupMode.Project));
+        Assert.Equal("No project", group.Title);
+        Assert.Equal("project:no-project", group.Key);
+        Assert.Equal(group, Assert.Single(TaskGroupBuilder.GetAssignments(adopted, null, TaskGroupMode.Project)));
+        Assert.Equal(group, Assert.Single(TaskGroupBuilder.GetAssignments(adopted with { SourceProjectName = "Another list" }, null, TaskGroupMode.Project)));
+        Assert.Equal("Provider list", adopted.SourceProjectName);
+    }
+
+    [Fact]
+    public void Provider_tasks_retain_source_project_grouping()
+    {
+        var task = new TaskItem { IntegrationId = IntegrationIds.Todoist, SourceProjectName = "Provider list" };
+        Assert.Equal("Provider list", Assert.Single(TaskGroupBuilder.GetAssignments(task, null, TaskGroupMode.Project)).Title);
+    }
+
+    [Fact]
     public void Date_grouping_uses_planned_deadline_and_scheduled_values()
     {
         var planned = new TaskItem { Id = "planned", Title = "Planned", PlannedOn = new DateOnly(2030, 1, 15) };

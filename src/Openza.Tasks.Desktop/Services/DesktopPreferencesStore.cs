@@ -88,9 +88,20 @@ public sealed class DesktopPreferencesStore
 
 public sealed record DesktopPreferences
 {
+    public Dictionary<string, Openza.Tasks.Core.Data.ProjectSortSettings> ProjectSortSettings { get; init; } = new(StringComparer.Ordinal);
     public string Theme { get; init; } = "System";
     public string? SelectedSpaceId { get; init; }
     public bool AutomaticSyncEnabled { get; init; } = true;
+    public bool AutomaticRestorePointsEnabled { get; init; } = true;
+    public bool ShowGetStarted { get; init; } = true;
+    public string LastView { get; init; } = "Inbox";
+    public double WindowWidth { get; init; } = 1440;
+    public double WindowHeight { get; init; } = 800;
+    public bool WindowMaximized { get; init; } = true;
+    public MicrosoftAccount? MicrosoftToDoAccount { get; init; }
+    public MicrosoftAccount? OneDriveAccount { get; init; }
+    public bool OneDriveEnabled { get; init; }
+    public bool OneDriveEncrypted { get; init; }
     public Dictionary<string, DesktopTaskViewPreferences> TaskViewSettings { get; init; } = new(StringComparer.Ordinal);
 }
 

@@ -100,7 +100,7 @@ public sealed partial class AddTaskWindow : Window
             title,
             NotesBox.Text ?? string.Empty,
             ProjectPicker.SelectedItem as ProjectOptionViewModel,
-            Math.Max(0, StatusPicker.SelectedIndex),
+            int.TryParse((StatusPicker.SelectedItem as ComboBoxItem)?.Tag?.ToString(), out var statusIndex) ? statusIndex : 0,
             Math.Max(0, PriorityPicker.SelectedIndex),
             DatePicker.SelectedDate,
             string.Join(", ", _selectedLabels),

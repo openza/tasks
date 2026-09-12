@@ -4,6 +4,18 @@ All notable changes to Openza Tasks will be documented in this file.
 
 ## [Unreleased]
 
+## [0.1.9] - 2026-09-12 (Linux Snap)
+
+### Added
+- Avalonia Microsoft To Do sign-in and sync, OneDrive backup and recovery, and GitHub issue workflows.
+- Project sorting and color editing, clipboard actions, historical backup export, and session restoration.
+
+### Fixed
+- Task status presentation, shared project grouping, project context commands, and project assignment preservation.
+- UI responsiveness during sync and navigation from focused task editors.
+- Inbox selection restoration, first-run guidance, and preference-write error recovery.
+- Bundled CLI ICU library discovery under Snap confinement.
+
 ## [1.0.2] - 2026-08-09
 
 ### Fixed

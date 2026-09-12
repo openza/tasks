@@ -583,7 +583,7 @@ internal static class OpenzaCli
       "today" => TaskListKind.Today, "calendar" => TaskListKind.Calendar, "overdue" => TaskListKind.Overdue, "completed" => TaskListKind.Completed, "all" => TaskListKind.All,
       "open" or null => TaskListKind.Open, _ => throw new ArgumentException($"Unknown task view '{value}'.") };
     private static TaskWorkflowStatus ParseStatus(string? value) => value?.ToLowerInvariant() switch
-    { "inbox" => TaskWorkflowStatus.Inbox, "next" => TaskWorkflowStatus.Next, "waiting" => TaskWorkflowStatus.Waiting, "someday" => TaskWorkflowStatus.Someday,
+    { "none" => TaskWorkflowStatus.None, "inbox" => TaskWorkflowStatus.Inbox, "next" => TaskWorkflowStatus.Next, "waiting" => TaskWorkflowStatus.Waiting, "someday" => TaskWorkflowStatus.Someday,
       _ => throw new ArgumentException($"Unknown task status '{value}'.") };
     private static int ParsePriority(string? value) => value?.ToLowerInvariant() switch
     { "highest" => 1, "high" => 2, "normal" => 3, "low" => 4, _ => throw new ArgumentException($"Unknown priority '{value}'.") };
@@ -609,7 +609,7 @@ internal static class OpenzaCli
 
     private static Option<string> CreateStatusOption(string? requiredDefault = null) => new("--status")
     {
-        Description = "Workflow status: inbox, next, waiting, or someday.",
+        Description = "Workflow status: none, inbox, next, waiting, or someday. None leaves workflow status unassigned.",
         DefaultValueFactory = requiredDefault is null ? null : _ => requiredDefault,
     };
 

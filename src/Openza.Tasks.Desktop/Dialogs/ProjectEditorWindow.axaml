@@ -3,7 +3,7 @@
     xmlns="https://github.com/avaloniaui"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     Width="460"
-    Height="390"
+    Height="470"
     CanResize="False"
     ShowInTaskbar="False"
     Title="Edit project"
@@ -28,6 +28,11 @@
                     <ComboBoxItem Content="Completed" />
                     <ComboBoxItem Content="Archived" />
                 </ComboBox>
+            </StackPanel>
+            <StackPanel Spacing="6">
+                <TextBlock Text="Color" />
+                <TextBox x:Name="ColorBox" PlaceholderText="#808080" AutomationProperties.Name="Project color" />
+                <TextBlock x:Name="ColorError" IsVisible="False" Text="Enter a color such as #808080." />
             </StackPanel>
             <CheckBox x:Name="FavoriteBox" Content="Favorite project" />
         </StackPanel>

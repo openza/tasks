@@ -12,7 +12,7 @@ using FluentIcons.Common;
 
 namespace Openza.Tasks.Desktop.ViewModels;
 
-public sealed class MainWindowViewModel : ObservableObject
+public sealed partial class MainWindowViewModel : ObservableObject
 {
     private const int SubtaskPreviewLimit = 5;
     private const string TodoistTokenKey = "todoist-token";
@@ -21,13 +21,19 @@ public sealed class MainWindowViewModel : ObservableObject
     private readonly ICredentialStore _credentials;
     private readonly HttpClient _httpClient = new();
     private readonly TaskSyncEngine _syncEngine;
+    private readonly IDesktopMicrosoftAuthService _microsoftAuth;
+    private readonly Func<string, ISyncProvider> _microsoftSyncProviderFactory;
+    private readonly CloudBackupService? _cloudService;
+    private readonly Func<string, ISyncProvider> _todoistSyncProviderFactory;
     private readonly Func<string, string, ITaskProjectMoveProvider> _todoistMoveProviderFactory;
     private readonly SemaphoreSlim _operationGate = new(1, 1);
+    private readonly SemaphoreSlim _syncGate = new(1, 1);
+    private bool _isSyncing;
     private long _detailEditVersion;
     private int _detailUpdateDepth;
     private bool _showAllSubtasks;
     private string? _sourceDateMismatchAcknowledgementKey;
-    private readonly GitHubIssueService _gitHubIssueService = new(new HttpClient());
+    private readonly GitHubIssueService _gitHubIssueService;
     private readonly DesktopPreferencesStore _preferencesStore;
     private readonly Lazy<BackupService?> _backupService;
     private readonly List<ProjectItem> _projects = [];
@@ -90,26 +96,40 @@ public sealed class MainWindowViewModel : ObservableObject
         ITaskStore store,
         ICredentialStore credentials,
         Func<string, string, ITaskProjectMoveProvider>? todoistMoveProviderFactory = null,
-        DesktopPreferencesStore? preferencesStore = null)
+        DesktopPreferencesStore? preferencesStore = null,
+        Func<string, ISyncProvider>? todoistSyncProviderFactory = null,
+        IDesktopMicrosoftAuthService? microsoftAuth = null,
+        Func<string, ISyncProvider>? microsoftSyncProviderFactory = null,
+        CloudBackupService? cloudService = null,
+        BackupService? backupService = null,
+        GitHubIssueService? gitHubIssueService = null)
     {
         _store = store;
         _taskService = new TaskApplicationService(store);
         _credentials = credentials;
+        _microsoftAuth = microsoftAuth ?? new DesktopMicrosoftAuthService(credentials);
+        _microsoftSyncProviderFactory = microsoftSyncProviderFactory ?? (token => new MicrosoftToDoProvider(_httpClient, token));
+        _cloudService = cloudService;
+        _gitHubIssueService = gitHubIssueService ?? new GitHubIssueService(_httpClient);
         _preferencesStore = preferencesStore ?? CreatePreferencesStore(store);
         _syncEngine = new TaskSyncEngine(store);
+        _todoistSyncProviderFactory = todoistSyncProviderFactory ?? (token => new TodoistProvider(_httpClient, token));
         _todoistMoveProviderFactory = todoistMoveProviderFactory ??
             ((token, connectionId) => new TodoistProvider(_httpClient, token, connectionId));
-        _backupService = new Lazy<BackupService?>(() => store is SqliteTaskStore sqliteStore
+        _backupService = new Lazy<BackupService?>(() => backupService ?? (store is SqliteTaskStore sqliteStore
             ? new BackupService(
                 sqliteStore.DatabasePath,
-                DesktopDataPaths.RestorePointDirectory,
+                Path.GetFullPath(sqliteStore.DatabasePath) == Path.GetFullPath(DesktopDataPaths.DatabasePath)
+                    ? DesktopDataPaths.RestorePointDirectory
+                    : Path.Combine(Path.GetDirectoryName(sqliteStore.DatabasePath)!, "restore-points"),
                 context: new BackupContext(
                     "Openza.Tasks.Desktop",
                     DesktopDataPaths.Runtime.Channel.ToString().ToLowerInvariant(),
                     CurrentAppVersion),
-                databaseReplacementLeaseFactory: () =>
-                    Openza.Tasks.Application.Runtime.ChannelRuntimeLease.AcquireDatabaseReplacement(DesktopDataPaths.Runtime))
-            : null);
+                databaseReplacementLeaseFactory: Path.GetFullPath(sqliteStore.DatabasePath) == Path.GetFullPath(DesktopDataPaths.DatabasePath)
+                    ? () => Openza.Tasks.Application.Runtime.ChannelRuntimeLease.AcquireDatabaseReplacement(DesktopDataPaths.Runtime)
+                    : null)
+            : null));
     }
 
     private static string CurrentAppVersion =>
@@ -196,6 +216,7 @@ public sealed class MainWindowViewModel : ObservableObject
                     _collapsedTaskGroups.Clear();
                 }
                 OnPropertyChanged(nameof(EmptyStateTitle));
+                OnPropertyChanged(nameof(IsGetStartedVisible));
                 OnPropertyChanged(nameof(EmptyStateMessage));
             }
         }
@@ -206,6 +227,7 @@ public sealed class MainWindowViewModel : ObservableObject
         get => _selectedProject;
         set
         {
+            if (IsRebuildingProjects && value is null) return;
             var contextChanged = !string.Equals(_selectedProject?.Project.Id, value?.Project.Id, StringComparison.Ordinal);
             if (SetProperty(ref _selectedProject, value))
             {
@@ -214,6 +236,7 @@ public sealed class MainWindowViewModel : ObservableObject
                     _collapsedTaskGroups.Clear();
                 }
                 OnPropertyChanged(nameof(HasSelectedProject));
+                OnPropertyChanged(nameof(IsGetStartedVisible));
             }
         }
     }
@@ -225,6 +248,8 @@ public sealed class MainWindowViewModel : ObservableObject
         get => _selectedTask;
         set
         {
+            if (value is not null && _displayedSelectionContext is { } context)
+                _taskSelections[context] = value.Task.Id;
             if (SetProperty(ref _selectedTask, value))
             {
                 using var detailUpdate = BeginDetailUpdate();
@@ -487,12 +512,14 @@ public sealed class MainWindowViewModel : ObservableObject
         OnPropertyChanged(nameof(HasLabelFilter));
         OnPropertyChanged(nameof(HasActiveOptionFilters));
         OnPropertyChanged(nameof(HasActiveListFilters));
+                OnPropertyChanged(nameof(IsGetStartedVisible));
         OnPropertyChanged(nameof(FilterSummary));
         OnPropertyChanged(nameof(FilterAutomationName));
         OnPropertyChanged(nameof(PriorityFilterChipText));
         OnPropertyChanged(nameof(RepeatFilterChipText));
         OnPropertyChanged(nameof(LabelFilterChipText));
         OnPropertyChanged(nameof(EmptyStateTitle));
+                OnPropertyChanged(nameof(IsGetStartedVisible));
         OnPropertyChanged(nameof(EmptyStateMessage));
         OnPropertyChanged(nameof(EmptyStateActionText));
     }
@@ -511,7 +538,9 @@ public sealed class MainWindowViewModel : ObservableObject
             if (SetProperty(ref _searchText, value))
             {
                 OnPropertyChanged(nameof(HasActiveListFilters));
+                OnPropertyChanged(nameof(IsGetStartedVisible));
                 OnPropertyChanged(nameof(EmptyStateTitle));
+                OnPropertyChanged(nameof(IsGetStartedVisible));
                 OnPropertyChanged(nameof(EmptyStateMessage));
                 OnPropertyChanged(nameof(EmptyStateActionText));
             }
@@ -560,8 +589,22 @@ public sealed class MainWindowViewModel : ObservableObject
 
     public bool IsBusy
     {
-        get => _isBusy;
-        private set => SetProperty(ref _isBusy, value);
+        get => _isBusy || IsSyncing;
+        private set
+        {
+            if (_isBusy == value) return;
+            _isBusy = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public bool IsSyncing
+    {
+        get => _isSyncing;
+        private set
+        {
+            if (SetProperty(ref _isSyncing, value)) OnPropertyChanged(nameof(IsBusy));
+        }
     }
 
     public string DetailTitle
@@ -782,24 +825,33 @@ public sealed class MainWindowViewModel : ObservableObject
             }
             SelectedSpace = initialSpace ?? SpaceItems[0];
             _currentSpaceId = SelectedSpace.SpaceId;
-            SelectedNavigation = NavigationItems[0];
+            var counts = await _store.GetTaskCountsAsync(_currentSpaceId);
+            _showFirstRunInbox = preferences.ShowGetStarted && counts.All == 0;
+            SelectedNavigation = NavigationItems.FirstOrDefault(item => item.Kind.ToString() == preferences.LastView)
+                ?? NavigationItems[0];
+            if (_showFirstRunInbox) SelectedNavigation = NavigationItems[0];
+            PageTitle = SelectedNavigation.Title;
             await RefreshAsyncCore();
             await LoadConnectedTasksCoreAsync();
+            await RefreshTodoistConnectionAsync();
             StatusMessage = $"Local data · {_store.GetType().Name.Replace("TaskStore", string.Empty, StringComparison.Ordinal)}";
         });
     }
 
     public async Task SelectNavigationAsync(NavigationItemViewModel item)
     {
+        RememberTaskSelection();
         SelectedNavigation = item;
         SelectedProject = null;
         PageTitle = item.Title;
         PageSubtitle = SubtitleFor(item.Kind);
-        await RefreshAsync();
+        await _preferencesStore.UpdateAsync(preferences => preferences with { LastView = item.Kind.ToString() });
+        await RunBusyAsync(() => RefreshAsyncCore(RememberedTaskSelection()));
     }
 
     public async Task SelectSpaceAsync(SpaceNavigationItemViewModel item)
     {
+        RememberTaskSelection();
         var wasProjectView = SelectedProject is not null;
         SelectedSpace = item;
         _currentSpaceId = item.SpaceId;
@@ -902,6 +954,8 @@ public sealed class MainWindowViewModel : ObservableObject
             return;
         }
 
+        if (!await SaveSelectedAsync()) return;
+
         await RunBusyAsync(async () =>
         {
             var activeSpaces = await _store.GetSpacesAsync();
@@ -916,11 +970,20 @@ public sealed class MainWindowViewModel : ObservableObject
                 IsArchived = true,
                 UpdatedAt = DateTimeOffset.UtcNow,
             });
-            _currentSpaceId = null;
+            var wasCurrent = _currentSpaceId == item.SpaceId;
+            if (wasCurrent)
+            {
+                _currentSpaceId = activeSpaces.First(space => space.Id != item.SpaceId).Id;
+                SelectedProject = null;
+                SelectedTask = null;
+                SelectedNavigation ??= NavigationItems.First(navigation => navigation.Kind == TaskListKind.Open);
+                PageTitle = SelectedNavigation.Title;
+            }
             await ReloadSpacesAsync();
-            SelectedSpace = SpaceItems[0];
+            SelectedSpace = SpaceItems.FirstOrDefault(space => space.SpaceId == _currentSpaceId) ?? SpaceItems[0];
+            await _preferencesStore.UpdateAsync(preferences => preferences with { SelectedSpaceId = _currentSpaceId });
             StatusMessage = "Space archived";
-            await RefreshAsyncCore();
+            await RefreshAsyncCore(SelectedTask?.Task.Id);
         });
     }
 
@@ -946,11 +1009,13 @@ public sealed class MainWindowViewModel : ObservableObject
 
     public async Task SelectProjectAsync(ProjectNavigationItemViewModel item)
     {
+        RememberTaskSelection();
+        await _preferencesStore.UpdateAsync(preferences => preferences with { LastView = TaskListKind.Open.ToString() });
         SelectedProject = item;
         SelectedNavigation = null;
         PageTitle = item.Title;
         PageSubtitle = "Project tasks";
-        await RefreshAsync();
+        await RunBusyAsync(() => RefreshAsyncCore(RememberedTaskSelection()));
     }
 
     public Task ApplySearchAsync() => RefreshAsync();
@@ -1020,12 +1085,7 @@ public sealed class MainWindowViewModel : ObservableObject
     {
         await RunBusyAsync(async () =>
         {
-            var tasks = await _store.GetTasksAsync(new TaskQuery
-            {
-                SpaceId = _currentSpaceId,
-                Kind = TaskListKind.All,
-                IncludeSubtasks = true,
-            });
+            var tasks = await _store.GetTasksAsync(TaskQuery.ForMarkdownExport(_currentSpaceId));
             var projects = await _store.GetProjectsAsync(_currentSpaceId, includeArchived: true);
             var labels = await _store.GetLabelsAsync();
             await File.WriteAllTextAsync(path, MarkdownExporter.Export(tasks, projects, labels));
@@ -1096,15 +1156,16 @@ public sealed class MainWindowViewModel : ObservableObject
         });
     }
 
-    public async Task RestoreDatabaseAsync(string path)
+    public async Task<bool> RestoreDatabaseAsync(string path)
     {
+        if (IsSyncing) { ReportError("Wait for sync to finish before restoring a database."); return false; }
         if (_backupService.Value is not { } backupService)
         {
             StatusMessage = "Database restore is unavailable for this data store.";
-            return;
+            return false;
         }
 
-        await RunBusyAsync(async () =>
+        return await RunBusyAsync(async () =>
         {
             await backupService.RestoreBackupAsync(path);
             await _store.InitializeAsync();
@@ -1367,40 +1428,29 @@ public sealed class MainWindowViewModel : ObservableObject
             return;
         }
 
-        await RunBusyAsync(async () =>
-        {
-            var validation = await _gitHubIssueService.ValidateTokenAsync(token);
-            if (!validation.Success)
-            {
-                StatusMessage = validation.Error ?? "GitHub rejected the token.";
-                return;
-            }
+        await RunBusyAsync(() => SaveGitHubTokenAsync(token, CancellationToken.None));
+    }
 
-            await _credentials.SaveAsync(GitHubIssueService.TokenKey, token);
-            var settings = new GitHubConnectionSettings
-            {
-                Username = validation.Username ?? string.Empty,
-                DefaultRepositoryFullName = GitHubDefaultRepository.Trim(),
-                ConnectedAt = DateTimeOffset.UtcNow,
-                LastStatus = "Connected",
-            };
-            await _store.UpsertProviderConnectionAsync(new ProviderConnectionInfo
-            {
-                Id = GitHubIssueService.DefaultConnectionId,
-                IntegrationId = IntegrationIds.GitHub,
-                DisplayName = "GitHub",
-                AccountKey = validation.Username,
-                Status = "connected",
-                SettingsJson = GitHubIssueService.WriteSettings(settings),
-                UpdatedAt = DateTimeOffset.UtcNow,
-            });
-            await _store.SetIntegrationConfiguredAsync(IntegrationIds.GitHub, true);
-            GitHubToken = string.Empty;
-            GitHubConnectionText = string.IsNullOrWhiteSpace(validation.Username)
-                ? "GitHub connected."
-                : $"Connected as {validation.Username}.";
-            StatusMessage = "GitHub connected";
+    private async Task SaveGitHubTokenAsync(string token, CancellationToken cancellationToken)
+    {
+        var validation = await _gitHubIssueService.ValidateTokenAsync(token, cancellationToken);
+        if (!validation.Success) throw new InvalidOperationException(validation.Error ?? "GitHub rejected the token.");
+        await _credentials.SaveAsync(GitHubIssueService.TokenKey, token);
+        var settings = new GitHubConnectionSettings
+        {
+            Username = validation.Username ?? string.Empty, DefaultRepositoryFullName = GitHubDefaultRepository.Trim(),
+            ConnectedAt = DateTimeOffset.UtcNow, LastStatus = "Connected",
+        };
+        await _store.UpsertProviderConnectionAsync(new ProviderConnectionInfo
+        {
+            Id = GitHubIssueService.DefaultConnectionId, IntegrationId = IntegrationIds.GitHub, DisplayName = "GitHub",
+            AccountKey = validation.Username, Status = "connected", SettingsJson = GitHubIssueService.WriteSettings(settings),
+            UpdatedAt = DateTimeOffset.UtcNow,
         });
+        await _store.SetIntegrationConfiguredAsync(IntegrationIds.GitHub, true);
+        GitHubToken = string.Empty;
+        GitHubConnectionText = string.IsNullOrWhiteSpace(validation.Username) ? "GitHub connected." : $"Connected as {validation.Username}.";
+        StatusMessage = "GitHub connected";
     }
 
     public async Task DisconnectGitHubAsync()
@@ -1422,16 +1472,16 @@ public sealed class MainWindowViewModel : ObservableObject
         });
     }
 
-    public async Task SaveGitHubDefaultRepositoryAsync()
+    public async Task<bool> SaveGitHubDefaultRepositoryAsync()
     {
         var value = GitHubDefaultRepository.Trim();
         if (!TryParseRepository(value, out _, out _))
         {
             StatusMessage = "Use the GitHub repository format owner/name.";
-            return;
+            return false;
         }
 
-        await RunBusyAsync(async () =>
+        return await RunBusyAsync(async () =>
         {
             var connections = await _store.GetProviderConnectionsAsync();
             var connection = connections.FirstOrDefault(item => item.IntegrationId == IntegrationIds.GitHub);
@@ -1487,6 +1537,7 @@ public sealed class MainWindowViewModel : ObservableObject
 
     public async Task DisconnectTodoistAsync()
     {
+        if (IsSyncing) { StatusMessage = "Wait for Todoist sync to finish before disconnecting."; return; }
         await RunBusyAsync(async () =>
         {
             await _credentials.RemoveAsync(TodoistTokenKey);
@@ -1509,11 +1560,6 @@ public sealed class MainWindowViewModel : ObservableObject
             return;
         }
 
-        if (!await SaveSelectedAsync())
-        {
-            return;
-        }
-
         await RunTodoistSyncAsync(showMissingConnection: false);
     }
 
@@ -1521,34 +1567,64 @@ public sealed class MainWindowViewModel : ObservableObject
 
     private async Task RunTodoistSyncAsync(bool showMissingConnection)
     {
-        await RunBusyAsync(async () =>
+        // Network work has its own gate and cannot queue navigation behind a provider.
+        if (!await _syncGate.WaitAsync(0)) return;
+        IsSyncing = true;
+        try
         {
-            using var syncLease = Openza.Tasks.Application.Runtime.ChannelRuntimeLease.AcquireProviderSync(
-                DesktopDataPaths.Runtime,
-                IntegrationIds.Todoist);
-            var token = await _credentials.GetAsync(TodoistTokenKey);
-            if (string.IsNullOrWhiteSpace(token))
+            if (!await SaveSelectedAsync()) return;
+            LastSyncResult = "Syncing connected apps…";
+            StatusMessage = LastSyncResult;
+            var summaries = await Task.Run(async () =>
             {
-                if (showMissingConnection)
+                using var databaseLease = Openza.Tasks.Application.Runtime.ChannelRuntimeLease.AcquireDatabaseRead(DesktopDataPaths.Runtime);
+                var results = new List<SyncSummary>();
+                async Task SyncProvider(string integrationId, Func<Task<ISyncProvider?>> factory)
                 {
-                    StatusMessage = "Connect Todoist in Settings before syncing.";
+                    try
+                    {
+                        using var lease = Openza.Tasks.Application.Runtime.ChannelRuntimeLease.AcquireProviderSync(DesktopDataPaths.Runtime, integrationId);
+                        var provider = await factory().ConfigureAwait(false);
+                        if (provider is not null) results.Add(await _syncEngine.SyncAsync(provider).ConfigureAwait(false));
+                    }
+                    catch (Exception exception) { results.Add(new SyncSummary(integrationId, false, 0, 0, 0, 0, 0, 0, exception.Message)); }
                 }
-                return;
-            }
-
-            StatusMessage = "Syncing Todoist…";
-            var summary = await _syncEngine.SyncAsync(new TodoistProvider(_httpClient, token));
-            if (!summary.Success)
+                await SyncProvider(IntegrationIds.Todoist, async () =>
+                {
+                    var token = await _credentials.GetAsync(TodoistTokenKey).ConfigureAwait(false);
+                    return string.IsNullOrWhiteSpace(token) ? null : _todoistSyncProviderFactory(token);
+                });
+                await SyncProvider(IntegrationIds.MicrosoftToDo, async () =>
+                {
+                    var token = await _microsoftAuth.GetTokenAsync("todo", _preferencesStore.Load().MicrosoftToDoAccount).ConfigureAwait(false);
+                    return string.IsNullOrWhiteSpace(token) ? null : _microsoftSyncProviderFactory(token);
+                });
+                return results;
+            });
+            if (summaries.Count == 0)
             {
-                SetPersistentStatusMessage($"Todoist sync failed: {summary.Error}");
+                LastSyncResult = "No connected sync provider.";
+                StatusMessage = showMissingConnection ? "Connect an app in Settings before syncing." : string.Empty;
                 return;
             }
-
-            await LoadConnectedTasksCoreAsync();
-            await RefreshAsyncCore(SelectedTask?.Task.Id);
-            await LoadTodoistRoutingRulesCoreAsync();
-            StatusMessage = $"Todoist synced · {summary.TasksAdded} new, {summary.TasksUpdated} updated, {summary.CompletionsSynced} completions, {summary.DateUpdatesSynced} date changes";
-        });
+            await RunBusyAsync(async () =>
+            {
+                await LoadConnectedTasksCoreAsync();
+                await RefreshAsyncCore(SelectedTask?.Task.Id, preserveEditor: true);
+                await LoadTodoistRoutingRulesCoreAsync();
+            });
+            LastSyncResult = $"{DateTimeOffset.Now:g} · " + string.Join("; ", summaries.Select(summary => summary.Success
+                ? $"{IntegrationIds.DisplayName(summary.Provider)} synced · {summary.TasksAdded} new, {summary.TasksUpdated} updated, {summary.CompletionsSynced} completions, {summary.DateUpdatesSynced} date changes"
+                : $"{IntegrationIds.DisplayName(summary.Provider)} sync failed: {summary.Error}"));
+            if (summaries.Any(summary => !summary.Success)) SetPersistentStatusMessage(LastSyncResult);
+            else StatusMessage = LastSyncResult;
+        }
+        catch (Exception exception)
+        {
+            LastSyncResult = $"Sync failed: {exception.Message}";
+            SetPersistentStatusMessage(LastSyncResult);
+        }
+        finally { IsSyncing = false; _syncGate.Release(); }
     }
 
     public void FilterConnectedTasks(string searchText)
@@ -1866,56 +1942,69 @@ public sealed class MainWindowViewModel : ObservableObject
         });
     }
 
-    public async Task UpdateSelectedProjectAsync(string name, string projectStatus, bool isFavorite)
+    public Task UpdateSelectedProjectAsync(string name, string projectStatus, bool isFavorite) =>
+        SelectedProject is { } item
+            ? UpdateProjectAsync(item.Project.Id, name, projectStatus, isFavorite)
+            : Task.CompletedTask;
+
+    public async Task UpdateProjectAsync(string projectId, string name, string projectStatus, bool isFavorite, string? color = null)
     {
-        if (SelectedProject is null || string.IsNullOrWhiteSpace(name))
+        if (string.IsNullOrWhiteSpace(name))
         {
             return;
         }
 
-        var project = SelectedProject.Project;
         var status = ProjectLifecycleStates.Normalize(projectStatus);
         await RunBusyAsync(async () =>
         {
+            var project = (await _store.GetProjectsAsync(_currentSpaceId, includeArchived: true))
+                .FirstOrDefault(item => item.Id == projectId);
+            if (project is null || project.IntegrationId != IntegrationIds.Local) return;
+            var isSelected = SelectedProject?.Project.Id == projectId;
             await _store.UpsertProjectAsync(project with
             {
                 Name = name.Trim(),
                 Status = status,
+                Color = color ?? project.Color,
                 IsArchived = status == ProjectLifecycleStates.Archived,
                 IsFavorite = isFavorite,
                 UpdatedAt = DateTimeOffset.UtcNow,
             });
-            PageTitle = name.Trim();
+            if (isSelected) PageTitle = name.Trim();
             StatusMessage = "Project updated";
-            await RefreshAsyncCore();
-            SelectedProject = ProjectItems.FirstOrDefault(item => item.Project.Id == project.Id);
-            if (SelectedProject is null)
+            await RefreshAsyncCore(SelectedTask?.Task.Id, preserveEditor: true);
+            if (isSelected && SelectedProject is null)
             {
                 SelectedNavigation = NavigationItems.First(item => item.Kind == TaskListKind.Open);
                 PageTitle = SelectedNavigation.Title;
                 PageSubtitle = SubtitleFor(SelectedNavigation.Kind);
-                await RefreshAsyncCore();
+                await RefreshAsyncCore(SelectedTask?.Task.Id, preserveEditor: true);
             }
         });
     }
 
-    public async Task DeleteSelectedProjectAsync()
-    {
-        if (SelectedProject is null)
-        {
-            return;
-        }
+    public Task DeleteSelectedProjectAsync() => SelectedProject is { } item
+        ? DeleteProjectAsync(item.Project.Id)
+        : Task.CompletedTask;
 
-        var projectId = SelectedProject.Project.Id;
+    public async Task DeleteProjectAsync(string projectId)
+    {
         await RunBusyAsync(async () =>
         {
+            var project = (await _store.GetProjectsAsync(_currentSpaceId, includeArchived: true))
+                .FirstOrDefault(item => item.Id == projectId);
+            if (project is null || project.IntegrationId != IntegrationIds.Local) return;
+            var isSelected = SelectedProject?.Project.Id == projectId;
             await _store.DeleteProjectAsync(projectId, moveTasksToInbox: true);
-            SelectedProject = null;
-            SelectedNavigation = NavigationItems[0];
-            PageTitle = "Inbox";
-            PageSubtitle = SubtitleFor(TaskListKind.Inbox);
+            if (isSelected)
+            {
+                SelectedProject = null;
+                SelectedNavigation = NavigationItems[0];
+                PageTitle = "Inbox";
+                PageSubtitle = SubtitleFor(TaskListKind.Inbox);
+            }
             StatusMessage = "Project deleted; its tasks were moved to Inbox";
-            await RefreshAsyncCore();
+            await RefreshAsyncCore(SelectedTask?.Task.Id, preserveEditor: true);
         });
     }
 
@@ -2105,10 +2194,12 @@ public sealed class MainWindowViewModel : ObservableObject
             return false;
         }
 
-        var draft = CaptureDetailSaveDraft(SelectedTask.Task.Id);
+        var baseline = SelectedTask.Task;
+        var draft = CaptureDetailSaveDraft(baseline.Id);
         var valid = true;
         var succeeded = await RunBusyAsync(async () =>
         {
+            var savedChanges = false;
             while (SelectedTask is not null && string.Equals(SelectedTask.Task.Id, draft.TaskId, StringComparison.Ordinal))
             {
                 var original = await _store.GetTaskAsync(draft.TaskId);
@@ -2120,23 +2211,24 @@ public sealed class MainWindowViewModel : ObservableObject
                 var completed = draft.Status == TaskItemStatus.Completed;
                 var localMetadataJson = WithSourceDateMismatchAcknowledgement(original.LocalMetadataJson, draft.SourceDateMismatchAcknowledgementKey);
                 TaskItem? updated = null;
-                if (HasDetailChanges(original, draft, completed, localMetadataJson))
+                if (HasDetailChanges(baseline, draft, completed, WithSourceDateMismatchAcknowledgement(baseline.LocalMetadataJson, draft.SourceDateMismatchAcknowledgementKey)))
                 {
                     updated = await _taskService.UpdateTaskAsync(new UpdateTaskRequest
                     {
                         TaskId = original.Id,
                         ExpectedRevision = original.Revision,
-                        Title = OptionalValue<string?>.Set(draft.Title),
-                        Notes = OptionalValue<string?>.Set(NullIfEmpty(draft.Notes)),
-                        Status = completed ? default : OptionalValue<TaskWorkflowStatus>.Set(draft.Status.ToWorkflowStatus()),
-                        Completed = OptionalValue<bool>.Set(completed),
-                        Priority = OptionalValue<int>.Set(draft.Priority),
-                        Project = OptionalValue<string?>.Set(draft.ProjectId),
-                        PlannedOn = OptionalValue<DateOnly?>.Set(draft.PlannedOn),
-                        DeadlineOn = OptionalValue<DateOnly?>.Set(draft.DeadlineOn),
-                        Labels = OptionalValue<IReadOnlyList<string>>.Set(draft.Labels.Select(label => label.Name).ToArray()),
-                        LocalMetadataJson = OptionalValue<string?>.Set(localMetadataJson),
+                        Title = draft.Title == baseline.Title ? default : OptionalValue<string?>.Set(draft.Title),
+                        Notes = NullIfEmpty(draft.Notes) == NullIfEmpty(baseline.Notes) ? default : OptionalValue<string?>.Set(NullIfEmpty(draft.Notes)),
+                        Status = completed || draft.Status == baseline.Status ? default : OptionalValue<TaskWorkflowStatus>.Set(draft.Status.ToWorkflowStatus()),
+                        Completed = completed == baseline.IsCompleted ? default : OptionalValue<bool>.Set(completed),
+                        Priority = draft.Priority == baseline.Priority ? default : OptionalValue<int>.Set(draft.Priority),
+                        Project = draft.ProjectId == baseline.ProjectId ? default : OptionalValue<string?>.Set(draft.ProjectId),
+                        PlannedOn = draft.PlannedOn == baseline.PlannedOn ? default : OptionalValue<DateOnly?>.Set(draft.PlannedOn),
+                        DeadlineOn = draft.DeadlineOn == baseline.DeadlineOn ? default : OptionalValue<DateOnly?>.Set(draft.DeadlineOn),
+                        Labels = draft.Labels.Select(x => x.Name).Order().SequenceEqual(baseline.Labels.Select(x => x.Name).Order()) ? default : OptionalValue<IReadOnlyList<string>>.Set(draft.Labels.Select(label => label.Name).ToArray()),
+                        LocalMetadataJson = draft.SourceDateMismatchAcknowledgementKey == ReadSourceDateMismatchAcknowledgementKey(baseline.LocalMetadataJson) ? default : OptionalValue<string?>.Set(localMetadataJson),
                     });
+                    savedChanges = true;
                 }
 
                 if (draft.Version != _detailEditVersion)
@@ -2148,11 +2240,25 @@ public sealed class MainWindowViewModel : ObservableObject
                         return;
                     }
 
+                    // The next edit is relative to the editor values just saved,
+                    // not to provider fields that may have changed meanwhile.
+                    baseline = baseline with
+                    {
+                        Title = draft.Title, Notes = draft.Notes, Status = draft.Status,
+                        Priority = draft.Priority, ProjectId = draft.ProjectId,
+                        PlannedOn = draft.PlannedOn, DeadlineOn = draft.DeadlineOn,
+                        Labels = draft.Labels,
+                        LocalMetadataJson = WithSourceDateMismatchAcknowledgement(baseline.LocalMetadataJson, draft.SourceDateMismatchAcknowledgementKey),
+                    };
                     draft = CaptureDetailSaveDraft(draft.TaskId);
                     continue;
                 }
 
                 StatusMessage = "Changes saved";
+                if (!savedChanges)
+                {
+                    return;
+                }
                 var selectedId = SelectedTask?.Task.Id;
                 await RefreshAsyncCore(string.Equals(selectedId, original.Id, StringComparison.Ordinal)
                     ? updated?.Id ?? original.Id
@@ -2270,69 +2376,6 @@ public sealed class MainWindowViewModel : ObservableObject
         }
     }
 
-    public async Task<string?> RunGitHubActionAsync()
-    {
-        if (SelectedTask is null)
-        {
-            return null;
-        }
-
-        if (_selectedGitHubLink is not null)
-        {
-            return _selectedGitHubLink.Url;
-        }
-
-        string? resultUrl = null;
-        await RunBusyAsync(async () =>
-        {
-            var token = await _credentials.GetAsync(GitHubIssueService.TokenKey);
-            if (string.IsNullOrWhiteSpace(token))
-            {
-                StatusMessage = "Connect GitHub in Settings first.";
-                return;
-            }
-
-            var connections = await _store.GetProviderConnectionsAsync();
-            var connection = connections.FirstOrDefault(item => item.IntegrationId == IntegrationIds.GitHub);
-            var settings = GitHubIssueService.ReadSettings(connection?.SettingsJson);
-            if (!TryParseRepository(settings.DefaultRepositoryFullName, out var owner, out var repository))
-            {
-                StatusMessage = "Set a default GitHub repository in Settings first.";
-                return;
-            }
-
-            var task = SelectedTask.Task;
-            var project = _projects.FirstOrDefault(item => item.Id == task.ProjectId);
-            var result = await _gitHubIssueService.CreateIssueAsync(token, new GitHubIssueCreateRequest(
-                owner,
-                repository,
-                task.Title,
-                GitHubIssueService.BuildIssueBody(task, project),
-                [],
-                []));
-            var link = new TaskExternalLinkInfo
-            {
-                Id = $"github_{Guid.NewGuid():N}",
-                TaskId = task.Id,
-                IntegrationId = IntegrationIds.GitHub,
-                ConnectionId = GitHubIssueService.DefaultConnectionId,
-                ExternalId = result.ExternalId,
-                Kind = TaskExternalLinkKinds.Issue,
-                DisplayName = result.DisplayName,
-                Url = result.Url,
-                MetadataJson = JsonSerializer.Serialize(new { result.Owner, result.Repository, result.Number, result.State }),
-                CreatedAt = DateTimeOffset.UtcNow,
-                UpdatedAt = DateTimeOffset.UtcNow,
-            };
-            await _store.UpsertTaskExternalLinkAsync(link);
-            _selectedGitHubLink = link;
-            GitHubActionText = "Open GitHub issue";
-            StatusMessage = $"GitHub issue {result.DisplayName} created";
-            resultUrl = result.Url;
-        });
-        return resultUrl;
-    }
-
     public async Task ToggleSubtaskCompletionAsync(TaskListItemViewModel subtask)
     {
         var parentId = SelectedTask?.Task.Id;
@@ -2354,9 +2397,9 @@ public sealed class MainWindowViewModel : ObservableObject
         await RunBusyAsync(() => RefreshAsyncCore(SelectedTask?.Task.Id));
     }
 
-    private async Task RefreshAsyncCore(string? selectTaskId = null)
+    private async Task RefreshAsyncCore(string? selectTaskId = null, bool preserveEditor = false)
     {
-        using var detailUpdate = BeginDetailUpdate();
+        _displayedSelectionContext = SelectionContext;
         ApplyTaskViewPreferencesForCurrentContext();
         var labels = await _store.GetLabelsAsync();
         await ClearStaleLabelFilterAsync(labels);
@@ -2380,6 +2423,11 @@ public sealed class MainWindowViewModel : ObservableObject
             LabelId = _restoredLabelFilterId,
         });
         var projects = await _store.GetProjectsAsync(_currentSpaceId, includeArchived: true);
+        // Capture at publication time, after reads, so edits made during awaits survive.
+        var editorTask = preserveEditor ? SelectedTask : null;
+        var editorDraft = editorTask is null ? null : CaptureDetailSaveDraft(editorTask.Task.Id);
+        var editorTitle = DetailTitle;
+        using var detailUpdate = BeginDetailUpdate();
         _projects.Clear();
         _projects.AddRange(projects);
         _labels.Clear();
@@ -2398,7 +2446,7 @@ public sealed class MainWindowViewModel : ObservableObject
 
         ProjectOptions.Clear();
         ProjectOptions.Add(new ProjectOptionViewModel(null));
-        foreach (var project in projects.Where(project => project.IsActive))
+        foreach (var project in projects.Where(project => !project.IsArchived))
         {
             ProjectOptions.Add(new ProjectOptionViewModel(project));
         }
@@ -2427,6 +2475,8 @@ public sealed class MainWindowViewModel : ObservableObject
         PageSubtitle = $"{Tasks.Count} task{(Tasks.Count == 1 ? string.Empty : "s")}";
 
         UpdateNavigationCounts(snapshot.Counts);
+        _spaceTaskCount = snapshot.Counts.All;
+        OnPropertyChanged(nameof(IsGetStartedVisible));
         _projectCounts.Clear();
         foreach (var (projectId, count) in snapshot.Counts.ActiveByProject)
         {
@@ -2437,9 +2487,37 @@ public sealed class MainWindowViewModel : ObservableObject
         SelectedTask = selectTaskId is null
             ? null
             : Tasks.FirstOrDefault(item => item.Task.Id == selectTaskId);
+        if (editorTask is not null && editorDraft is not null)
+        {
+            // Keep an edited task open even when a changed filter removes its row.
+            var edited = HasDetailChanges(editorTask.Task, editorDraft, editorDraft.Status == TaskItemStatus.Completed,
+                WithSourceDateMismatchAcknowledgement(editorTask.Task.LocalMetadataJson, editorDraft.SourceDateMismatchAcknowledgementKey));
+            if (SelectedTask is null && edited) SelectedTask = editorTask;
+            if (SelectedTask?.Task.Id == editorTask.Task.Id)
+                RestoreEditedFields(editorTask.Task, editorDraft, editorTitle);
+        }
         await LoadSubtasksAsync();
         await LoadSelectedGitHubLinkAsync();
         OnPropertyChanged(nameof(HasNoSelectedTask));
+    }
+
+    private void RestoreEditedFields(TaskItem before, DetailSaveDraft draft, string rawTitle)
+    {
+        if (draft.Title != before.Title) DetailTitle = rawTitle;
+        if (NullIfEmpty(draft.Notes) != NullIfEmpty(before.Notes)) DetailNotes = draft.Notes;
+        if (draft.Status != before.Status) DetailStatusIndex = StatusIndex(draft.Status);
+        if (draft.Priority != before.Priority) DetailPriorityIndex = draft.Priority - 1;
+        if (draft.PlannedOn != before.PlannedOn) DetailDate = draft.PlannedOn is { } date ? ToLocalDateTimeOffset(date) : null;
+        if (draft.DeadlineOn != before.DeadlineOn) DetailDeadline = draft.DeadlineOn is { } deadline ? ToLocalDateTimeOffset(deadline) : null;
+        if (draft.ProjectId != before.ProjectId) DetailProject = ProjectOptions.FirstOrDefault(option => option.ProjectId == draft.ProjectId);
+        if (!draft.Labels.Select(x => x.Name).Order().SequenceEqual(before.Labels.Select(x => x.Name).Order()))
+        {
+            DetailLabelItems.Clear();
+            foreach (var label in draft.Labels) DetailLabelItems.Add(label.Name);
+            SyncDetailLabels();
+        }
+        if (draft.SourceDateMismatchAcknowledgementKey != ReadSourceDateMismatchAcknowledgementKey(before.LocalMetadataJson))
+            _sourceDateMismatchAcknowledgementKey = draft.SourceDateMismatchAcknowledgementKey;
     }
 
     private void RefreshLabelFilterOptions(IReadOnlyList<LabelItem> labels)
@@ -2490,7 +2568,10 @@ public sealed class MainWindowViewModel : ObservableObject
 
         SortIndex = stored?.SortIndex ?? 0;
         SortDirectionIndex = stored?.SortDirectionIndex ?? 0;
-        GroupIndex = stored?.GroupIndex ?? DefaultGroupIndexForCurrentView();
+        var grouping = IsTasksView()
+            ? preferences.TaskViewSettings.GetValueOrDefault(SharedTasksSettingsKey())
+            : stored;
+        GroupIndex = grouping?.GroupIndex ?? DefaultGroupIndexForCurrentView();
         PriorityFilterIndex = stored?.PriorityFilterIndex ?? 0;
         RepeatFilterIndex = stored?.RepeatFilterIndex ?? 0;
         SelectedLabelFilter = LabelFilterOptions.FirstOrDefault(option =>
@@ -2512,9 +2593,15 @@ public sealed class MainWindowViewModel : ObservableObject
             LabelFilterId = _restoredLabelFilterId,
         };
         _activeTaskViewSettingsKey = key;
+        var sharedTasksKey = IsTasksView() ? SharedTasksSettingsKey() : null;
         await _preferencesStore.UpdateAsync(preferences =>
         {
             preferences.TaskViewSettings[key] = viewPreferences;
+            if (sharedTasksKey is not null && sharedTasksKey != key)
+            {
+                var shared = preferences.TaskViewSettings.GetValueOrDefault(sharedTasksKey) ?? new DesktopTaskViewPreferences();
+                preferences.TaskViewSettings[sharedTasksKey] = shared with { GroupIndex = viewPreferences.GroupIndex };
+            }
             return preferences;
         });
     }
@@ -2531,6 +2618,10 @@ public sealed class MainWindowViewModel : ObservableObject
         SelectedLabelFilter = LabelFilterOptions.FirstOrDefault(option => option.LabelId is null);
         await SaveTaskViewPreferencesAsync();
     }
+
+    private bool IsTasksView() => SelectedProject is not null || SelectedNavigation?.Kind == TaskListKind.Open;
+
+    private string SharedTasksSettingsKey() => $"{_currentSpaceId ?? "all"}|tasks|all";
 
     private string TaskViewSettingsKey()
     {
@@ -2661,6 +2752,7 @@ public sealed class MainWindowViewModel : ObservableObject
 
     private async Task EnsureDailyRestorePointAsync()
     {
+        if (!_preferencesStore.Load().AutomaticRestorePointsEnabled) return;
         if (_backupService.Value is not { } backupService)
         {
             return;
@@ -2708,6 +2800,7 @@ public sealed class MainWindowViewModel : ObservableObject
         RebuildConnectedFilterOptions();
         FilterConnectedTasks(string.Empty);
         OnPropertyChanged(nameof(ConnectedTaskCount));
+                OnPropertyChanged(nameof(IsGetStartedVisible));
         OnPropertyChanged(nameof(WaitingConnectedTaskCount));
         OnPropertyChanged(nameof(SkippedConnectedTaskCount));
         OnPropertyChanged(nameof(HasConnectedTasks));
@@ -2765,6 +2858,9 @@ public sealed class MainWindowViewModel : ObservableObject
 
     private void RebuildProjectItems()
     {
+        ProjectSort = (_preferencesStore.Load().ProjectSortSettings?.GetValueOrDefault(ProjectSortSettings.SpaceKey(_currentSpaceId))
+            ?? new ProjectSortSettings()).Normalize();
+        OnPropertyChanged(nameof(ProjectSort));
         var selectedProjectId = SelectedProject?.Project.Id;
         var search = ProjectSearchText.Trim();
         var projects = _projects.Where(project => ProjectFilterIndex switch
@@ -2779,17 +2875,44 @@ public sealed class MainWindowViewModel : ObservableObject
             projects = projects.Where(project => project.Name.Contains(search, StringComparison.CurrentCultureIgnoreCase));
         }
 
-        ProjectItems.Clear();
-        foreach (var project in projects.OrderByDescending(project => project.IsFavorite).ThenBy(project => project.SortOrder).ThenBy(project => project.Name, StringComparer.CurrentCultureIgnoreCase))
+        IsRebuildingProjects = true;
+        try
         {
-            _projectCounts.TryGetValue(project.Id, out var count);
-            ProjectItems.Add(new ProjectNavigationItemViewModel(project, count));
+            ProjectItems.Clear();
+            foreach (var project in ProjectSorting.Sort(projects, ProjectSort, _projectCounts))
+            {
+                _projectCounts.TryGetValue(project.Id, out var count);
+                ProjectItems.Add(new ProjectNavigationItemViewModel(project, count));
+            }
+            var selection = selectedProjectId is null ? null : ProjectItems.FirstOrDefault(item => item.Project.Id == selectedProjectId);
+            // Suppress collection-induced null selections, but honor filtering out a project.
+            if (selection is null)
+            {
+                if (selectedProjectId is not null) _collapsedTaskGroups.Clear();
+                _selectedProject = null;
+            }
+            SelectedProject = selection;
+            OnPropertyChanged(nameof(SelectedProject));
+            OnPropertyChanged(nameof(HasSelectedProject));
+                OnPropertyChanged(nameof(IsGetStartedVisible));
         }
-
-        SelectedProject = selectedProjectId is null
-            ? null
-            : ProjectItems.FirstOrDefault(item => item.Project.Id == selectedProjectId);
+        finally { IsRebuildingProjects = false; }
     }
+
+    public bool IsRebuildingProjects { get; private set; }
+    public ProjectSortSettings ProjectSort { get; private set; } = new();
+
+    public Task SetProjectSortAsync(ProjectSortSettings settings) => RunBusyAsync(async () =>
+    {
+        var key = ProjectSortSettings.SpaceKey(_currentSpaceId);
+        await _preferencesStore.UpdateAsync(preferences =>
+        {
+            var sorts = new Dictionary<string, ProjectSortSettings>(preferences.ProjectSortSettings ?? new(), StringComparer.Ordinal)
+            { [key] = settings.Normalize() };
+            return preferences with { ProjectSortSettings = sorts };
+        });
+        RebuildProjectItems();
+    });
 
     private void UpdateNavigationCounts(TaskCountSummary counts)
     {
@@ -2833,6 +2956,13 @@ public sealed class MainWindowViewModel : ObservableObject
             }
         }
         SyncDetailLabels();
+        // A filtered/archived project must never turn an unrelated edit into reassignment.
+        if (task?.ProjectId is { } projectId && !ProjectOptions.Any(option => option.ProjectId == projectId))
+        {
+            var project = _projects.FirstOrDefault(item => item.Id == projectId)
+                ?? new ProjectItem { Id = projectId, Name = projectId };
+            ProjectOptions.Add(new ProjectOptionViewModel(project));
+        }
         DetailProject = ProjectOptions.FirstOrDefault(option => option.ProjectId == task?.ProjectId)
             ?? ProjectOptions.FirstOrDefault();
         NotifySourceDateMismatchChanged();
@@ -3087,6 +3217,7 @@ public sealed class MainWindowViewModel : ObservableObject
         TaskItemStatus.Waiting => 2,
         TaskItemStatus.Someday => 3,
         TaskItemStatus.Completed => 4,
+        TaskItemStatus.None => 5,
         _ => 0,
     };
 
@@ -3096,6 +3227,7 @@ public sealed class MainWindowViewModel : ObservableObject
         2 => TaskItemStatus.Waiting,
         3 => TaskItemStatus.Someday,
         4 => TaskItemStatus.Completed,
+        5 => TaskItemStatus.None,
         _ => TaskItemStatus.Inbox,
     };
 

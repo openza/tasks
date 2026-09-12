@@ -176,6 +176,7 @@
                         LabelChanged="OnLabelChanged"
                         ProjectSearchTextChanged="OnProjectSearchTextChanged"
                         ProjectFilterChanged="OnProjectFilterChanged"
+                        ProjectSortChanged="OnProjectSortChanged"
                         ProjectSelected="OnProjectSelected"
                         ClearProjectClicked="OnClearProjectClicked"
                         AddProjectClicked="OnAddProjectClicked"

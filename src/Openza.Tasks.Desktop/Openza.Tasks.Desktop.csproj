@@ -14,6 +14,17 @@
     <OpenzaChannel Condition="'$(OpenzaChannel)' == ''">Dev</OpenzaChannel>
   </PropertyGroup>
 
+  <PropertyGroup>
+    <MicrosoftGraphClientId Condition="'$(MicrosoftGraphClientId)' == '' and '$(OpenzaChannel)' == 'Dev'">fbf30ec3-0911-4338-8d2a-1f55d003f77c</MicrosoftGraphClientId>
+    <MicrosoftGraphClientId Condition="'$(MicrosoftGraphClientId)' == ''">1ee7c73f-5894-4167-8a99-3ee8b2666b8c</MicrosoftGraphClientId>
+    <MicrosoftGraphTenantId Condition="'$(MicrosoftGraphTenantId)' == ''">common</MicrosoftGraphTenantId>
+    <GitHubClientId Condition="'$(GitHubClientId)' == ''">Ov23liA6rFJwuT18Zv3m</GitHubClientId>
+  </PropertyGroup>
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute"><_Parameter1>MicrosoftGraphClientId</_Parameter1><_Parameter2>$(MicrosoftGraphClientId)</_Parameter2></AssemblyAttribute>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute"><_Parameter1>MicrosoftGraphTenantId</_Parameter1><_Parameter2>$(MicrosoftGraphTenantId)</_Parameter2></AssemblyAttribute>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute"><_Parameter1>GitHubClientId</_Parameter1><_Parameter2>$(GitHubClientId)</_Parameter2></AssemblyAttribute>
+  </ItemGroup>
   <ItemGroup>
     <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
       <_Parameter1>OpenzaChannel</_Parameter1>
@@ -31,6 +42,7 @@
     <PackageReference Include="Avalonia.Fonts.Inter" Version="12.1.0" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.0" />
     <PackageReference Include="FluentIcons.Avalonia" Version="2.1.335" />
+    <PackageReference Include="Microsoft.Identity.Client" Version="4.84.0" />
   </ItemGroup>
 
   <ItemGroup>

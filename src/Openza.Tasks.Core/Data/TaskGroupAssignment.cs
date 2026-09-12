@@ -34,8 +34,10 @@ public static class TaskGroupBuilder
 
     private static TaskGroupAssignment ProjectGroup(TaskItem task, ProjectItem? project)
     {
-        var projectName = project?.Name ?? task.SourceProjectName ?? "No project";
-        var key = project?.Id ?? task.ProjectId ?? task.SourceProjectName ?? "no-project";
+        // Adopted tasks use their Openza project assignment, not the provider's source list.
+        var sourceProjectName = task.IsProviderTask ? task.SourceProjectName : null;
+        var projectName = project?.Name ?? sourceProjectName ?? "No project";
+        var key = project?.Id ?? task.ProjectId ?? sourceProjectName ?? "no-project";
         return new TaskGroupAssignment($"project:{key}", projectName, $"1:{projectName.ToUpperInvariant()}");
     }
 
@@ -44,6 +46,7 @@ public static class TaskGroupBuilder
         return task.Status switch
         {
             TaskItemStatus.Inbox => new TaskGroupAssignment("status:inbox", "Inbox", "1"),
+            TaskItemStatus.None => new TaskGroupAssignment("status:none", "None", "0"),
             TaskItemStatus.Next => new TaskGroupAssignment("status:next", "Next", "2"),
             TaskItemStatus.Waiting => new TaskGroupAssignment("status:waiting", "Waiting For", "3"),
             TaskItemStatus.Someday => new TaskGroupAssignment("status:someday", "Someday", "4"),

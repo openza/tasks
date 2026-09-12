@@ -211,6 +211,58 @@ public sealed class DesktopTaskCreationTests : IDisposable
     }
 
     [Fact]
+    public async Task Project_row_actions_target_unselected_project_and_preserve_editor()
+    {
+        var store = await CreateStoreAsync();
+        await store.UpsertProjectAsync(new ProjectItem { Id = "selected", Name = "Selected" });
+        await store.UpsertProjectAsync(new ProjectItem { Id = "target", Name = "Target" });
+        await store.UpsertTaskAsync(new TaskItem { Id = "draft", Title = "Original", ProjectId = "selected" });
+        await store.UpsertTaskAsync(new TaskItem { Id = "target-task", Title = "Preserved", ProjectId = "target" });
+        var vm = new MainWindowViewModel(store, new InMemoryCredentialStore());
+        await vm.InitializeAsync();
+        await vm.SelectProjectAsync(vm.ProjectItems.Single(item => item.Project.Id == "selected"));
+        await vm.SelectTaskAsync(Assert.Single(vm.Tasks));
+        vm.DetailTitle = "Unsaved title";
+        await vm.UpdateProjectAsync("target", "Renamed", ProjectLifecycleStates.Completed, true);
+
+        var projects = await store.GetProjectsAsync(SpaceIds.Default, includeArchived: true);
+        Assert.Equal("Selected", projects.Single(item => item.Id == "selected").Name);
+        var target = projects.Single(item => item.Id == "target");
+        Assert.Equal("Renamed", target.Name);
+        Assert.True(target.IsCompleted);
+        Assert.True(target.IsFavorite);
+        Assert.Equal("selected", vm.SelectedProject?.Project.Id);
+        Assert.Equal("Selected", vm.PageTitle);
+        Assert.Equal("Unsaved title", vm.DetailTitle);
+
+        await vm.DeleteProjectAsync("target");
+        Assert.DoesNotContain(await store.GetProjectsAsync(SpaceIds.Default, includeArchived: true), item => item.Id == "target");
+        var task = await store.GetTaskAsync("target-task");
+        Assert.NotNull(task);
+        Assert.Null(task.ProjectId);
+        Assert.Equal(TaskItemStatus.Inbox, task.Status);
+        Assert.Equal("selected", vm.SelectedProject?.Project.Id);
+        Assert.Equal("Unsaved title", vm.DetailTitle);
+    }
+
+    [Fact]
+    public async Task Project_row_actions_do_not_edit_managed_or_recreate_deleted_projects()
+    {
+        var store = await CreateStoreAsync();
+        var managed = new ProjectItem { Id = "managed", Name = "Provider project", IntegrationId = IntegrationIds.Todoist };
+        await store.UpsertProjectAsync(managed);
+        var vm = new MainWindowViewModel(store, new InMemoryCredentialStore());
+        Assert.False(new ProjectNavigationItemViewModel(managed, 0).CanEdit);
+        await vm.UpdateProjectAsync("managed", "Changed", ProjectLifecycleStates.Archived, true);
+        await vm.DeleteProjectAsync("managed");
+        await vm.UpdateProjectAsync("deleted", "Resurrected", ProjectLifecycleStates.Active, false);
+        Assert.Empty(await store.GetProjectsAsync(SpaceIds.Default, includeArchived: true));
+        var project = Assert.Single(await store.GetProviderProjectsAsync(IntegrationIds.Todoist, includeArchived: true));
+        Assert.Equal("Provider project", project.Name);
+        Assert.True(project.IsActive);
+    }
+
+    [Fact]
     public async Task Project_selection_survives_task_list_refresh()
     {
         var store = await CreateStoreAsync();
@@ -614,6 +666,79 @@ public sealed class DesktopTaskCreationTests : IDisposable
     }
 
     [Fact]
+    public async Task Tasks_grouping_is_shared_across_projects_and_restart_without_sharing_filters()
+    {
+        var store = await CreateStoreAsync();
+        var preferences = new DesktopPreferencesStore(Path.Combine(_directory, "shared-grouping.json"));
+        var a = new ProjectItem { Id = "group-a", Name = "A" };
+        var b = new ProjectItem { Id = "group-b", Name = "B" };
+        await store.UpsertProjectAsync(a);
+        await store.UpsertProjectAsync(b);
+        await preferences.UpdateAsync(settings =>
+        {
+            settings.TaskViewSettings[$"{SpaceIds.Default}|tasks|all"] = new() { GroupIndex = 4, SortIndex = 3, PriorityFilterIndex = 2 };
+            settings.TaskViewSettings[$"{SpaceIds.Default}|tasks|{a.Id}"] = new() { GroupIndex = 6, SortIndex = 1, PriorityFilterIndex = 3 };
+            settings.TaskViewSettings[$"{SpaceIds.Default}|tasks|{b.Id}"] = new() { GroupIndex = 5 };
+            return settings;
+        });
+        var vm = new MainWindowViewModel(store, new InMemoryCredentialStore(), preferencesStore: preferences);
+        await vm.InitializeAsync();
+        await vm.SelectProjectAsync(new(a, 0));
+        Assert.Equal(4, vm.GroupIndex);
+        Assert.Equal(1, vm.SortIndex);
+        Assert.Equal(3, vm.PriorityFilterIndex);
+        vm.GroupIndex = 3;
+        await vm.ApplyListOptionsAsync();
+        await vm.SelectProjectAsync(new(b, 0));
+        Assert.Equal(3, vm.GroupIndex);
+        Assert.Equal(0, vm.PriorityFilterIndex);
+        await vm.SelectNavigationAsync(vm.NavigationItems.Single(item => item.Kind == TaskListKind.Open));
+        Assert.Equal(3, vm.GroupIndex);
+        Assert.Equal(3, vm.SortIndex);
+        Assert.Equal(2, vm.PriorityFilterIndex);
+        vm.GroupIndex = 0;
+        await vm.ApplyListOptionsAsync();
+        await vm.SelectProjectAsync(new(a, 0));
+        Assert.Equal(0, vm.GroupIndex);
+        await vm.SelectNavigationAsync(vm.NavigationItems.Single(item => item.Kind == TaskListKind.Inbox));
+        Assert.Equal(0, vm.GroupIndex);
+        vm.GroupIndex = 6;
+        await vm.ApplyListOptionsAsync();
+        var restarted = new MainWindowViewModel(store, new InMemoryCredentialStore(), preferencesStore: preferences);
+        await restarted.InitializeAsync();
+        Assert.Equal(6, restarted.GroupIndex);
+        await restarted.SelectProjectAsync(new(b, 0));
+        Assert.Equal(0, restarted.GroupIndex);
+    }
+
+    [Fact]
+    public async Task Tasks_grouping_uses_default_without_shared_preference_and_is_separate_by_space()
+    {
+        var store = await CreateStoreAsync();
+        var preferences = new DesktopPreferencesStore(Path.Combine(_directory, "group-spaces.json"));
+        var a = new ProjectItem { Id = "legacy-project", Name = "A" };
+        var other = new SpaceItem { Id = "group-other-space", Name = "Other" };
+        await store.UpsertProjectAsync(a);
+        await store.UpsertSpaceAsync(other);
+        await preferences.UpdateAsync(settings =>
+        {
+            settings.TaskViewSettings[$"{SpaceIds.Default}|tasks|{a.Id}"] = new() { GroupIndex = 6 };
+            settings.TaskViewSettings[$"{other.Id}|tasks|all"] = new() { GroupIndex = 5 };
+            return settings;
+        });
+        var vm = new MainWindowViewModel(store, new InMemoryCredentialStore(), preferencesStore: preferences);
+        await vm.InitializeAsync();
+        await vm.SelectProjectAsync(new(a, 0));
+        Assert.Equal(2, vm.GroupIndex);
+        vm.GroupIndex = 3;
+        await vm.ApplyListOptionsAsync();
+        await vm.SelectSpaceAsync(new(other));
+        Assert.Equal(5, vm.GroupIndex);
+        await vm.SelectSpaceAsync(vm.SpaceItems.Single(item => item.SpaceId == SpaceIds.Default));
+        Assert.Equal(3, vm.GroupIndex);
+    }
+
+    [Fact]
     public async Task List_preferences_are_isolated_and_persisted_by_space_view_and_project()
     {
         var store = await CreateStoreAsync();
@@ -983,11 +1108,14 @@ public sealed class DesktopTaskCreationTests : IDisposable
         await viewModel.SelectNavigationAsync(viewModel.NavigationItems.Single(item => item.Kind == TaskListKind.Open));
         await viewModel.SelectTaskAsync(Assert.Single(viewModel.Tasks));
         var before = (await store.GetTaskAsync("unchanged"))!;
+        var listChanges = 0;
+        viewModel.TaskEntries.CollectionChanged += (_, _) => listChanges++;
 
         Assert.True(await viewModel.SaveSelectedAsync());
 
         var after = (await store.GetTaskAsync("unchanged"))!;
         Assert.Equal(before.Revision, after.Revision);
+        Assert.Equal(0, listChanges);
         Assert.Equal(before.UpdatedAt, after.UpdatedAt);
     }
 

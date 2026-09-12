@@ -47,12 +47,12 @@ Source launches always use the isolated maintainer-only Dev directory. For dispo
 
 Run the matching Dev CLI with `./dev-cli.sh`. See [docs/cli.md](docs/cli.md) for its command contract.
 
-The Linux app currently includes smart lists, Spaces, projects, search, sorting, filtering, grouping, task details, labels, dates and deadlines, subtasks, Markdown import/export, restore points, connected-task intake, Todoist synchronization, and GitHub issue linking. The Snap bundles Secret Service tooling and accesses the desktop Secret Portal; source runs require the host `libsecret-tools` package before connecting an account.
+The Linux app currently includes smart lists, Spaces, projects, search, sorting, filtering, grouping, task details, labels, dates and deadlines, subtasks, Markdown import/export, restore points, connected-task intake, Todoist and Microsoft To Do synchronization, optional OneDrive backup, and GitHub issue creation and linking. The Snap bundles Secret Service tooling and accesses the desktop Secret Portal; source runs require the host `libsecret-tools` package before connecting an account.
 
 Build the strict Linux Snap from the repository root:
 
 ```bash
-snapcraft pack --output artifacts/snap/
+bash packaging/snap/build-local-snap.sh artifacts/snap/openza-tasks.snap
 ```
 
 The Snap contains both the `openza-tasks` desktop command and the namespaced
@@ -62,6 +62,8 @@ under the ignored `artifacts/snap/` directory.
 
 Maintainer registration, edge testing, and same-revision promotion are
 documented in [docs/snap-release.md](docs/snap-release.md).
+Integration configuration and remaining native acceptance checks are documented
+in [docs/avalonia-parity.md](docs/avalonia-parity.md).
 
 ### Windows prerequisites
 
@@ -108,7 +110,7 @@ The sync engine is C# in `Openza.Tasks.Core`. Historical Rust FFI work is preser
 
 ## Legacy Flutter App
 
-The last Flutter-era mainline is preserved on the [`legacy-flutter-app`](https://github.com/openza/tasks/tree/legacy-flutter-app) branch. New development, issues, and releases target the Windows-native WinUI codebase in `src/Openza.Tasks/`.
+The last Flutter-era mainline is preserved on the [`legacy-flutter-app`](https://github.com/openza/tasks/tree/legacy-flutter-app) branch. Active development targets the Linux-first Avalonia host in `src/Openza.Tasks.Desktop/` and the Windows-native WinUI host in `src/Openza.Tasks/`, sharing `src/Openza.Tasks.Core/`.
 
 See [docs/architecture.md](docs/architecture.md) for the V3 task model, provider wrapper pattern, and future sync-route design.
 See [docs/design-guidelines.md](docs/design-guidelines.md) for the Openza Calm Fluent production UI language.
@@ -117,7 +119,7 @@ Microsoft To Do and OneDrive backup use Openza's built-in public Microsoft app r
 
 ## Privacy
 
-Openza Tasks does not add telemetry or analytics. Todoist tokens and OneDrive backup passphrases are stored locally using Windows Credential Locker. Microsoft sign-in uses the local MSAL cache encrypted for the current Windows user. See [PRIVACY.md](PRIVACY.md).
+Openza Tasks does not add telemetry or analytics. Windows uses Credential Locker and a protected MSAL cache. The Linux desktop uses Secret Service, accessed through the Secret Portal in the Snap, for provider tokens, the Microsoft token cache, and backup passphrases. Account identifiers and preferences remain in local settings. Provider sync, GitHub issue creation, and OneDrive backup send data to the selected service when used. See [PRIVACY.md](PRIVACY.md).
 
 ## License
 
