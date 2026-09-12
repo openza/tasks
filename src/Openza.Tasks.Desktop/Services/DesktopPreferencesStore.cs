@@ -7,29 +7,30 @@ namespace Openza.Tasks.Desktop.Services;
 public sealed class DesktopPreferencesStore
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
-    private static readonly ConcurrentDictionary<string, object> PathGates = new(StringComparer.Ordinal);
+    private static readonly ConcurrentDictionary<string, PathState> PathStates = new(StringComparer.Ordinal);
     private readonly string _path;
-    private readonly object _gate;
+    private readonly PathState _state;
 
     public DesktopPreferencesStore(string? path = null)
     {
         _path = Path.GetFullPath(path ?? Path.Combine(DesktopDataPaths.DataDirectory, "settings.json"));
-        _gate = PathGates.GetOrAdd(_path, static _ => new object());
+        _state = PathStates.GetOrAdd(_path, static _ => new PathState());
     }
 
     public DesktopPreferences Load()
     {
-        lock (_gate)
+        lock (_state.Gate)
         {
-            return LoadCore();
+            return Clone(LoadCached());
         }
     }
 
     public Task SaveAsync(DesktopPreferences preferences)
     {
-        lock (_gate)
+        lock (_state.Gate)
         {
             SaveCore(preferences);
+            _state.Preferences = Clone(preferences);
         }
 
         return Task.CompletedTask;
@@ -38,13 +39,27 @@ public sealed class DesktopPreferencesStore
     public Task UpdateAsync(Func<DesktopPreferences, DesktopPreferences> update)
     {
         ArgumentNullException.ThrowIfNull(update);
-        lock (_gate)
+        lock (_state.Gate)
         {
-            SaveCore(update(LoadCore()));
+            var preferences = update(Clone(LoadCached()));
+            SaveCore(preferences);
+            _state.Preferences = Clone(preferences);
         }
 
         return Task.CompletedTask;
     }
+
+    private DesktopPreferences LoadCached() => _state.Preferences ??= LoadCore();
+
+    private static DesktopPreferences Clone(DesktopPreferences preferences) => preferences with
+    {
+        ProjectSortSettings = new Dictionary<string, Openza.Tasks.Core.Data.ProjectSortSettings>(
+            preferences.ProjectSortSettings ?? new Dictionary<string, Openza.Tasks.Core.Data.ProjectSortSettings>(),
+            StringComparer.Ordinal),
+        TaskViewSettings = new Dictionary<string, DesktopTaskViewPreferences>(
+            preferences.TaskViewSettings ?? new Dictionary<string, DesktopTaskViewPreferences>(),
+            StringComparer.Ordinal),
+    };
 
     private DesktopPreferences LoadCore()
     {
@@ -83,6 +98,12 @@ public sealed class DesktopPreferencesStore
                 File.Delete(temporaryPath);
             }
         }
+    }
+
+    private sealed class PathState
+    {
+        public object Gate { get; } = new();
+        public DesktopPreferences? Preferences { get; set; }
     }
 }
 

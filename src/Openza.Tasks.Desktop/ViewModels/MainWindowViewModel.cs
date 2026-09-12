@@ -512,14 +512,13 @@ public sealed partial class MainWindowViewModel : ObservableObject
         OnPropertyChanged(nameof(HasLabelFilter));
         OnPropertyChanged(nameof(HasActiveOptionFilters));
         OnPropertyChanged(nameof(HasActiveListFilters));
-                OnPropertyChanged(nameof(IsGetStartedVisible));
+        OnPropertyChanged(nameof(IsGetStartedVisible));
         OnPropertyChanged(nameof(FilterSummary));
         OnPropertyChanged(nameof(FilterAutomationName));
         OnPropertyChanged(nameof(PriorityFilterChipText));
         OnPropertyChanged(nameof(RepeatFilterChipText));
         OnPropertyChanged(nameof(LabelFilterChipText));
         OnPropertyChanged(nameof(EmptyStateTitle));
-                OnPropertyChanged(nameof(IsGetStartedVisible));
         OnPropertyChanged(nameof(EmptyStateMessage));
         OnPropertyChanged(nameof(EmptyStateActionText));
     }
@@ -540,7 +539,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 OnPropertyChanged(nameof(HasActiveListFilters));
                 OnPropertyChanged(nameof(IsGetStartedVisible));
                 OnPropertyChanged(nameof(EmptyStateTitle));
-                OnPropertyChanged(nameof(IsGetStartedVisible));
                 OnPropertyChanged(nameof(EmptyStateMessage));
                 OnPropertyChanged(nameof(EmptyStateActionText));
             }

@@ -13,7 +13,7 @@ public sealed partial class MainWindow
     {
         if (await new SignInWindow("Connect Microsoft To Do", (show, cancellation) =>
                 ViewModel.ConnectMicrosoftAsync("todo", show, cancellation)).ShowDialog<bool>(this))
-            await ViewModel.RunAutomaticTodoistSyncAsync();
+            await ViewModel.RunTodoistSyncAsync();
     }
     private async void OnDisconnectMicrosoftClicked(object? sender, RoutedEventArgs e)
     {
