@@ -4,9 +4,10 @@ All notable changes to Openza Tasks will be documented in this file.
 
 ## [Unreleased]
 
-## [0.1.9] - 2026-09-12 (Linux Snap)
+## [1.1.0] - 2026-09-12
 
 ### Added
+- Added the first public Linux package through a strict Snap. Windows availability remains on its existing release until the updated Windows host is validated separately.
 - Avalonia Microsoft To Do sign-in and sync, OneDrive backup and recovery, and GitHub issue workflows.
 - Project sorting and color editing, clipboard actions, historical backup export, and session restoration.
 
