@@ -137,6 +137,7 @@
                         <ComboBoxItem Content="Next" Tag="next" />
                         <ComboBoxItem Content="Waiting For" Tag="waiting" />
                         <ComboBoxItem Content="Someday" Tag="someday" />
+                        <ComboBoxItem Content="None" Tag="none" />
                     </ComboBox>
                     <CalendarDatePicker
                         x:Name="DateEditor"
@@ -178,6 +179,7 @@
                                     <MenuFlyoutItem Text="Next" Tag="next" Click="OnWorkflowMenuItemClicked" />
                                     <MenuFlyoutItem Text="Waiting For" Tag="waiting" Click="OnWorkflowMenuItemClicked" />
                                     <MenuFlyoutItem Text="Someday" Tag="someday" Click="OnWorkflowMenuItemClicked" />
+                                    <MenuFlyoutItem Text="None" Tag="none" Click="OnWorkflowMenuItemClicked" />
                                 </MenuFlyout>
                             </Button.Flyout>
                             <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">

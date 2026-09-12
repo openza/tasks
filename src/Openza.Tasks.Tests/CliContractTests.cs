@@ -14,6 +14,37 @@ public sealed class CliContractTests : IDisposable
     private readonly string _directory = Path.Combine(Path.GetTempPath(), "openza-cli-tests", Guid.NewGuid().ToString("N"));
 
     [Fact]
+    public async Task None_status_can_be_created_updated_and_read_without_changing_defaults()
+    {
+        var store = await CreateStoreAsync();
+        var add = await RunAsync("task", "add", "No workflow", "--status", "none", "--format", "json");
+        AssertSuccess(add);
+        using var added = JsonDocument.Parse(add.Stdout);
+        var id = added.RootElement.GetProperty("data").GetProperty("id").GetString()!;
+        Assert.Equal("none", added.RootElement.GetProperty("data").GetProperty("status").GetString());
+        AssertSuccess(await RunAsync("task", "update", id, "--status", "next"));
+        var before = (await store.GetTaskAsync(id))!;
+        AssertSuccess(await RunAsync("task", "update", id, "--status", "none", "--revision", before.Revision.ToString()));
+        var conflict = await RunAsync("task", "update", id, "--status", "inbox", "--revision", before.Revision.ToString());
+        Assert.NotEqual(0, conflict.ExitCode);
+        foreach (var args in new[]
+        {
+            new[] { "task", "show", id, "--format", "json" },
+            new[] { "task", "list", "--view", "open", "--format", "json" },
+        })
+        {
+            var result = await RunAsync(args);
+            AssertSuccess(result);
+            using var document = JsonDocument.Parse(result.Stdout);
+            var data = document.RootElement.GetProperty("data");
+            var task = data.ValueKind == JsonValueKind.Array ? data.EnumerateArray().Single() : data;
+            Assert.Equal("none", task.GetProperty("status").GetString());
+        }
+        AssertSuccess(await RunAsync("task", "add", "Default capture"));
+        Assert.Equal(TaskWorkflowStatus.Inbox, (await store.GetTasksAsync(new TaskQuery { Kind = TaskListKind.Inbox })).Single().WorkflowStatus);
+    }
+
+    [Fact]
     public async Task Commands_cover_status_references_search_and_task_lifecycle()
     {
         var store = await CreateStoreAsync();

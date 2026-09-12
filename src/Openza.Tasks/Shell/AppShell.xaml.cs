@@ -320,7 +320,10 @@ public sealed partial class AppShell : UserControl
         var viewSettings = ResolveTaskViewSettings();
         _sortMode = ParseEnum(viewSettings.SortMode, TaskSortMode.PriorityThenDate);
         _sortDirection = ParseEnum(viewSettings.SortDirection, TaskSortDirection.Ascending);
-        _groupMode = ParseEnum(viewSettings.GroupMode, DefaultGroupModeForView(_currentView));
+        var grouping = _currentView == "tasks"
+            ? _settings.Settings.TaskViewSettings.GetValueOrDefault(SharedTasksSettingsKey())
+            : viewSettings;
+        _groupMode = ParseEnum(grouping?.GroupMode, DefaultGroupModeForView(_currentView));
         _priorityFilter = viewSettings.Priority;
         _dateScopeFilter = TaskDateScope.All;
         _repeatScopeFilter = ParseEnum(viewSettings.RepeatScope, TaskRepeatScope.Include);
@@ -404,8 +407,20 @@ public sealed partial class AppShell : UserControl
             LabelId = _labelFilterId,
         };
         _settings.Settings.TaskGroupModes[_currentView] = _groupMode.ToString();
+        if (_currentView == "tasks")
+        {
+            var sharedKey = SharedTasksSettingsKey();
+            if (!_settings.Settings.TaskViewSettings.TryGetValue(sharedKey, out var shared))
+            {
+                shared = new TaskViewSettings();
+                _settings.Settings.TaskViewSettings[sharedKey] = shared;
+            }
+            shared.GroupMode = _groupMode.ToString();
+        }
         await _settings.SaveAsync().ConfigureAwait(true);
     }
+
+    private string SharedTasksSettingsKey() => $"{_currentSpaceId}|tasks|all";
 
     private string TaskViewSettingsKey()
     {

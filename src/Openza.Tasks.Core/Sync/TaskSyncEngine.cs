@@ -221,15 +221,16 @@ public sealed class TaskSyncEngine(ITaskStore store)
         var synced = 0;
         foreach (var completion in completions)
         {
+            // A date edited while this network request is in flight belongs to a
+            // later user action; acknowledge only the updates present beforehand.
+            var obsoleteDateUpdates = completion.Completed
+                ? (await store.GetPendingTaskDateUpdatesAsync(provider.IntegrationId, cancellationToken).ConfigureAwait(false))
+                    .Where(update => update.ProviderTaskId == completion.ProviderTaskId).ToArray()
+                : [];
             await provider.CompleteTaskAsync(completion, cancellationToken).ConfigureAwait(false);
             await store.MarkCompletionSyncedAsync(completion.Id, cancellationToken).ConfigureAwait(false);
-            if (completion.Completed)
-            {
-                await DiscardPendingTaskDateUpdatesForProviderTaskAsync(
-                    provider.IntegrationId,
-                    completion.ProviderTaskId,
-                    cancellationToken).ConfigureAwait(false);
-            }
+            foreach (var update in obsoleteDateUpdates)
+                await store.MarkTaskDateUpdateSyncedAsync(update.Id, cancellationToken).ConfigureAwait(false);
 
             synced++;
         }
@@ -254,23 +255,6 @@ public sealed class TaskSyncEngine(ITaskStore store)
         }
 
         return synced;
-    }
-
-    private async Task DiscardPendingTaskDateUpdatesForProviderTaskAsync(
-        string provider,
-        string providerTaskId,
-        CancellationToken cancellationToken)
-    {
-        var updates = await store.GetPendingTaskDateUpdatesAsync(provider, cancellationToken).ConfigureAwait(false);
-        foreach (var update in updates)
-        {
-            if (!string.Equals(update.ProviderTaskId, providerTaskId, StringComparison.Ordinal))
-            {
-                continue;
-            }
-
-            await store.MarkTaskDateUpdateSyncedAsync(update.Id, cancellationToken).ConfigureAwait(false);
-        }
     }
 
     private static ProviderSourceItem ToProviderSourceItem(

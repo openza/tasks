@@ -57,6 +57,19 @@ jobs:
           path: ${{ steps.snapcraft.outputs.snap }}
           if-no-files-found: error
 
+      - name: Inspect built Snap
+        env:
+          SNAP_ARTIFACT: ${{ steps.snapcraft.outputs.snap }}
+        run: bash packaging/snap/inspect-snap-package.sh "$SNAP_ARTIFACT"
+
+      - name: Smoke test packaged CLI
+        env:
+          SNAP_ARTIFACT: ${{ steps.snapcraft.outputs.snap }}
+        run: |
+          sudo snap install --dangerous "$SNAP_ARTIFACT"
+          openza-tasks.openza --help
+          openza-tasks.openza --version
+
   build-test:
     runs-on: windows-latest
 

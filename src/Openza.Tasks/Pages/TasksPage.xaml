@@ -68,6 +68,7 @@
             ProjectEntries="{x:Bind ViewModel.ProjectEntries, Mode=OneWay}"
             SearchTextChanged="OnProjectSearchTextChanged"
             ProjectFilterChanged="OnProjectFilterChanged"
+            ProjectSortChanged="OnProjectSortChanged"
             ProjectGroupToggled="OnProjectGroupToggled"
             ProjectSelected="OnProjectSelected"
             AddProjectClicked="OnAddProjectClicked"

@@ -32,6 +32,7 @@ public sealed class AppSettingsService
 
 public sealed class AppSettings
 {
+    public Dictionary<string, Openza.Tasks.Core.Data.ProjectSortSettings> ProjectSortSettings { get; set; } = new();
     public string Theme { get; set; } = "System";
     public string LastView { get; set; } = "inbox";
     public string LastSpaceId { get; set; } = string.Empty;

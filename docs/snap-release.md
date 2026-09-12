@@ -33,10 +33,10 @@ dotnet test src/Openza.Tasks.Tests/Openza.Tasks.Tests.csproj -c Release -m:1
 dotnet build src/Openza.Tasks.Desktop/Openza.Tasks.Desktop.csproj -c Release
 bash packaging/snap/test-snap-package.sh
 gitleaks detect --source . --verbose
-mkdir -p artifacts/snap
-snapcraft pack --output artifacts/snap/openza-tasks.snap
-bash packaging/snap/inspect-snap-package.sh artifacts/snap/openza-tasks.snap
+bash packaging/snap/build-local-snap.sh artifacts/snap/openza-tasks.snap
 ```
+
+The local build wrapper inspects the package and cleans its Snapcraft build environment on exit. Check available disk space before building and verify that the task build instance has been removed afterward.
 
 Inspect the built Snap before installation. It must contain both Production
 channel markers, the desktop launcher, AppStream metadata, icon, GUI binary,
@@ -45,8 +45,11 @@ approval because it creates or replaces a live application.
 
 ## Publish and promote one revision
 
-1. Manually run the GitHub Actions workflow **Publish Snap Store Edge** for the
-   reviewed commit. It builds once and uploads that exact artifact to `edge`.
+1. Complete Linux, Windows, and Snap CI for the reviewed commit, then manually run
+   **Publish Snap Store Edge** for that same commit. It builds once, inspects the
+   package, smoke-tests the packaged CLI, retains the verified artifact, and
+   uploads that exact artifact to `edge`. The `snap-store` environment must have
+   its publishing credential configured before dispatch.
 2. Record the Store revision from the workflow/Store and install that revision
    from `edge` on a clean Ubuntu test account or machine.
 3. Validate GUI startup, shared GUI/CLI data, task CRUD, restore points,
@@ -68,6 +71,12 @@ snapcraft release openza-tasks <revision> stable
 Do not upload a new build separately to candidate or stable. Promotion keeps
 the tested binary identical across channels. For rollback, release the last
 known-good revision back to the affected channel.
+
+## GitHub release and validation
+
+The tag-triggered **Release Validation** workflow validates both hosts and retains the inspected Linux Snap as a workflow artifact. It does not create a GitHub release automatically. After validation succeeds, create the Linux release from the reviewed tag, attach its verified Snap and SHA-256 checksum, and describe the supported Linux features and remaining platform limitations. Preserve the separate Windows release lane and any unpublished Windows drafts when setting the GitHub release's title and latest-release status.
+
+A local Snap revision such as `x7` is not a Store revision. Do not promote a local revision number or assume that a successful local install proves Store acceptance. Real-account Microsoft, GitHub, and OneDrive flows and restore behavior should be exercised under confinement with isolated test data before stable promotion; see [Avalonia acceptance checks](avalonia-parity.md).
 
 ## First public release
 

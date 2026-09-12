@@ -38,6 +38,7 @@ public sealed partial class MainWindow : Window
     private bool _applyingListOptions;
     private bool _pendingListOptionsApply;
     private bool _closingAfterSave;
+    private Size _normalWindowSize;
     private readonly DesktopPreferencesStore _preferencesStore = new();
     private readonly DispatcherTimer _automaticSyncTimer = new()
     {
@@ -66,6 +67,11 @@ public sealed partial class MainWindow : Window
         InitializeComponent();
         ViewModel = viewModel;
         DataContext = viewModel;
+        var windowPreferences = _preferencesStore.Load();
+        Width = double.IsFinite(windowPreferences.WindowWidth) ? Math.Clamp(windowPreferences.WindowWidth, 640, 7680) : 1440;
+        Height = double.IsFinite(windowPreferences.WindowHeight) ? Math.Clamp(windowPreferences.WindowHeight, 480, 4320) : 800;
+        _normalWindowSize = new Size(Width, Height);
+        WindowState = windowPreferences.WindowMaximized ? WindowState.Maximized : WindowState.Normal;
         DetailLabelsBox.TextFilter = FilterLabelSuggestion;
         DetailLabelsBox.TextSelector = SelectLabelSuggestion;
         ViewModel.PropertyChanged += OnViewModelPropertyChanged;
@@ -98,12 +104,34 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        string? recoveryError = null;
+        try
+        {
+            if (await ViewModel.FindStartupRecoveryAsync() is { } recovery &&
+                await new ConfirmWindow("Restore previous tasks?", "This database is empty. A previous local restore point is available. Restore it before continuing?", "Restore", showCancel: true).ShowDialog<bool>(this))
+            {
+                if (!await ViewModel.RestoreDatabaseAsync(recovery.Path)) recoveryError = ViewModel.StatusMessage;
+            }
+        }
+        catch (Exception exception)
+        {
+            recoveryError = $"Startup recovery failed: {exception.Message}";
+        }
         await ViewModel.InitializeAsync();
-        _initialized = true;
         AutomaticSyncToggle.IsChecked = ViewModel.AutomaticSyncEnabled;
+        _initialized = true;
         UpdateAutomaticSyncTimer();
         UpdateConnectedPaneForCurrentView(autoOpen: true);
         UpdateWorkbenchLayout();
+        if (recoveryError is not null)
+        {
+            ViewModel.ReportError(recoveryError);
+            return;
+        }
+        if (ViewModel.StartupView == "Settings") OnSettingsClicked(this, new RoutedEventArgs());
+        else if (ViewModel.StartupView == "Sync") OnSyncNavigationClicked(this, new RoutedEventArgs());
+        if (ViewModel.AutomaticSyncEnabled) OnAutomaticSyncTick(this, EventArgs.Empty);
+        else await ViewModel.UploadCloudBackupsAsync(createNew: false);
     }
 
     private async void OnAutomaticSyncTick(object? sender, EventArgs e)
@@ -117,6 +145,7 @@ public sealed partial class MainWindow : Window
         try
         {
             await ViewModel.RunAutomaticTodoistSyncAsync();
+            await ViewModel.UploadCloudBackupsAsync(createNew: false);
         }
         finally
         {
@@ -135,6 +164,7 @@ public sealed partial class MainWindow : Window
         ViewModel.SetAutomaticSyncEnabled(enabled);
         await _preferencesStore.UpdateAsync(preferences => preferences with { AutomaticSyncEnabled = enabled });
         UpdateAutomaticSyncTimer();
+        if (enabled) OnAutomaticSyncTick(this, EventArgs.Empty);
     }
 
     private void UpdateAutomaticSyncTimer()
@@ -151,6 +181,7 @@ public sealed partial class MainWindow : Window
 
     private void OnClosed(object? sender, EventArgs e)
     {
+        _initialized = false;
         _automaticSyncTimer.Stop();
         _automaticSyncTimer.Tick -= OnAutomaticSyncTick;
         _statusHideTimer.Stop();
@@ -174,10 +205,21 @@ public sealed partial class MainWindow : Window
         }
 
         _closingAfterSave = true;
+        var bounds = WindowState == WindowState.Normal ? Bounds.Size : _normalWindowSize;
+        await _preferencesStore.UpdateAsync(preferences => preferences with
+        {
+            WindowWidth = bounds.Width > 0 ? bounds.Width : preferences.WindowWidth,
+            WindowHeight = bounds.Height > 0 ? bounds.Height : preferences.WindowHeight,
+            WindowMaximized = WindowState == WindowState.Maximized,
+        });
         Close();
     }
 
-    private void OnWindowSizeChanged(object? sender, SizeChangedEventArgs e) => UpdateWorkbenchLayout();
+    private void OnWindowSizeChanged(object? sender, SizeChangedEventArgs e)
+    {
+        if (WindowState == WindowState.Normal && _initialized) _normalWindowSize = e.NewSize;
+        UpdateWorkbenchLayout();
+    }
 
     private void OnInteractiveSurfacePointerEntered(object? sender, PointerEventArgs e) =>
         SetInteractiveSurface(sender, IsDarkTheme ? DarkHoverBrush : LightHoverBrush);
@@ -519,22 +561,49 @@ public sealed partial class MainWindow : Window
 
     private async void OnProjectSelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
-        if (_changingNavigation || ProjectList.SelectedItem is not ProjectNavigationItemViewModel item)
+        if (_changingNavigation || ViewModel.IsRebuildingProjects || ProjectList.SelectedItem is not ProjectNavigationItemViewModel item)
         {
             return;
         }
 
         _changingNavigation = true;
-        if (!await ViewModel.SaveSelectedAsync())
+        var previousProject = e.RemovedItems.OfType<ProjectNavigationItemViewModel>().FirstOrDefault();
+        var previousNavigation = ViewModel.SelectedNavigation;
+        try
         {
-            ProjectList.SelectedItem = ViewModel.SelectedProject;
-            _changingNavigation = false;
-            return;
+            if (!await ViewModel.SaveSelectedAsync())
+            {
+                ViewModel.SelectedProject = previousProject;
+                ProjectList.SelectedItem = previousProject;
+                return;
+            }
+            NavigationList.SelectedItem = null;
+            await ViewModel.SelectProjectAsync(item);
         }
+        catch (Exception exception)
+        {
+            ViewModel.SelectedProject = previousProject;
+            ViewModel.SelectedNavigation = previousNavigation;
+            ProjectList.SelectedItem = previousProject;
+            NavigationList.SelectedItem = previousNavigation;
+            ViewModel.ReportError($"Could not open project: {exception.Message}");
+        }
+        finally { _changingNavigation = false; }
+    }
 
-        NavigationList.SelectedItem = null;
-        await ViewModel.SelectProjectAsync(item);
-        _changingNavigation = false;
+    private async void OnProjectSortClicked(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not MenuItem { Tag: string tag }) return;
+        var settings = ViewModel.ProjectSort;
+        settings = tag switch
+        {
+            "Ascending" => settings with { Descending = false },
+            "Descending" => settings with { Descending = true },
+            "Favorites" => settings with { FavoritesFirst = !settings.FavoritesFirst },
+            _ when Enum.TryParse<ProjectSortMode>(tag, out var mode) => settings with { Mode = mode },
+            _ => settings,
+        };
+        await ViewModel.SetProjectSortAsync(settings);
     }
 
     private void OnProjectSearchChanged(object? sender, TextChangedEventArgs e)
@@ -606,6 +675,7 @@ public sealed partial class MainWindow : Window
     private async void OnBackupClicked(object? sender, RoutedEventArgs e)
     {
         await ViewModel.CreateRestorePointAsync();
+        await ViewModel.UploadCloudBackupsAsync(createNew: false);
     }
 
     private async void OnSyncClicked(object? sender, RoutedEventArgs e)
@@ -615,6 +685,8 @@ public sealed partial class MainWindow : Window
 
     private async void OnSettingsClicked(object? sender, RoutedEventArgs e)
     {
+        if (!await ViewModel.SaveSelectedAsync()) return;
+        await ViewModel.SaveLastViewAsync("Settings");
         TaskWorkspace.IsVisible = false;
         SyncWorkspace.IsVisible = false;
         SettingsWorkspace.IsVisible = true;
@@ -632,8 +704,10 @@ public sealed partial class MainWindow : Window
         await ViewModel.RefreshGitHubConnectionAsync();
     }
 
-    private void OnSyncNavigationClicked(object? sender, RoutedEventArgs e)
+    private async void OnSyncNavigationClicked(object? sender, RoutedEventArgs e)
     {
+        if (!await ViewModel.SaveSelectedAsync()) return;
+        await ViewModel.SaveLastViewAsync("Sync");
         TaskWorkspace.IsVisible = false;
         SettingsWorkspace.IsVisible = false;
         SyncWorkspace.IsVisible = true;
@@ -650,6 +724,9 @@ public sealed partial class MainWindow : Window
 
         ShowTaskWorkspace();
         _connectedPaneOpen = true;
+        _changingTaskSelection = true;
+        try { TaskList.SelectedItem = null; }
+        finally { _changingTaskSelection = false; }
         ViewModel.SelectedTask = null;
         await ViewModel.LoadConnectedTasksAsync();
         UpdateWorkbenchLayout();
@@ -669,32 +746,32 @@ public sealed partial class MainWindow : Window
 
     private async void OnEditProjectClicked(object? sender, RoutedEventArgs e)
     {
-        if (ViewModel.SelectedProject is null)
+        if (sender is not MenuItem { DataContext: ProjectNavigationItemViewModel item } || !item.CanEdit)
         {
             return;
         }
 
-        var dialog = new ProjectEditorWindow(ViewModel.SelectedProject.Project);
+        var dialog = new ProjectEditorWindow(item.Project);
         var draft = await dialog.ShowDialog<ProjectEditDraft?>(this);
         if (draft is not null)
         {
-            await ViewModel.UpdateSelectedProjectAsync(draft.Name, draft.Status, draft.IsFavorite);
+            await ViewModel.UpdateProjectAsync(item.Project.Id, draft.Name, draft.Status, draft.IsFavorite, draft.Color);
         }
     }
 
     private async void OnDeleteProjectClicked(object? sender, RoutedEventArgs e)
     {
-        if (ViewModel.SelectedProject is null)
+        if (sender is not MenuItem { DataContext: ProjectNavigationItemViewModel item } || !item.CanEdit)
         {
             return;
         }
 
         var dialog = new ConfirmWindow(
             "Delete project?",
-            $"{ViewModel.SelectedProject.Title} will be deleted. Its tasks will be preserved and moved to Inbox.");
+            $"{item.Title} will be deleted. Its tasks will be preserved and moved to Inbox.");
         if (await dialog.ShowDialog<bool>(this))
         {
-            await ViewModel.DeleteSelectedProjectAsync();
+            await ViewModel.DeleteProjectAsync(item.Project.Id);
         }
     }
 
@@ -944,6 +1021,7 @@ public sealed partial class MainWindow : Window
             1 => Openza.Tasks.Core.Models.TaskItemStatus.Next,
             2 => Openza.Tasks.Core.Models.TaskItemStatus.Waiting,
             3 => Openza.Tasks.Core.Models.TaskItemStatus.Someday,
+            5 => Openza.Tasks.Core.Models.TaskItemStatus.None,
             _ => Openza.Tasks.Core.Models.TaskItemStatus.Inbox,
         };
         e.Handled = true;
@@ -1114,7 +1192,7 @@ public sealed partial class MainWindow : Window
         }
 
         TaskList.SelectedItem = null;
-        ViewModel.SelectedTask = null;
+        ViewModel.CloseTaskDetails();
         UpdateWorkbenchLayout();
     }
 
@@ -1202,11 +1280,21 @@ public sealed partial class MainWindow : Window
         await ViewModel.SaveSelectedAsync();
     }
 
-    private async void OnDetailEditorLostFocus(object? sender, RoutedEventArgs e)
+    private void OnDetailEditorLostFocus(object? sender, RoutedEventArgs e)
     {
         if (_initialized && ViewModel.HasSelectedTask && !ViewModel.IsUpdatingDetails)
         {
-            await ViewModel.SaveSelectedAsync();
+            var taskId = ViewModel.SelectedTask!.Task.Id;
+            // Let the current pointer/key event select its destination before a save
+            // rebuilds the rows. Navigation performs its own save before switching.
+            Dispatcher.UIThread.Post(async () =>
+            {
+                if (_initialized && !ViewModel.IsUpdatingDetails &&
+                    ViewModel.SelectedTask?.Task.Id == taskId)
+                {
+                    await ViewModel.SaveSelectedAsync();
+                }
+            }, DispatcherPriority.Background);
         }
     }
 
@@ -1313,15 +1401,6 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private async void OnGitHubActionClicked(object? sender, RoutedEventArgs e)
-    {
-        var url = await ViewModel.RunGitHubActionAsync();
-        if (Uri.TryCreate(url, UriKind.Absolute, out var uri))
-        {
-            await Launcher.LaunchUriAsync(uri);
-        }
-    }
-
     private async void OnWindowKeyDown(object? sender, KeyEventArgs e)
     {
         if (e.Key == Key.Escape)
@@ -1338,7 +1417,7 @@ public sealed partial class MainWindow : Window
                 _taskSearchTimer.Stop();
                 await ViewModel.ApplySearchAsync();
                 TaskList.SelectedItem = null;
-                ViewModel.SelectedTask = null;
+                ViewModel.CloseTaskDetails();
                 _connectedPaneOpen = false;
                 UpdateWorkbenchLayout();
             }

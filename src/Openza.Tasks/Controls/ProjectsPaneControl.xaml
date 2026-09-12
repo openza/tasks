@@ -8,7 +8,7 @@
         BorderBrush="{ThemeResource OpenzaBorderBrush}"
         BorderThickness="0,0,1,0"
         Background="{ThemeResource OpenzaPaneBackgroundBrush}"
-        RowDefinitions="Auto,Auto,Auto,*"
+        RowDefinitions="Auto,Auto,Auto,Auto,*"
         RowSpacing="12">
         <Grid ColumnDefinitions="*,Auto">
             <StackPanel Spacing="2">
@@ -47,9 +47,27 @@
             <ComboBoxItem Content="Archived" Tag="archived" />
         </ComboBox>
 
+        <Button x:Name="ProjectSortButton" Grid.Row="3" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                Content="Sort: Default order" AutomationProperties.Name="Sort projects" AutomationProperties.AutomationId="ProjectSortButton">
+            <Button.Flyout>
+                <MenuFlyout>
+                    <MenuFlyoutItem Text="Default order" Tag="Default" Click="OnProjectSortClicked" />
+                    <MenuFlyoutItem Text="Name" Tag="Name" Click="OnProjectSortClicked" />
+                    <MenuFlyoutItem Text="Created date" Tag="Created" Click="OnProjectSortClicked" />
+                    <MenuFlyoutItem Text="Updated date" Tag="Updated" Click="OnProjectSortClicked" />
+                    <MenuFlyoutItem Text="Open task count" Tag="OpenTaskCount" Click="OnProjectSortClicked" />
+                    <MenuFlyoutSeparator />
+                    <MenuFlyoutItem x:Name="ProjectSortAscending" Text="Ascending" Tag="Ascending" Click="OnProjectSortClicked" />
+                    <MenuFlyoutItem x:Name="ProjectSortDescending" Text="Descending" Tag="Descending" Click="OnProjectSortClicked" />
+                    <MenuFlyoutSeparator />
+                    <ToggleMenuFlyoutItem x:Name="ProjectFavoritesFirst" Text="Favorites first" Tag="Favorites" IsChecked="True" Click="OnProjectSortClicked" />
+                </MenuFlyout>
+            </Button.Flyout>
+        </Button>
+
         <ListView
             x:Name="ProjectEntriesList"
-            Grid.Row="3"
+            Grid.Row="4"
             Padding="0,0,8,0"
             ItemsSource="{x:Bind ProjectEntries, Mode=OneWay}"
             SelectionMode="None">

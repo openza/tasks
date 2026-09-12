@@ -9,6 +9,8 @@ namespace Openza.Tasks.Shell;
 
 public sealed partial class AppShell
 {
+    private ProjectSortSettings _projectSort = new();
+
     private async Task LoadProjectsAsync(bool refreshList = true)
     {
         _allProjects.Clear();
@@ -27,6 +29,8 @@ public sealed partial class AppShell
         UpdateNavigationCounts(counts);
         _projectIdByName.Clear();
 
+        _projectSort = (_settings.Settings.ProjectSortSettings?.GetValueOrDefault(ProjectSortSettings.SpaceKey(_currentSpaceId)) ?? new ProjectSortSettings()).Normalize();
+        TasksPage.SetProjectSort(_projectSort);
         var search = TasksPage.ProjectSearchText;
         TasksPage.ViewModel.SetProjectGroups(BuildProjectGroups(counts, search));
     }
@@ -44,10 +48,7 @@ public sealed partial class AppShell
 
         foreach (var group in groups)
         {
-            var projects = group
-                .OrderByDescending(project => project.IsFavorite)
-                .ThenBy(project => project.SortOrder)
-                .ThenBy(project => project.Name, StringComparer.CurrentCultureIgnoreCase)
+            var projects = ProjectSorting.Sort(group, _projectSort, counts.ActiveByProject)
                 .Select(project =>
                 {
                     counts.ActiveByProject.TryGetValue(project.Id, out var count);
@@ -128,6 +129,41 @@ public sealed partial class AppShell
 
         _projectSearchRefreshTimer.Stop();
         _projectSearchRefreshTimer.Start();
+    }
+
+    private bool _savingProjectSort;
+
+    private async void OnProjectSortChanged(TasksPage sender, ProjectSortSettings settings)
+    {
+        if (!_uiReady || _savingProjectSort) return;
+        _savingProjectSort = true;
+        TasksPage.SetProjectSortBusy(true);
+        var key = ProjectSortSettings.SpaceKey(_currentSpaceId);
+        var sorts = _settings.Settings.ProjectSortSettings ??= new();
+        var previous = sorts.GetValueOrDefault(key);
+        var saved = false;
+        try
+        {
+            sorts[key] = settings.Normalize();
+            await _settings.SaveAsync().ConfigureAwait(true);
+            saved = true;
+            await RefreshProjectListAsync().ConfigureAwait(true);
+        }
+        catch (Exception exception)
+        {
+            if (!saved)
+            {
+                if (previous is null) sorts.Remove(key);
+                else sorts[key] = previous;
+            }
+            TasksPage.SetProjectSort(_projectSort);
+            ShowInfo("Could not update project sorting", exception.Message, InfoBarSeverity.Error);
+        }
+        finally
+        {
+            _savingProjectSort = false;
+            TasksPage.SetProjectSortBusy(false);
+        }
     }
 
     private async void OnProjectFilterChanged(TasksPage sender, string filter)

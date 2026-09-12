@@ -4,6 +4,13 @@ namespace Openza.Tasks.Core.Data;
 
 public sealed record TaskQuery
 {
+    public static TaskQuery ForMarkdownExport(string? spaceId) => new()
+    {
+        SpaceId = spaceId,
+        Kind = TaskListKind.All,
+        IncludeSubtasks = true,
+    };
+
     public string? SpaceId { get; init; }
     public string? ProjectId { get; init; }
     public string? ParentId { get; init; }

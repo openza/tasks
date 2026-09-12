@@ -175,7 +175,7 @@
                         BorderBrush="{DynamicResource OpenzaSeparatorBrush}"
                         BorderThickness="0,0,1,0"
                         IsVisible="False">
-                        <Grid RowDefinitions="Auto,Auto,Auto,*" RowSpacing="12">
+                        <Grid RowDefinitions="Auto,Auto,Auto,Auto,*" RowSpacing="12">
                             <Grid ColumnDefinitions="*,Auto">
                                 <StackPanel Spacing="4">
                                     <TextBlock FontSize="24" FontWeight="SemiBold" Text="Projects" />
@@ -184,12 +184,6 @@
                                 <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4">
                                     <Button Width="44" Height="44" Padding="0" AutomationProperties.Name="Create project" Click="OnCreateProjectClicked" ToolTip.Tip="Create project">
                                         <ic:FluentIcon Icon="AddCircle" FontSize="21" />
-                                    </Button>
-                                    <Button Width="44" Height="44" Padding="0" AutomationProperties.Name="Project actions" IsVisible="{Binding HasSelectedProject}" ToolTip.Tip="Project actions">
-                                        <ic:FluentIcon Icon="MoreHorizontal" FontSize="20" />
-                                        <Button.Flyout>
-                                            <Flyout><StackPanel MinWidth="150"><Button HorizontalContentAlignment="Left" Click="OnEditProjectClicked" Content="Edit project"/><Button HorizontalContentAlignment="Left" Click="OnDeleteProjectClicked" Content="Delete project"/></StackPanel></Flyout>
-                                        </Button.Flyout>
                                     </Button>
                                 </StackPanel>
                             </Grid>
@@ -206,18 +200,45 @@
                                 <ComboBoxItem Content="Completed" />
                                 <ComboBoxItem Content="Archived" />
                             </ComboBox>
+                            <Button Grid.Row="3" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                                    Content="{Binding ProjectSort.Summary}" AutomationProperties.Name="Sort projects" AutomationProperties.AutomationId="ProjectSortButton">
+                                <Button.Flyout>
+                                    <MenuFlyout>
+                                        <MenuItem Header="Default order" Tag="Default" Click="OnProjectSortClicked"/>
+                                        <MenuItem Header="Name" Tag="Name" Click="OnProjectSortClicked"/>
+                                        <MenuItem Header="Created date" Tag="Created" Click="OnProjectSortClicked"/>
+                                        <MenuItem Header="Updated date" Tag="Updated" Click="OnProjectSortClicked"/>
+                                        <MenuItem Header="Open task count" Tag="OpenTaskCount" Click="OnProjectSortClicked"/>
+                                        <Separator/>
+                                        <MenuItem Header="Ascending" Tag="Ascending" IsEnabled="{Binding ProjectSort.HasDirection}" Click="OnProjectSortClicked"/>
+                                        <MenuItem Header="Descending" Tag="Descending" IsEnabled="{Binding ProjectSort.HasDirection}" Click="OnProjectSortClicked"/>
+                                        <Separator/>
+                                        <MenuItem Header="Favorites first" Tag="Favorites" ToggleType="CheckBox" IsChecked="{Binding ProjectSort.FavoritesFirst, Mode=OneWay}" Click="OnProjectSortClicked"/>
+                                    </MenuFlyout>
+                                </Button.Flyout>
+                            </Button>
                             <ListBox
                                 x:Name="ProjectList"
-                                Grid.Row="3"
+                                Grid.Row="4"
                                 Margin="-8,4"
                                 Background="Transparent"
                                 BorderThickness="0"
                                 ItemsSource="{Binding ProjectItems}"
                                 SelectedItem="{Binding SelectedProject}"
                                 SelectionChanged="OnProjectSelectionChanged">
+                                <ListBox.Styles>
+                                    <Style Selector="ListBoxItem">
+                                        <Setter Property="ContextMenu">
+                                            <ContextMenu>
+                                                <MenuItem Header="Edit" IsEnabled="{Binding CanEdit}" Click="OnEditProjectClicked" />
+                                                <MenuItem Header="Delete" IsEnabled="{Binding CanEdit}" Click="OnDeleteProjectClicked" />
+                                            </ContextMenu>
+                                        </Setter>
+                                    </Style>
+                                </ListBox.Styles>
                                 <ListBox.ItemTemplate>
                                     <DataTemplate>
-                                        <Grid Height="44" Margin="8,0" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+                                        <Grid Height="44" Margin="8,0" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10" AutomationProperties.Name="{Binding AccessibleName}">
                                             <Border Width="8" Height="8" VerticalAlignment="Center" CornerRadius="4" Background="{Binding Color}" />
                                             <TextBlock Grid.Column="1" VerticalAlignment="Center" Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
                                             <TextBlock Grid.Column="2" VerticalAlignment="Center" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{Binding CountText}" />
@@ -229,7 +250,7 @@
                     </Border>
 
                     <Grid x:Name="TaskListPane" Grid.Column="1" Background="{DynamicResource OpenzaAppCanvasBrush}" RowDefinitions="Auto,Auto,*">
-                        <Grid Margin="32,30,32,0" ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto">
+                        <Grid Margin="32,30,32,0" ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto">
                             <TextBlock Classes="page-title" Text="{Binding PageTitle}" />
                             <TextBlock Grid.Row="1" Classes="metadata" Margin="2,4,0,0" Text="{Binding PageSubtitle}" />
                             <StackPanel Grid.Column="1" Grid.RowSpan="2" VerticalAlignment="Center" Orientation="Horizontal" Spacing="4">
@@ -249,6 +270,12 @@
                                     </Button.Flyout>
                                 </Button>
                             </StackPanel>
+                            <Border x:Name="GetStartedPanel" Grid.Row="2" Grid.ColumnSpan="2" Margin="0,12,0,0" Padding="12" Classes="settings-card" IsVisible="{Binding IsGetStartedVisible}">
+                                <StackPanel Spacing="8"><TextBlock FontWeight="SemiBold" Text="Get started with Openza Tasks"/>
+                                    <TextBlock Text="Capture a task, connect an app, or sync your tasks." TextWrapping="Wrap"/>
+                                    <WrapPanel><Button Margin="0,0,8,4" Content="Add task" Click="OnAddTaskClicked"/><Button Margin="0,0,8,4" Content="Connect apps" Click="OnSettingsClicked"/><Button Margin="0,0,8,4" Content="Sync" Click="OnSyncClicked"/><Button Content="Dismiss" Click="OnDismissGetStartedClicked"/></WrapPanel>
+                                </StackPanel>
+                            </Border>
                         </Grid>
 
                         <Grid x:Name="TaskFilterGrid" Grid.Row="1" Margin="28,24,28,12" ColumnDefinitions="Auto,Auto,*" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="10">
@@ -389,6 +416,7 @@
                                                                         <MenuItem Header="Next" Tag="1" Click="OnRowStatusClicked"/>
                                                                         <MenuItem Header="Waiting For" Tag="2" Click="OnRowStatusClicked"/>
                                                                         <MenuItem Header="Someday" Tag="3" Click="OnRowStatusClicked"/>
+                                                                        <MenuItem Header="None" Tag="5" Click="OnRowStatusClicked"/>
                                                                     </MenuFlyout>
                                                                 </Button.Flyout>
                                                                 <ic:FluentIcon Icon="TaskListSquare" FontSize="16" />
@@ -443,9 +471,17 @@
                             </Border>
                             <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
                                 <StackPanel Margin="28,26,28,34" Spacing="24">
-                                    <TextBlock FontSize="16" FontWeight="SemiBold" Text="Organize" />
-                                    <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="28" RowSpacing="10">
-                                        <StackPanel Classes="field-row"><TextBlock Classes="field-label" Text="Status" /><ComboBox SelectedIndex="{Binding DetailStatusIndex, Mode=TwoWay}" SelectionChanged="OnDetailEditorSelectionChanged"><ComboBoxItem Content="Inbox"/><ComboBoxItem Content="Next"/><ComboBoxItem Content="Waiting For"/><ComboBoxItem Content="Someday"/><ComboBoxItem Content="Completed"/></ComboBox></StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="12">
+                                        <TextBlock FontSize="16" FontWeight="SemiBold" Text="Organize" />
+                                        <Button Content="Copy"><Button.Flyout><MenuFlyout>
+                                            <MenuItem Header="Copy title" Tag="title" Click="OnCopyTaskFieldClicked"/>
+                                            <MenuItem Header="Copy notes" Tag="notes" Click="OnCopyTaskFieldClicked"/>
+                                            <MenuItem Header="Copy source" Tag="source" IsVisible="{Binding HasSourceTask}" Click="OnCopyTaskFieldClicked"/>
+                                            <MenuItem Header="Copy task information" Tag="metadata" Click="OnCopyTaskFieldClicked"/>
+                                        </MenuFlyout></Button.Flyout></Button>
+                                    </StackPanel>
+                                    <Grid x:Name="OrganizeFields" ColumnDefinitions="*,*" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="28" RowSpacing="10" SizeChanged="OnOrganizeSizeChanged">
+                                        <StackPanel Classes="field-row"><TextBlock Classes="field-label" Text="Status" /><ComboBox SelectedIndex="{Binding DetailStatusIndex, Mode=TwoWay}" SelectionChanged="OnDetailEditorSelectionChanged"><ComboBoxItem Content="Inbox"/><ComboBoxItem Content="Next"/><ComboBoxItem Content="Waiting For"/><ComboBoxItem Content="Someday"/><ComboBoxItem Content="Completed"/><ComboBoxItem Content="None"/></ComboBox></StackPanel>
                                         <StackPanel Grid.Column="1" Classes="field-row">
                                             <TextBlock Classes="field-label" Text="Project"/>
                                             <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" AutomationProperties.Name="Find or create project" Click="OnDetailProjectPickerClicked" Content="{Binding DetailProject.Title}" />
@@ -586,9 +622,9 @@
             <!-- In-shell Sync workspace -->
             <ScrollViewer x:Name="SyncWorkspace" IsVisible="False" VerticalScrollBarVisibility="Auto">
                 <StackPanel MaxWidth="960" Margin="34,34,40,40" HorizontalAlignment="Left" Spacing="28">
-                    <Grid ColumnDefinitions="*,Auto"><StackPanel Spacing="6"><TextBlock Classes="page-title" Text="Sync"/><TextBlock Foreground="{DynamicResource OpenzaTextSecondaryBrush}" Text="Use Openza Tasks locally, connect integrations, or prepare future automation routes." TextWrapping="Wrap"/></StackPanel><Button Grid.Column="1" Classes="accent" Click="OnSyncNowClicked" Content="Sync now"/></Grid>
-                    <StackPanel Spacing="10"><TextBlock FontWeight="SemiBold" Text="How Openza sync works"/><Border Padding="18" Classes="settings-card"><TextBlock Text="Local tasks  ·  Your offline Openza workspace is always available and remains the core task database." TextWrapping="Wrap"/></Border><Border Padding="18" Classes="settings-card"><TextBlock Text="Connected integrations  ·  Todoist tasks are imported and completion changes are written back on sync." TextWrapping="Wrap"/></Border><Border Padding="18" Classes="settings-card"><TextBlock Text="Sync routes  ·  Future automation can route tasks between connected services and Openza." TextWrapping="Wrap"/></Border></StackPanel>
-                    <StackPanel Spacing="10"><TextBlock FontWeight="SemiBold" Text="Integrations"/><Border Padding="18" Classes="settings-card"><Grid ColumnDefinitions="*,Auto"><StackPanel><TextBlock FontWeight="SemiBold" Text="Connection status"/><TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="Manage provider connections in Settings."/></StackPanel><Button Grid.Column="1" Click="OnSettingsClicked" Content="Integration settings"/></Grid></Border><Border Padding="18" Classes="settings-card"><Grid ColumnDefinitions="*,Auto"><StackPanel><TextBlock FontWeight="SemiBold" Text="Last result"/><TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{Binding StatusMessage}"/></StackPanel><Button Grid.Column="1" Click="OnConnectedTasksClicked" Content="Open Inbox"/></Grid></Border></StackPanel>
+                    <Grid ColumnDefinitions="*,Auto"><StackPanel Spacing="6"><TextBlock Classes="page-title" Text="Sync"/><TextBlock Foreground="{DynamicResource OpenzaTextSecondaryBrush}" Text="Use Openza Tasks locally, connect integrations, or prepare future automation routes." TextWrapping="Wrap"/></StackPanel><Button Grid.Column="1" Classes="accent" Click="OnSyncNowClicked" Content="Sync now" IsEnabled="{Binding !IsSyncing}"/></Grid>
+                    <StackPanel Spacing="10"><TextBlock FontWeight="SemiBold" Text="How Openza sync works"/><Border Padding="18" Classes="settings-card"><TextBlock Text="Local tasks  ·  Your offline Openza workspace is always available and remains the core task database." TextWrapping="Wrap"/></Border><Border Padding="18" Classes="settings-card"><TextBlock Text="Connected integrations  ·  Todoist and Microsoft To Do tasks are imported and completion changes are written back on sync." TextWrapping="Wrap"/></Border><Border Padding="18" Classes="settings-card"><TextBlock Text="Sync routes  ·  Future automation can route tasks between connected services and Openza." TextWrapping="Wrap"/></Border></StackPanel>
+                    <StackPanel Spacing="10"><TextBlock FontWeight="SemiBold" Text="Integrations"/><Border Padding="18" Classes="settings-card"><Grid ColumnDefinitions="*,Auto"><StackPanel><TextBlock FontWeight="SemiBold" Text="Connection status"/><TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="Manage provider connections in Settings."/></StackPanel><Button Grid.Column="1" Click="OnSettingsClicked" Content="Integration settings"/></Grid></Border><Border Padding="18" Classes="settings-card"><Grid ColumnDefinitions="*,Auto"><StackPanel><TextBlock FontWeight="SemiBold" Text="Last result"/><ProgressBar IsVisible="{Binding IsSyncing}" IsIndeterminate="True"/><TextBlock Text="{Binding LastSyncResult}" TextWrapping="Wrap"/><TextBlock Text="{Binding TodoistConnectionText, StringFormat='Todoist: {0}'}"/><TextBlock Text="{Binding MicrosoftConnectionText, StringFormat='Microsoft To Do: {0}'}"/></StackPanel><Button Grid.Column="1" Click="OnConnectedTasksClicked" Content="Open Inbox"/></Grid></Border></StackPanel>
                 </StackPanel>
             </ScrollViewer>
 
@@ -660,7 +696,10 @@
                         </Expander>
                     </Border>
 
-                    <Border Padding="20" Classes="settings-card"><Grid ColumnDefinitions="32,*,Auto" ColumnSpacing="14"><ic:FluentIcon Icon="Calendar" FontSize="21"/><StackPanel Grid.Column="1"><TextBlock FontWeight="SemiBold" Text="Microsoft To Do"/><TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="Choose the Microsoft account Openza uses for Microsoft To Do."/></StackPanel><TextBlock Grid.Column="2" VerticalAlignment="Center" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="Not connected"/></Grid></Border>
+                    <Border Padding="20" Classes="settings-card"><StackPanel Spacing="10">
+                        <TextBlock FontWeight="SemiBold" Text="Microsoft To Do"/><TextBlock Text="{Binding MicrosoftConnectionText}"/>
+                        <StackPanel Orientation="Horizontal" Spacing="8"><Button Content="Connect / change account" Click="OnConnectMicrosoftClicked"/><Button Content="Disconnect" Click="OnDisconnectMicrosoftClicked"/></StackPanel>
+                    </StackPanel></Border>
 
                     <Border Classes="settings-card">
                         <Expander HorizontalContentAlignment="Stretch">
@@ -676,6 +715,7 @@
                             </Expander.Header>
                             <Border Padding="20" BorderBrush="{DynamicResource OpenzaSeparatorBrush}" BorderThickness="0,1,0,0">
                                 <StackPanel Spacing="10">
+                                    <Button Content="Sign in with GitHub" Click="OnGitHubSignInClicked"/>
                                     <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
                                         <TextBox PasswordChar="●" RevealPassword="False" PlaceholderText="GitHub token" Text="{Binding GitHubToken, Mode=TwoWay}"/>
                                         <Button Grid.Column="1" Classes="accent" Click="OnConnectGitHubFromShellClicked" Content="Connect"/>
@@ -693,9 +733,20 @@
                     <TextBlock Classes="section-title" Margin="0,8,0,0" Text="Spaces"/>
                     <Border Padding="20" Classes="settings-card"><StackPanel Spacing="14"><Grid ColumnDefinitions="32,*,Auto" ColumnSpacing="14"><ic:FluentIcon Icon="FolderAdd" FontSize="21"/><StackPanel Grid.Column="1"><TextBlock FontWeight="SemiBold" Text="Add space"/><TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="Create another place to keep tasks and projects separate."/></StackPanel><Grid Grid.Column="2" ColumnDefinitions="260,Auto" ColumnSpacing="8"><TextBox x:Name="ShellNewSpaceBox" PlaceholderText="Space name"/><Button Grid.Column="1" Click="OnAddSpaceFromShellClicked" Content="Add"/></Grid></Grid><ItemsControl ItemsSource="{Binding EditableSpaceItems}"><ItemsControl.ItemTemplate><DataTemplate><Grid Margin="44,4,0,0" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8"><TextBlock VerticalAlignment="Center" Text="{Binding Title}"/><Button Grid.Column="1" Click="OnRenameSpaceFromShellClicked" Content="Rename"/><Button Grid.Column="2" Click="OnArchiveSpaceFromShellClicked" Content="Archive"/></Grid></DataTemplate></ItemsControl.ItemTemplate></ItemsControl></StackPanel></Border>
 
-                    <TextBlock Classes="section-title" Margin="0,8,0,0" Text="Data and recovery"/>
-                    <Border Padding="20" Classes="settings-card"><StackPanel Spacing="14"><Grid ColumnDefinitions="*,Auto"><StackPanel><TextBlock FontWeight="SemiBold" Text="Local database"/><TextBlock FontFamily="monospace" FontSize="12" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{Binding DatabasePath}" TextWrapping="Wrap"/></StackPanel><WrapPanel Grid.Column="1"><Button Margin="0,0,8,8" Click="OnBackupClicked" Content="Create restore point"/><Button Margin="0,0,8,8" Click="OnExportDatabaseFromShellClicked" Content="Export backup file"/><Button Margin="0,0,8,8" Click="OnRestoreDatabaseFromShellClicked" Content="Restore from file"/><Button Margin="0,0,0,8" Click="OnOpenDataFolderFromShellClicked" Content="Open data folder"/></WrapPanel></Grid><TextBlock FontWeight="SemiBold" Text="Restore points"/><ListBox MaxHeight="220" ItemsSource="{Binding RestorePoints}" SelectedItem="{Binding SelectedRestorePoint}"><ListBox.ItemTemplate><DataTemplate><StackPanel Margin="4" Spacing="2"><TextBlock FontWeight="SemiBold" Text="{Binding Title}"/><TextBlock FontSize="12" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{Binding Details}"/></StackPanel></DataTemplate></ListBox.ItemTemplate></ListBox><StackPanel Orientation="Horizontal" Spacing="8"><Button Click="OnRestoreSelectedPointFromShellClicked" Content="Restore selected"/><Button Click="OnDeleteSelectedPointFromShellClicked" Content="Delete selected"/></StackPanel><TextBlock FontSize="12" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="Restore always creates a safety restore point first."/></StackPanel></Border>
+                    <TextBlock Classes="section-title" Margin="0,8,0,0" Text="Data and recovery"/><ToggleSwitch Content="Automatic local restore points" IsChecked="{Binding AutomaticRestorePointsEnabled, Mode=OneWay}" IsCheckedChanged="OnAutomaticRestorePointsChanged"/>
+                    <Border Padding="20" Classes="settings-card"><StackPanel Spacing="14"><Grid ColumnDefinitions="*,Auto"><StackPanel><TextBlock FontWeight="SemiBold" Text="Local database"/><TextBlock FontFamily="monospace" FontSize="12" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{Binding DatabasePath}" TextWrapping="Wrap"/></StackPanel><WrapPanel Grid.Column="1"><Button Margin="0,0,8,8" Click="OnBackupClicked" Content="Create restore point"/><Button Margin="0,0,8,8" Click="OnExportDatabaseFromShellClicked" Content="Export backup file"/><Button Margin="0,0,8,8" Click="OnRestoreDatabaseFromShellClicked" Content="Restore from file"/><Button Margin="0,0,0,8" Click="OnOpenDataFolderFromShellClicked" Content="Open data folder"/></WrapPanel></Grid><TextBlock FontWeight="SemiBold" Text="Restore points"/><ListBox MaxHeight="220" ItemsSource="{Binding RestorePoints}" SelectedItem="{Binding SelectedRestorePoint}"><ListBox.ItemTemplate><DataTemplate><StackPanel Margin="4" Spacing="2"><TextBlock FontWeight="SemiBold" Text="{Binding Title}"/><TextBlock FontSize="12" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{Binding Details}"/></StackPanel></DataTemplate></ListBox.ItemTemplate></ListBox><StackPanel Orientation="Horizontal" Spacing="8"><Button Click="OnRestoreSelectedPointFromShellClicked" Content="Restore selected"/><Button Click="OnDeleteSelectedPointFromShellClicked" Content="Delete selected"/><Button Click="OnExportSelectedPointClicked" Content="Export selected"/></StackPanel><TextBlock FontSize="12" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="Restore always creates a safety restore point first."/></StackPanel></Border>
 
+                    <Border Padding="20" Classes="settings-card"><StackPanel Spacing="12">
+                        <TextBlock FontWeight="SemiBold" Text="OneDrive backup"/>
+                        <TextBlock Text="{Binding OneDriveConnectionText}"/>
+                        <Button Content="Connect / change account" Click="OnConnectOneDriveClicked"/>
+                        <ToggleSwitch Content="Automatic OneDrive backup" IsChecked="{Binding OneDriveEnabled, Mode=OneWay}" IsCheckedChanged="OnCloudEnabledChanged"/>
+                        <ToggleSwitch Content="Encrypt backups with a passphrase" IsChecked="{Binding OneDriveEncrypted, Mode=OneWay}" IsCheckedChanged="OnCloudEncryptionChanged"/>
+                        <WrapPanel><Button Margin="0,0,8,8" Content="Change passphrase" Click="OnChangeCloudPassphraseClicked"/><Button Margin="0,0,8,8" Content="Back up now" IsEnabled="{Binding OneDriveEnabled}" Click="OnUploadCloudClicked"/><Button Content="Refresh backups" Click="OnRefreshCloudClicked"/></WrapPanel>
+                        <TextBlock Text="{Binding CloudStatus}" TextWrapping="Wrap"/>
+                        <ListBox MaxHeight="220" ItemsSource="{Binding CloudBackups}" SelectedItem="{Binding SelectedCloudBackup}"><ListBox.ItemTemplate><DataTemplate><StackPanel><TextBlock Text="{Binding DisplayName}"/><TextBlock Text="{Binding CreatedAt}"/><TextBlock Text="{Binding EncryptionMode}"/></StackPanel></DataTemplate></ListBox.ItemTemplate></ListBox>
+                        <Button Content="Restore selected cloud backup" Click="OnRestoreCloudClicked"/>
+                    </StackPanel></Border>
                     <TextBlock Classes="section-title" Margin="0,8,0,0" Text="About"/>
                     <Border Padding="20" Classes="settings-card">
                         <Grid ColumnDefinitions="32,*" ColumnSpacing="14">

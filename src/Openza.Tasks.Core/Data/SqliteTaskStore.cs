@@ -774,6 +774,31 @@ public sealed class SqliteTaskStore(string databasePath, bool readOnly = false) 
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task ReplaceTaskExternalLinkAsync(TaskExternalLinkInfo link, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        var command = connection.CreateCommand();
+        // One statement is atomic; do not delete the old link before a replacement is saved.
+        command.CommandText = """
+            UPDATE task_external_links
+            SET connection_id = @connection_id, external_id = @external_id, kind = @kind,
+                display_name = @display_name, url = @url, metadata = @metadata, updated_at = @updated_at
+            WHERE id = @id AND task_id = @task_id AND integration_id = @integration_id
+            """;
+        command.Parameters.AddWithValue("@id", link.Id);
+        command.Parameters.AddWithValue("@task_id", link.TaskId);
+        command.Parameters.AddWithValue("@integration_id", link.IntegrationId);
+        command.Parameters.AddWithValue("@connection_id", ToDbValue(link.ConnectionId));
+        command.Parameters.AddWithValue("@external_id", link.ExternalId);
+        command.Parameters.AddWithValue("@kind", link.Kind);
+        command.Parameters.AddWithValue("@display_name", link.DisplayName);
+        command.Parameters.AddWithValue("@url", link.Url);
+        command.Parameters.AddWithValue("@metadata", ToDbValue(link.MetadataJson));
+        command.Parameters.AddWithValue("@updated_at", ToDbValue(link.UpdatedAt));
+        if (await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+            throw new InvalidOperationException("The issue link changed or was removed. Refresh the task before replacing it.");
+    }
+
     public async Task DeleteTaskExternalLinkAsync(string id, CancellationToken cancellationToken = default)
     {
         await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
@@ -1996,7 +2021,10 @@ public sealed class SqliteTaskStore(string databasePath, bool readOnly = false) 
                     THEN @parent_workflow_status
                     ELSE workflow_status
                 END,
-                completion_state = @completion_state,
+                completion_state = CASE
+                    WHEN EXISTS (SELECT 1 FROM pending_completions WHERE task_id = @task_id) THEN completion_state
+                    ELSE @completion_state
+                END,
                 source_integration_id = @source_integration_id,
                 source_connection_id = @source_connection_id,
                 source_external_id = @source_external_id,
@@ -2004,11 +2032,11 @@ public sealed class SqliteTaskStore(string databasePath, bool readOnly = false) 
                 source_url = @source_url,
                 source_metadata = @source_metadata,
                 planned_on = CASE
-                    WHEN @sync_planned_date = 1 THEN @planned_on
+                    WHEN @sync_planned_date = 1 AND NOT EXISTS (SELECT 1 FROM pending_task_date_updates WHERE task_id = @task_id) THEN @planned_on
                     ELSE planned_on
                 END,
                 planned_at = CASE
-                    WHEN @sync_planned_date = 1 THEN @planned_at
+                    WHEN @sync_planned_date = 1 AND NOT EXISTS (SELECT 1 FROM pending_task_date_updates WHERE task_id = @task_id) THEN @planned_at
                     ELSE planned_at
                 END,
                 deadline_on = CASE
@@ -2026,6 +2054,7 @@ public sealed class SqliteTaskStore(string databasePath, bool readOnly = false) 
                 updated_at = @updated_at,
                 revision = revision + 1,
                 completed_at = CASE
+                    WHEN EXISTS (SELECT 1 FROM pending_completions WHERE task_id = @task_id) THEN completed_at
                     WHEN @completion_state = 'completed' THEN COALESCE(completed_at, @updated_at)
                     ELSE NULL
                 END
@@ -2907,8 +2936,13 @@ public sealed class SqliteTaskStore(string databasePath, bool readOnly = false) 
             return;
         }
 
+        // Column creation and value conversion must succeed together. Otherwise
+        // a retry could mistake newly added defaults for existing user choices.
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         var initialColumns = await GetColumnNamesAsync(connection, "tasks", cancellationToken).ConfigureAwait(false);
         var hasLegacyStatusColumn = initialColumns.Contains("status");
+        var hadWorkflowStatus = initialColumns.Contains("workflow_status");
+        var hadCompletionState = initialColumns.Contains("completion_state");
 
         await AddColumnIfMissingAsync(connection, "tasks", "external_id", "TEXT", cancellationToken).ConfigureAwait(false);
         await AddColumnIfMissingAsync(connection, "tasks", "space_id", $"TEXT NOT NULL DEFAULT '{SpaceIds.Default}'", cancellationToken).ConfigureAwait(false);
@@ -3003,23 +3037,32 @@ public sealed class SqliteTaskStore(string databasePath, bool readOnly = false) 
 
         if (hasLegacyStatusColumn)
         {
-            await ExecuteNonQueryAsync(connection, """
+            // Legacy status is only authoritative while introducing the modern
+            // fields (or repairing empty values). Replaying it on every startup
+            // would overwrite later workflow edits and reopen operations.
+            await ExecuteNonQueryAsync(connection, $"""
                 UPDATE tasks
                 SET space_id = COALESCE(NULLIF(space_id, ''), 'space_default'),
                     integration_id = COALESCE(NULLIF(integration_id, ''), 'openza_tasks'),
                     priority = COALESCE(priority, 2),
                     status = COALESCE(NULLIF(status, ''), 'none'),
                     completion_state = CASE
-                        WHEN status IN ('completed', 'done') THEN 'completed'
-                        WHEN status IN ('cancelled', 'canceled') THEN 'cancelled'
-                        ELSE COALESCE(NULLIF(completion_state, ''), 'open')
+                        WHEN {(hadCompletionState ? "0" : "1")} = 1 OR completion_state IS NULL OR completion_state = '' THEN
+                            CASE
+                                WHEN status IN ('completed', 'done') THEN 'completed'
+                                WHEN status IN ('cancelled', 'canceled') THEN 'cancelled'
+                                ELSE 'open'
+                            END
+                        ELSE completion_state
                     END,
                     workflow_status = CASE
-                        WHEN status = 'next' THEN 'next'
-                        WHEN status = 'waiting' THEN 'waiting'
-                        WHEN status = 'someday' THEN 'someday'
-                        WHEN status IN ('pending', 'active', 'in_progress', 'inProgress', 'none') THEN 'inbox'
-                        ELSE COALESCE(NULLIF(workflow_status, ''), 'none')
+                        WHEN {(hadWorkflowStatus ? "0" : "1")} = 1 OR workflow_status IS NULL OR workflow_status = '' THEN
+                            CASE
+                                WHEN status IN ('inbox', 'next', 'waiting', 'someday') THEN status
+                                WHEN status IN ('pending', 'active', 'in_progress', 'inProgress', 'none') OR status IS NULL OR status = '' THEN 'inbox'
+                                ELSE 'none'
+                            END
+                        ELSE workflow_status
                     END,
                     created_at = COALESCE(created_at, strftime('%s', 'now'))
                 """, cancellationToken).ConfigureAwait(false);
@@ -3030,18 +3073,6 @@ public sealed class SqliteTaskStore(string databasePath, bool readOnly = false) 
                         WHEN status IN ('pending', 'active', 'in_progress', 'inProgress') THEN 'none'
                         WHEN status = 'done' THEN 'completed'
                         ELSE status
-                    END,
-                    completion_state = CASE
-                        WHEN status = 'completed' THEN 'completed'
-                        WHEN status = 'cancelled' THEN 'cancelled'
-                        ELSE completion_state
-                    END,
-                    workflow_status = CASE
-                        WHEN status = 'next' THEN 'next'
-                        WHEN status = 'waiting' THEN 'waiting'
-                        WHEN status = 'someday' THEN 'someday'
-                        WHEN status = 'none' AND workflow_status = 'none' THEN 'inbox'
-                        ELSE workflow_status
                     END,
                     project_id = NULLIF(project_id, 'proj_inbox')
                 """, cancellationToken).ConfigureAwait(false);
@@ -3081,6 +3112,7 @@ public sealed class SqliteTaskStore(string databasePath, bool readOnly = false) 
                     scheduled_start IS NOT NULL
                   )
             """, cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
     }
 
     private static async Task EnsureLabelsCompatibilityAsync(SqliteConnection connection, CancellationToken cancellationToken)

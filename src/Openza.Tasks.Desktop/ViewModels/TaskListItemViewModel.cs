@@ -37,7 +37,7 @@ public sealed class TaskListItemViewModel
         IsProjectView ? string.Empty : ProjectName,
         Task.RecurrenceRule is null ? DateText : $"Repeating {DateText}".Trim(),
         StatusText,
-        SourceText == "Local" ? string.Empty : SourceText,
+        (Task.SourceIntegrationId ?? Task.IntegrationId) == IntegrationIds.Local ? string.Empty : SourceText,
         LabelSummaryText,
         SubtaskProgressText,
         MatchingSubtaskText,
@@ -78,6 +78,7 @@ public sealed class TaskListItemViewModel
         TaskWorkflowStatus.Waiting => "Waiting",
         TaskWorkflowStatus.Someday => "Someday",
         TaskWorkflowStatus.Inbox => "Inbox",
+        TaskWorkflowStatus.None => "None",
         _ => "Open",
     };
 

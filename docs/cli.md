@@ -71,7 +71,10 @@ The text form exposes the same fields as key/value rows. JSON uses the versioned
 
 Task JSON renders `priority` as `highest`, `high`, `normal`, or `low`, and also
 includes `priorityValue` as `1`, `2`, `3`, or `4` respectively. Workflow status
-accepts `inbox`, `next`, `waiting`, or `someday`. Task-list views accept `open`,
+accepts `none`, `inbox`, `next`, `waiting`, or `someday`. `none` means no workflow
+status is assigned; it does not change the task's project. Defaults remain unchanged.
+None tasks appear in All/Open, their project, and applicable date views, but not Inbox.
+Task-list views accept `open`,
 `inbox`, `next` (`next-actions` is an alias), `waiting`, `someday`, `today`,
 `calendar`, `overdue`, `completed`, or `all`. Dates use `YYYY-MM-DD`.
 

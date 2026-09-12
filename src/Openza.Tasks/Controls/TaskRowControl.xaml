@@ -121,6 +121,7 @@
                             <MenuFlyoutItem Text="Next" Tag="next" Click="OnStatusMenuItemClicked" />
                             <MenuFlyoutItem Text="Waiting For" Tag="waiting" Click="OnStatusMenuItemClicked" />
                             <MenuFlyoutItem Text="Someday" Tag="someday" Click="OnStatusMenuItemClicked" />
+                            <MenuFlyoutItem Text="None" Tag="none" Click="OnStatusMenuItemClicked" />
                         </MenuFlyout>
                     </Button.Flyout>
                     <FontIcon Glyph="&#xE8FD;" FontSize="14" />

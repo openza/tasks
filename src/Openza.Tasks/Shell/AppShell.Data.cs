@@ -75,7 +75,7 @@ public sealed partial class AppShell
             return;
         }
 
-        var tasks = await _store.GetTasksAsync(new TaskQuery { SpaceId = _currentSpaceId }).ConfigureAwait(true);
+        var tasks = await _store.GetTasksAsync(TaskQuery.ForMarkdownExport(_currentSpaceId)).ConfigureAwait(true);
         var projects = await _store.GetProjectsAsync(_currentSpaceId, includeArchived: true).ConfigureAwait(true);
         var labels = await _store.GetLabelsAsync().ConfigureAwait(true);
         await FileIO.WriteTextAsync(file, MarkdownExporter.Export(tasks, projects, labels));

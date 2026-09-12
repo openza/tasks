@@ -119,6 +119,7 @@ public sealed partial class TaskRowControl : UserControl
 
         var status = tag switch
         {
+            "none" => TaskItemStatus.None,
             "next" => TaskItemStatus.Next,
             "waiting" => TaskItemStatus.Waiting,
             "someday" => TaskItemStatus.Someday,
