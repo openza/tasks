@@ -136,6 +136,10 @@ the namespaced `openza-tasks.openza` command and requires `--dangerous` only
 because it has no Snap Store assertion; strict confinement remains enabled.
 The normal `openza` alias is subject to Snap Store approval.
 
+Follow the [Linux download, checksum, and installation steps](../README.md#download)
+for the exact commands. Those user installation steps are separate from the
+maintainer build command below.
+
 Maintainers can build the ignored local Snap with:
 
 ```bash
