@@ -129,9 +129,16 @@ activates a provider implicitly.
 
 The public Linux distribution is the single strict `openza-tasks` Snap. It
 contains the desktop app and CLI over the same refresh-stable Production data
-directory. Until the Snap Store grants the requested automatic alias, the CLI
-command is namespaced as `openza-tasks.openza`; the public release is intended
-to expose the normal `openza` alias.
+directory. Version 1.1.0 is available from the
+[GitHub release](https://github.com/openza/tasks/releases/tag/v1.1.0) while
+Snap Store publication is pending. A Snap installed directly from GitHub uses
+the namespaced `openza-tasks.openza` command and requires `--dangerous` only
+because it has no Snap Store assertion; strict confinement remains enabled.
+The normal `openza` alias is subject to Snap Store approval.
+
+Follow the [Linux download, checksum, and installation steps](../README.md#download)
+for the exact commands. Those user installation steps are separate from the
+maintainer build command below.
 
 Maintainers can build the ignored local Snap with:
 
