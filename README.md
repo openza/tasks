@@ -27,9 +27,19 @@ Openza Tasks V1 is live on the Microsoft Store:
 - [Install from Microsoft Store](https://apps.microsoft.com/detail/9NQGDKXGRGF8)
 - [Open in the Store app](ms-windows-store://pdp/?ProductId=9NQGDKXGRGF8)
 
-The Linux edition is being prepared as the single `openza-tasks` Snap. Its
-Snap Store listing is not public yet; the repository does not advertise a
-Linux install command until that listing is live.
+Openza Tasks 1.1.0 for Linux is available as a strict Snap from the
+[GitHub release](https://github.com/openza/tasks/releases/tag/v1.1.0) while
+Snap Store publication is pending. Download the `.snap` and matching
+`.sha256` asset, verify the download, then install it:
+
+```bash
+sha256sum --check openza-tasks_1.1.0_amd64.snap.sha256
+sudo snap install ./openza-tasks_1.1.0_amd64.snap --dangerous
+```
+
+Snap uses `--dangerous` for a local package installed without a Snap Store
+assertion. Openza Tasks remains strictly confined. The release page explains
+how to switch to Store-signed automatic updates when they become available.
 
 Legacy Flutter-era packages remain available in older GitHub releases, but they are no longer the active product line. Store V1 starts with a clean WinUI workspace and can reconnect integrations.
 
