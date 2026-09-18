@@ -1,0 +1,21 @@
+{
+  "protocolVersion": 1,
+  "product": "tasks",
+  "changeSeq": 1,
+  "mutationId": "mutation_00000000000000000000000000000001",
+  "operation": "task.created",
+  "entityKind": "task",
+  "entityId": "local_00000000000000000000000000000001",
+  "entityVersion": 1,
+  "payload": {
+    "task": {
+      "id": "local_00000000000000000000000000000001",
+      "spaceId": "space_default",
+      "title": "Validate one task",
+      "completionState": "open",
+      "workflowStatus": "inbox",
+      "createdAt": "2026-09-13T06:30:00.000Z"
+    }
+  },
+  "serverAcceptedAt": "2026-09-13T06:30:01.000Z"
+}

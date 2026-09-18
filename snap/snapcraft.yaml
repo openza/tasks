@@ -28,6 +28,8 @@ apps:
     plugs:
       - home
       - network
+      - network-bind
+      - password-manager-service
       - removable-media
   openza:
     command: bin/openza-cli-launch
@@ -68,6 +70,7 @@ parts:
       _IsPublishing: 'true'
       Version: '1.1.0'
       InformationalVersion: '1.1.0'
+      PersonalCloudArtifactDirectory: ../../packaging/personal-cloud/artifact
       PublishSingleFile: 'true'
       IncludeNativeLibrariesForSelfExtract: 'true'
       DebugType: None
@@ -75,6 +78,7 @@ parts:
     organize:
       'Openza.Tasks.Desktop': opt/openza-tasks/desktop/Openza.Tasks.Desktop
       '.openza-channel': opt/openza-tasks/desktop/.openza-channel
+      'PersonalCloudArtifact': opt/openza-tasks/desktop/PersonalCloudArtifact
 
   cli:
     after: [runtime-dependencies]

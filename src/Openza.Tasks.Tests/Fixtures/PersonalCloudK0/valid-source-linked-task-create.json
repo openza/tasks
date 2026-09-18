@@ -1,0 +1,37 @@
+{
+  "protocolVersion": 1,
+  "product": "tasks",
+  "instanceId": "instance_00000000000000000000000000000001",
+  "deviceId": "device_00000000000000000000000000000001",
+  "mutationId": "mutation_source_linked_00000000000000001",
+  "deviceSequence": 1,
+  "operation": "task.create",
+  "entityId": "local_source_linked_0000000000000000001",
+  "baseEntityVersion": null,
+  "payload": {
+    "task": {
+      "id": "local_source_linked_0000000000000000001",
+      "spaceId": "space_default",
+      "title": "Adopted source task",
+      "completionState": "open",
+      "workflowStatus": "inbox",
+      "createdAt": "2026-09-13T09:00:00.000Z"
+    },
+    "source": {
+      "integrationKind": "todoist",
+      "externalIdHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "sourceUrl": "https://todoist.com/app/task/opaque",
+      "title": "Provider-owned title",
+      "description": "Safe source context",
+      "projectName": "Operations",
+      "priority": 2,
+      "plannedOn": "2026-09-20",
+      "plannedAt": null,
+      "deadlineOn": null,
+      "deadlineAt": null,
+      "recurrenceRule": null,
+      "refreshedAt": "2026-09-13T09:00:00.000Z"
+    }
+  },
+  "clientCreatedAt": "2026-09-13T09:00:01.000Z"
+}

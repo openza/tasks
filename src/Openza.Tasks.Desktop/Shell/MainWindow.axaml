@@ -635,6 +635,20 @@
                     <TextBlock Classes="section-title" Text="Appearance" />
                     <Border Padding="20" Classes="settings-card"><Grid ColumnDefinitions="32,*,Auto" ColumnSpacing="14"><ic:FluentIcon Icon="Color" FontSize="21"/><StackPanel Grid.Column="1"><TextBlock FontWeight="SemiBold" Text="Theme"/><TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="Follow the desktop or choose a fixed appearance."/></StackPanel><ComboBox x:Name="ShellThemePicker" Grid.Column="2" Width="150" SelectionChanged="OnShellThemeChanged"><ComboBoxItem Content="System"/><ComboBoxItem Content="Light"/><ComboBoxItem Content="Dark"/></ComboBox></Grid></Border>
                     <TextBlock Classes="section-title" Text="Integrations" />
+                    <Border Padding="20" Classes="settings-card">
+                        <Grid ColumnDefinitions="32,*,Auto" ColumnSpacing="14">
+                            <ic:FluentIcon Icon="Cloud" FontSize="21"/>
+                            <StackPanel Grid.Column="1" Spacing="3">
+                                <TextBlock FontWeight="SemiBold" Text="Personal Cloud"/>
+                                <TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{Binding PersonalCloudSummaryText}" TextWrapping="Wrap"/>
+                                <TextBlock FontSize="12" Foreground="{DynamicResource TextFillColorTertiaryBrush}" Text="Your tasks stay local-first. Cloudflare hosts your optional private Web copy." TextWrapping="Wrap"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="2" HorizontalAlignment="Right" Spacing="8">
+                                <TextBlock HorizontalAlignment="Right" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{Binding PersonalCloudStatusText}"/>
+                                <Button Classes="accent" Click="OnConnectPersonalCloudClicked" Content="{Binding PersonalCloudActionText}" IsEnabled="{Binding CanConnectPersonalCloud}"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
                     <Border Padding="20" Classes="settings-card"><Grid ColumnDefinitions="32,*,Auto" ColumnSpacing="14"><ic:FluentIcon Icon="ArrowSync" FontSize="21"/><StackPanel Grid.Column="1"><TextBlock FontWeight="SemiBold" Text="Automatic sync"/><TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="Refresh connected apps every five minutes while Openza Tasks is running."/></StackPanel><ToggleSwitch x:Name="AutomaticSyncToggle" Grid.Column="2" OnContent="On" OffContent="Off" IsCheckedChanged="OnAutomaticSyncChanged"/></Grid></Border>
 
                     <Border Classes="settings-card">

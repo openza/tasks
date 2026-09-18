@@ -1,0 +1,15 @@
+{
+  "protocolVersion": 1,
+  "product": "tasks",
+  "instanceId": "instance_00000000000000000000000000000001",
+  "deviceId": "device_00000000000000000000000000000001",
+  "mutationId": "mutation_00000000000000000000000000000006",
+  "deviceSequence": 6,
+  "operation": "task.reopen",
+  "entityId": "local_00000000000000000000000000000001",
+  "baseEntityVersion": 5,
+  "payload": {
+    "reopenedAt": "2026-09-13T06:40:00.000Z"
+  },
+  "clientCreatedAt": "2026-09-13T06:40:00.000Z"
+}

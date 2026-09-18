@@ -1,0 +1,18 @@
+{
+  "protocolVersion": 1,
+  "product": "tasks",
+  "changeSeq": 5,
+  "mutationId": "mutation_00000000000000000000000000000005",
+  "operation": "task.completed",
+  "entityKind": "task",
+  "entityId": "local_00000000000000000000000000000001",
+  "entityVersion": 5,
+  "payload": {
+    "task": {
+      "id": "local_00000000000000000000000000000001",
+      "completionState": "completed",
+      "completedAt": "2026-09-13T06:38:00.000Z"
+    }
+  },
+  "serverAcceptedAt": "2026-09-13T06:38:01.000Z"
+}

@@ -1,0 +1,17 @@
+{
+  "protocolVersion": 1,
+  "product": "tasks",
+  "changes": [{
+    "protocolVersion": 1,
+    "product": "tasks",
+    "changeSeq": 8,
+    "mutationId": "mutation_00000000000000000000000000000008",
+    "operation": "task.updatedOpenzaFields",
+    "entityKind": "task",
+    "entityId": "local_00000000000000000000000000000001",
+    "entityVersion": 8,
+    "payload": { "task": { "id": "local_00000000000000000000000000000001", "plannedAt": "2026-09-20T04:00:00.000Z" } },
+    "serverAcceptedAt": "2026-09-13T06:44:01.000Z"
+  }],
+  "nextCheckpoint": 8
+}

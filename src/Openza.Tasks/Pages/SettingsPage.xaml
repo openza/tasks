@@ -60,6 +60,22 @@
 
                 <TextBlock Style="{StaticResource SettingsSectionHeaderTextBlockStyle}" Text="Integrations" />
                 <StackPanel x:Name="IntegrationsPanel" Spacing="{StaticResource SettingsCardSpacing}">
+                    <toolkit:SettingsCard Header="Personal Cloud" Description="Keep every Openza task available through your own Cloudflare account.">
+                        <toolkit:SettingsCard.HeaderIcon>
+                            <FontIcon Glyph="&#xE753;" />
+                        </toolkit:SettingsCard.HeaderIcon>
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                            <StackPanel Spacing="3">
+                                <TextBlock x:Name="PersonalCloudStatusText" Text="Not connected" Style="{StaticResource OpenzaMetadataTextBlockStyle}" />
+                                <TextBlock x:Name="PersonalCloudSummaryText" Text="Your tasks stay local-first. Cloudflare hosts your optional private Web copy." Style="{StaticResource OpenzaCaptionTextBlockStyle}" TextWrapping="Wrap" />
+                                <ProgressBar x:Name="PersonalCloudProgressBar" Margin="0,7,0,3" Minimum="0" Maximum="9" Value="0" Visibility="Collapsed" />
+                                <TextBlock x:Name="PersonalCloudProgressText" FontFamily="Consolas" FontSize="12" TextWrapping="Wrap" Visibility="Collapsed" />
+                                <TextBlock x:Name="PersonalCloudAddressText" Style="{StaticResource OpenzaCaptionTextBlockStyle}" TextWrapping="Wrap" Visibility="Collapsed" />
+                            </StackPanel>
+                            <Button x:Name="PersonalCloudConnectButton" Grid.Column="1" Content="Set up Personal Cloud" Style="{StaticResource OpenzaAccentButtonStyle}" IsEnabled="False" Click="OnConnectPersonalCloudClicked" />
+                        </Grid>
+                    </toolkit:SettingsCard>
+
                     <toolkit:SettingsCard Header="How integrations work" Description="Connected apps bring tasks into Openza. Your Openza planning stays in Openza.">
                         <toolkit:SettingsCard.HeaderIcon>
                             <FontIcon Glyph="&#xE946;" />

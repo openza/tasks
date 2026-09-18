@@ -1,12 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# -ne 1 ]]; then
-  echo "Usage: $0 <openza-tasks.snap>" >&2
+if [[ $# -lt 1 || $# -gt 2 ]]; then
+  echo "Usage: $0 <openza-tasks.snap> [Production|Preview]" >&2
   exit 2
 fi
 
 snap_path="$1"
+expected_channel="${2:-Production}"
+if [[ "$expected_channel" != Production && "$expected_channel" != Preview ]]; then
+  echo "Expected channel must be Production or Preview." >&2
+  exit 2
+fi
 if [[ ! -f "$snap_path" ]]; then
   echo "Snap not found: $snap_path" >&2
   exit 2
@@ -39,12 +44,16 @@ test -x "$root/bin/openza-cli-launch"
 test -x "$root/opt/openza-tasks/desktop/Openza.Tasks.Desktop"
 test -x "$root/opt/openza-tasks/cli/openza"
 test -x "$root/usr/bin/secret-tool"
+test -f "$root/opt/openza-tasks/desktop/PersonalCloudArtifact/artifact-manifest.json"
+test -f "$root/opt/openza-tasks/desktop/PersonalCloudArtifact/worker.js"
+grep -Fq 'network-bind' "$metadata"
+grep -Fq 'password-manager-service' "$metadata"
 test -f "$root/meta/gui/openza-tasks.desktop"
 test -f "$root/meta/gui/icon.png"
 test -f "$root/usr/share/metainfo/com.openza.Tasks.metainfo.xml"
 
-test "$(tr -d '\r\n' < "$root/opt/openza-tasks/desktop/.openza-channel")" = Production
-test "$(tr -d '\r\n' < "$root/opt/openza-tasks/cli/.openza-channel")" = Production
+test "$(tr -d '\r\n' < "$root/opt/openza-tasks/desktop/.openza-channel")" = "$expected_channel"
+test "$(tr -d '\r\n' < "$root/opt/openza-tasks/cli/.openza-channel")" = "$expected_channel"
 
 if find "$root" -type f \( \
   -iname '*.db' -o \
@@ -60,4 +69,4 @@ if find "$root" -type f \( \
   exit 1
 fi
 
-echo "Built Snap contains both Production apps, launchers, metadata, icon, and Secret Portal tooling with no prohibited files."
+echo "Built Snap contains both $expected_channel apps, launchers, metadata, icon, and Secret Portal tooling with no prohibited files."

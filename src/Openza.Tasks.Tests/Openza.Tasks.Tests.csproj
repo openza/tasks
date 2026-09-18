@@ -20,4 +20,9 @@
     <ProjectReference Include="..\Openza.Tasks.Desktop\Openza.Tasks.Desktop.csproj" />
     <ProjectReference Include="..\Openza.Tasks.Cli\Openza.Tasks.Cli.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <None Include="Fixtures\**\*.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Fixtures\**\*.sha256" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

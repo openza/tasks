@@ -3,9 +3,11 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using System.Collections.ObjectModel;
+using Openza.Tasks.Application.Tasks;
 using Openza.Tasks.Core.Credentials;
 using Openza.Tasks.Core.Data;
 using Openza.Tasks.Core.Models;
+using Openza.Tasks.Core.PersonalCloud;
 using Openza.Tasks.Core.Services;
 using Openza.Tasks.Core.Sync;
 using Openza.Tasks.Pages;
@@ -23,6 +25,7 @@ public sealed partial class AppShell : UserControl
     private const int DefaultAutoSyncIntervalMinutes = 5;
 
     private readonly ITaskStore _store;
+    private readonly TaskApplicationService _taskService;
     private readonly TaskSyncEngine _syncEngine;
     private readonly ICredentialStore _credentials;
     private readonly BackupService _backupService;
@@ -32,6 +35,7 @@ public sealed partial class AppShell : UserControl
     private readonly Window _ownerWindow;
     private readonly HttpClient _httpClient = new();
     private readonly GitHubIssueService _gitHubIssueService;
+    private readonly IPersonalCloudSetupService? _personalCloudSetup;
     private readonly List<SpaceItem> _spaces = [];
     private readonly List<ProjectItem> _allProjects = [];
     private readonly List<LabelItem> _allLabels = [];
@@ -78,7 +82,8 @@ public sealed partial class AppShell : UserControl
         BackupService backupService,
         AppSettingsService settings,
         MicrosoftGraphAuthService microsoftAuth,
-        BackupInfo? startupRecoveryCandidate = null)
+        BackupInfo? startupRecoveryCandidate = null,
+        IPersonalCloudSetupService? personalCloudSetup = null)
     {
         _ownerWindow = ownerWindow;
         _store = store;
@@ -89,6 +94,8 @@ public sealed partial class AppShell : UserControl
         _microsoftAuth = microsoftAuth;
         _startupRecoveryCandidate = startupRecoveryCandidate;
         _gitHubIssueService = new GitHubIssueService(_httpClient);
+        _personalCloudSetup = personalCloudSetup;
+        _taskService = new TaskApplicationService(store, () => _personalCloudSetup?.CurrentConnection);
         InitializeComponent();
         GlobalSearchTaskResults.ItemsSource = _globalTaskSearchResults;
         GlobalSearchProjectResults.ItemsSource = _globalProjectSearchResults;
@@ -105,6 +112,15 @@ public sealed partial class AppShell : UserControl
         SettingsPage.AutoBackupEnabled = _settings.Settings.AutoBackupEnabled;
         SettingsPage.AutoSyncEnabled = _settings.Settings.AutoSyncEnabled;
         SettingsPage.SetCloudBackupAvailable(IsOneDriveBackupAvailable());
+        SettingsPage.SetPersonalCloudStatus(
+            _personalCloudSetup?.IsConfigured == true,
+            _personalCloudSetup?.CurrentConnection is null ? "Not connected" : "Connected",
+            _personalCloudSetup?.CurrentConnection is { } personalCloud
+                ? $"This desktop is paired with {personalCloud.ServiceOrigin.Host}."
+                : _personalCloudSetup?.IsConfigured == true
+                    ? "Authorize Cloudflare to create and connect your Personal Cloud."
+                    : "Cloudflare authorization is not configured in this build.",
+            connected: _personalCloudSetup?.CurrentConnection is not null);
         SettingsPage.CloudBackupEnabled = IsOneDriveBackupAvailable() && _settings.Settings.OneDriveBackupEnabled;
         SettingsPage.CloudBackupEncryptionEnabled = _settings.Settings.OneDriveBackupEncryptionEnabled;
         _suppressSettingsEvents = false;

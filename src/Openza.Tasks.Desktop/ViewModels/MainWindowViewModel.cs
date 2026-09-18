@@ -5,6 +5,7 @@ using Openza.Tasks.Application.Tasks;
 using Openza.Tasks.Core.Data;
 using Openza.Tasks.Core.Credentials;
 using Openza.Tasks.Core.Models;
+using Openza.Tasks.Core.PersonalCloud;
 using Openza.Tasks.Core.Services;
 using Openza.Tasks.Core.Sync;
 using Openza.Tasks.Desktop.Services;
@@ -35,6 +36,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private string? _sourceDateMismatchAcknowledgementKey;
     private readonly GitHubIssueService _gitHubIssueService;
     private readonly DesktopPreferencesStore _preferencesStore;
+    private readonly IPersonalCloudSetupService? _personalCloudSetup;
     private readonly Lazy<BackupService?> _backupService;
     private readonly List<ProjectItem> _projects = [];
     private readonly List<LabelItem> _labels = [];
@@ -86,6 +88,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private string _gitHubActionText = "Create GitHub issue";
     private TaskExternalLinkInfo? _selectedGitHubLink;
     private bool _automaticSyncEnabled = true;
+    private string _personalCloudStatusText = "Not connected";
+    private string _personalCloudSummaryText = "Keep every Openza task available through your own Cloudflare account.";
+    private string _personalCloudActionText = "Set up Personal Cloud";
+    private bool _isConnectingPersonalCloud;
 
     public MainWindowViewModel(ITaskStore store)
         : this(store, DesktopCredentialStore.Create(DesktopDataPaths.Runtime))
@@ -102,15 +108,23 @@ public sealed partial class MainWindowViewModel : ObservableObject
         Func<string, ISyncProvider>? microsoftSyncProviderFactory = null,
         CloudBackupService? cloudService = null,
         BackupService? backupService = null,
-        GitHubIssueService? gitHubIssueService = null)
+        GitHubIssueService? gitHubIssueService = null,
+        IPersonalCloudSetupService? personalCloudSetup = null)
     {
         _store = store;
-        _taskService = new TaskApplicationService(store);
+        _personalCloudSetup = personalCloudSetup;
+        _taskService = new TaskApplicationService(store, () => _personalCloudSetup?.CurrentConnection);
         _credentials = credentials;
         _microsoftAuth = microsoftAuth ?? new DesktopMicrosoftAuthService(credentials);
         _microsoftSyncProviderFactory = microsoftSyncProviderFactory ?? (token => new MicrosoftToDoProvider(_httpClient, token));
         _cloudService = cloudService;
         _gitHubIssueService = gitHubIssueService ?? new GitHubIssueService(_httpClient);
+        if (_personalCloudSetup?.CurrentConnection is { } personalCloud)
+        {
+            _personalCloudStatusText = "Connected";
+            _personalCloudSummaryText = $"This desktop is paired with {personalCloud.ServiceOrigin.Host}.";
+            _personalCloudActionText = "Manage Personal Cloud";
+        }
         _preferencesStore = preferencesStore ?? CreatePreferencesStore(store);
         _syncEngine = new TaskSyncEngine(store);
         _todoistSyncProviderFactory = todoistSyncProviderFactory ?? (token => new TodoistProvider(_httpClient, token));
@@ -1599,7 +1613,20 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 });
                 return results;
             });
-            if (summaries.Count == 0)
+            PersonalCloudSyncResult? personalCloud = null;
+            string? personalCloudError = null;
+            if (_personalCloudSetup?.CurrentConnection is not null)
+            {
+                try
+                {
+                    personalCloud = await _personalCloudSetup.SyncAsync().ConfigureAwait(true);
+                }
+                catch (Exception exception)
+                {
+                    personalCloudError = exception.Message;
+                }
+            }
+            if (summaries.Count == 0 && personalCloud is null && personalCloudError is null)
             {
                 LastSyncResult = "No connected sync provider.";
                 StatusMessage = showMissingConnection ? "Connect an app in Settings before syncing." : string.Empty;
@@ -1611,10 +1638,15 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 await RefreshAsyncCore(SelectedTask?.Task.Id, preserveEditor: true);
                 await LoadTodoistRoutingRulesCoreAsync();
             });
-            LastSyncResult = $"{DateTimeOffset.Now:g} · " + string.Join("; ", summaries.Select(summary => summary.Success
+            var resultMessages = summaries.Select(summary => summary.Success
                 ? $"{IntegrationIds.DisplayName(summary.Provider)} synced · {summary.TasksAdded} new, {summary.TasksUpdated} updated, {summary.CompletionsSynced} completions, {summary.DateUpdatesSynced} date changes"
-                : $"{IntegrationIds.DisplayName(summary.Provider)} sync failed: {summary.Error}"));
-            if (summaries.Any(summary => !summary.Success)) SetPersistentStatusMessage(LastSyncResult);
+                : $"{IntegrationIds.DisplayName(summary.Provider)} sync failed: {summary.Error}").ToList();
+            if (personalCloud is not null)
+                resultMessages.Add($"Personal Cloud synced · {personalCloud.PushedMutations} uploaded, {personalCloud.PulledChanges} downloaded");
+            if (personalCloudError is not null)
+                resultMessages.Add($"Personal Cloud sync failed: {personalCloudError}");
+            LastSyncResult = $"{DateTimeOffset.Now:g} · " + string.Join("; ", resultMessages);
+            if (summaries.Any(summary => !summary.Success) || personalCloudError is not null) SetPersistentStatusMessage(LastSyncResult);
             else StatusMessage = LastSyncResult;
         }
         catch (Exception exception)
@@ -2139,7 +2171,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         var selectedId = SelectedTask?.Task.Id;
         await RunBusyAsync(async () =>
         {
-            await _store.MoveTaskToSpaceAsync(item.Task.Id, spaceId);
+            await _taskService.MoveTaskToSpaceAsync(item.Task.Id, spaceId);
             StatusMessage = "Task moved";
             await RefreshAsyncCore(string.Equals(selectedId, item.Task.Id, StringComparison.Ordinal) ? null : selectedId);
         });
@@ -2313,7 +2345,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         var taskId = SelectedTask.Task.Id;
         await RunBusyAsync(async () =>
         {
-            await _store.MoveTaskToSpaceAsync(taskId, targetSpace.SpaceId!);
+            await _taskService.MoveTaskToSpaceAsync(taskId, targetSpace.SpaceId!);
             StatusMessage = $"Task moved to {targetSpace.Title}";
             await RefreshAsyncCore();
         });

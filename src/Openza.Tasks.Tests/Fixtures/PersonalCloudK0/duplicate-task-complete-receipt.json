@@ -1,0 +1,10 @@
+{
+  "protocolVersion": 1,
+  "product": "tasks",
+  "mutationId": "mutation_00000000000000000000000000000005",
+  "outcome": "duplicate",
+  "entityId": "local_00000000000000000000000000000001",
+  "entityVersion": 5,
+  "changeSeq": 5,
+  "serverAcceptedAt": "2026-09-13T06:38:01.000Z"
+}

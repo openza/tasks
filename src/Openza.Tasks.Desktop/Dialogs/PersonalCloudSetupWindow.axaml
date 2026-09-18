@@ -1,0 +1,83 @@
+<Window
+    x:Class="Openza.Tasks.Desktop.Dialogs.PersonalCloudSetupWindow"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Width="620"
+    SizeToContent="Height"
+    CanResize="False"
+    Closing="OnClosing"
+    ShowInTaskbar="False"
+    WindowStartupLocation="CenterOwner">
+    <Grid Margin="28">
+        <StackPanel x:Name="ReviewPanel" Spacing="18">
+            <StackPanel Spacing="6">
+                <TextBlock FontSize="22" FontWeight="SemiBold" Text="Set up Personal Cloud" />
+                <TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="Keep your Openza tasks available on the Web through your own Cloudflare account." TextWrapping="Wrap" />
+            </StackPanel>
+
+            <Border Padding="18" Classes="settings-card">
+                <StackPanel Spacing="10">
+                    <TextBlock FontWeight="SemiBold" Text="What will happen" />
+                    <TextBlock Text="• All adopted Openza tasks in every Space will be included." TextWrapping="Wrap" />
+                    <TextBlock Text="• This desktop remains local-first and continues to work offline." TextWrapping="Wrap" />
+                    <TextBlock Text="• Openza creates one D1 database and one private Web app in your Cloudflare account." TextWrapping="Wrap" />
+                    <TextBlock Text="• Provider credentials stay on this desktop and are never uploaded." TextWrapping="Wrap" />
+                </StackPanel>
+            </Border>
+
+            <Border Padding="18" Classes="settings-card">
+                <StackPanel Spacing="8">
+                    <TextBlock FontWeight="SemiBold" Text="Cloudflare permissions" />
+                    <TextBlock Text="Account Settings: Read  ·  D1: Write  ·  Workers Scripts: Write" TextWrapping="Wrap" />
+                    <TextBlock FontSize="12" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="The database and Web app may count toward your Cloudflare plan limits. Openza uses temporary authorization for setup and discards it afterward." TextWrapping="Wrap" />
+                </StackPanel>
+            </Border>
+
+            <StackPanel HorizontalAlignment="Right" Orientation="Horizontal" Spacing="8">
+                <Button Click="OnCancelClicked" Content="Cancel" />
+                <Button Click="OnPairExistingClicked" Content="Pair existing cloud" />
+                <Button Classes="accent" Click="OnContinueClicked" Content="Continue to Cloudflare" />
+            </StackPanel>
+        </StackPanel>
+
+        <StackPanel x:Name="PairPanel" IsVisible="False" Spacing="16">
+            <StackPanel Spacing="6">
+                <TextBlock FontSize="22" FontWeight="SemiBold" Text="Pair this desktop" />
+                <TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="In your Personal Cloud, open Settings and choose Pair a desktop. Then enter the address and one-time code here." TextWrapping="Wrap" />
+            </StackPanel>
+            <TextBox x:Name="ExistingCloudAddress" PlaceholderText="https://your-personal-cloud.workers.dev/" />
+            <TextBox x:Name="ExistingPairingGrant" PlaceholderText="One-time pairing code" />
+            <CheckBox x:Name="ExistingProviderBridge" IsChecked="True" Content="Allow this desktop to refresh connected provider tasks" />
+            <TextBlock x:Name="PairingError" Foreground="{DynamicResource SystemFillColorCriticalBrush}" IsVisible="False" TextWrapping="Wrap" />
+            <StackPanel HorizontalAlignment="Right" Orientation="Horizontal" Spacing="8">
+                <Button Click="OnPairBackClicked" Content="Back" />
+                <Button x:Name="PairExistingButton" Classes="accent" Click="OnConfirmPairExistingClicked" Content="Pair desktop" />
+            </StackPanel>
+        </StackPanel>
+
+        <StackPanel x:Name="ProgressPanel" IsVisible="False" Spacing="16">
+            <StackPanel Spacing="6">
+                <TextBlock x:Name="ProgressTitle" FontSize="22" FontWeight="SemiBold" Text="Setting up Personal Cloud" />
+                <TextBlock x:Name="ProgressSummary" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="Openza will resume safely if a step is interrupted." TextWrapping="Wrap" />
+            </StackPanel>
+            <ProgressBar x:Name="SetupProgressBar" Minimum="0" Maximum="9" Value="0" />
+            <StackPanel Spacing="9">
+                <TextBlock x:Name="AuthorizationStep" Text="○ Authorize Cloudflare" />
+                <TextBlock x:Name="AccountStep" Text="○ Confirm Cloudflare account" />
+                <TextBlock x:Name="DatabaseStep" Text="○ Create database" />
+                <TextBlock x:Name="ApplicationStep" Text="○ Deploy Web app" />
+                <TextBlock x:Name="MigrationStep" Text="○ Prepare database" />
+                <TextBlock x:Name="HealthStep" Text="○ Verify connection" />
+                <TextBlock x:Name="PairingStep" Text="○ Pair this desktop" />
+                <TextBlock x:Name="OwnerAccessStep" Text="○ Finish security setup" />
+            </StackPanel>
+            <Border x:Name="AddressPanel" Padding="14" Classes="settings-card" IsVisible="False">
+                <StackPanel Spacing="4">
+                    <TextBlock FontWeight="SemiBold" Text="Your Personal Cloud" />
+                    <TextBlock x:Name="AddressText" TextWrapping="Wrap" />
+                </StackPanel>
+            </Border>
+            <Button x:Name="CloseButton" HorizontalAlignment="Right" Click="OnCloseClicked" Content="Cancel setup" IsVisible="False" />
+        </StackPanel>
+    </Grid>
+</Window>

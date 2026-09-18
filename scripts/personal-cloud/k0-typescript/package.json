@@ -1,0 +1,8 @@
+{
+  "name": "@openza/personal-cloud-k0-conformance",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test k0-protocol.test.ts"
+  }
+}

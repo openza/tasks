@@ -704,6 +704,17 @@ public sealed partial class MainWindow : Window
         await ViewModel.RefreshGitHubConnectionAsync();
     }
 
+    private async void OnConnectPersonalCloudClicked(object? sender, RoutedEventArgs e)
+    {
+        if (!ViewModel.CanConnectPersonalCloud) return;
+        if (ViewModel.IsPersonalCloudConnected)
+        {
+            await new PersonalCloudManageWindow(ViewModel).ShowDialog<bool>(this);
+            return;
+        }
+        await new PersonalCloudSetupWindow(ViewModel).ShowDialog(this);
+    }
+
     private async void OnSyncNavigationClicked(object? sender, RoutedEventArgs e)
     {
         if (!await ViewModel.SaveSelectedAsync()) return;

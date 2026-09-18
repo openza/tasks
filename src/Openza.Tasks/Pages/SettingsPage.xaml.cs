@@ -1,5 +1,6 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Openza.Tasks.Core.PersonalCloud;
 using Openza.Tasks.Core.Services;
 using Openza.Tasks.ViewModels;
 using System.Collections.ObjectModel;
@@ -11,6 +12,7 @@ public sealed partial class SettingsPage : UserControl
 {
     public event SelectionChangedEventHandler? ThemeChanged;
     public event RoutedEventHandler? ConnectTodoistClicked;
+    public event RoutedEventHandler? ConnectPersonalCloudClicked;
     public event RoutedEventHandler? ConnectMicrosoftClicked;
     public event RoutedEventHandler? SignInGitHubClicked;
     public event RoutedEventHandler? ConnectGitHubClicked;
@@ -132,6 +134,54 @@ public sealed partial class SettingsPage : UserControl
             "Connect GitHub to create issues from tasks.",
             "Update token");
         GitHubSignInButton.Content = githubConnected ? "Reconnect GitHub" : "Sign in with GitHub";
+    }
+
+    public void SetPersonalCloudStatus(bool configured, string status, string summary, bool busy = false, bool connected = false)
+    {
+        PersonalCloudStatusText.Text = status;
+        PersonalCloudSummaryText.Text = summary;
+        PersonalCloudConnectButton.IsEnabled = configured;
+        PersonalCloudConnectButton.Content = busy ? "Cancel setup" : connected ? "Open Personal Cloud" : "Set up Personal Cloud";
+    }
+
+    public void SetPersonalCloudProgress(PersonalCloudSetupStep step)
+    {
+        var orderedSteps = new[]
+        {
+            PersonalCloudSetupStep.AwaitingAuthorization,
+            PersonalCloudSetupStep.ResolvingAccount,
+            PersonalCloudSetupStep.CreatingDatabase,
+            PersonalCloudSetupStep.DeployingApplication,
+            PersonalCloudSetupStep.PreparingDatabase,
+            PersonalCloudSetupStep.VerifyingConnection,
+            PersonalCloudSetupStep.PairingDesktop,
+            PersonalCloudSetupStep.CreatingOwnerAccess,
+        };
+        var labels = new[]
+        {
+            "Authorize Cloudflare",
+            "Confirm Cloudflare account",
+            "Create database",
+            "Deploy Web app",
+            "Prepare database",
+            "Verify connection",
+            "Pair this desktop",
+            "Finish security setup",
+        };
+        var currentIndex = step == PersonalCloudSetupStep.Complete ? orderedSteps.Length : Array.IndexOf(orderedSteps, step);
+        if (currentIndex < 0) return;
+
+        PersonalCloudProgressBar.Visibility = Visibility.Visible;
+        PersonalCloudProgressBar.Value = step == PersonalCloudSetupStep.Complete ? 9 : currentIndex + 1;
+        PersonalCloudProgressText.Visibility = Visibility.Visible;
+        PersonalCloudProgressText.Text = string.Join(Environment.NewLine, labels.Select((label, index) =>
+            $"{(index < currentIndex ? "✓" : index == currentIndex ? "●" : "○")} {label}"));
+    }
+
+    public void SetPersonalCloudAddress(Uri serviceOrigin)
+    {
+        PersonalCloudAddressText.Text = $"Your Personal Cloud: {serviceOrigin.AbsoluteUri}";
+        PersonalCloudAddressText.Visibility = Visibility.Visible;
     }
 
     private static void SetIntegrationState(
@@ -312,6 +362,8 @@ public sealed partial class SettingsPage : UserControl
     private void OnThemeChanged(object sender, SelectionChangedEventArgs e) => ThemeChanged?.Invoke(sender, e);
 
     private void OnConnectTodoistClicked(object sender, RoutedEventArgs e) => ConnectTodoistClicked?.Invoke(sender, e);
+
+    private void OnConnectPersonalCloudClicked(object sender, RoutedEventArgs e) => ConnectPersonalCloudClicked?.Invoke(sender, e);
 
     private void OnConnectMicrosoftClicked(object sender, RoutedEventArgs e) => ConnectMicrosoftClicked?.Invoke(sender, e);
 

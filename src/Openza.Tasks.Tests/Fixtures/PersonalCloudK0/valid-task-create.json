@@ -1,0 +1,22 @@
+{
+  "protocolVersion": 1,
+  "product": "tasks",
+  "instanceId": "instance_00000000000000000000000000000001",
+  "deviceId": "device_00000000000000000000000000000001",
+  "mutationId": "mutation_00000000000000000000000000000001",
+  "deviceSequence": 1,
+  "operation": "task.create",
+  "entityId": "local_00000000000000000000000000000001",
+  "baseEntityVersion": null,
+  "payload": {
+    "task": {
+      "id": "local_00000000000000000000000000000001",
+      "spaceId": "space_default",
+      "title": "Validate one task",
+      "completionState": "open",
+      "workflowStatus": "inbox",
+      "createdAt": "2026-09-13T06:30:00.000Z"
+    }
+  },
+  "clientCreatedAt": "2026-09-13T06:30:00.000Z"
+}

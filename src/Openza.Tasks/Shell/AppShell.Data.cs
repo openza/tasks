@@ -2,6 +2,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Openza.Tasks.Core.Data;
 using Openza.Tasks.Core.Models;
+using Openza.Tasks.Core.PersonalCloud;
 using Openza.Tasks.Core.Services;
 using Openza.Tasks.Core.Sync;
 using Openza.Tasks.Services;
@@ -15,6 +16,8 @@ namespace Openza.Tasks.Shell;
 
 public sealed partial class AppShell
 {
+    private CancellationTokenSource? _personalCloudSetupCancellation;
+
     private async void OnImportClicked(object sender, RoutedEventArgs e)
     {
         var picker = new FileOpenPicker();
@@ -114,6 +117,8 @@ public sealed partial class AppShell
         try
         {
             var summaries = new List<SyncSummary>();
+            PersonalCloudSyncResult? personalCloud = null;
+            string? personalCloudError = null;
             var todoistToken = await _credentials.GetAsync(TodoistTokenKey).ConfigureAwait(true);
             if (!string.IsNullOrWhiteSpace(todoistToken))
             {
@@ -140,6 +145,18 @@ public sealed partial class AppShell
                 }
             }
 
+            if (_personalCloudSetup?.CurrentConnection is not null)
+            {
+                try
+                {
+                    personalCloud = await _personalCloudSetup.SyncAsync().ConfigureAwait(true);
+                }
+                catch (Exception exception)
+                {
+                    personalCloudError = exception.Message;
+                }
+            }
+
             await LoadProjectsAsync(refreshList: false).ConfigureAwait(true);
             await RefreshTodoistRulesAsync().ConfigureAwait(true);
             if (IsTaskView(_currentView))
@@ -153,11 +170,11 @@ public sealed partial class AppShell
 
             await RefreshSourceItemsAsync().ConfigureAwait(true);
 
-            if (summaries.Count == 0)
+            if (summaries.Count == 0 && personalCloud is null && personalCloudError is null)
             {
                 if (showNoIntegrations)
                 {
-                    ShowInfo("No integrations connected", "Connect Todoist or Microsoft To Do in Settings.", InfoBarSeverity.Warning);
+                    ShowInfo("No integrations connected", "Connect Personal Cloud, Todoist, or Microsoft To Do in Settings.", InfoBarSeverity.Warning);
                 }
 
                 SyncPage.SetLastSyncMessage("No integrations are connected.");
@@ -165,14 +182,20 @@ public sealed partial class AppShell
             }
 
             var failures = summaries.Where(s => !s.Success).ToList();
-            var summaryText = string.Join("  ", summaries.Select(s => $"{SourceName(s.Provider)}: +{s.TasksAdded}, updated {s.TasksUpdated}, dates {s.DateUpdatesSynced}, completions {s.CompletionsSynced}{(s.Success ? string.Empty : $" ({s.Error})")}"));
-            SyncPage.SetLastSyncMessage($"{(failures.Count == 0 ? "Last sync completed" : "Last sync needs attention")}: {summaryText}");
+            var summaryParts = summaries.Select(s => $"{SourceName(s.Provider)}: +{s.TasksAdded}, updated {s.TasksUpdated}, dates {s.DateUpdatesSynced}, completions {s.CompletionsSynced}{(s.Success ? string.Empty : $" ({s.Error})")}").ToList();
+            if (personalCloud is not null)
+                summaryParts.Add($"Personal Cloud: {personalCloud.PushedMutations} uploaded, {personalCloud.PulledChanges} downloaded");
+            if (personalCloudError is not null)
+                summaryParts.Add($"Personal Cloud failed: {personalCloudError}");
+            var summaryText = string.Join("  ", summaryParts);
+            var hasFailures = failures.Count > 0 || personalCloudError is not null;
+            SyncPage.SetLastSyncMessage($"{(!hasFailures ? "Last sync completed" : "Last sync needs attention")}: {summaryText}");
             if (showCompletionInfo)
             {
                 ShowInfo(
-                    failures.Count == 0 ? "Sync complete" : "Sync needs attention",
+                    !hasFailures ? "Sync complete" : "Sync needs attention",
                     summaryText,
-                    failures.Count == 0 ? InfoBarSeverity.Success : InfoBarSeverity.Error);
+                    !hasFailures ? InfoBarSeverity.Success : InfoBarSeverity.Error);
             }
         }
         catch (Exception exception)
@@ -205,6 +228,109 @@ public sealed partial class AppShell
         await RefreshSettingsStateAsync().ConfigureAwait(true);
         ShowInfo("Todoist connected", _settings.Settings.AutoSyncEnabled ? "Openza will sync Todoist automatically." : "Use Sync to import tasks.", InfoBarSeverity.Success);
         await RunAutomaticSyncAsync().ConfigureAwait(true);
+    }
+
+    private async void OnConnectPersonalCloudClicked(object sender, RoutedEventArgs e)
+    {
+        if (_personalCloudSetupCancellation is not null)
+        {
+            _personalCloudSetupCancellation.Cancel();
+            return;
+        }
+
+        if (_personalCloudSetup?.CurrentConnection is { } currentConnection)
+        {
+            await Launcher.LaunchUriAsync(currentConnection.ServiceOrigin);
+            return;
+        }
+
+        if (_personalCloudSetup?.IsConfigured != true)
+        {
+            SettingsPage.SetPersonalCloudStatus(false, "Not available in this build", "Cloudflare authorization must be configured before Personal Cloud can create account resources.");
+            return;
+        }
+
+        var review = new ContentDialog
+        {
+            XamlRoot = XamlRoot,
+            Title = "Set up Personal Cloud",
+            PrimaryButtonText = "Continue to Cloudflare",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+            Content = new StackPanel
+            {
+                Spacing = 12,
+                MaxWidth = 560,
+                Children =
+                {
+                    new TextBlock { Text = "Keep your Openza tasks available on the Web through your own Cloudflare account.", TextWrapping = TextWrapping.Wrap },
+                    new TextBlock { Text = "What will happen", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold },
+                    new TextBlock { Text = "• All adopted Openza tasks in every Space will be included.\n• This desktop remains local-first and works offline.\n• Openza creates one D1 database and one private Web app.\n• Provider credentials stay on this desktop and are never uploaded.", TextWrapping = TextWrapping.Wrap },
+                    new TextBlock { Text = "Cloudflare permissions", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold },
+                    new TextBlock { Text = "Account Settings: Read  ·  D1: Write  ·  Workers Scripts: Write", TextWrapping = TextWrapping.Wrap },
+                    new TextBlock { Text = "The database and Web app may count toward your Cloudflare plan limits. Openza uses temporary authorization for setup and discards it afterward.", TextWrapping = TextWrapping.Wrap, Opacity = 0.72 },
+                },
+            },
+        };
+        if (await review.ShowAsync() != ContentDialogResult.Primary)
+            return;
+
+        _personalCloudSetupCancellation = new CancellationTokenSource();
+        SettingsPage.SetPersonalCloudStatus(true, "Setting up", "Approve the requested permissions in the Cloudflare page opened in your browser.", busy: true);
+        var progress = new Progress<PersonalCloudSetupProgress>(update =>
+        {
+            SettingsPage.SetPersonalCloudProgress(update.Step);
+            SettingsPage.SetPersonalCloudStatus(true, "Setting up", update.Step == PersonalCloudSetupStep.AwaitingAuthorization
+                ? "Approve the requested permissions in the Cloudflare page opened in your browser."
+                : "Keep Openza open while it completes this step. Completed work is saved safely.", busy: true);
+        });
+        try
+        {
+            var result = await _personalCloudSetup.ConnectAsync(_personalCloudSetupCancellation.Token, progress).ConfigureAwait(true);
+            var sync = await _personalCloudSetup.SyncAsync(_personalCloudSetupCancellation.Token).ConfigureAwait(true);
+            SettingsPage.SetPersonalCloudProgress(PersonalCloudSetupStep.Complete);
+            SettingsPage.SetPersonalCloudAddress(result.ServiceOrigin);
+            SettingsPage.SetPersonalCloudStatus(true, "Connected", $"This desktop is paired with {result.ServiceOrigin.Host}. Cloud connection verified at checkpoint {sync.Checkpoint}.", connected: true);
+
+            var complete = new ContentDialog
+            {
+                XamlRoot = XamlRoot,
+                Title = "Personal Cloud is ready",
+                Content = new TextBlock
+                {
+                    Text = $"Your Web address is {result.ServiceOrigin.AbsoluteUri}\n\nFinish passkey security in the browser window Openza opened.",
+                    TextWrapping = TextWrapping.Wrap,
+                },
+                PrimaryButtonText = "Open Personal Cloud",
+                CloseButtonText = "Close",
+                DefaultButton = ContentDialogButton.Primary,
+            };
+            if (await complete.ShowAsync() == ContentDialogResult.Primary)
+                await Launcher.LaunchUriAsync(result.ServiceOrigin);
+        }
+        catch (OperationCanceledException) when (_personalCloudSetupCancellation.IsCancellationRequested)
+        {
+            SettingsPage.SetPersonalCloudStatus(true, "Not connected", "Personal Cloud setup was cancelled. You can start again whenever you are ready.");
+        }
+        catch (PersonalCloudK0ContractException exception)
+        {
+            SettingsPage.SetPersonalCloudStatus(true, "Needs attention", exception.Code switch
+            {
+                "oauth_denied" => "Cloudflare authorization was cancelled. No new setup step was started.",
+                "oauth_state_mismatch" => "Cloudflare authorization did not match this setup attempt. Start again from Openza.",
+                "oauth_revoke_failed" => "Personal Cloud was created, but Cloudflare authorization could not be discarded. Revoke Openza from Cloudflare before retrying.",
+                _ => "Personal Cloud setup stopped safely. Choose Connect Cloudflare to resume from the last verified step.",
+            });
+        }
+        catch
+        {
+            SettingsPage.SetPersonalCloudStatus(true, "Needs attention", "Personal Cloud setup stopped safely. Choose Set up Personal Cloud to resume from the last verified step.");
+        }
+        finally
+        {
+            _personalCloudSetupCancellation.Dispose();
+            _personalCloudSetupCancellation = null;
+        }
     }
 
     private async void OnConnectMicrosoftClicked(object sender, RoutedEventArgs e)
