@@ -4,8 +4,12 @@ namespace Openza.Tasks.Tests;
 
 public sealed class PersonalCloudConnectionTests
 {
-    [Fact]
-    public async Task Connection_profile_survives_restart_without_containing_credentials()
+    [Theory]
+    [InlineData("https://openza-personal-test.workers.dev/")]
+    [InlineData("http://localhost:8787/")]
+    [InlineData("http://127.0.0.1:8787/")]
+    [InlineData("http://[::1]:8787/")]
+    public async Task Connection_profile_survives_restart_without_containing_credentials(string origin)
     {
         var directory = Path.Combine(Path.GetTempPath(), $"openza-personal-cloud-connection-{Guid.NewGuid():N}");
         var path = Path.Combine(directory, "connection.json");
@@ -14,7 +18,7 @@ public sealed class PersonalCloudConnectionTests
             var store = new JsonPersonalCloudConnectionStore(path);
             var expected = new PersonalCloudConnectionProfile
             {
-                ServiceOrigin = new Uri("https://openza-personal-test.workers.dev/"),
+                ServiceOrigin = new Uri(origin),
                 InstanceId = "instance_personal",
                 DeviceId = "device_1234567890",
                 ArtifactVersion = "1.2.3",
@@ -38,13 +42,19 @@ public sealed class PersonalCloudConnectionTests
         }
     }
 
-    [Fact]
-    public async Task Connection_profile_rejects_insecure_or_fragmented_origins()
+    [Theory]
+    [InlineData("http://example.test/")]
+    [InlineData("http://192.168.1.2:8787/")]
+    [InlineData("http://localhost.example.test/")]
+    [InlineData("http://localhost:8787/#secret")]
+    [InlineData("http://localhost:8787/?token=secret")]
+    [InlineData("http://localhost:8787/path")]
+    public async Task Connection_profile_rejects_insecure_or_fragmented_origins(string origin)
     {
         var store = new JsonPersonalCloudConnectionStore(Path.Combine(Path.GetTempPath(), $"openza-invalid-connection-{Guid.NewGuid():N}.json"));
         var invalid = new PersonalCloudConnectionProfile
         {
-            ServiceOrigin = new Uri("http://example.test/#secret"),
+            ServiceOrigin = new Uri(origin),
             InstanceId = "instance_personal",
             DeviceId = "device_1234567890",
             ArtifactVersion = "1.2.3",

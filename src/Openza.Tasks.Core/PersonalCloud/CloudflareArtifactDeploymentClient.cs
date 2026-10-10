@@ -37,7 +37,7 @@ public sealed class CloudflareArtifactDeploymentClient(
             accessToken, accountId, resourceName, assets, cancellationToken).ConfigureAwait(false);
         await UploadWorkerAsync(
             accessToken, accountId, databaseId, resourceName, attemptId,
-            artifactVersion, completionToken, cancellationToken).ConfigureAwait(false);
+            artifactVersion, completionToken, assets.Headers, cancellationToken).ConfigureAwait(false);
         await EnableWorkersDevAsync(accessToken, accountId, resourceName, cancellationToken).ConfigureAwait(false);
         var subdomain = await GetAccountSubdomainAsync(accessToken, accountId, cancellationToken).ConfigureAwait(false);
         return new CloudflareProvisioningApplication(
@@ -99,8 +99,16 @@ public sealed class CloudflareArtifactDeploymentClient(
         string attemptId,
         string artifactVersion,
         string completionToken,
+        string? headers,
         CancellationToken cancellationToken)
     {
+        // Cloudflare parses this control file from metadata, rather than serving it as an asset.
+        // https://developers.cloudflare.com/api/resources/workers/subresources/scripts/methods/update/
+        var assetConfig = new Dictionary<string, object>
+        {
+            ["not_found_handling"] = "single-page-application",
+        };
+        if (headers is not null) assetConfig["_headers"] = headers;
         var metadata = new
         {
             main_module = "index.js",
@@ -108,7 +116,7 @@ public sealed class CloudflareArtifactDeploymentClient(
             assets = new
             {
                 jwt = completionToken,
-                config = new { not_found_handling = "single-page-application" },
+                config = assetConfig,
             },
             bindings = new object[]
             {
@@ -179,6 +187,7 @@ public sealed class CloudflareArtifactDeploymentClient(
         var items = new List<PreparedAsset>(input.Count);
         var byHash = new Dictionary<string, PreparedAsset>(StringComparer.Ordinal);
         var paths = new HashSet<string>(StringComparer.Ordinal);
+        string? headers = null;
         foreach (var item in input)
         {
             if (string.IsNullOrWhiteSpace(item.Path) || !item.Path.StartsWith('/') || item.Path.Contains("..", StringComparison.Ordinal) ||
@@ -186,12 +195,26 @@ public sealed class CloudflareArtifactDeploymentClient(
                 throw new PersonalCloudK0ContractException("artifact_invalid", "The Personal Cloud artifact assets are invalid.");
             if (!MediaTypeHeaderValue.TryParse(item.ContentType, out _))
                 throw new PersonalCloudK0ContractException("artifact_invalid", "The Personal Cloud artifact content type is invalid.");
+            if (item.Path == "/_headers")
+            {
+                try
+                {
+                    headers = new UTF8Encoding(false, true).GetString(item.Content);
+                }
+                catch (DecoderFallbackException exception)
+                {
+                    throw new PersonalCloudK0ContractException("artifact_invalid", "The Personal Cloud headers file is not valid UTF-8.", exception);
+                }
+                continue;
+            }
             var hash = Convert.ToHexStringLower(SHA256.HashData(item.Content).AsSpan(0, 16));
             var prepared = new PreparedAsset(item.Path, item.ContentType, item.Content, hash);
             items.Add(prepared);
             byHash.TryAdd(hash, prepared);
         }
-        return new PreparedAssetSet(items, byHash);
+        if (items.Count == 0)
+            throw new PersonalCloudK0ContractException("artifact_invalid", "The Personal Cloud artifact has no public assets.");
+        return new PreparedAssetSet(items, byHash, headers);
     }
 
     private static void ValidateArtifact(PersonalCloudDeploymentArtifact value, string expectedVersion)
@@ -239,7 +262,7 @@ public sealed class CloudflareArtifactDeploymentClient(
         new("invalid_response", "Cloudflare returned an invalid deployment response.");
 
     private sealed record PreparedAsset(string Path, string ContentType, byte[] Content, string Hash);
-    private sealed record PreparedAssetSet(IReadOnlyList<PreparedAsset> Items, IReadOnlyDictionary<string, PreparedAsset> ByHash);
+    private sealed record PreparedAssetSet(IReadOnlyList<PreparedAsset> Items, IReadOnlyDictionary<string, PreparedAsset> ByHash, string? Headers);
     private sealed record AssetManifestEntry(string Hash, long Size);
     private sealed record AssetUploadSession(IReadOnlyList<IReadOnlyList<string>>? Buckets, string? Jwt);
     private sealed record AssetUploadCompletion(string? Jwt);

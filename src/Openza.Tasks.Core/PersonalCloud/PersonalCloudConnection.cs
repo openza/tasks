@@ -71,7 +71,8 @@ public sealed class JsonPersonalCloudConnectionStore(string path) : IPersonalClo
 
     private static void Validate(PersonalCloudConnectionProfile? value)
     {
-        if (value is null || !value.ServiceOrigin.IsAbsoluteUri || value.ServiceOrigin.Scheme != Uri.UriSchemeHttps ||
+        if (value is null || !value.ServiceOrigin.IsAbsoluteUri ||
+            (value.ServiceOrigin.Scheme != Uri.UriSchemeHttps && !(value.ServiceOrigin.Scheme == Uri.UriSchemeHttp && value.ServiceOrigin.IsLoopback)) ||
             !string.IsNullOrEmpty(value.ServiceOrigin.Query) || !string.IsNullOrEmpty(value.ServiceOrigin.Fragment) ||
             value.ServiceOrigin.AbsolutePath != "/" || string.IsNullOrWhiteSpace(value.ArtifactVersion) ||
             value.ArtifactVersion.Length > 128)
