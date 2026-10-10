@@ -20,7 +20,8 @@ public sealed class PersonalCloudHealthClient(HttpClient http)
 
     public async Task<PersonalCloudHealth> InspectAsync(Uri serviceOrigin, CancellationToken cancellationToken = default)
     {
-        if (!serviceOrigin.IsAbsoluteUri || serviceOrigin.Scheme != Uri.UriSchemeHttps ||
+        if (!serviceOrigin.IsAbsoluteUri ||
+            (serviceOrigin.Scheme != Uri.UriSchemeHttps && !(serviceOrigin.Scheme == Uri.UriSchemeHttp && serviceOrigin.IsLoopback)) ||
             !string.IsNullOrEmpty(serviceOrigin.Query) || !string.IsNullOrEmpty(serviceOrigin.Fragment))
             throw new PersonalCloudK0ContractException("invalid_request", "A secure Personal Cloud origin is required for health verification.");
         using var response = await http.GetAsync(new Uri(serviceOrigin, "/health"), cancellationToken).ConfigureAwait(false);

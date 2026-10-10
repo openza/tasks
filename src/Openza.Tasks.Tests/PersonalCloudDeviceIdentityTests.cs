@@ -8,8 +8,12 @@ namespace Openza.Tasks.Tests;
 
 public sealed class PersonalCloudDeviceIdentityTests
 {
-    [Fact]
-    public async Task Existing_cloud_pairing_verifies_health_then_saves_device_and_connection()
+    [Theory]
+    [InlineData("https://tasks.example.test/")]
+    [InlineData("http://localhost:8787/")]
+    [InlineData("http://127.0.0.1:8787/")]
+    [InlineData("http://[::1]:8787/")]
+    public async Task Existing_cloud_pairing_verifies_health_then_saves_device_and_connection(string serviceOrigin)
     {
         var credentials = new RecordingCredentialStore();
         var connections = new RecordingConnectionStore();
@@ -31,7 +35,7 @@ public sealed class PersonalCloudDeviceIdentityTests
             taskStore: store);
 
         var connection = await service.PairExistingAsync(
-            new Uri("https://tasks.example.test/"), "pair-one-time-secret-123456789", "Ubuntu desktop", true);
+            new Uri(serviceOrigin), "pair-one-time-secret-123456789", "Ubuntu desktop", true);
 
         Assert.Equal("0.1.0-preview.3", connection.ArtifactVersion);
         Assert.Equal("instance_personal", connection.InstanceId);
@@ -40,6 +44,21 @@ public sealed class PersonalCloudDeviceIdentityTests
         Assert.Single(credentials.Values);
         Assert.Equal("/health", handler.Requests[0].RequestUri!.AbsolutePath);
         Assert.Equal("/auth/pair", handler.Requests[1].RequestUri!.AbsolutePath);
+    }
+
+    [Theory]
+    [InlineData("http://tasks.example.test/")]
+    [InlineData("http://192.168.1.2:8787/")]
+    [InlineData("http://localhost.example.test:8787/")]
+    [InlineData("http://localhost:8787/?token=ignored")]
+    [InlineData("http://localhost:8787/#ignored")]
+    public async Task Health_rejects_remote_http_and_non_origin_addresses_before_sending(string serviceOrigin)
+    {
+        var handler = new QueueHandler();
+        var health = new PersonalCloudHealthClient(new HttpClient(handler));
+        var error = await Assert.ThrowsAsync<PersonalCloudK0ContractException>(() => health.InspectAsync(new Uri(serviceOrigin)));
+        Assert.Equal("invalid_request", error.Code);
+        Assert.Empty(handler.Requests);
     }
 
     [Fact]

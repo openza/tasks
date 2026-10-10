@@ -2,6 +2,11 @@
 useDefault = true
 
 [allowlist]
+# Public OAuth client identifier; PKCE uses no client secret.
+regexTarget = "secret"
+regexes = [
+    '''ab8248060e7dc03bb9ccf7f71c179e45''',
+]
 paths = [
     '''build/''',
     '''.dart_tool/''',
