@@ -632,9 +632,7 @@
             <ScrollViewer x:Name="SettingsWorkspace" IsVisible="False" VerticalScrollBarVisibility="Auto">
                 <StackPanel MaxWidth="960" Margin="34,34,44,48" HorizontalAlignment="Left" Spacing="24">
                     <TextBlock Classes="page-title" Text="Settings" />
-                    <TextBlock Classes="section-title" Text="Appearance" />
-                    <Border Padding="20" Classes="settings-card"><Grid ColumnDefinitions="32,*,Auto" ColumnSpacing="14"><ic:FluentIcon Icon="Color" FontSize="21"/><StackPanel Grid.Column="1"><TextBlock FontWeight="SemiBold" Text="Theme"/><TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="Follow the desktop or choose a fixed appearance."/></StackPanel><ComboBox x:Name="ShellThemePicker" Grid.Column="2" Width="150" SelectionChanged="OnShellThemeChanged"><ComboBoxItem Content="System"/><ComboBoxItem Content="Light"/><ComboBoxItem Content="Dark"/></ComboBox></Grid></Border>
-                    <TextBlock Classes="section-title" Text="Integrations" />
+                    <TextBlock Classes="section-title" Text="Cloud" />
                     <Border Padding="20" Classes="settings-card">
                         <Grid ColumnDefinitions="32,*,Auto" ColumnSpacing="14">
                             <ic:FluentIcon Icon="Cloud" FontSize="21"/>
@@ -649,8 +647,9 @@
                             </StackPanel>
                         </Grid>
                     </Border>
-                    <Border Padding="20" Classes="settings-card"><Grid ColumnDefinitions="32,*,Auto" ColumnSpacing="14"><ic:FluentIcon Icon="ArrowSync" FontSize="21"/><StackPanel Grid.Column="1"><TextBlock FontWeight="SemiBold" Text="Automatic sync"/><TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="Refresh connected apps every five minutes while Openza Tasks is running."/></StackPanel><ToggleSwitch x:Name="AutomaticSyncToggle" Grid.Column="2" OnContent="On" OffContent="Off" IsCheckedChanged="OnAutomaticSyncChanged"/></Grid></Border>
+                    <Border Padding="20" Classes="settings-card"><Grid ColumnDefinitions="32,*,Auto" ColumnSpacing="14"><ic:FluentIcon Icon="ArrowSync" FontSize="21"/><StackPanel Grid.Column="1"><TextBlock FontWeight="SemiBold" Text="Sync automatically"/><TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="Every five minutes while Openza Tasks is running."/></StackPanel><ToggleSwitch x:Name="AutomaticSyncToggle" Grid.Column="2" OnContent="On" OffContent="Off" IsCheckedChanged="OnAutomaticSyncChanged"/></Grid></Border>
 
+                    <TextBlock Classes="section-title" Text="Providers" />
                     <Border Classes="settings-card">
                         <Expander HorizontalContentAlignment="Stretch">
                             <Expander.Header>
@@ -658,7 +657,6 @@
                                     <ic:FluentIcon Icon="CheckmarkCircle" FontSize="21"/>
                                     <StackPanel Grid.Column="1">
                                         <TextBlock FontWeight="SemiBold" Text="Todoist"/>
-                                        <TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="Import tasks, projects, labels, dates, and priorities from Todoist."/>
                                     </StackPanel>
                                     <TextBlock Grid.Column="2" VerticalAlignment="Center" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{Binding TodoistConnectionText}" TextWrapping="Wrap" MaxWidth="300"/>
                                 </Grid>
@@ -710,10 +708,25 @@
                         </Expander>
                     </Border>
 
-                    <Border Padding="20" Classes="settings-card"><StackPanel Spacing="10">
-                        <TextBlock FontWeight="SemiBold" Text="Microsoft To Do"/><TextBlock Text="{Binding MicrosoftConnectionText}"/>
-                        <StackPanel Orientation="Horizontal" Spacing="8"><Button Content="Connect / change account" Click="OnConnectMicrosoftClicked"/><Button Content="Disconnect" Click="OnDisconnectMicrosoftClicked"/></StackPanel>
-                    </StackPanel></Border>
+                    <Border Classes="settings-card">
+                        <Expander HorizontalContentAlignment="Stretch">
+                            <Expander.Header>
+                                <Grid Margin="8,2" ColumnDefinitions="32,*,Auto" ColumnSpacing="14">
+                                    <ic:FluentIcon Icon="FolderArrowRight" FontSize="21"/>
+                                    <StackPanel Grid.Column="1">
+                                        <TextBlock FontWeight="SemiBold" Text="Microsoft To Do"/>
+                                    </StackPanel>
+                                    <TextBlock Grid.Column="2" VerticalAlignment="Center" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{Binding MicrosoftConnectionText}" MaxWidth="300" TextWrapping="Wrap"/>
+                                </Grid>
+                            </Expander.Header>
+                            <Border Padding="20" BorderBrush="{DynamicResource DividerStrokeColorDefaultBrush}" BorderThickness="0,1,0,0">
+                                <StackPanel Spacing="10">
+                                    <TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="Import tasks, projects, and reminders from Microsoft To Do."/>
+                                    <StackPanel Orientation="Horizontal" Spacing="8"><Button Content="Connect / change account" Click="OnConnectMicrosoftClicked"/><Button Content="Disconnect" Click="OnDisconnectMicrosoftClicked"/></StackPanel>
+                                </StackPanel>
+                            </Border>
+                        </Expander>
+                    </Border>
 
                     <Border Classes="settings-card">
                         <Expander HorizontalContentAlignment="Stretch">
@@ -721,8 +734,7 @@
                                 <Grid Margin="8,2" ColumnDefinitions="32,*,Auto" ColumnSpacing="14">
                                     <ic:FluentIcon Icon="DocumentCode" FontSize="21"/>
                                     <StackPanel Grid.Column="1">
-                                        <TextBlock FontWeight="SemiBold" Text="GitHub"/>
-                                        <TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="Create GitHub issues from Openza tasks."/>
+                                        <TextBlock FontWeight="SemiBold" Text="GitHub issues"/>
                                     </StackPanel>
                                     <TextBlock Grid.Column="2" VerticalAlignment="Center" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{Binding GitHubConnectionText}" MaxWidth="300" TextWrapping="Wrap"/>
                                 </Grid>
@@ -744,24 +756,39 @@
                         </Expander>
                     </Border>
 
+                    <Border Classes="settings-card">
+                        <Expander HorizontalContentAlignment="Stretch">
+                            <Expander.Header>
+                                <Grid Margin="8,2" ColumnDefinitions="32,*,Auto" ColumnSpacing="14">
+                                    <ic:FluentIcon Icon="Cloud" FontSize="21"/>
+                                    <StackPanel Grid.Column="1">
+                                        <TextBlock FontWeight="SemiBold" Text="OneDrive backup"/>
+                                    </StackPanel>
+                                    <TextBlock Grid.Column="2" VerticalAlignment="Center" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{Binding OneDriveConnectionText}" MaxWidth="300" TextWrapping="Wrap"/>
+                                </Grid>
+                            </Expander.Header>
+                            <Border Padding="20" BorderBrush="{DynamicResource DividerStrokeColorDefaultBrush}" BorderThickness="0,1,0,0">
+                                <StackPanel Spacing="12">
+                                    <Button Content="Connect / change account" Click="OnConnectOneDriveClicked"/>
+                                    <ToggleSwitch Content="Automatic OneDrive backup" IsChecked="{Binding OneDriveEnabled, Mode=OneWay}" IsCheckedChanged="OnCloudEnabledChanged"/>
+                                    <ToggleSwitch Content="Encrypt backups with a passphrase" IsChecked="{Binding OneDriveEncrypted, Mode=OneWay}" IsCheckedChanged="OnCloudEncryptionChanged"/>
+                                    <WrapPanel><Button Margin="0,0,8,8" Content="Change passphrase" Click="OnChangeCloudPassphraseClicked"/><Button Margin="0,0,8,8" Content="Back up now" IsEnabled="{Binding OneDriveEnabled}" Click="OnUploadCloudClicked"/><Button Content="Refresh backups" Click="OnRefreshCloudClicked"/></WrapPanel>
+                                    <TextBlock Text="{Binding CloudStatus}" TextWrapping="Wrap"/>
+                                    <ListBox MaxHeight="220" ItemsSource="{Binding CloudBackups}" SelectedItem="{Binding SelectedCloudBackup}"><ListBox.ItemTemplate><DataTemplate><StackPanel><TextBlock Text="{Binding DisplayName}"/><TextBlock Text="{Binding CreatedAt}"/><TextBlock Text="{Binding EncryptionMode}"/></StackPanel></DataTemplate></ListBox.ItemTemplate></ListBox>
+                                    <Button Content="Restore selected cloud backup" Click="OnRestoreCloudClicked"/>
+                                </StackPanel>
+                            </Border>
+                        </Expander>
+                    </Border>
+
                     <TextBlock Classes="section-title" Margin="0,8,0,0" Text="Spaces"/>
                     <Border Padding="20" Classes="settings-card"><StackPanel Spacing="14"><Grid ColumnDefinitions="32,*,Auto" ColumnSpacing="14"><ic:FluentIcon Icon="FolderAdd" FontSize="21"/><StackPanel Grid.Column="1"><TextBlock FontWeight="SemiBold" Text="Add space"/><TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="Create another place to keep tasks and projects separate."/></StackPanel><Grid Grid.Column="2" ColumnDefinitions="260,Auto" ColumnSpacing="8"><TextBox x:Name="ShellNewSpaceBox" PlaceholderText="Space name"/><Button Grid.Column="1" Click="OnAddSpaceFromShellClicked" Content="Add"/></Grid></Grid><ItemsControl ItemsSource="{Binding EditableSpaceItems}"><ItemsControl.ItemTemplate><DataTemplate><Grid Margin="44,4,0,0" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8"><TextBlock VerticalAlignment="Center" Text="{Binding Title}"/><Button Grid.Column="1" Click="OnRenameSpaceFromShellClicked" Content="Rename"/><Button Grid.Column="2" Click="OnArchiveSpaceFromShellClicked" Content="Archive"/></Grid></DataTemplate></ItemsControl.ItemTemplate></ItemsControl></StackPanel></Border>
 
                     <TextBlock Classes="section-title" Margin="0,8,0,0" Text="Data and recovery"/><ToggleSwitch Content="Automatic local restore points" IsChecked="{Binding AutomaticRestorePointsEnabled, Mode=OneWay}" IsCheckedChanged="OnAutomaticRestorePointsChanged"/>
                     <Border Padding="20" Classes="settings-card"><StackPanel Spacing="14"><Grid ColumnDefinitions="*,Auto"><StackPanel><TextBlock FontWeight="SemiBold" Text="Local database"/><TextBlock FontFamily="monospace" FontSize="12" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{Binding DatabasePath}" TextWrapping="Wrap"/></StackPanel><WrapPanel Grid.Column="1"><Button Margin="0,0,8,8" Click="OnBackupClicked" Content="Create restore point"/><Button Margin="0,0,8,8" Click="OnExportDatabaseFromShellClicked" Content="Export backup file"/><Button Margin="0,0,8,8" Click="OnRestoreDatabaseFromShellClicked" Content="Restore from file"/><Button Margin="0,0,0,8" Click="OnOpenDataFolderFromShellClicked" Content="Open data folder"/></WrapPanel></Grid><TextBlock FontWeight="SemiBold" Text="Restore points"/><ListBox MaxHeight="220" ItemsSource="{Binding RestorePoints}" SelectedItem="{Binding SelectedRestorePoint}"><ListBox.ItemTemplate><DataTemplate><StackPanel Margin="4" Spacing="2"><TextBlock FontWeight="SemiBold" Text="{Binding Title}"/><TextBlock FontSize="12" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{Binding Details}"/></StackPanel></DataTemplate></ListBox.ItemTemplate></ListBox><StackPanel Orientation="Horizontal" Spacing="8"><Button Click="OnRestoreSelectedPointFromShellClicked" Content="Restore selected"/><Button Click="OnDeleteSelectedPointFromShellClicked" Content="Delete selected"/><Button Click="OnExportSelectedPointClicked" Content="Export selected"/></StackPanel><TextBlock FontSize="12" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="Restore always creates a safety restore point first."/></StackPanel></Border>
 
-                    <Border Padding="20" Classes="settings-card"><StackPanel Spacing="12">
-                        <TextBlock FontWeight="SemiBold" Text="OneDrive backup"/>
-                        <TextBlock Text="{Binding OneDriveConnectionText}"/>
-                        <Button Content="Connect / change account" Click="OnConnectOneDriveClicked"/>
-                        <ToggleSwitch Content="Automatic OneDrive backup" IsChecked="{Binding OneDriveEnabled, Mode=OneWay}" IsCheckedChanged="OnCloudEnabledChanged"/>
-                        <ToggleSwitch Content="Encrypt backups with a passphrase" IsChecked="{Binding OneDriveEncrypted, Mode=OneWay}" IsCheckedChanged="OnCloudEncryptionChanged"/>
-                        <WrapPanel><Button Margin="0,0,8,8" Content="Change passphrase" Click="OnChangeCloudPassphraseClicked"/><Button Margin="0,0,8,8" Content="Back up now" IsEnabled="{Binding OneDriveEnabled}" Click="OnUploadCloudClicked"/><Button Content="Refresh backups" Click="OnRefreshCloudClicked"/></WrapPanel>
-                        <TextBlock Text="{Binding CloudStatus}" TextWrapping="Wrap"/>
-                        <ListBox MaxHeight="220" ItemsSource="{Binding CloudBackups}" SelectedItem="{Binding SelectedCloudBackup}"><ListBox.ItemTemplate><DataTemplate><StackPanel><TextBlock Text="{Binding DisplayName}"/><TextBlock Text="{Binding CreatedAt}"/><TextBlock Text="{Binding EncryptionMode}"/></StackPanel></DataTemplate></ListBox.ItemTemplate></ListBox>
-                        <Button Content="Restore selected cloud backup" Click="OnRestoreCloudClicked"/>
-                    </StackPanel></Border>
-                    <TextBlock Classes="section-title" Margin="0,8,0,0" Text="About"/>
+                    <TextBlock Classes="section-title" Margin="0,8,0,0" Text="General"/>
+                    <Border Padding="20" Classes="settings-card"><Grid ColumnDefinitions="32,*,Auto" ColumnSpacing="14"><ic:FluentIcon Icon="Color" FontSize="21"/><StackPanel Grid.Column="1"><TextBlock FontWeight="SemiBold" Text="Theme"/><TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="Follow the desktop or choose a fixed appearance."/></StackPanel><ComboBox x:Name="ShellThemePicker" Grid.Column="2" Width="150" SelectionChanged="OnShellThemeChanged"><ComboBoxItem Content="System"/><ComboBoxItem Content="Light"/><ComboBoxItem Content="Dark"/></ComboBox></Grid></Border>
                     <Border Padding="20" Classes="settings-card">
                         <Grid ColumnDefinitions="32,*" ColumnSpacing="14">
                             <ic:FluentIcon Icon="TaskListSquare" FontSize="21"/>
