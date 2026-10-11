@@ -32,7 +32,10 @@ public sealed partial class App : Avalonia.Application
         {
             _runtimeLease = ChannelRuntimeLease.AcquireShared(DesktopDataPaths.Runtime);
             var store = new SqliteTaskStore(DesktopDataPaths.DatabasePath);
-            desktop.MainWindow = new MainWindow(new MainWindowViewModel(store))
+            desktop.MainWindow = new MainWindow(new MainWindowViewModel(
+                store,
+                DesktopCredentialStore.Create(DesktopDataPaths.Runtime),
+                personalCloudSetup: DesktopPersonalCloudSetup.TryCreate(store)))
             {
                 Title = DesktopDataPaths.Runtime.DisplayName,
             };

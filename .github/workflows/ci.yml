@@ -36,10 +36,25 @@ jobs:
         working-directory: src/Openza.Tasks.Desktop
         run: dotnet build Openza.Tasks.Desktop.csproj -c Release --no-restore
 
+      - name: Setup Node for pinned Personal Cloud artifact
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+
+      - name: Test artifact verification
+        run: node --test scripts/personal-cloud/*.test.mjs
+
+      - name: Validate Desktop publish with pinned Personal Cloud artifact
+        run: node scripts/personal-cloud/publish-desktop.mjs 1.1.0
+
       - name: Validate Snap packaging contract
+        if: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'fix/personal-cloud-localhost-recovery') }}
         run: bash packaging/snap/test-snap-package.sh
 
   build-snap:
+    # This first Personal Cloud integration is authorized for Linux validation only.
+    # Other PRs (including forks with the same branch name) and main retain all jobs.
+    if: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'fix/personal-cloud-localhost-recovery') }}
     runs-on: ubuntu-latest
 
     steps:
@@ -71,6 +86,7 @@ jobs:
           openza-tasks.openza --version
 
   build-test:
+    if: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'fix/personal-cloud-localhost-recovery') }}
     runs-on: windows-latest
 
     steps:

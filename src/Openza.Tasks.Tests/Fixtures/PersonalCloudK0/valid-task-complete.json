@@ -1,0 +1,15 @@
+{
+  "protocolVersion": 1,
+  "product": "tasks",
+  "instanceId": "instance_00000000000000000000000000000001",
+  "deviceId": "device_00000000000000000000000000000001",
+  "mutationId": "mutation_00000000000000000000000000000005",
+  "deviceSequence": 5,
+  "operation": "task.complete",
+  "entityId": "local_00000000000000000000000000000001",
+  "baseEntityVersion": 4,
+  "payload": {
+    "completedAt": "2026-09-13T06:38:00.000Z"
+  },
+  "clientCreatedAt": "2026-09-13T06:38:00.000Z"
+}

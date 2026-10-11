@@ -1,10 +1,13 @@
 using Openza.Tasks.Core.Data;
 using Openza.Tasks.Core.Models;
+using Openza.Tasks.Core.PersonalCloud;
 using Openza.Tasks.Core.Sync;
 
 namespace Openza.Tasks.Application.Tasks;
 
-public sealed class TaskApplicationService(ITaskStore store)
+public sealed class TaskApplicationService(
+    ITaskStore store,
+    Func<PersonalCloudConnectionProfile?>? personalCloudConnection = null)
 {
     public ITaskStore Store { get; } = store;
 
@@ -19,6 +22,7 @@ public sealed class TaskApplicationService(ITaskStore store)
 
     public async Task<TaskItem> CreateTaskAsync(CreateTaskRequest request, CancellationToken cancellationToken = default)
     {
+        using var connectionLease = AcquirePersonalCloudAuthoringLease();
         var title = request.Title.Trim();
         if (title.Length == 0)
         {
@@ -46,21 +50,69 @@ public sealed class TaskApplicationService(ITaskStore store)
             UpdatedAt = now,
             Labels = await ResolveLabelsAsync(request.Labels, cancellationToken).ConfigureAwait(false),
         };
-        await Store.UpsertTaskAsync(task, cancellationToken).ConfigureAwait(false);
+        if (PersonalCloudTarget() is { } target && Store is SqliteTaskStore sqliteStore)
+        {
+            var cloudBaseTask = task with
+            {
+                SpaceId = SpaceIds.Default,
+                ProjectId = null,
+                Notes = null,
+                WorkflowStatus = TaskWorkflowStatus.Inbox,
+                CompletionState = TaskCompletionState.Open,
+                CompletedAt = null,
+                Priority = 2,
+                PlannedOn = null,
+                PlannedAt = null,
+                DeadlineOn = null,
+                DeadlineAt = null,
+                Labels = [],
+            };
+            await sqliteStore.CreateTaskWithPersonalCloudIntentAsync(
+                cloudBaseTask, target.InstanceId, target.DeviceId, cancellationToken).ConfigureAwait(false);
+            var created = await RequireTaskAsync(task.Id, cancellationToken).ConfigureAwait(false);
+            var hasExtendedState = task.SpaceId != cloudBaseTask.SpaceId || task.ProjectId is not null || task.Notes is not null ||
+                task.WorkflowStatus != cloudBaseTask.WorkflowStatus || task.IsCompleted || task.Priority != cloudBaseTask.Priority ||
+                task.PlannedOn is not null || task.DeadlineOn is not null || task.Labels.Count > 0;
+            if (hasExtendedState)
+            {
+                return await UpdateTaskAsync(new UpdateTaskRequest
+                {
+                    TaskId = task.Id,
+                    ExpectedRevision = created.Revision,
+                    Space = task.SpaceId == cloudBaseTask.SpaceId ? default : OptionalValue<string?>.Set(task.SpaceId),
+                    Project = task.ProjectId is null ? default : OptionalValue<string?>.Set(task.ProjectId),
+                    Notes = task.Notes is null ? default : OptionalValue<string?>.Set(task.Notes),
+                    Status = task.WorkflowStatus == cloudBaseTask.WorkflowStatus ? default : OptionalValue<TaskWorkflowStatus>.Set(task.WorkflowStatus),
+                    Completed = task.IsCompleted ? OptionalValue<bool>.Set(true) : default,
+                    Priority = task.Priority == cloudBaseTask.Priority ? default : OptionalValue<int>.Set(task.Priority),
+                    PlannedOn = task.PlannedOn is null ? default : OptionalValue<DateOnly?>.Set(task.PlannedOn),
+                    DeadlineOn = task.DeadlineOn is null ? default : OptionalValue<DateOnly?>.Set(task.DeadlineOn),
+                    Labels = task.Labels.Count == 0 ? default : OptionalValue<IReadOnlyList<string>>.Set(task.Labels.Select(label => label.Name).ToArray()),
+                }, cancellationToken).ConfigureAwait(false);
+            }
+        }
+        else
+        {
+            await Store.UpsertTaskAsync(task, cancellationToken).ConfigureAwait(false);
+        }
         return await Store.GetTaskAsync(task.Id, cancellationToken).ConfigureAwait(false) ?? task;
     }
 
     public async Task<TaskItem> UpdateTaskAsync(UpdateTaskRequest request, CancellationToken cancellationToken = default)
     {
+        using var connectionLease = AcquirePersonalCloudAuthoringLease();
         var original = await RequireTaskAsync(request.TaskId, cancellationToken).ConfigureAwait(false);
         var expectedRevision = request.ExpectedRevision ?? original.Revision;
-        var targetSpaceId = request.Space.IsSpecified
-            ? (await ResolveSpaceAsync(request.Space.Value, cancellationToken).ConfigureAwait(false)).Id
-            : original.SpaceId;
+        var targetSpace = request.Space.IsSpecified
+            ? await ResolveSpaceAsync(request.Space.Value, cancellationToken).ConfigureAwait(false)
+            : null;
+        var targetSpaceId = targetSpace?.Id ?? original.SpaceId;
+        ProjectItem? targetProject = null;
         string? targetProjectId;
         if (request.Project.IsSpecified)
         {
-            targetProjectId = (await ResolveProjectAsync(request.Project.Value, targetSpaceId, cancellationToken).ConfigureAwait(false))?.Id;
+            targetProject = await ResolveProjectAsync(request.Project.Value, targetSpaceId, cancellationToken).ConfigureAwait(false);
+            targetProjectId = targetProject?.Id;
         }
         else if (!request.Space.IsSpecified || original.ProjectId is null)
         {
@@ -68,8 +120,9 @@ public sealed class TaskApplicationService(ITaskStore store)
         }
         else
         {
-            targetProjectId = (await Store.GetProjectsAsync(targetSpaceId, includeArchived: true, cancellationToken: cancellationToken).ConfigureAwait(false))
-                .FirstOrDefault(project => project.Id == original.ProjectId)?.Id;
+            targetProject = (await Store.GetProjectsAsync(targetSpaceId, includeArchived: true, cancellationToken: cancellationToken).ConfigureAwait(false))
+                .FirstOrDefault(project => project.Id == original.ProjectId);
+            targetProjectId = targetProject?.Id;
         }
 
         var title = request.Title.IsSpecified ? request.Title.Value?.Trim() : original.Title;
@@ -80,6 +133,7 @@ public sealed class TaskApplicationService(ITaskStore store)
 
         var plannedOn = request.PlannedOn.IsSpecified ? request.PlannedOn.Value : original.PlannedOn;
         var deadlineOn = request.DeadlineOn.IsSpecified ? request.DeadlineOn.Value : original.DeadlineOn;
+        var notes = request.Notes.IsSpecified ? NullIfEmpty(request.Notes.Value) : original.Notes;
         var labels = request.Labels.IsSpecified
             ? await ResolveLabelsAsync(request.Labels.Value ?? [], cancellationToken).ConfigureAwait(false)
             : original.Labels;
@@ -88,10 +142,161 @@ public sealed class TaskApplicationService(ITaskStore store)
             : original.CompletionState;
         var completed = targetCompletionState == TaskCompletionState.Completed;
         var now = DateTimeOffset.UtcNow;
+        var cloudScalarChangeCount =
+            (request.Title.IsSpecified ? 1 : 0) +
+            (request.Status.IsSpecified ? 1 : 0) +
+            (request.Priority.IsSpecified ? 1 : 0) +
+            (request.PlannedOn.IsSpecified ? 1 : 0) +
+            (request.Notes.IsSpecified ? 1 : 0) +
+            (request.DeadlineOn.IsSpecified ? 1 : 0) +
+            (request.Completed.IsSpecified ? 1 : 0);
+        var cloudRelationshipChangeCount =
+            (request.Space.IsSpecified ? 1 : 0) +
+            (request.Project.IsSpecified ? 1 : 0) +
+            (request.Labels.IsSpecified ? 1 : 0);
+        if (cloudScalarChangeCount + cloudRelationshipChangeCount > 0 &&
+            PersonalCloudTarget() is { } target && Store is SqliteTaskStore sqliteStore)
+        {
+            if (expectedRevision != original.Revision)
+                throw new TaskConflictException(original.Id);
+
+            var entityVersion = await ResolvePersonalCloudEntityVersionAsync(
+                sqliteStore, target, original.Id, cancellationToken).ConfigureAwait(false);
+            var changed = false;
+            var reopening = request.Completed.IsSpecified && original.IsCompleted && !completed;
+            if (reopening)
+            {
+                await sqliteStore.ReopenTaskWithPersonalCloudIntentAsync(
+                    original.Id, now, entityVersion, target.InstanceId, target.DeviceId, cancellationToken).ConfigureAwait(false);
+                entityVersion = checked(entityVersion + 1);
+                changed = true;
+            }
+            if (targetSpace is not null && !string.Equals(original.SpaceId, targetSpace.Id, StringComparison.Ordinal))
+            {
+                var treeVersions = await ResolvePersonalCloudTreeVersionsAsync(
+                    sqliteStore, target, original, entityVersion, cancellationToken).ConfigureAwait(false);
+                await sqliteStore.MoveTaskTreeToSpaceWithPersonalCloudIntentAsync(
+                    original.Id, targetSpace.Id, targetSpace.Name, treeVersions,
+                    target.InstanceId, target.DeviceId, cancellationToken).ConfigureAwait(false);
+                entityVersion = checked(treeVersions[original.Id] + 1);
+                changed = true;
+            }
+            if (targetProject is not null && !string.Equals(original.ProjectId, targetProject.Id, StringComparison.Ordinal))
+            {
+                await sqliteStore.MutateTaskRelationshipWithPersonalCloudIntentAsync(
+                    original.Id, "task.setProject", targetProject.Id, targetProject.Name, entityVersion,
+                    target.InstanceId, target.DeviceId, cancellationToken).ConfigureAwait(false);
+                entityVersion = checked(entityVersion + 1);
+                changed = true;
+            }
+            else if (request.Project.IsSpecified && targetProjectId is null && original.ProjectId is not null &&
+                     string.Equals(targetSpaceId, original.SpaceId, StringComparison.Ordinal))
+            {
+                await sqliteStore.MutateTaskRelationshipWithPersonalCloudIntentAsync(
+                    original.Id, "task.setProject", null, null, entityVersion,
+                    target.InstanceId, target.DeviceId, cancellationToken).ConfigureAwait(false);
+                entityVersion = checked(entityVersion + 1);
+                changed = true;
+            }
+            if (request.Labels.IsSpecified)
+            {
+                var originalLabelIds = original.Labels.Select(label => label.Id).ToHashSet(StringComparer.Ordinal);
+                var targetLabelIds = labels.Select(label => label.Id).ToHashSet(StringComparer.Ordinal);
+                foreach (var removed in original.Labels.Where(label => !targetLabelIds.Contains(label.Id)))
+                {
+                    await sqliteStore.MutateTaskRelationshipWithPersonalCloudIntentAsync(
+                        original.Id, "task.removeLabel", removed.Id, null, entityVersion,
+                        target.InstanceId, target.DeviceId, cancellationToken).ConfigureAwait(false);
+                    entityVersion = checked(entityVersion + 1);
+                    changed = true;
+                }
+                foreach (var added in labels.Where(label => !originalLabelIds.Contains(label.Id)))
+                {
+                    await sqliteStore.MutateTaskRelationshipWithPersonalCloudIntentAsync(
+                        original.Id, "task.addLabel", added.Id, added.Name, entityVersion,
+                        target.InstanceId, target.DeviceId, cancellationToken).ConfigureAwait(false);
+                    entityVersion = checked(entityVersion + 1);
+                    changed = true;
+                }
+            }
+            if (request.Title.IsSpecified && !string.Equals(original.Title, title, StringComparison.Ordinal))
+            {
+                await sqliteStore.UpdateTaskTitleWithPersonalCloudIntentAsync(
+                    original.Id, title!, entityVersion, target.InstanceId, target.DeviceId, cancellationToken).ConfigureAwait(false);
+                entityVersion = checked(entityVersion + 1);
+                changed = true;
+            }
+            if (request.Status.IsSpecified && original.WorkflowStatus != request.Status.Value)
+            {
+                await sqliteStore.UpdateTaskWorkflowStatusWithPersonalCloudIntentAsync(
+                    original.Id, request.Status.Value, entityVersion, target.InstanceId, target.DeviceId, cancellationToken).ConfigureAwait(false);
+                entityVersion = checked(entityVersion + 1);
+                changed = true;
+            }
+            if (request.Priority.IsSpecified)
+            {
+                var priority = ValidatePriority(request.Priority.Value);
+                if (original.Priority != priority)
+                {
+                    await sqliteStore.UpdateTaskPriorityWithPersonalCloudIntentAsync(
+                        original.Id, priority, entityVersion, target.InstanceId, target.DeviceId, cancellationToken).ConfigureAwait(false);
+                    entityVersion = checked(entityVersion + 1);
+                    changed = true;
+                }
+            }
+            if (request.PlannedOn.IsSpecified && (original.PlannedOn != plannedOn || original.PlannedAt is not null))
+            {
+                await sqliteStore.UpdateTaskPlannedOnWithPersonalCloudIntentAsync(
+                    original.Id, plannedOn, entityVersion, target.InstanceId, target.DeviceId, cancellationToken).ConfigureAwait(false);
+                entityVersion = checked(entityVersion + 1);
+                changed = true;
+            }
+            if (request.Notes.IsSpecified && !string.Equals(original.Notes, notes, StringComparison.Ordinal))
+            {
+                await sqliteStore.UpdateTaskNotesWithPersonalCloudIntentAsync(
+                    original.Id, notes, entityVersion, target.InstanceId, target.DeviceId, cancellationToken).ConfigureAwait(false);
+                entityVersion = checked(entityVersion + 1);
+                changed = true;
+            }
+            if (request.DeadlineOn.IsSpecified && (original.DeadlineOn != deadlineOn || original.DeadlineAt is not null))
+            {
+                await sqliteStore.UpdateTaskDeadlineOnWithPersonalCloudIntentAsync(
+                    original.Id, deadlineOn, entityVersion, target.InstanceId, target.DeviceId, cancellationToken).ConfigureAwait(false);
+                entityVersion = checked(entityVersion + 1);
+                changed = true;
+            }
+            if (request.Completed.IsSpecified && original.IsCompleted != completed && !reopening)
+            {
+                if (completed)
+                {
+                    await sqliteStore.CompleteTaskWithPersonalCloudIntentAsync(
+                        original.Id, now, entityVersion, target.InstanceId, target.DeviceId, cancellationToken).ConfigureAwait(false);
+                }
+                else
+                {
+                    await sqliteStore.ReopenTaskWithPersonalCloudIntentAsync(
+                        original.Id, now, entityVersion, target.InstanceId, target.DeviceId, cancellationToken).ConfigureAwait(false);
+                }
+                changed = true;
+            }
+            if (request.LocalMetadataJson.IsSpecified &&
+                !string.Equals(original.LocalMetadataJson, request.LocalMetadataJson.Value, StringComparison.Ordinal))
+            {
+                var current = await RequireTaskAsync(original.Id, cancellationToken).ConfigureAwait(false);
+                if (!await Store.TryUpsertTaskWithPendingUpdatesAsync(
+                    current with { LocalMetadataJson = request.LocalMetadataJson.Value, UpdatedAt = now },
+                    current.Revision, null, null, cancellationToken).ConfigureAwait(false))
+                    throw new TaskConflictException(original.Id);
+                changed = true;
+            }
+            return changed
+                ? await RequireTaskAsync(original.Id, cancellationToken).ConfigureAwait(false)
+                : original;
+        }
         var updated = original with
         {
             Title = title,
-            Notes = request.Notes.IsSpecified ? NullIfEmpty(request.Notes.Value) : original.Notes,
+            Notes = notes,
             SpaceId = targetSpaceId,
             ProjectId = targetProjectId,
             WorkflowStatus = request.Status.IsSpecified ? request.Status.Value : original.WorkflowStatus,
@@ -117,14 +322,66 @@ public sealed class TaskApplicationService(ITaskStore store)
         return await RequireTaskAsync(original.Id, cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task<TaskItem> MoveTaskToSpaceAsync(
+        string id,
+        string targetSpace,
+        long? expectedRevision = null,
+        CancellationToken cancellationToken = default)
+    {
+        using var connectionLease = AcquirePersonalCloudAuthoringLease();
+        var original = await RequireTaskAsync(id, cancellationToken).ConfigureAwait(false);
+        if (expectedRevision is not null && expectedRevision.Value != original.Revision)
+            throw new TaskConflictException(id);
+
+        var target = await ResolveSpaceAsync(targetSpace, cancellationToken).ConfigureAwait(false);
+        if (string.Equals(original.SpaceId, target.Id, StringComparison.Ordinal))
+            return original;
+
+        if (PersonalCloudTarget() is { } cloud && Store is SqliteTaskStore sqliteStore)
+        {
+            var rootVersion = await ResolvePersonalCloudEntityVersionAsync(
+                sqliteStore, cloud, original.Id, cancellationToken).ConfigureAwait(false);
+            var treeVersions = await ResolvePersonalCloudTreeVersionsAsync(
+                sqliteStore, cloud, original, rootVersion, cancellationToken).ConfigureAwait(false);
+            await sqliteStore.MoveTaskTreeToSpaceWithPersonalCloudIntentAsync(
+                original.Id, target.Id, target.Name, treeVersions,
+                cloud.InstanceId, cloud.DeviceId, cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            await Store.MoveTaskToSpaceAsync(original.Id, target.Id, cancellationToken).ConfigureAwait(false);
+        }
+
+        return await RequireTaskAsync(original.Id, cancellationToken).ConfigureAwait(false);
+    }
+
     public async Task<TaskItem> SetCompletedAsync(string id, bool completed, long? expectedRevision = null, CancellationToken cancellationToken = default)
     {
+        using var connectionLease = AcquirePersonalCloudAuthoringLease();
         var original = await RequireTaskAsync(id, cancellationToken).ConfigureAwait(false);
         if (original.IsCompleted == completed)
         {
             return original;
         }
+        if (expectedRevision is not null && expectedRevision.Value != original.Revision)
+            throw new TaskConflictException(id);
         var now = DateTimeOffset.UtcNow;
+        if (PersonalCloudTarget() is { } target && Store is SqliteTaskStore sqliteStore)
+        {
+            var entityVersion = await ResolvePersonalCloudEntityVersionAsync(
+                sqliteStore, target, original.Id, cancellationToken).ConfigureAwait(false);
+            if (completed)
+            {
+                await sqliteStore.CompleteTaskWithPersonalCloudIntentAsync(
+                    original.Id, now, entityVersion, target.InstanceId, target.DeviceId, cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                await sqliteStore.ReopenTaskWithPersonalCloudIntentAsync(
+                    original.Id, now, entityVersion, target.InstanceId, target.DeviceId, cancellationToken).ConfigureAwait(false);
+            }
+            return await RequireTaskAsync(id, cancellationToken).ConfigureAwait(false);
+        }
         var updated = original with
         {
             CompletionState = completed ? TaskCompletionState.Completed : TaskCompletionState.Open,
@@ -141,7 +398,18 @@ public sealed class TaskApplicationService(ITaskStore store)
 
     public async Task DeleteTaskAsync(string id, long? expectedRevision = null, CancellationToken cancellationToken = default)
     {
+        using var connectionLease = AcquirePersonalCloudAuthoringLease();
         var original = await RequireTaskAsync(id, cancellationToken).ConfigureAwait(false);
+        if (expectedRevision is not null && expectedRevision.Value != original.Revision)
+            throw new TaskConflictException(id);
+        if (PersonalCloudTarget() is { } target && Store is SqliteTaskStore sqliteStore)
+        {
+            var entityVersion = await ResolvePersonalCloudEntityVersionAsync(
+                sqliteStore, target, original.Id, cancellationToken).ConfigureAwait(false);
+            await sqliteStore.DeleteTaskWithPersonalCloudIntentAsync(
+                original.Id, DateTimeOffset.UtcNow, entityVersion, target.InstanceId, target.DeviceId, cancellationToken).ConfigureAwait(false);
+            return;
+        }
         if (!await Store.TryDeleteTaskAsync(id, expectedRevision ?? original.Revision, cancellationToken).ConfigureAwait(false))
         {
             throw new TaskConflictException(id);
@@ -151,6 +419,73 @@ public sealed class TaskApplicationService(ITaskStore store)
     private async Task<TaskItem> RequireTaskAsync(string id, CancellationToken cancellationToken) =>
         await Store.GetTaskAsync(id, cancellationToken).ConfigureAwait(false)
         ?? throw new KeyNotFoundException($"Task '{id}' was not found.");
+
+    private PersonalCloudConnectionProfile? PersonalCloudTarget() => personalCloudConnection?.Invoke();
+
+    private PersonalCloudConnectionLease? AcquirePersonalCloudAuthoringLease() => Store is SqliteTaskStore sqlite
+        ? PersonalCloudConnectionLease.AcquireAuthoring(sqlite.DatabasePath) : null;
+
+    private static async Task<long> ResolvePersonalCloudEntityVersionAsync(
+        SqliteTaskStore store,
+        PersonalCloudConnectionProfile target,
+        string taskId,
+        CancellationToken cancellationToken)
+    {
+        var version = await store.GetPersonalCloudEntityVersionAsync(
+            target.InstanceId, taskId, cancellationToken).ConfigureAwait(false);
+        if (version is not null)
+            return version.Value;
+
+        await store.EnqueueExistingTaskForPersonalCloudAsync(
+            taskId, target.InstanceId, target.DeviceId, cancellationToken).ConfigureAwait(false);
+        return 1;
+    }
+
+    private async Task<IReadOnlyDictionary<string, long>> ResolvePersonalCloudTreeVersionsAsync(
+        SqliteTaskStore store,
+        PersonalCloudConnectionProfile target,
+        TaskItem root,
+        long rootVersion,
+        CancellationToken cancellationToken)
+    {
+        var tasks = await Store.GetTasksAsync(new TaskQuery
+        {
+            SpaceId = root.SpaceId,
+            Kind = TaskListKind.All,
+            IncludeSubtasks = true,
+        }, cancellationToken).ConfigureAwait(false);
+        var children = tasks
+            .Where(task => !string.IsNullOrWhiteSpace(task.ParentId))
+            .GroupBy(task => task.ParentId!, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.Ordinal);
+        var ordered = new List<TaskItem>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var pending = new Queue<TaskItem>();
+        pending.Enqueue(root);
+        while (pending.Count > 0)
+        {
+            var task = pending.Dequeue();
+            if (!seen.Add(task.Id))
+                throw new InvalidOperationException("The task hierarchy contains a cycle.");
+            ordered.Add(task);
+            if (children.TryGetValue(task.Id, out var childTasks))
+            {
+                foreach (var child in childTasks.OrderBy(item => item.CreatedAt).ThenBy(item => item.Id, StringComparer.Ordinal))
+                    pending.Enqueue(child);
+            }
+        }
+
+        var versions = new Dictionary<string, long>(StringComparer.Ordinal)
+        {
+            [root.Id] = rootVersion,
+        };
+        foreach (var task in ordered.Skip(1))
+        {
+            versions[task.Id] = await ResolvePersonalCloudEntityVersionAsync(
+                store, target, task.Id, cancellationToken).ConfigureAwait(false);
+        }
+        return versions;
+    }
 
     private async Task<SpaceItem> ResolveSpaceAsync(string? value, CancellationToken cancellationToken)
     {

@@ -99,8 +99,9 @@ public partial class App : Microsoft.UI.Xaml.Application
             var microsoftAuth = new MicrosoftGraphAuthService(
                 Path.Combine(appData, "msal-cache.bin"),
                 () => _window is null ? IntPtr.Zero : WindowNative.GetWindowHandle(_window));
+            var personalCloudSetup = WindowsPersonalCloudSetup.TryCreate(appData, credentials, store);
 
-            _window = new MainWindow(store, syncEngine, credentials, backupService, settings, microsoftAuth, startupRecoveryCandidate);
+            _window = new MainWindow(store, syncEngine, credentials, backupService, settings, microsoftAuth, startupRecoveryCandidate, personalCloudSetup);
             _window.Activate();
             await _window.InitializeAsync().ConfigureAwait(true);
         }

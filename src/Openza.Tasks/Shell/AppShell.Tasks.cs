@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml.Media;
 using System.Collections.ObjectModel;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Openza.Tasks.Application.Tasks;
 using Openza.Tasks.Controls;
 using Openza.Tasks.Core.Data;
 using Openza.Tasks.Core.Models;
@@ -857,23 +858,17 @@ public sealed partial class AppShell
             return;
         }
 
-        var task = new TaskItem
+        var task = await _taskService.CreateTaskAsync(new CreateTaskRequest
         {
-            Id = $"local_{Guid.NewGuid():N}",
-            SpaceId = _currentSpaceId,
-            IntegrationId = IntegrationIds.Local,
             Title = quickAdd.Title,
             Notes = EmptyToNull(quickAdd.Notes),
-            ProjectId = quickAdd.ProjectId,
+            Space = _currentSpaceId,
+            Project = quickAdd.ProjectId,
             Priority = quickAdd.Priority,
             PlannedOn = quickAdd.PlannedOn,
-            Status = quickAdd.Status,
-            CreatedAt = DateTimeOffset.UtcNow,
-            UpdatedAt = DateTimeOffset.UtcNow,
-            Labels = quickAdd.BuildLabels(_allLabels, IntegrationIds.Local),
-        };
-
-        await _store.UpsertTaskAsync(task).ConfigureAwait(true);
+            Status = quickAdd.Status.ToWorkflowStatus(),
+            Labels = quickAdd.BuildLabels(_allLabels, IntegrationIds.Local).Select(label => label.Name).ToArray(),
+        }).ConfigureAwait(true);
         await LoadLabelsAsync().ConfigureAwait(true);
         await LoadProjectsAsync(refreshList: false).ConfigureAwait(true);
         await RefreshTasksAsync().ConfigureAwait(true);
@@ -1047,8 +1042,21 @@ public sealed partial class AppShell
             };
 
         TasksPage.DetailsPanel.SetAutoSaveState("Saving...");
-        await _store.UpsertTaskAsync(task).ConfigureAwait(true);
-        await QueueTodoistDateUpdateIfNeededAsync(existing, task).ConfigureAwait(true);
+        task = existing is null
+            ? await _taskService.CreateTaskAsync(new CreateTaskRequest
+            {
+                Title = task.Title,
+                Notes = task.Notes,
+                Space = task.SpaceId,
+                Project = task.ProjectId,
+                Status = task.WorkflowStatus,
+                Completed = task.IsCompleted,
+                Priority = task.Priority,
+                PlannedOn = task.PlannedOn,
+                DeadlineOn = task.DeadlineOn,
+                Labels = task.Labels.Select(label => label.Name).ToArray(),
+            }).ConfigureAwait(true)
+            : await _taskService.UpdateTaskAsync(BuildTaskUpdateRequest(existing, task)).ConfigureAwait(true);
         _selectedTaskId = task.Id;
         if (!TasksPage.DetailsPanel.MarkSaved(draft.Snapshot))
         {
@@ -1247,20 +1255,7 @@ public sealed partial class AppShell
         }
 
         var completed = !task.IsCompleted;
-        var pendingCompletion = ProviderWriteBackPlanner.CreateCompletion(task, completed, DateTimeOffset.UtcNow);
-        if (pendingCompletion is not null)
-        {
-            await _store.QueueCompletionAsync(pendingCompletion).ConfigureAwait(true);
-        }
-
-        if (completed)
-        {
-            await _store.CompleteTaskAsync(task.Id).ConfigureAwait(true);
-        }
-        else
-        {
-            await _store.ReopenTaskAsync(task.Id).ConfigureAwait(true);
-        }
+        await _taskService.SetCompletedAsync(task.Id, completed, task.Revision).ConfigureAwait(true);
 
         await LoadProjectsAsync(refreshList: false).ConfigureAwait(true);
         await RefreshTasksAsync().ConfigureAwait(true);
@@ -1408,7 +1403,7 @@ public sealed partial class AppShell
 
         try
         {
-            await _store.MoveTaskToSpaceAsync(task.Id, targetSpace.Id).ConfigureAwait(true);
+            await _taskService.MoveTaskToSpaceAsync(task.Id, targetSpace.Id, task.Revision).ConfigureAwait(true);
         }
         catch (Exception exception)
         {
@@ -1438,14 +1433,42 @@ public sealed partial class AppShell
         }
 
         var updated = update(existing) with { UpdatedAt = DateTimeOffset.UtcNow };
-        await _store.UpsertTaskAsync(updated).ConfigureAwait(true);
-        await QueueTodoistDateUpdateIfNeededAsync(existing, updated).ConfigureAwait(true);
+        await _taskService.UpdateTaskAsync(BuildTaskUpdateRequest(existing, updated)).ConfigureAwait(true);
         await RefreshTasksAsync().ConfigureAwait(true);
         if (string.Equals(_selectedTaskId, taskId, StringComparison.Ordinal))
         {
             await LoadTaskDetailsAsync(taskId).ConfigureAwait(true);
         }
     }
+
+    private static UpdateTaskRequest BuildTaskUpdateRequest(TaskItem existing, TaskItem updated) => new()
+    {
+            TaskId = existing.Id,
+            ExpectedRevision = existing.Revision,
+            Title = string.Equals(existing.Title, updated.Title, StringComparison.Ordinal)
+                ? default : OptionalValue<string?>.Set(updated.Title),
+            Notes = string.Equals(existing.Notes, updated.Notes, StringComparison.Ordinal)
+                ? default : OptionalValue<string?>.Set(updated.Notes),
+            Space = string.Equals(existing.SpaceId, updated.SpaceId, StringComparison.Ordinal)
+                ? default : OptionalValue<string?>.Set(updated.SpaceId),
+            Project = string.Equals(existing.ProjectId, updated.ProjectId, StringComparison.Ordinal)
+                ? default : OptionalValue<string?>.Set(updated.ProjectId),
+            Status = existing.WorkflowStatus == updated.WorkflowStatus
+                ? default : OptionalValue<TaskWorkflowStatus>.Set(updated.WorkflowStatus),
+            Completed = existing.IsCompleted == updated.IsCompleted
+                ? default : OptionalValue<bool>.Set(updated.IsCompleted),
+            Priority = existing.Priority == updated.Priority
+                ? default : OptionalValue<int>.Set(updated.Priority),
+            PlannedOn = existing.PlannedOn == updated.PlannedOn && existing.PlannedAt == updated.PlannedAt
+                ? default : OptionalValue<DateOnly?>.Set(updated.PlannedOn),
+            DeadlineOn = existing.DeadlineOn == updated.DeadlineOn && existing.DeadlineAt == updated.DeadlineAt
+                ? default : OptionalValue<DateOnly?>.Set(updated.DeadlineOn),
+            Labels = existing.Labels.Select(label => label.Id).Order(StringComparer.Ordinal)
+                .SequenceEqual(updated.Labels.Select(label => label.Id).Order(StringComparer.Ordinal), StringComparer.Ordinal)
+                ? default : OptionalValue<IReadOnlyList<string>>.Set(updated.Labels.Select(label => label.Name).ToArray()),
+            LocalMetadataJson = string.Equals(existing.LocalMetadataJson, updated.LocalMetadataJson, StringComparison.Ordinal)
+                ? default : OptionalValue<string?>.Set(updated.LocalMetadataJson),
+    };
 
     private async Task ChangeRowTaskProjectAsync(string taskId)
     {
@@ -1572,7 +1595,7 @@ public sealed partial class AppShell
 
         try
         {
-            await _store.DeleteTaskAsync(id).ConfigureAwait(true);
+            await _taskService.DeleteTaskAsync(id, task.Revision).ConfigureAwait(true);
         }
         catch (ProviderLinkedTaskDeleteException exception)
         {

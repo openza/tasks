@@ -9,6 +9,7 @@ using Openza.Tasks.Application.Tasks;
 using Openza.Tasks.Core.Credentials;
 using Openza.Tasks.Core.Data;
 using Openza.Tasks.Core.Models;
+using Openza.Tasks.Core.PersonalCloud;
 using Openza.Tasks.Core.Sync;
 
 return await OpenzaCli.RunAsync(args);
@@ -515,7 +516,9 @@ internal static class OpenzaCli
             using var lease = ChannelRuntimeLease.AcquireShared(runtime);
             using var databaseLease = ChannelRuntimeLease.AcquireDatabaseRead(runtime);
             var store = new SqliteTaskStore(runtime.DatabasePath, readOnly);
-            var service = new TaskApplicationService(store);
+            var connectionStore = new JsonPersonalCloudConnectionStore(
+                Path.Combine(runtime.DataDirectory, "personal-cloud-connection.json"));
+            var service = new TaskApplicationService(store, connectionStore.Load);
             await service.InitializeAsync(cancellationToken);
             return await action(new CliContext(runtime, store, service, new CliOutput(formatValue)));
         }

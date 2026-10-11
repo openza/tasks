@@ -215,6 +215,7 @@
                             x:Name="SettingsPage"
                             HorizontalAlignment="Left"
                             ThemeChanged="OnThemeChanged"
+                            ConnectPersonalCloudClicked="OnConnectPersonalCloudClicked"
                             ConnectTodoistClicked="OnConnectTodoistClicked"
                             ConnectMicrosoftClicked="OnConnectMicrosoftClicked"
                             SignInGitHubClicked="OnSignInGitHubClicked"

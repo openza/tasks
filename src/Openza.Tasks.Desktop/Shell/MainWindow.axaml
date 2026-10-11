@@ -3,6 +3,7 @@
     xmlns="https://github.com/avaloniaui"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:ic="using:FluentIcons.Avalonia"
+    xmlns:cloudData="using:Openza.Tasks.Core.Data"
     Width="1440"
     Height="800"
     MinWidth="920"
@@ -623,6 +624,21 @@
             <ScrollViewer x:Name="SyncWorkspace" IsVisible="False" VerticalScrollBarVisibility="Auto">
                 <StackPanel MaxWidth="960" Margin="34,34,40,40" HorizontalAlignment="Left" Spacing="28">
                     <Grid ColumnDefinitions="*,Auto"><StackPanel Spacing="6"><TextBlock Classes="page-title" Text="Sync"/><TextBlock Foreground="{DynamicResource OpenzaTextSecondaryBrush}" Text="Use Openza Tasks locally, connect integrations, or prepare future automation routes." TextWrapping="Wrap"/></StackPanel><Button Grid.Column="1" Classes="accent" Click="OnSyncNowClicked" Content="Sync now" IsEnabled="{Binding !IsSyncing}"/></Grid>
+                    <StackPanel Spacing="10">
+                        <TextBlock FontWeight="SemiBold" Text="Personal Cloud provider requests"/>
+                        <ItemsControl ItemsSource="{Binding ProviderRequests}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="cloudData:PersonalCloudProviderRequestStatus">
+                                    <Border Padding="16" Margin="0,0,0,8" Classes="settings-card">
+                                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
+                                            <StackPanel Spacing="4"><TextBlock FontWeight="SemiBold" Text="{Binding Title}"/><TextBlock Text="{Binding Status}" TextWrapping="Wrap"/></StackPanel>
+                                            <Button Grid.Column="1" Content="Retry provider request" IsVisible="{Binding CanRetry}" IsEnabled="{Binding !$parent[Window].DataContext.IsSyncing}" Click="OnRetryProviderRequestClicked"/>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
                     <StackPanel Spacing="10"><TextBlock FontWeight="SemiBold" Text="How Openza sync works"/><Border Padding="18" Classes="settings-card"><TextBlock Text="Local tasks  ·  Your offline Openza workspace is always available and remains the core task database." TextWrapping="Wrap"/></Border><Border Padding="18" Classes="settings-card"><TextBlock Text="Connected integrations  ·  Todoist and Microsoft To Do tasks are imported and completion changes are written back on sync." TextWrapping="Wrap"/></Border><Border Padding="18" Classes="settings-card"><TextBlock Text="Sync routes  ·  Future automation can route tasks between connected services and Openza." TextWrapping="Wrap"/></Border></StackPanel>
                     <StackPanel Spacing="10"><TextBlock FontWeight="SemiBold" Text="Integrations"/><Border Padding="18" Classes="settings-card"><Grid ColumnDefinitions="*,Auto"><StackPanel><TextBlock FontWeight="SemiBold" Text="Connection status"/><TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="Manage provider connections in Settings."/></StackPanel><Button Grid.Column="1" Click="OnSettingsClicked" Content="Integration settings"/></Grid></Border><Border Padding="18" Classes="settings-card"><Grid ColumnDefinitions="*,Auto"><StackPanel><TextBlock FontWeight="SemiBold" Text="Last result"/><ProgressBar IsVisible="{Binding IsSyncing}" IsIndeterminate="True"/><TextBlock Text="{Binding LastSyncResult}" TextWrapping="Wrap"/><TextBlock Text="{Binding TodoistConnectionText, StringFormat='Todoist: {0}'}"/><TextBlock Text="{Binding MicrosoftConnectionText, StringFormat='Microsoft To Do: {0}'}"/></StackPanel><Button Grid.Column="1" Click="OnConnectedTasksClicked" Content="Open Inbox"/></Grid></Border></StackPanel>
                 </StackPanel>
@@ -635,6 +651,20 @@
                     <TextBlock Classes="section-title" Text="Appearance" />
                     <Border Padding="20" Classes="settings-card"><Grid ColumnDefinitions="32,*,Auto" ColumnSpacing="14"><ic:FluentIcon Icon="Color" FontSize="21"/><StackPanel Grid.Column="1"><TextBlock FontWeight="SemiBold" Text="Theme"/><TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="Follow the desktop or choose a fixed appearance."/></StackPanel><ComboBox x:Name="ShellThemePicker" Grid.Column="2" Width="150" SelectionChanged="OnShellThemeChanged"><ComboBoxItem Content="System"/><ComboBoxItem Content="Light"/><ComboBoxItem Content="Dark"/></ComboBox></Grid></Border>
                     <TextBlock Classes="section-title" Text="Integrations" />
+                    <Border Padding="20" Classes="settings-card">
+                        <Grid ColumnDefinitions="32,*,Auto" ColumnSpacing="14">
+                            <ic:FluentIcon Icon="Cloud" FontSize="21"/>
+                            <StackPanel Grid.Column="1" Spacing="3">
+                                <TextBlock FontWeight="SemiBold" Text="Personal Cloud"/>
+                                <TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{Binding PersonalCloudSummaryText}" TextWrapping="Wrap"/>
+                                <TextBlock FontSize="12" Foreground="{DynamicResource TextFillColorTertiaryBrush}" Text="Your tasks stay local-first. Cloudflare hosts your optional private Web copy." TextWrapping="Wrap"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="2" HorizontalAlignment="Right" Spacing="8">
+                                <TextBlock HorizontalAlignment="Right" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{Binding PersonalCloudStatusText}"/>
+                                <Button Classes="accent" Click="OnConnectPersonalCloudClicked" Content="{Binding PersonalCloudActionText}" IsEnabled="{Binding CanConnectPersonalCloud}"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
                     <Border Padding="20" Classes="settings-card"><Grid ColumnDefinitions="32,*,Auto" ColumnSpacing="14"><ic:FluentIcon Icon="ArrowSync" FontSize="21"/><StackPanel Grid.Column="1"><TextBlock FontWeight="SemiBold" Text="Automatic sync"/><TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="Refresh connected apps every five minutes while Openza Tasks is running."/></StackPanel><ToggleSwitch x:Name="AutomaticSyncToggle" Grid.Column="2" OnContent="On" OffContent="Off" IsCheckedChanged="OnAutomaticSyncChanged"/></Grid></Border>
 
                     <Border Classes="settings-card">

@@ -1,0 +1,15 @@
+{
+  "protocolVersion": 1,
+  "product": "tasks",
+  "instanceId": "instance_00000000000000000000000000000001",
+  "deviceId": "device_00000000000000000000000000000001",
+  "mutationId": "mutation_00000000000000000000000000000002",
+  "deviceSequence": 2,
+  "operation": "task.updateOpenzaFields",
+  "entityId": "local_00000000000000000000000000000001",
+  "baseEntityVersion": 1,
+  "payload": {
+    "title": "Validate one renamed task"
+  },
+  "clientCreatedAt": "2026-09-13T06:32:00.000Z"
+}

@@ -5,6 +5,7 @@ using Openza.Tasks.Application.Sync;
 using Openza.Tasks.Core.Credentials;
 using Openza.Tasks.Core.Data;
 using Openza.Tasks.Core.Models;
+using Openza.Tasks.Core.PersonalCloud;
 using Openza.Tasks.Core.Sync;
 
 namespace Openza.Tasks.Tests;
@@ -12,6 +13,36 @@ namespace Openza.Tasks.Tests;
 public sealed class CliContractTests : IDisposable
 {
     private readonly string _directory = Path.Combine(Path.GetTempPath(), "openza-cli-tests", Guid.NewGuid().ToString("N"));
+
+    [Fact]
+    public async Task Connected_cli_edits_and_completion_enqueue_personal_cloud_intents()
+    {
+        var store = await CreateStoreAsync();
+        const string instanceId = "instance_00000000000000000000000000000001";
+        const string deviceId = "device_00000000000000000000000000000001";
+        await new JsonPersonalCloudConnectionStore(Path.Combine(_directory, "personal-cloud-connection.json"))
+            .SaveAsync(new PersonalCloudConnectionProfile
+            {
+                ServiceOrigin = new Uri("https://openza-personal-test.workers.dev/"),
+                InstanceId = instanceId,
+                DeviceId = deviceId,
+                ArtifactVersion = "1.2.3",
+                ConnectedAt = DateTimeOffset.UtcNow,
+            });
+        var add = await RunAsync("task", "add", "Connected CLI task", "--format", "json");
+        AssertSuccess(add);
+        using var added = JsonDocument.Parse(add.Stdout);
+        var id = added.RootElement.GetProperty("data").GetProperty("id").GetString()!;
+
+        AssertSuccess(await RunAsync("task", "update", id, "--notes", "Updated through CLI"));
+        AssertSuccess(await RunAsync("task", "complete", id));
+
+        Assert.True((await store.GetTaskAsync(id))!.IsCompleted);
+        var pending = await store.GetPendingPersonalCloudOutboxAsync(instanceId, deviceId);
+        Assert.Equal(new[] { "task.create", "task.updateOpenzaFields", "task.updateOpenzaFields", "task.complete" },
+            pending.Select(item => item.Operation));
+        Assert.Contains(pending, item => item.CanonicalJson.Contains("Updated through CLI", StringComparison.Ordinal));
+    }
 
     [Fact]
     public async Task None_status_can_be_created_updated_and_read_without_changing_defaults()

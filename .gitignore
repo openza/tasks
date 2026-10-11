@@ -58,6 +58,7 @@ design-qa.md
 /parts/
 /prime/
 /stage/
+packaging/personal-cloud/artifact/
 *.AppImage
 *.flatpak
 Openza.AppDir/

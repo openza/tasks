@@ -33,7 +33,9 @@ dotnet test src/Openza.Tasks.Tests/Openza.Tasks.Tests.csproj -c Release -m:1
 dotnet build src/Openza.Tasks.Desktop/Openza.Tasks.Desktop.csproj -c Release
 bash packaging/snap/test-snap-package.sh
 gitleaks detect --source . --verbose
-bash packaging/snap/build-local-snap.sh artifacts/snap/openza-tasks.snap
+bash packaging/snap/build-local-snap.sh \
+  artifacts/snap/openza-tasks.snap \
+  /path/to/openza-personal-cloud-<version>
 ```
 
 The local build wrapper inspects the package and cleans its Snapcraft build environment on exit. Check available disk space before building and verify that the task build instance has been removed afterward.
@@ -42,6 +44,29 @@ Inspect the built Snap before installation. It must contain both Production
 channel markers, the desktop launcher, AppStream metadata, icon, GUI binary,
 CLI binary, and `secret-tool`. Installing a local build requires explicit user
 approval because it creates or replaces a live application.
+
+### Isolated Personal Cloud preview
+
+Build the Personal Cloud runtime package with Preview channel markers so its
+Openza credential namespace stays separate from Production:
+
+```bash
+bash packaging/snap/build-personal-cloud-preview-snap.sh \
+  artifacts/snap/openza-tasks-personal-cloud-preview.snap \
+  /path/to/openza-personal-cloud-<version>
+```
+
+The wrapper builds from a disposable working-tree snapshot and verifies both
+Preview markers in the packed Snap. Runtime testing uses Snap's parallel
+instance name `openza-tasks_pcdev`, which gives the test instance separate user
+data, configuration, interfaces, applications, and aliases. Parallel instances
+are an experimental snapd feature and require an administrator to enable them;
+do not enable the feature or install the local package without explicit approval.
+After approval, follow the official parallel-install procedure and install the
+local file with the explicit instance name and `--dangerous`. Connect only the
+minimum required interfaces for `openza-tasks_pcdev`, test against the retained
+Dev Personal Cloud, and remove only that named instance after preserving any
+requested diagnostics. Never install this preview file as plain `openza-tasks`.
 
 ## Publish and promote one revision
 

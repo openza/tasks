@@ -2,13 +2,15 @@ using System.Data;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Openza.Tasks.Core.Models;
+using Openza.Tasks.Core.PersonalCloud;
 using Openza.Tasks.Core.Services;
+using Openza.Tasks.Core.Sync;
 
 namespace Openza.Tasks.Core.Data;
 
-public sealed class SqliteTaskStore(string databasePath, bool readOnly = false) : ITaskStore
+public sealed partial class SqliteTaskStore(string databasePath, bool readOnly = false) : ITaskStore
 {
-    public const int CurrentSchemaVersion = 6;
+    public const int CurrentSchemaVersion = 9;
     public const int MinimumReadOnlySchemaVersion = 5;
 
     private sealed record ParentTaskContext(string Id, string SpaceId, string? ProjectId, TaskWorkflowStatus WorkflowStatus);
@@ -1302,6 +1304,2424 @@ public sealed class SqliteTaskStore(string databasePath, bool readOnly = false) 
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task<PersonalCloudK1OutboxEntry> CreateTaskWithPersonalCloudIntentAsync(
+        TaskItem task,
+        string instanceId,
+        string deviceId,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(task);
+
+        var mutationId = $"mutation_{Guid.NewGuid():N}";
+        var createdAt = DateTimeOffset.FromUnixTimeMilliseconds(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+
+        var existingTaskCommand = connection.CreateCommand();
+        existingTaskCommand.CommandText = "SELECT COUNT(*) FROM tasks WHERE id = @id";
+        existingTaskCommand.Parameters.AddWithValue("@id", task.Id);
+        if (Convert.ToInt64(await existingTaskCommand.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)) != 0)
+        {
+            throw new PersonalCloudK0ContractException("entity_exists", "A task with this ID already exists.");
+        }
+
+        var initializeDeviceCommand = connection.CreateCommand();
+        initializeDeviceCommand.CommandText = """
+            INSERT OR IGNORE INTO personal_cloud_device_state (instance_id, device_id, next_device_sequence)
+            VALUES (@instance_id, @device_id, 1)
+            """;
+        initializeDeviceCommand.Parameters.AddWithValue("@instance_id", instanceId);
+        initializeDeviceCommand.Parameters.AddWithValue("@device_id", deviceId);
+        await initializeDeviceCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+
+        var readSequenceCommand = connection.CreateCommand();
+        readSequenceCommand.CommandText = """
+            SELECT next_device_sequence
+            FROM personal_cloud_device_state
+            WHERE instance_id = @instance_id AND device_id = @device_id
+            """;
+        readSequenceCommand.Parameters.AddWithValue("@instance_id", instanceId);
+        readSequenceCommand.Parameters.AddWithValue("@device_id", deviceId);
+        var deviceSequence = Convert.ToInt64(
+            await readSequenceCommand.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false));
+
+        var mutation = PersonalCloudK0Mapper.CreateTaskMutation(
+            task,
+            instanceId,
+            deviceId,
+            mutationId,
+            deviceSequence,
+            createdAt);
+        var canonicalJson = PersonalCloudK0Codec.Canonicalize(PersonalCloudK0Codec.Serialize(mutation));
+        var canonicalHash = PersonalCloudK0Codec.ComputeCanonicalHash(canonicalJson);
+
+        await UpsertTaskCoreAsync(connection, task, cancellationToken).ConfigureAwait(false);
+        await SetTaskLabelsCoreAsync(connection, task.Id, task.Labels, cancellationToken).ConfigureAwait(false);
+
+        var outboxCommand = connection.CreateCommand();
+        outboxCommand.CommandText = """
+            INSERT INTO personal_cloud_outbox
+                (mutation_id, product, instance_id, device_id, device_sequence, operation, entity_id,
+                 canonical_json, canonical_hash, created_at)
+            VALUES
+                (@mutation_id, @product, @instance_id, @device_id, @device_sequence, @operation, @entity_id,
+                 @canonical_json, @canonical_hash, @created_at)
+            RETURNING local_sequence
+            """;
+        outboxCommand.Parameters.AddWithValue("@mutation_id", mutationId);
+        outboxCommand.Parameters.AddWithValue("@product", PersonalCloudK0Protocol.TasksProduct);
+        outboxCommand.Parameters.AddWithValue("@instance_id", instanceId);
+        outboxCommand.Parameters.AddWithValue("@device_id", deviceId);
+        outboxCommand.Parameters.AddWithValue("@device_sequence", deviceSequence);
+        outboxCommand.Parameters.AddWithValue("@operation", PersonalCloudK0Protocol.CreateTaskOperation);
+        outboxCommand.Parameters.AddWithValue("@entity_id", task.Id);
+        outboxCommand.Parameters.AddWithValue("@canonical_json", canonicalJson);
+        outboxCommand.Parameters.AddWithValue("@canonical_hash", canonicalHash);
+        outboxCommand.Parameters.AddWithValue("@created_at", createdAt.ToUnixTimeMilliseconds());
+        var localSequence = Convert.ToInt64(
+            await outboxCommand.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false));
+
+        var advanceSequenceCommand = connection.CreateCommand();
+        advanceSequenceCommand.CommandText = """
+            UPDATE personal_cloud_device_state
+            SET next_device_sequence = @next_device_sequence
+            WHERE instance_id = @instance_id
+              AND device_id = @device_id
+              AND next_device_sequence = @device_sequence
+            """;
+        advanceSequenceCommand.Parameters.AddWithValue("@next_device_sequence", checked(deviceSequence + 1));
+        advanceSequenceCommand.Parameters.AddWithValue("@instance_id", instanceId);
+        advanceSequenceCommand.Parameters.AddWithValue("@device_id", deviceId);
+        advanceSequenceCommand.Parameters.AddWithValue("@device_sequence", deviceSequence);
+        if (await advanceSequenceCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+        {
+            throw new InvalidOperationException("The Personal Cloud device sequence could not be advanced atomically.");
+        }
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return new PersonalCloudK1OutboxEntry
+        {
+            LocalSequence = localSequence,
+            MutationId = mutationId,
+            Product = PersonalCloudK0Protocol.TasksProduct,
+            InstanceId = instanceId,
+            DeviceId = deviceId,
+            DeviceSequence = deviceSequence,
+            Operation = PersonalCloudK0Protocol.CreateTaskOperation,
+            EntityId = task.Id,
+            CanonicalJson = canonicalJson,
+            CanonicalHash = canonicalHash,
+            CreatedAt = createdAt,
+        };
+    }
+
+    public async Task<IReadOnlyList<PersonalCloudK1OutboxEntry>> GetPendingPersonalCloudOutboxAsync(
+        string instanceId,
+        string deviceId,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT local_sequence, mutation_id, product, instance_id, device_id, device_sequence, operation,
+                   entity_id, canonical_json, canonical_hash, created_at
+            FROM personal_cloud_outbox
+            WHERE product = @product
+              AND instance_id = @instance_id
+              AND device_id = @device_id
+              AND acknowledged_at IS NULL
+            ORDER BY device_sequence, local_sequence
+            """;
+        command.Parameters.AddWithValue("@instance_id", instanceId);
+        command.Parameters.AddWithValue("@device_id", deviceId);
+        command.Parameters.AddWithValue("@product", PersonalCloudK0Protocol.TasksProduct);
+
+        var entries = new List<PersonalCloudK1OutboxEntry>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            entries.Add(new PersonalCloudK1OutboxEntry
+            {
+                LocalSequence = reader.GetInt64(0),
+                MutationId = reader.GetString(1),
+                Product = reader.GetString(2),
+                InstanceId = reader.GetString(3),
+                DeviceId = reader.GetString(4),
+                DeviceSequence = reader.GetInt64(5),
+                Operation = reader.GetString(6),
+                EntityId = reader.GetString(7),
+                CanonicalJson = reader.GetString(8),
+                CanonicalHash = reader.GetString(9),
+                CreatedAt = DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(10)),
+            });
+        }
+
+        return entries;
+    }
+
+    public async Task<PersonalCloudK1OutboxEntry> EnqueueExistingTaskForPersonalCloudAsync(
+        string taskId,string instanceId,string deviceId,CancellationToken cancellationToken=default)
+    {
+        if (await GetTaskAsync(taskId, cancellationToken).ConfigureAwait(false) is null)
+            throw new PersonalCloudK0ContractException("entity_not_found", "The Openza task does not exist.");
+        if (await GetPersonalCloudEntityVersionAsync(instanceId, taskId, cancellationToken).ConfigureAwait(false) is not null)
+            throw new PersonalCloudK0ContractException("entity_exists", "The Openza task is already queued or published to this Personal Cloud instance.");
+
+        // Use the same normalized capture/restoration sequence as initial sync.
+        // Staging all unpublished tasks also stages parent dependencies first.
+        await StageUnpublishedTasksForPersonalCloudAsync(instanceId, deviceId, cancellationToken).ConfigureAwait(false);
+        var pending = await GetPendingPersonalCloudOutboxAsync(instanceId, deviceId, cancellationToken).ConfigureAwait(false);
+        return pending.FirstOrDefault(item => item.EntityId == taskId &&
+                   item.Operation == PersonalCloudK0Protocol.CreateTaskOperation)
+            ?? throw new PersonalCloudK0ContractException("entity_exists", "The Openza task is already published to this Personal Cloud instance.");
+    }
+
+    public async Task EnsureNoPendingPersonalCloudIntentsAsync(CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await EnsureNoPendingPersonalCloudIntentsAsync(connection, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task EnsureNoPendingPersonalCloudIntentsAsync(
+        SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        if (!await TableExistsAsync(connection, "personal_cloud_outbox", cancellationToken).ConfigureAwait(false)) return;
+        var hasDeferredTable = await TableExistsAsync(connection, "personal_cloud_deferred_changes", cancellationToken).ConfigureAwait(false);
+        var hasBridgeTable = await TableExistsAsync(connection, "personal_cloud_provider_attempts", cancellationToken).ConfigureAwait(false);
+        var hasLegacyCompletions = await TableExistsAsync(connection, "pending_completions", cancellationToken).ConfigureAwait(false);
+        var command = connection.CreateCommand();
+        command.CommandText = "SELECT (SELECT COUNT(*) FROM personal_cloud_outbox WHERE product='tasks' AND acknowledged_at IS NULL)" +
+            (hasDeferredTable ? " + (SELECT COUNT(*) FROM personal_cloud_deferred_changes)" : "") +
+            (hasBridgeTable ? " + (SELECT COUNT(*) FROM personal_cloud_provider_attempts WHERE state NOT IN ('settled','cancelled'))" : "") +
+            (hasLegacyCompletions ? " + (SELECT COUNT(*) FROM pending_completions p WHERE EXISTS(SELECT 1 FROM personal_cloud_outbox o WHERE o.entity_id=p.task_id AND o.operation IN ('task.complete','task.reopen'))" +
+                (hasBridgeTable ? " OR EXISTS(SELECT 1 FROM personal_cloud_provider_commands c WHERE c.task_id=p.task_id)" : "") + ")" : "");
+        if (Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)) > 0)
+            throw new PersonalCloudK0ContractException("pending_intents",
+                "Pending Personal Cloud edits must be synced or explicitly resolved before replacing the replica or changing its connection. Your edits have been preserved.");
+    }
+
+    public async Task<int> GetDeferredPersonalCloudChangeCountAsync(string instanceId, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        var command = connection.CreateCommand();
+        command.CommandText = "SELECT COUNT(*) FROM personal_cloud_deferred_changes WHERE instance_id=@i AND product='tasks'";
+        command.Parameters.AddWithValue("@i", instanceId);
+        return Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false));
+    }
+
+    public async Task<int> StageUnpublishedTasksForPersonalCloudAsync(
+        string instanceId,
+        string deviceId,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        var tasks = (await ReadTasksAsync(connection, cancellationToken).ConfigureAwait(false))
+            .Where(task => task.IntegrationId == IntegrationIds.Local)
+            .ToList();
+
+        var alreadyPublished = new HashSet<string>(StringComparer.Ordinal);
+        var publishedCommand = connection.CreateCommand();
+        publishedCommand.CommandText = """
+            SELECT entity_id FROM personal_cloud_outbox
+            WHERE instance_id=@instance_id AND product=@product AND operation=@operation
+            UNION
+            SELECT entity_id FROM personal_cloud_replica_entities
+            WHERE instance_id=@instance_id AND product=@product
+            """;
+        publishedCommand.Parameters.AddWithValue("@instance_id", instanceId);
+        publishedCommand.Parameters.AddWithValue("@product", PersonalCloudK0Protocol.TasksProduct);
+        publishedCommand.Parameters.AddWithValue("@operation", PersonalCloudK0Protocol.CreateTaskOperation);
+        await using (var reader = await publishedCommand.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) alreadyPublished.Add(reader.GetString(0));
+        tasks = tasks.Where(task => !alreadyPublished.Contains(task.Id)).ToList();
+        if (tasks.Count == 0)
+        {
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            return 0;
+        }
+
+        var spaces = new Dictionary<string, string>(StringComparer.Ordinal);
+        var spacesCommand = connection.CreateCommand();
+        spacesCommand.CommandText = "SELECT id,name FROM spaces";
+        await using (var reader = await spacesCommand.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) spaces[reader.GetString(0)] = reader.GetString(1);
+        var projects = new Dictionary<string, string>(StringComparer.Ordinal);
+        var projectsCommand = connection.CreateCommand();
+        projectsCommand.CommandText = "SELECT id,name FROM projects";
+        await using (var reader = await projectsCommand.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) projects[reader.GetString(0)] = reader.GetString(1);
+
+        var initializeDevice = connection.CreateCommand();
+        initializeDevice.CommandText = "INSERT OR IGNORE INTO personal_cloud_device_state(instance_id,device_id,next_device_sequence) VALUES(@i,@d,1)";
+        initializeDevice.Parameters.AddWithValue("@i", instanceId);
+        initializeDevice.Parameters.AddWithValue("@d", deviceId);
+        await initializeDevice.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        var sequenceCommand = connection.CreateCommand();
+        sequenceCommand.CommandText = "SELECT next_device_sequence FROM personal_cloud_device_state WHERE instance_id=@i AND device_id=@d";
+        sequenceCommand.Parameters.AddWithValue("@i", instanceId);
+        sequenceCommand.Parameters.AddWithValue("@d", deviceId);
+        var sequence = Convert.ToInt64(await sequenceCommand.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false));
+        var staged = 0;
+        var versions = tasks.ToDictionary(task => task.Id, _ => 0L, StringComparer.Ordinal);
+
+        async Task AppendAsync(string operation, string entityId, object mutation)
+        {
+            var json = PersonalCloudK0Codec.Canonicalize(PersonalCloudK0Codec.Serialize(mutation));
+            var command = connection.CreateCommand();
+            command.CommandText = """
+                INSERT INTO personal_cloud_outbox
+                    (mutation_id,product,instance_id,device_id,device_sequence,operation,entity_id,
+                     canonical_json,canonical_hash,created_at)
+                VALUES(@m,@p,@i,@d,@q,@o,@e,@j,@h,@a)
+                """;
+            using var document = JsonDocument.Parse(json);
+            command.Parameters.AddWithValue("@m", document.RootElement.GetProperty("mutationId").GetString()!);
+            command.Parameters.AddWithValue("@p", PersonalCloudK0Protocol.TasksProduct);
+            command.Parameters.AddWithValue("@i", instanceId);
+            command.Parameters.AddWithValue("@d", deviceId);
+            command.Parameters.AddWithValue("@q", sequence);
+            command.Parameters.AddWithValue("@o", operation);
+            command.Parameters.AddWithValue("@e", entityId);
+            command.Parameters.AddWithValue("@j", json);
+            command.Parameters.AddWithValue("@h", PersonalCloudK0Codec.ComputeCanonicalHash(json));
+            command.Parameters.AddWithValue("@a", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+            await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            sequence = checked(sequence + 1);
+            staged++;
+        }
+
+        string MutationId() => $"mutation_{Guid.NewGuid():N}";
+        string Timestamp() => DateTimeOffset.UtcNow.ToUniversalTime().ToString(
+            "yyyy-MM-dd'T'HH:mm:ss.fff'Z'", System.Globalization.CultureInfo.InvariantCulture);
+        object Relationship(string operation, TaskItem task, long version, object payload) => new
+        {
+            protocolVersion = 1,
+            product = PersonalCloudK0Protocol.TasksProduct,
+            instanceId,
+            deviceId,
+            mutationId = MutationId(),
+            deviceSequence = sequence,
+            operation,
+            entityId = task.Id,
+            baseEntityVersion = version,
+            payload,
+            clientCreatedAt = Timestamp(),
+        };
+
+        foreach (var task in tasks)
+        {
+            var initial = task with
+            {
+                SpaceId = SpaceIds.Default,
+                ProjectId = null,
+                ParentId = null,
+                CompletionState = TaskCompletionState.Open,
+                WorkflowStatus = TaskWorkflowStatus.Inbox,
+                Priority = 2,
+                PlannedOn = null,
+                PlannedAt = null,
+                CompletedAt = null,
+                Labels = [],
+            };
+            var mutationId = MutationId();
+            var mutation = PersonalCloudK0Mapper.CreateTaskMutation(
+                initial, instanceId, deviceId, mutationId, sequence, DateTimeOffset.UtcNow);
+            await AppendAsync(PersonalCloudK0Protocol.CreateTaskOperation, task.Id, mutation).ConfigureAwait(false);
+            versions[task.Id] = 1;
+        }
+
+        foreach (var task in tasks.Where(task => task.SpaceId != SpaceIds.Default))
+        {
+            if (!spaces.TryGetValue(task.SpaceId, out var name))
+                throw new PersonalCloudK0ContractException("parent_not_found", "An Openza task references a missing Space.");
+            var version = versions[task.Id];
+            await AppendAsync("task.move", task.Id, Relationship("task.move", task, version, new { space = new { id = task.SpaceId, name } })).ConfigureAwait(false);
+            versions[task.Id] = checked(version + 1);
+        }
+
+        foreach (var task in tasks)
+        {
+            if (task.ProjectId is { } projectId)
+            {
+                if (!projects.TryGetValue(projectId, out var name))
+                    throw new PersonalCloudK0ContractException("parent_not_found", "An Openza task references a missing project.");
+                var version = versions[task.Id];
+                await AppendAsync("task.setProject", task.Id, Relationship("task.setProject", task, version, new { project = new { id = projectId, name } })).ConfigureAwait(false);
+                versions[task.Id] = checked(version + 1);
+            }
+            foreach (var label in task.Labels)
+            {
+                var version = versions[task.Id];
+                await AppendAsync("task.addLabel", task.Id, Relationship("task.addLabel", task, version, new { label = new { id = label.Id, name = label.Name } })).ConfigureAwait(false);
+                versions[task.Id] = checked(version + 1);
+            }
+            if (task.WorkflowStatus != TaskWorkflowStatus.Inbox)
+            {
+                var version = versions[task.Id];
+                var mutation = PersonalCloudWorkflowStatusUpdateCodec.CreateMutation(
+                    instanceId, deviceId, MutationId(), sequence, task.Id, version, task.WorkflowStatus.ToStorageValue(), Timestamp());
+                await AppendAsync(PersonalCloudK0Protocol.UpdateOpenzaFieldsOperation, task.Id, mutation).ConfigureAwait(false);
+                versions[task.Id] = checked(version + 1);
+            }
+            if (task.Priority != 2)
+            {
+                var version = versions[task.Id];
+                var mutation = PersonalCloudPriorityUpdateCodec.CreateMutation(
+                    instanceId, deviceId, MutationId(), sequence, task.Id, version, task.Priority, Timestamp());
+                await AppendAsync(PersonalCloudK0Protocol.UpdateOpenzaFieldsOperation, task.Id, mutation).ConfigureAwait(false);
+                versions[task.Id] = checked(version + 1);
+            }
+            if (task.PlannedAt is { } plannedAt)
+            {
+                var version = versions[task.Id];
+                var mutation = PersonalCloudPlanningCodec.CreatePlannedAtMutation(
+                    instanceId, deviceId, MutationId(), sequence, task.Id, version, plannedAt, Timestamp());
+                await AppendAsync(PersonalCloudK0Protocol.UpdateOpenzaFieldsOperation, task.Id, mutation).ConfigureAwait(false);
+                versions[task.Id] = checked(version + 1);
+            }
+            else if (task.PlannedOn is { } plannedOn)
+            {
+                var version = versions[task.Id];
+                var mutation = PersonalCloudPlanningCodec.CreatePlannedOnMutation(
+                    instanceId, deviceId, MutationId(), sequence, task.Id, version, plannedOn, Timestamp());
+                await AppendAsync(PersonalCloudK0Protocol.UpdateOpenzaFieldsOperation, task.Id, mutation).ConfigureAwait(false);
+                versions[task.Id] = checked(version + 1);
+            }
+            if (task.Notes is { } notes)
+            {
+                var version = versions[task.Id];
+                var mutation = PersonalCloudNotesDeadlineCodec.CreateNotesMutation(
+                    instanceId, deviceId, MutationId(), sequence, task.Id, version, notes, Timestamp());
+                await AppendAsync(PersonalCloudK0Protocol.UpdateOpenzaFieldsOperation, task.Id, mutation).ConfigureAwait(false);
+                versions[task.Id] = checked(version + 1);
+            }
+            if (task.DeadlineOn is { } deadlineOn)
+            {
+                var version = versions[task.Id];
+                var mutation = PersonalCloudNotesDeadlineCodec.CreateDeadlineOnMutation(
+                    instanceId, deviceId, MutationId(), sequence, task.Id, version,
+                    deadlineOn.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture), Timestamp());
+                await AppendAsync(PersonalCloudK0Protocol.UpdateOpenzaFieldsOperation, task.Id, mutation).ConfigureAwait(false);
+                versions[task.Id] = checked(version + 1);
+            }
+        }
+
+        foreach (var task in tasks.Where(task => task.ParentId is not null))
+        {
+            var version = versions[task.Id];
+            await AppendAsync("task.setParent", task.Id, Relationship("task.setParent", task, version, new { parentId = task.ParentId })).ConfigureAwait(false);
+            versions[task.Id] = checked(version + 1);
+        }
+
+        foreach (var task in tasks.Where(task => task.CompletionState == TaskCompletionState.Completed))
+        {
+            var version = versions[task.Id];
+            var completedAt = (task.CompletedAt ?? task.UpdatedAt ?? DateTimeOffset.UtcNow).ToUniversalTime().ToString(
+                "yyyy-MM-dd'T'HH:mm:ss.fff'Z'", System.Globalization.CultureInfo.InvariantCulture);
+            var mutation = PersonalCloudCompletionCodec.CreateMutation(
+                instanceId, deviceId, MutationId(), sequence, task.Id, version, completedAt, Timestamp());
+            await AppendAsync(PersonalCloudK0Protocol.CompleteTaskOperation, task.Id, mutation).ConfigureAwait(false);
+            versions[task.Id] = checked(version + 1);
+        }
+
+        var advance = connection.CreateCommand();
+        advance.CommandText = "UPDATE personal_cloud_device_state SET next_device_sequence=@next WHERE instance_id=@i AND device_id=@d";
+        advance.Parameters.AddWithValue("@next", sequence);
+        advance.Parameters.AddWithValue("@i", instanceId);
+        advance.Parameters.AddWithValue("@d", deviceId);
+        if (await advance.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+            throw new InvalidOperationException("The Personal Cloud device sequence could not be advanced.");
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return staged;
+    }
+
+    public async Task<PersonalCloudK1OutboxEntry> UpdateTaskTitleWithPersonalCloudIntentAsync(
+        string taskId,
+        string title,
+        long baseEntityVersion,
+        string instanceId,
+        string deviceId,
+        CancellationToken cancellationToken = default)
+    {
+        var mutationId = $"mutation_{Guid.NewGuid():N}";
+        var createdAt = DateTimeOffset.FromUnixTimeMilliseconds(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+        var timestamp = createdAt.ToUniversalTime().ToString(
+            "yyyy-MM-dd'T'HH:mm:ss.fff'Z'",
+            System.Globalization.CultureInfo.InvariantCulture);
+
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+
+        var taskCommand = connection.CreateCommand();
+        taskCommand.CommandText = """
+            SELECT integration_id, provider_connection_id, source_integration_id, source_external_id, title
+            FROM tasks
+            WHERE id = @id
+            """;
+        taskCommand.Parameters.AddWithValue("@id", taskId);
+        await using (var reader = await taskCommand.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+        {
+            if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                throw new PersonalCloudK0ContractException("entity_not_found", "The task does not exist.");
+            }
+            if (!string.Equals(reader.GetString(0), IntegrationIds.Local, StringComparison.Ordinal) ||
+                !reader.IsDBNull(1) || !reader.IsDBNull(2) || !reader.IsDBNull(3))
+            {
+                throw new PersonalCloudK0ContractException(
+                    "invalid_request",
+                    "The source-owned title has no Openza override and cannot be changed through Personal Cloud.");
+            }
+            if (string.Equals(reader.GetString(4), title, StringComparison.Ordinal))
+            {
+                throw new PersonalCloudK0ContractException("invalid_request", "The new title must differ from the current title.");
+            }
+        }
+
+        var initializeDeviceCommand = connection.CreateCommand();
+        initializeDeviceCommand.CommandText = """
+            INSERT OR IGNORE INTO personal_cloud_device_state (instance_id, device_id, next_device_sequence)
+            VALUES (@instance_id, @device_id, 1)
+            """;
+        initializeDeviceCommand.Parameters.AddWithValue("@instance_id", instanceId);
+        initializeDeviceCommand.Parameters.AddWithValue("@device_id", deviceId);
+        await initializeDeviceCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+
+        var readSequenceCommand = connection.CreateCommand();
+        readSequenceCommand.CommandText = """
+            SELECT next_device_sequence
+            FROM personal_cloud_device_state
+            WHERE instance_id = @instance_id AND device_id = @device_id
+            """;
+        readSequenceCommand.Parameters.AddWithValue("@instance_id", instanceId);
+        readSequenceCommand.Parameters.AddWithValue("@device_id", deviceId);
+        var deviceSequence = Convert.ToInt64(
+            await readSequenceCommand.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false));
+
+        var mutation = PersonalCloudTitleUpdateCodec.CreateMutation(
+            instanceId,
+            deviceId,
+            mutationId,
+            deviceSequence,
+            taskId,
+            baseEntityVersion,
+            title,
+            timestamp);
+        var canonicalJson = PersonalCloudK0Codec.Canonicalize(PersonalCloudK0Codec.Serialize(mutation));
+        var canonicalHash = PersonalCloudK0Codec.ComputeCanonicalHash(canonicalJson);
+
+        var updateCommand = connection.CreateCommand();
+        updateCommand.CommandText = """
+            UPDATE tasks
+            SET title = @title, updated_at = @updated_at, revision = revision + 1
+            WHERE id = @id
+            """;
+        updateCommand.Parameters.AddWithValue("@title", title);
+        updateCommand.Parameters.AddWithValue("@updated_at", createdAt.ToUnixTimeMilliseconds());
+        updateCommand.Parameters.AddWithValue("@id", taskId);
+        if (await updateCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+        {
+            throw new InvalidOperationException("The local task title could not be updated.");
+        }
+
+        var outboxCommand = connection.CreateCommand();
+        outboxCommand.CommandText = """
+            INSERT INTO personal_cloud_outbox
+                (mutation_id, product, instance_id, device_id, device_sequence, operation, entity_id,
+                 canonical_json, canonical_hash, created_at)
+            VALUES
+                (@mutation_id, @product, @instance_id, @device_id, @device_sequence, @operation, @entity_id,
+                 @canonical_json, @canonical_hash, @created_at)
+            RETURNING local_sequence
+            """;
+        outboxCommand.Parameters.AddWithValue("@mutation_id", mutationId);
+        outboxCommand.Parameters.AddWithValue("@product", PersonalCloudK0Protocol.TasksProduct);
+        outboxCommand.Parameters.AddWithValue("@instance_id", instanceId);
+        outboxCommand.Parameters.AddWithValue("@device_id", deviceId);
+        outboxCommand.Parameters.AddWithValue("@device_sequence", deviceSequence);
+        outboxCommand.Parameters.AddWithValue("@operation", PersonalCloudK0Protocol.UpdateOpenzaFieldsOperation);
+        outboxCommand.Parameters.AddWithValue("@entity_id", taskId);
+        outboxCommand.Parameters.AddWithValue("@canonical_json", canonicalJson);
+        outboxCommand.Parameters.AddWithValue("@canonical_hash", canonicalHash);
+        outboxCommand.Parameters.AddWithValue("@created_at", createdAt.ToUnixTimeMilliseconds());
+        var localSequence = Convert.ToInt64(
+            await outboxCommand.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false));
+
+        var advanceSequenceCommand = connection.CreateCommand();
+        advanceSequenceCommand.CommandText = """
+            UPDATE personal_cloud_device_state
+            SET next_device_sequence = @next_device_sequence
+            WHERE instance_id = @instance_id
+              AND device_id = @device_id
+              AND next_device_sequence = @device_sequence
+            """;
+        advanceSequenceCommand.Parameters.AddWithValue("@next_device_sequence", checked(deviceSequence + 1));
+        advanceSequenceCommand.Parameters.AddWithValue("@instance_id", instanceId);
+        advanceSequenceCommand.Parameters.AddWithValue("@device_id", deviceId);
+        advanceSequenceCommand.Parameters.AddWithValue("@device_sequence", deviceSequence);
+        if (await advanceSequenceCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+        {
+            throw new InvalidOperationException("The Personal Cloud device sequence could not be advanced atomically.");
+        }
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return new PersonalCloudK1OutboxEntry
+        {
+            LocalSequence = localSequence,
+            MutationId = mutationId,
+            Product = PersonalCloudK0Protocol.TasksProduct,
+            InstanceId = instanceId,
+            DeviceId = deviceId,
+            DeviceSequence = deviceSequence,
+            Operation = PersonalCloudK0Protocol.UpdateOpenzaFieldsOperation,
+            EntityId = taskId,
+            CanonicalJson = canonicalJson,
+            CanonicalHash = canonicalHash,
+            CreatedAt = createdAt,
+        };
+    }
+
+    public async Task<PersonalCloudK1OutboxEntry> UpdateTaskWorkflowStatusWithPersonalCloudIntentAsync(
+        string taskId,
+        TaskWorkflowStatus workflowStatus,
+        long baseEntityVersion,
+        string instanceId,
+        string deviceId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!Enum.IsDefined(workflowStatus))
+        {
+            throw new ArgumentOutOfRangeException(nameof(workflowStatus));
+        }
+        var storedWorkflowStatus = workflowStatus.ToStorageValue();
+        var mutationId = $"mutation_{Guid.NewGuid():N}";
+        var createdAt = DateTimeOffset.FromUnixTimeMilliseconds(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+        var timestamp = createdAt.ToUniversalTime().ToString(
+            "yyyy-MM-dd'T'HH:mm:ss.fff'Z'",
+            System.Globalization.CultureInfo.InvariantCulture);
+
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+
+        var taskCommand = connection.CreateCommand();
+        taskCommand.CommandText = """
+            SELECT integration_id, provider_connection_id, source_integration_id, source_external_id,
+                   completion_state, workflow_status
+            FROM tasks
+            WHERE id = @id
+            """;
+        taskCommand.Parameters.AddWithValue("@id", taskId);
+        await using (var reader = await taskCommand.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+        {
+            if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                throw new PersonalCloudK0ContractException("entity_not_found", "The task does not exist.");
+            }
+            if (!string.Equals(reader.GetString(0), IntegrationIds.Local, StringComparison.Ordinal) || !reader.IsDBNull(1))
+            {
+                throw new PersonalCloudK0ContractException(
+                    "invalid_request",
+                    "This operation requires an Openza task row.");
+            }
+            if (!string.Equals(reader.GetString(4), TaskCompletionState.Open.ToStorageValue(), StringComparison.Ordinal))
+            {
+                throw new PersonalCloudK0ContractException(
+                    "invalid_request",
+                    "This checkpoint changes workflow status on an open task only.");
+            }
+            if (string.Equals(reader.GetString(5), storedWorkflowStatus, StringComparison.Ordinal))
+            {
+                throw new PersonalCloudK0ContractException(
+                    "invalid_request",
+                    "The new workflow status must differ from the current workflow status.");
+            }
+        }
+
+        var initializeDeviceCommand = connection.CreateCommand();
+        initializeDeviceCommand.CommandText = """
+            INSERT OR IGNORE INTO personal_cloud_device_state (instance_id, device_id, next_device_sequence)
+            VALUES (@instance_id, @device_id, 1)
+            """;
+        initializeDeviceCommand.Parameters.AddWithValue("@instance_id", instanceId);
+        initializeDeviceCommand.Parameters.AddWithValue("@device_id", deviceId);
+        await initializeDeviceCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+
+        var readSequenceCommand = connection.CreateCommand();
+        readSequenceCommand.CommandText = """
+            SELECT next_device_sequence
+            FROM personal_cloud_device_state
+            WHERE instance_id = @instance_id AND device_id = @device_id
+            """;
+        readSequenceCommand.Parameters.AddWithValue("@instance_id", instanceId);
+        readSequenceCommand.Parameters.AddWithValue("@device_id", deviceId);
+        var deviceSequence = Convert.ToInt64(
+            await readSequenceCommand.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false));
+
+        var mutation = PersonalCloudWorkflowStatusUpdateCodec.CreateMutation(
+            instanceId,
+            deviceId,
+            mutationId,
+            deviceSequence,
+            taskId,
+            baseEntityVersion,
+            storedWorkflowStatus,
+            timestamp);
+        var canonicalJson = PersonalCloudK0Codec.Canonicalize(PersonalCloudK0Codec.Serialize(mutation));
+        var canonicalHash = PersonalCloudK0Codec.ComputeCanonicalHash(canonicalJson);
+
+        var updateCommand = connection.CreateCommand();
+        updateCommand.CommandText = """
+            UPDATE tasks
+            SET workflow_status = @workflow_status, updated_at = @updated_at, revision = revision + 1
+            WHERE id = @id AND completion_state = 'open'
+            """;
+        updateCommand.Parameters.AddWithValue("@workflow_status", storedWorkflowStatus);
+        updateCommand.Parameters.AddWithValue("@updated_at", createdAt.ToUnixTimeMilliseconds());
+        updateCommand.Parameters.AddWithValue("@id", taskId);
+        if (await updateCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+        {
+            throw new InvalidOperationException("The local task workflow status could not be updated.");
+        }
+
+        var outboxCommand = connection.CreateCommand();
+        outboxCommand.CommandText = """
+            INSERT INTO personal_cloud_outbox
+                (mutation_id, product, instance_id, device_id, device_sequence, operation, entity_id,
+                 canonical_json, canonical_hash, created_at)
+            VALUES
+                (@mutation_id, @product, @instance_id, @device_id, @device_sequence, @operation, @entity_id,
+                 @canonical_json, @canonical_hash, @created_at)
+            RETURNING local_sequence
+            """;
+        outboxCommand.Parameters.AddWithValue("@mutation_id", mutationId);
+        outboxCommand.Parameters.AddWithValue("@product", PersonalCloudK0Protocol.TasksProduct);
+        outboxCommand.Parameters.AddWithValue("@instance_id", instanceId);
+        outboxCommand.Parameters.AddWithValue("@device_id", deviceId);
+        outboxCommand.Parameters.AddWithValue("@device_sequence", deviceSequence);
+        outboxCommand.Parameters.AddWithValue("@operation", PersonalCloudK0Protocol.UpdateOpenzaFieldsOperation);
+        outboxCommand.Parameters.AddWithValue("@entity_id", taskId);
+        outboxCommand.Parameters.AddWithValue("@canonical_json", canonicalJson);
+        outboxCommand.Parameters.AddWithValue("@canonical_hash", canonicalHash);
+        outboxCommand.Parameters.AddWithValue("@created_at", createdAt.ToUnixTimeMilliseconds());
+        var localSequence = Convert.ToInt64(
+            await outboxCommand.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false));
+
+        var advanceSequenceCommand = connection.CreateCommand();
+        advanceSequenceCommand.CommandText = """
+            UPDATE personal_cloud_device_state
+            SET next_device_sequence = @next_device_sequence
+            WHERE instance_id = @instance_id
+              AND device_id = @device_id
+              AND next_device_sequence = @device_sequence
+            """;
+        advanceSequenceCommand.Parameters.AddWithValue("@next_device_sequence", checked(deviceSequence + 1));
+        advanceSequenceCommand.Parameters.AddWithValue("@instance_id", instanceId);
+        advanceSequenceCommand.Parameters.AddWithValue("@device_id", deviceId);
+        advanceSequenceCommand.Parameters.AddWithValue("@device_sequence", deviceSequence);
+        if (await advanceSequenceCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+        {
+            throw new InvalidOperationException("The Personal Cloud device sequence could not be advanced atomically.");
+        }
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return new PersonalCloudK1OutboxEntry
+        {
+            LocalSequence = localSequence,
+            MutationId = mutationId,
+            Product = PersonalCloudK0Protocol.TasksProduct,
+            InstanceId = instanceId,
+            DeviceId = deviceId,
+            DeviceSequence = deviceSequence,
+            Operation = PersonalCloudK0Protocol.UpdateOpenzaFieldsOperation,
+            EntityId = taskId,
+            CanonicalJson = canonicalJson,
+            CanonicalHash = canonicalHash,
+            CreatedAt = createdAt,
+        };
+    }
+
+    public async Task<PersonalCloudK1OutboxEntry> UpdateTaskPriorityWithPersonalCloudIntentAsync(
+        string taskId,
+        int priority,
+        long baseEntityVersion,
+        string instanceId,
+        string deviceId,
+        CancellationToken cancellationToken = default)
+    {
+        if (priority is < 1 or > 4)
+        {
+            throw new ArgumentOutOfRangeException(nameof(priority), "Priority must be between 1 and 4.");
+        }
+        var mutationId = $"mutation_{Guid.NewGuid():N}";
+        var createdAt = DateTimeOffset.FromUnixTimeMilliseconds(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+        var timestamp = createdAt.ToUniversalTime().ToString(
+            "yyyy-MM-dd'T'HH:mm:ss.fff'Z'",
+            System.Globalization.CultureInfo.InvariantCulture);
+
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+
+        var taskCommand = connection.CreateCommand();
+        taskCommand.CommandText = """
+            SELECT integration_id, provider_connection_id, source_integration_id, source_external_id,
+                   completion_state, priority
+            FROM tasks
+            WHERE id = @id
+            """;
+        taskCommand.Parameters.AddWithValue("@id", taskId);
+        await using (var reader = await taskCommand.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+        {
+            if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                throw new PersonalCloudK0ContractException("entity_not_found", "The task does not exist.");
+            }
+            if (!string.Equals(reader.GetString(0), IntegrationIds.Local, StringComparison.Ordinal) || !reader.IsDBNull(1))
+            {
+                throw new PersonalCloudK0ContractException(
+                    "invalid_request",
+                    "This operation requires an Openza task row.");
+            }
+            if (!string.Equals(reader.GetString(4), TaskCompletionState.Open.ToStorageValue(), StringComparison.Ordinal))
+            {
+                throw new PersonalCloudK0ContractException(
+                    "invalid_request",
+                    "This checkpoint changes priority on an open task only.");
+            }
+            if (reader.GetInt32(5) == priority)
+            {
+                throw new PersonalCloudK0ContractException(
+                    "invalid_request",
+                    "The new priority must differ from the current priority.");
+            }
+        }
+
+        var initializeDeviceCommand = connection.CreateCommand();
+        initializeDeviceCommand.CommandText = """
+            INSERT OR IGNORE INTO personal_cloud_device_state (instance_id, device_id, next_device_sequence)
+            VALUES (@instance_id, @device_id, 1)
+            """;
+        initializeDeviceCommand.Parameters.AddWithValue("@instance_id", instanceId);
+        initializeDeviceCommand.Parameters.AddWithValue("@device_id", deviceId);
+        await initializeDeviceCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+
+        var readSequenceCommand = connection.CreateCommand();
+        readSequenceCommand.CommandText = """
+            SELECT next_device_sequence
+            FROM personal_cloud_device_state
+            WHERE instance_id = @instance_id AND device_id = @device_id
+            """;
+        readSequenceCommand.Parameters.AddWithValue("@instance_id", instanceId);
+        readSequenceCommand.Parameters.AddWithValue("@device_id", deviceId);
+        var deviceSequence = Convert.ToInt64(
+            await readSequenceCommand.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false));
+
+        var mutation = PersonalCloudPriorityUpdateCodec.CreateMutation(
+            instanceId,
+            deviceId,
+            mutationId,
+            deviceSequence,
+            taskId,
+            baseEntityVersion,
+            priority,
+            timestamp);
+        var canonicalJson = PersonalCloudK0Codec.Canonicalize(PersonalCloudK0Codec.Serialize(mutation));
+        var canonicalHash = PersonalCloudK0Codec.ComputeCanonicalHash(canonicalJson);
+
+        var updateCommand = connection.CreateCommand();
+        updateCommand.CommandText = """
+            UPDATE tasks
+            SET priority = @priority, updated_at = @updated_at, revision = revision + 1
+            WHERE id = @id AND completion_state = 'open'
+            """;
+        updateCommand.Parameters.AddWithValue("@priority", priority);
+        updateCommand.Parameters.AddWithValue("@updated_at", createdAt.ToUnixTimeMilliseconds());
+        updateCommand.Parameters.AddWithValue("@id", taskId);
+        if (await updateCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+        {
+            throw new InvalidOperationException("The local task priority could not be updated.");
+        }
+
+        var outboxCommand = connection.CreateCommand();
+        outboxCommand.CommandText = """
+            INSERT INTO personal_cloud_outbox
+                (mutation_id, product, instance_id, device_id, device_sequence, operation, entity_id,
+                 canonical_json, canonical_hash, created_at)
+            VALUES
+                (@mutation_id, @product, @instance_id, @device_id, @device_sequence, @operation, @entity_id,
+                 @canonical_json, @canonical_hash, @created_at)
+            RETURNING local_sequence
+            """;
+        outboxCommand.Parameters.AddWithValue("@mutation_id", mutationId);
+        outboxCommand.Parameters.AddWithValue("@product", PersonalCloudK0Protocol.TasksProduct);
+        outboxCommand.Parameters.AddWithValue("@instance_id", instanceId);
+        outboxCommand.Parameters.AddWithValue("@device_id", deviceId);
+        outboxCommand.Parameters.AddWithValue("@device_sequence", deviceSequence);
+        outboxCommand.Parameters.AddWithValue("@operation", PersonalCloudK0Protocol.UpdateOpenzaFieldsOperation);
+        outboxCommand.Parameters.AddWithValue("@entity_id", taskId);
+        outboxCommand.Parameters.AddWithValue("@canonical_json", canonicalJson);
+        outboxCommand.Parameters.AddWithValue("@canonical_hash", canonicalHash);
+        outboxCommand.Parameters.AddWithValue("@created_at", createdAt.ToUnixTimeMilliseconds());
+        var localSequence = Convert.ToInt64(
+            await outboxCommand.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false));
+
+        var advanceSequenceCommand = connection.CreateCommand();
+        advanceSequenceCommand.CommandText = """
+            UPDATE personal_cloud_device_state
+            SET next_device_sequence = @next_device_sequence
+            WHERE instance_id = @instance_id
+              AND device_id = @device_id
+              AND next_device_sequence = @device_sequence
+            """;
+        advanceSequenceCommand.Parameters.AddWithValue("@next_device_sequence", checked(deviceSequence + 1));
+        advanceSequenceCommand.Parameters.AddWithValue("@instance_id", instanceId);
+        advanceSequenceCommand.Parameters.AddWithValue("@device_id", deviceId);
+        advanceSequenceCommand.Parameters.AddWithValue("@device_sequence", deviceSequence);
+        if (await advanceSequenceCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+        {
+            throw new InvalidOperationException("The Personal Cloud device sequence could not be advanced atomically.");
+        }
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return new PersonalCloudK1OutboxEntry
+        {
+            LocalSequence = localSequence,
+            MutationId = mutationId,
+            Product = PersonalCloudK0Protocol.TasksProduct,
+            InstanceId = instanceId,
+            DeviceId = deviceId,
+            DeviceSequence = deviceSequence,
+            Operation = PersonalCloudK0Protocol.UpdateOpenzaFieldsOperation,
+            EntityId = taskId,
+            CanonicalJson = canonicalJson,
+            CanonicalHash = canonicalHash,
+            CreatedAt = createdAt,
+        };
+    }
+
+    public Task<PersonalCloudK1OutboxEntry> UpdateTaskPlannedOnWithPersonalCloudIntentAsync(
+        string taskId, DateOnly? plannedOn, long baseEntityVersion, string instanceId, string deviceId,
+        CancellationToken cancellationToken = default) =>
+        UpdateTaskPlanningWithPersonalCloudIntentAsync(
+            taskId, plannedOn, null, useExactTime: false, baseEntityVersion, instanceId, deviceId, cancellationToken);
+
+    public Task<PersonalCloudK1OutboxEntry> UpdateTaskPlannedAtWithPersonalCloudIntentAsync(
+        string taskId, DateTimeOffset? plannedAt, long baseEntityVersion, string instanceId, string deviceId,
+        CancellationToken cancellationToken = default) =>
+        UpdateTaskPlanningWithPersonalCloudIntentAsync(
+            taskId, null, plannedAt, useExactTime: true, baseEntityVersion, instanceId, deviceId, cancellationToken);
+
+    private async Task<PersonalCloudK1OutboxEntry> UpdateTaskPlanningWithPersonalCloudIntentAsync(
+        string taskId, DateOnly? plannedOn, DateTimeOffset? plannedAt, bool useExactTime,
+        long baseEntityVersion, string instanceId, string deviceId, CancellationToken cancellationToken)
+    {
+        var mutationId = $"mutation_{Guid.NewGuid():N}";
+        var createdAt = DateTimeOffset.FromUnixTimeMilliseconds(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+        DateTimeOffset? normalizedPlannedAt = plannedAt is null
+            ? null
+            : DateTimeOffset.FromUnixTimeMilliseconds(plannedAt.Value.ToUnixTimeMilliseconds());
+        var timestamp = createdAt.ToUniversalTime().ToString(
+            "yyyy-MM-dd'T'HH:mm:ss.fff'Z'", System.Globalization.CultureInfo.InvariantCulture);
+
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        TaskItem originalTask;
+        var taskCommand = connection.CreateCommand();
+        taskCommand.CommandText = """
+            SELECT integration_id, provider_connection_id, source_integration_id, source_external_id,
+                   completion_state, planned_on, planned_at
+            FROM tasks WHERE id = @id
+            """;
+        taskCommand.Parameters.AddWithValue("@id", taskId);
+        await using (var reader = await taskCommand.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+        {
+            if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                throw new PersonalCloudK0ContractException("entity_not_found", "The task does not exist.");
+            if (reader.GetString(0) != IntegrationIds.Local || !reader.IsDBNull(1))
+                throw new PersonalCloudK0ContractException("invalid_request", "This operation requires an Openza task row.");
+            if (reader.GetString(4) != TaskCompletionState.Open.ToStorageValue())
+                throw new PersonalCloudK0ContractException("invalid_transition", "Only an open task can be planned.");
+            var currentOn = reader.IsDBNull(5) ? null : reader.GetString(5);
+            var currentAt = reader.IsDBNull(6) ? (long?)null : reader.GetInt64(6);
+            var same = useExactTime
+                ? currentOn is null && currentAt == normalizedPlannedAt?.ToUnixTimeMilliseconds()
+                : currentAt is null && currentOn == plannedOn?.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+            if (same) throw new PersonalCloudK0ContractException("invalid_request", "The planned value must change.");
+        }
+        originalTask = (await ReadTasksAsync(connection, cancellationToken).ConfigureAwait(false))
+            .First(task => task.Id == taskId);
+
+        var initialize = connection.CreateCommand();
+        initialize.CommandText = "INSERT OR IGNORE INTO personal_cloud_device_state (instance_id, device_id, next_device_sequence) VALUES (@i,@d,1)";
+        initialize.Parameters.AddWithValue("@i", instanceId);
+        initialize.Parameters.AddWithValue("@d", deviceId);
+        await initialize.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        var sequenceCommand = connection.CreateCommand();
+        sequenceCommand.CommandText = "SELECT next_device_sequence FROM personal_cloud_device_state WHERE instance_id=@i AND device_id=@d";
+        sequenceCommand.Parameters.AddWithValue("@i", instanceId);
+        sequenceCommand.Parameters.AddWithValue("@d", deviceId);
+        var deviceSequence = Convert.ToInt64(await sequenceCommand.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false));
+
+        var serializedMutation = useExactTime
+            ? PersonalCloudK0Codec.Serialize(PersonalCloudPlanningCodec.CreatePlannedAtMutation(
+                instanceId, deviceId, mutationId, deviceSequence, taskId, baseEntityVersion, normalizedPlannedAt, timestamp))
+            : PersonalCloudK0Codec.Serialize(PersonalCloudPlanningCodec.CreatePlannedOnMutation(
+                instanceId, deviceId, mutationId, deviceSequence, taskId, baseEntityVersion, plannedOn, timestamp));
+        var canonicalJson = PersonalCloudK0Codec.Canonicalize(serializedMutation);
+        var canonicalHash = PersonalCloudK0Codec.ComputeCanonicalHash(canonicalJson);
+
+        var update = connection.CreateCommand();
+        update.CommandText = useExactTime
+            ? "UPDATE tasks SET planned_on=NULL, planned_at=@value, updated_at=@updated, revision=revision+1 WHERE id=@id AND completion_state='open'"
+            : "UPDATE tasks SET planned_on=@value, planned_at=NULL, updated_at=@updated, revision=revision+1 WHERE id=@id AND completion_state='open'";
+        object planningDbValue;
+        if (useExactTime)
+            planningDbValue = normalizedPlannedAt is { } exact ? exact.ToUnixTimeMilliseconds() : DBNull.Value;
+        else
+            planningDbValue = plannedOn is { } date
+                ? date.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture)
+                : DBNull.Value;
+        update.Parameters.AddWithValue("@value", planningDbValue);
+        update.Parameters.AddWithValue("@updated", createdAt.ToUnixTimeMilliseconds());
+        update.Parameters.AddWithValue("@id", taskId);
+        if (await update.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+            throw new PersonalCloudK0ContractException("invalid_transition", "Only an open task can be planned.");
+        var updatedTask = (await ReadTasksAsync(connection, cancellationToken).ConfigureAwait(false))
+            .First(task => task.Id == taskId);
+        var pendingDateUpdate = ProviderWriteBackPlanner.CreateTodoistDateUpdate(originalTask, updatedTask, createdAt);
+        if (pendingDateUpdate is not null)
+        {
+            await QueueTaskDateUpdateCoreAsync(connection, pendingDateUpdate, cancellationToken).ConfigureAwait(false);
+        }
+
+        var outbox = connection.CreateCommand();
+        outbox.CommandText = """
+            INSERT INTO personal_cloud_outbox
+              (mutation_id,product,instance_id,device_id,device_sequence,operation,entity_id,canonical_json,canonical_hash,created_at)
+            VALUES (@m,'tasks',@i,@d,@s,'task.updateOpenzaFields',@e,@j,@h,@a)
+            RETURNING local_sequence
+            """;
+        outbox.Parameters.AddWithValue("@m", mutationId);
+        outbox.Parameters.AddWithValue("@i", instanceId);
+        outbox.Parameters.AddWithValue("@d", deviceId);
+        outbox.Parameters.AddWithValue("@s", deviceSequence);
+        outbox.Parameters.AddWithValue("@e", taskId);
+        outbox.Parameters.AddWithValue("@j", canonicalJson);
+        outbox.Parameters.AddWithValue("@h", canonicalHash);
+        outbox.Parameters.AddWithValue("@a", createdAt.ToUnixTimeMilliseconds());
+        var localSequence = Convert.ToInt64(await outbox.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false));
+        var advance = connection.CreateCommand();
+        advance.CommandText = "UPDATE personal_cloud_device_state SET next_device_sequence=@n WHERE instance_id=@i AND device_id=@d AND next_device_sequence=@s";
+        advance.Parameters.AddWithValue("@n", checked(deviceSequence + 1));
+        advance.Parameters.AddWithValue("@i", instanceId);
+        advance.Parameters.AddWithValue("@d", deviceId);
+        advance.Parameters.AddWithValue("@s", deviceSequence);
+        if (await advance.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+            throw new InvalidOperationException("The Personal Cloud device sequence could not be advanced atomically.");
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return new PersonalCloudK1OutboxEntry
+        {
+            LocalSequence = localSequence, MutationId = mutationId, Product = "tasks", InstanceId = instanceId,
+            DeviceId = deviceId, DeviceSequence = deviceSequence, Operation = "task.updateOpenzaFields",
+            EntityId = taskId, CanonicalJson = canonicalJson, CanonicalHash = canonicalHash, CreatedAt = createdAt,
+        };
+    }
+
+    public Task<PersonalCloudK1OutboxEntry> UpdateTaskNotesWithPersonalCloudIntentAsync(
+        string taskId, string? notes, long baseEntityVersion, string instanceId, string deviceId,
+        CancellationToken cancellationToken = default) =>
+        UpdateTaskTextValueWithPersonalCloudIntentAsync(
+            taskId, notes, updateNotes: true, baseEntityVersion, instanceId, deviceId, cancellationToken);
+
+    public Task<PersonalCloudK1OutboxEntry> UpdateTaskDeadlineOnWithPersonalCloudIntentAsync(
+        string taskId, DateOnly? deadlineOn, long baseEntityVersion, string instanceId, string deviceId,
+        CancellationToken cancellationToken = default) =>
+        UpdateTaskTextValueWithPersonalCloudIntentAsync(
+            taskId, deadlineOn?.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture),
+            updateNotes: false, baseEntityVersion, instanceId, deviceId, cancellationToken);
+
+    private async Task<PersonalCloudK1OutboxEntry> UpdateTaskTextValueWithPersonalCloudIntentAsync(
+        string taskId, string? value, bool updateNotes, long baseEntityVersion,
+        string instanceId, string deviceId, CancellationToken cancellationToken)
+    {
+        var mutationId = $"mutation_{Guid.NewGuid():N}";
+        var createdAt = DateTimeOffset.FromUnixTimeMilliseconds(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+        var timestamp = createdAt.ToUniversalTime().ToString(
+            "yyyy-MM-dd'T'HH:mm:ss.fff'Z'", System.Globalization.CultureInfo.InvariantCulture);
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+
+        var read = connection.CreateCommand();
+        read.CommandText = updateNotes
+            ? "SELECT integration_id,provider_connection_id,notes FROM tasks WHERE id=@id"
+            : "SELECT integration_id,provider_connection_id,deadline_on,deadline_at FROM tasks WHERE id=@id";
+        read.Parameters.AddWithValue("@id", taskId);
+        await using (var reader = await read.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+        {
+            if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                throw new PersonalCloudK0ContractException("entity_not_found", "The task does not exist.");
+            if (reader.GetString(0) != IntegrationIds.Local || !reader.IsDBNull(1))
+                throw new PersonalCloudK0ContractException("invalid_request", "This operation requires an Openza task row.");
+            var current = reader.IsDBNull(2) ? null : reader.GetString(2);
+            if (current == value && (updateNotes || reader.IsDBNull(3)))
+                throw new PersonalCloudK0ContractException("invalid_request", "The task value must change.");
+        }
+
+        var initialize = connection.CreateCommand();
+        initialize.CommandText = "INSERT OR IGNORE INTO personal_cloud_device_state(instance_id,device_id,next_device_sequence) VALUES(@i,@d,1)";
+        initialize.Parameters.AddWithValue("@i", instanceId);
+        initialize.Parameters.AddWithValue("@d", deviceId);
+        await initialize.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        var sequenceCommand = connection.CreateCommand();
+        sequenceCommand.CommandText = "SELECT next_device_sequence FROM personal_cloud_device_state WHERE instance_id=@i AND device_id=@d";
+        sequenceCommand.Parameters.AddWithValue("@i", instanceId);
+        sequenceCommand.Parameters.AddWithValue("@d", deviceId);
+        var sequence = Convert.ToInt64(await sequenceCommand.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false));
+
+        var mutation = updateNotes
+            ? PersonalCloudK0Codec.Serialize(PersonalCloudNotesDeadlineCodec.CreateNotesMutation(
+                instanceId, deviceId, mutationId, sequence, taskId, baseEntityVersion, value, timestamp))
+            : PersonalCloudK0Codec.Serialize(PersonalCloudNotesDeadlineCodec.CreateDeadlineOnMutation(
+                instanceId, deviceId, mutationId, sequence, taskId, baseEntityVersion, value, timestamp));
+        var canonicalJson = PersonalCloudK0Codec.Canonicalize(mutation);
+        var canonicalHash = PersonalCloudK0Codec.ComputeCanonicalHash(canonicalJson);
+
+        var update = connection.CreateCommand();
+        update.CommandText = updateNotes
+            ? "UPDATE tasks SET notes=@value,updated_at=@now,revision=revision+1 WHERE id=@id"
+            : "UPDATE tasks SET deadline_on=@value,deadline_at=NULL,updated_at=@now,revision=revision+1 WHERE id=@id";
+        update.Parameters.AddWithValue("@value", (object?)value ?? DBNull.Value);
+        update.Parameters.AddWithValue("@now", createdAt.ToUnixTimeMilliseconds());
+        update.Parameters.AddWithValue("@id", taskId);
+        if (await update.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+            throw new PersonalCloudK0ContractException("entity_not_found", "The task does not exist.");
+
+        var outbox = connection.CreateCommand();
+        outbox.CommandText = """
+            INSERT INTO personal_cloud_outbox
+              (mutation_id,product,instance_id,device_id,device_sequence,operation,entity_id,canonical_json,canonical_hash,created_at)
+            VALUES(@m,'tasks',@i,@d,@s,'task.updateOpenzaFields',@e,@j,@h,@a)
+            RETURNING local_sequence
+            """;
+        outbox.Parameters.AddWithValue("@m", mutationId);
+        outbox.Parameters.AddWithValue("@i", instanceId);
+        outbox.Parameters.AddWithValue("@d", deviceId);
+        outbox.Parameters.AddWithValue("@s", sequence);
+        outbox.Parameters.AddWithValue("@e", taskId);
+        outbox.Parameters.AddWithValue("@j", canonicalJson);
+        outbox.Parameters.AddWithValue("@h", canonicalHash);
+        outbox.Parameters.AddWithValue("@a", createdAt.ToUnixTimeMilliseconds());
+        var localSequence = Convert.ToInt64(await outbox.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false));
+        var advance = connection.CreateCommand();
+        advance.CommandText = "UPDATE personal_cloud_device_state SET next_device_sequence=@n WHERE instance_id=@i AND device_id=@d AND next_device_sequence=@s";
+        advance.Parameters.AddWithValue("@n", checked(sequence + 1));
+        advance.Parameters.AddWithValue("@i", instanceId);
+        advance.Parameters.AddWithValue("@d", deviceId);
+        advance.Parameters.AddWithValue("@s", sequence);
+        if (await advance.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+            throw new InvalidOperationException("The Personal Cloud device sequence could not advance atomically.");
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return new PersonalCloudK1OutboxEntry
+        {
+            LocalSequence = localSequence, MutationId = mutationId, Product = "tasks", InstanceId = instanceId,
+            DeviceId = deviceId, DeviceSequence = sequence, Operation = "task.updateOpenzaFields",
+            EntityId = taskId, CanonicalJson = canonicalJson, CanonicalHash = canonicalHash, CreatedAt = createdAt,
+        };
+    }
+
+    public async Task<PersonalCloudK1OutboxEntry> CompleteTaskWithPersonalCloudIntentAsync(
+        string taskId,
+        DateTimeOffset completedAt,
+        long baseEntityVersion,
+        string instanceId,
+        string deviceId,
+        CancellationToken cancellationToken = default)
+    {
+        var mutationId = $"mutation_{Guid.NewGuid():N}";
+        var normalizedCompletedAt = DateTimeOffset.FromUnixTimeMilliseconds(completedAt.ToUnixTimeMilliseconds());
+        var createdAt = DateTimeOffset.FromUnixTimeMilliseconds(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+        var completedTimestamp = normalizedCompletedAt.ToUniversalTime().ToString(
+            "yyyy-MM-dd'T'HH:mm:ss.fff'Z'",
+            System.Globalization.CultureInfo.InvariantCulture);
+        var clientTimestamp = createdAt.ToUniversalTime().ToString(
+            "yyyy-MM-dd'T'HH:mm:ss.fff'Z'",
+            System.Globalization.CultureInfo.InvariantCulture);
+
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+
+        var taskCommand = connection.CreateCommand();
+        taskCommand.CommandText = """
+            SELECT integration_id, provider_connection_id, source_integration_id, source_external_id,
+                   completion_state
+            FROM tasks
+            WHERE id = @id
+            """;
+        taskCommand.Parameters.AddWithValue("@id", taskId);
+        await using (var reader = await taskCommand.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+        {
+            if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                throw new PersonalCloudK0ContractException("entity_not_found", "The task does not exist.");
+            if (!string.Equals(reader.GetString(0), IntegrationIds.Local, StringComparison.Ordinal) || !reader.IsDBNull(1))
+                throw new PersonalCloudK0ContractException("invalid_request", "This operation requires an Openza task row.");
+            if (!string.Equals(reader.GetString(4), TaskCompletionState.Open.ToStorageValue(), StringComparison.Ordinal))
+                throw new PersonalCloudK0ContractException("invalid_transition", "Only an open task can be completed.");
+        }
+        var originalTask=(await ReadTasksAsync(connection,cancellationToken).ConfigureAwait(false)).First(task=>task.Id==taskId);
+
+        var initializeDeviceCommand = connection.CreateCommand();
+        initializeDeviceCommand.CommandText = """
+            INSERT OR IGNORE INTO personal_cloud_device_state (instance_id, device_id, next_device_sequence)
+            VALUES (@instance_id, @device_id, 1)
+            """;
+        initializeDeviceCommand.Parameters.AddWithValue("@instance_id", instanceId);
+        initializeDeviceCommand.Parameters.AddWithValue("@device_id", deviceId);
+        await initializeDeviceCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+
+        var readSequenceCommand = connection.CreateCommand();
+        readSequenceCommand.CommandText = """
+            SELECT next_device_sequence FROM personal_cloud_device_state
+            WHERE instance_id = @instance_id AND device_id = @device_id
+            """;
+        readSequenceCommand.Parameters.AddWithValue("@instance_id", instanceId);
+        readSequenceCommand.Parameters.AddWithValue("@device_id", deviceId);
+        var deviceSequence = Convert.ToInt64(
+            await readSequenceCommand.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false));
+
+        var mutation = PersonalCloudCompletionCodec.CreateMutation(
+            instanceId, deviceId, mutationId, deviceSequence, taskId, baseEntityVersion,
+            completedTimestamp, clientTimestamp);
+        var canonicalJson = PersonalCloudK0Codec.Canonicalize(PersonalCloudK0Codec.Serialize(mutation));
+        var canonicalHash = PersonalCloudK0Codec.ComputeCanonicalHash(canonicalJson);
+
+        var updateCommand = connection.CreateCommand();
+        updateCommand.CommandText = """
+            UPDATE tasks
+            SET completion_state = 'completed', completed_at = @completed_at,
+                updated_at = @updated_at, revision = revision + 1
+            WHERE id = @id AND completion_state = 'open'
+            """;
+        updateCommand.Parameters.AddWithValue("@completed_at", normalizedCompletedAt.ToUnixTimeMilliseconds());
+        updateCommand.Parameters.AddWithValue("@updated_at", createdAt.ToUnixTimeMilliseconds());
+        updateCommand.Parameters.AddWithValue("@id", taskId);
+        if (await updateCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+            throw new PersonalCloudK0ContractException("invalid_transition", "Only an open task can be completed.");
+
+        var outboxCommand = connection.CreateCommand();
+        outboxCommand.CommandText = """
+            INSERT INTO personal_cloud_outbox
+                (mutation_id, product, instance_id, device_id, device_sequence, operation, entity_id,
+                 canonical_json, canonical_hash, created_at)
+            VALUES
+                (@mutation_id, @product, @instance_id, @device_id, @device_sequence, @operation, @entity_id,
+                 @canonical_json, @canonical_hash, @created_at)
+            RETURNING local_sequence
+            """;
+        outboxCommand.Parameters.AddWithValue("@mutation_id", mutationId);
+        outboxCommand.Parameters.AddWithValue("@product", PersonalCloudK0Protocol.TasksProduct);
+        outboxCommand.Parameters.AddWithValue("@instance_id", instanceId);
+        outboxCommand.Parameters.AddWithValue("@device_id", deviceId);
+        outboxCommand.Parameters.AddWithValue("@device_sequence", deviceSequence);
+        outboxCommand.Parameters.AddWithValue("@operation", PersonalCloudK0Protocol.CompleteTaskOperation);
+        outboxCommand.Parameters.AddWithValue("@entity_id", taskId);
+        outboxCommand.Parameters.AddWithValue("@canonical_json", canonicalJson);
+        outboxCommand.Parameters.AddWithValue("@canonical_hash", canonicalHash);
+        outboxCommand.Parameters.AddWithValue("@created_at", createdAt.ToUnixTimeMilliseconds());
+        var localSequence = Convert.ToInt64(
+            await outboxCommand.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false));
+
+        var advanceSequenceCommand = connection.CreateCommand();
+        advanceSequenceCommand.CommandText = """
+            UPDATE personal_cloud_device_state
+            SET next_device_sequence = @next_device_sequence
+            WHERE instance_id = @instance_id AND device_id = @device_id
+              AND next_device_sequence = @device_sequence
+            """;
+        advanceSequenceCommand.Parameters.AddWithValue("@next_device_sequence", checked(deviceSequence + 1));
+        advanceSequenceCommand.Parameters.AddWithValue("@instance_id", instanceId);
+        advanceSequenceCommand.Parameters.AddWithValue("@device_id", deviceId);
+        advanceSequenceCommand.Parameters.AddWithValue("@device_sequence", deviceSequence);
+        if (await advanceSequenceCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+            throw new InvalidOperationException("The Personal Cloud device sequence could not be advanced atomically.");
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return new PersonalCloudK1OutboxEntry
+        {
+            LocalSequence = localSequence,
+            MutationId = mutationId,
+            Product = PersonalCloudK0Protocol.TasksProduct,
+            InstanceId = instanceId,
+            DeviceId = deviceId,
+            DeviceSequence = deviceSequence,
+            Operation = PersonalCloudK0Protocol.CompleteTaskOperation,
+            EntityId = taskId,
+            CanonicalJson = canonicalJson,
+            CanonicalHash = canonicalHash,
+            CreatedAt = createdAt,
+        };
+    }
+
+    public async Task<PersonalCloudK1OutboxEntry> ReopenTaskWithPersonalCloudIntentAsync(
+        string taskId,
+        DateTimeOffset reopenedAt,
+        long baseEntityVersion,
+        string instanceId,
+        string deviceId,
+        CancellationToken cancellationToken = default)
+    {
+        var mutationId = $"mutation_{Guid.NewGuid():N}";
+        var normalizedReopenedAt = DateTimeOffset.FromUnixTimeMilliseconds(reopenedAt.ToUnixTimeMilliseconds());
+        var timestamp = normalizedReopenedAt.ToUniversalTime().ToString(
+            "yyyy-MM-dd'T'HH:mm:ss.fff'Z'",
+            System.Globalization.CultureInfo.InvariantCulture);
+
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+
+        var taskCommand = connection.CreateCommand();
+        taskCommand.CommandText = """
+            SELECT integration_id, provider_connection_id, source_integration_id, source_external_id,
+                   completion_state
+            FROM tasks
+            WHERE id = @id
+            """;
+        taskCommand.Parameters.AddWithValue("@id", taskId);
+        await using (var reader = await taskCommand.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+        {
+            if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                throw new PersonalCloudK0ContractException("entity_not_found", "The task does not exist.");
+            if (!string.Equals(reader.GetString(0), IntegrationIds.Local, StringComparison.Ordinal) || !reader.IsDBNull(1))
+                throw new PersonalCloudK0ContractException("invalid_request", "This operation requires an Openza task row.");
+            if (!string.Equals(reader.GetString(4), TaskCompletionState.Completed.ToStorageValue(), StringComparison.Ordinal))
+                throw new PersonalCloudK0ContractException("invalid_transition", "Only a completed task can be reopened.");
+        }
+        var originalTask=(await ReadTasksAsync(connection,cancellationToken).ConfigureAwait(false)).First(task=>task.Id==taskId);
+
+        var initializeDeviceCommand = connection.CreateCommand();
+        initializeDeviceCommand.CommandText = """
+            INSERT OR IGNORE INTO personal_cloud_device_state (instance_id, device_id, next_device_sequence)
+            VALUES (@instance_id, @device_id, 1)
+            """;
+        initializeDeviceCommand.Parameters.AddWithValue("@instance_id", instanceId);
+        initializeDeviceCommand.Parameters.AddWithValue("@device_id", deviceId);
+        await initializeDeviceCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+
+        var readSequenceCommand = connection.CreateCommand();
+        readSequenceCommand.CommandText = """
+            SELECT next_device_sequence FROM personal_cloud_device_state
+            WHERE instance_id = @instance_id AND device_id = @device_id
+            """;
+        readSequenceCommand.Parameters.AddWithValue("@instance_id", instanceId);
+        readSequenceCommand.Parameters.AddWithValue("@device_id", deviceId);
+        var deviceSequence = Convert.ToInt64(
+            await readSequenceCommand.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false));
+
+        var mutation = PersonalCloudReopenCodec.CreateMutation(
+            instanceId, deviceId, mutationId, deviceSequence, taskId, baseEntityVersion, timestamp, timestamp);
+        var canonicalJson = PersonalCloudK0Codec.Canonicalize(PersonalCloudK0Codec.Serialize(mutation));
+        var canonicalHash = PersonalCloudK0Codec.ComputeCanonicalHash(canonicalJson);
+
+        var updateCommand = connection.CreateCommand();
+        updateCommand.CommandText = """
+            UPDATE tasks
+            SET completion_state = 'open', completed_at = NULL,
+                updated_at = @updated_at, revision = revision + 1
+            WHERE id = @id AND completion_state = 'completed'
+            """;
+        updateCommand.Parameters.AddWithValue("@updated_at", normalizedReopenedAt.ToUnixTimeMilliseconds());
+        updateCommand.Parameters.AddWithValue("@id", taskId);
+        if (await updateCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+            throw new PersonalCloudK0ContractException("invalid_transition", "Only a completed task can be reopened.");
+
+        var outboxCommand = connection.CreateCommand();
+        outboxCommand.CommandText = """
+            INSERT INTO personal_cloud_outbox
+                (mutation_id, product, instance_id, device_id, device_sequence, operation, entity_id,
+                 canonical_json, canonical_hash, created_at)
+            VALUES
+                (@mutation_id, @product, @instance_id, @device_id, @device_sequence, @operation, @entity_id,
+                 @canonical_json, @canonical_hash, @created_at)
+            RETURNING local_sequence
+            """;
+        outboxCommand.Parameters.AddWithValue("@mutation_id", mutationId);
+        outboxCommand.Parameters.AddWithValue("@product", PersonalCloudK0Protocol.TasksProduct);
+        outboxCommand.Parameters.AddWithValue("@instance_id", instanceId);
+        outboxCommand.Parameters.AddWithValue("@device_id", deviceId);
+        outboxCommand.Parameters.AddWithValue("@device_sequence", deviceSequence);
+        outboxCommand.Parameters.AddWithValue("@operation", PersonalCloudK0Protocol.ReopenTaskOperation);
+        outboxCommand.Parameters.AddWithValue("@entity_id", taskId);
+        outboxCommand.Parameters.AddWithValue("@canonical_json", canonicalJson);
+        outboxCommand.Parameters.AddWithValue("@canonical_hash", canonicalHash);
+        outboxCommand.Parameters.AddWithValue("@created_at", normalizedReopenedAt.ToUnixTimeMilliseconds());
+        var localSequence = Convert.ToInt64(
+            await outboxCommand.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false));
+
+        var advanceSequenceCommand = connection.CreateCommand();
+        advanceSequenceCommand.CommandText = """
+            UPDATE personal_cloud_device_state
+            SET next_device_sequence = @next_device_sequence
+            WHERE instance_id = @instance_id AND device_id = @device_id
+              AND next_device_sequence = @device_sequence
+            """;
+        advanceSequenceCommand.Parameters.AddWithValue("@next_device_sequence", checked(deviceSequence + 1));
+        advanceSequenceCommand.Parameters.AddWithValue("@instance_id", instanceId);
+        advanceSequenceCommand.Parameters.AddWithValue("@device_id", deviceId);
+        advanceSequenceCommand.Parameters.AddWithValue("@device_sequence", deviceSequence);
+        if (await advanceSequenceCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+            throw new InvalidOperationException("The Personal Cloud device sequence could not be advanced atomically.");
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return new PersonalCloudK1OutboxEntry
+        {
+            LocalSequence = localSequence,
+            MutationId = mutationId,
+            Product = PersonalCloudK0Protocol.TasksProduct,
+            InstanceId = instanceId,
+            DeviceId = deviceId,
+            DeviceSequence = deviceSequence,
+            Operation = PersonalCloudK0Protocol.ReopenTaskOperation,
+            EntityId = taskId,
+            CanonicalJson = canonicalJson,
+            CanonicalHash = canonicalHash,
+            CreatedAt = normalizedReopenedAt,
+        };
+    }
+
+    public async Task<PersonalCloudK1OutboxEntry> DeleteTaskWithPersonalCloudIntentAsync(
+        string taskId, DateTimeOffset deletedAt, long baseEntityVersion, string instanceId, string deviceId,
+        CancellationToken cancellationToken = default)
+    {
+        var normalized = DateTimeOffset.FromUnixTimeMilliseconds(deletedAt.ToUnixTimeMilliseconds());
+        var timestamp = normalized.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", System.Globalization.CultureInfo.InvariantCulture);
+        var mutationId = $"mutation_{Guid.NewGuid():N}";
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        var task = connection.CreateCommand();
+        task.CommandText = "SELECT integration_id,provider_connection_id,source_integration_id,source_external_id FROM tasks WHERE id=@id";
+        task.Parameters.AddWithValue("@id", taskId);
+        await using (var reader = await task.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+        {
+            if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) throw new PersonalCloudK0ContractException("entity_not_found","The task does not exist.");
+            if(reader.GetString(0)!=IntegrationIds.Local||!reader.IsDBNull(1)||!reader.IsDBNull(2)||!reader.IsDBNull(3))
+                throw new PersonalCloudK0ContractException("invalid_request","Only a local Openza task can be deleted here.");
+        }
+        var already=connection.CreateCommand(); already.CommandText="SELECT COUNT(*) FROM personal_cloud_tombstones WHERE instance_id=@i AND product='tasks' AND entity_id=@e";
+        already.Parameters.AddWithValue("@i",instanceId); already.Parameters.AddWithValue("@e",taskId);
+        if(Convert.ToInt64(await already.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false))!=0)
+            throw new PersonalCloudK0ContractException("invalid_transition","The task is already deleted.");
+        var init=connection.CreateCommand(); init.CommandText="INSERT OR IGNORE INTO personal_cloud_device_state(instance_id,device_id,next_device_sequence) VALUES(@i,@d,1)";
+        init.Parameters.AddWithValue("@i",instanceId);init.Parameters.AddWithValue("@d",deviceId);await init.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        var seq=connection.CreateCommand();seq.CommandText="SELECT next_device_sequence FROM personal_cloud_device_state WHERE instance_id=@i AND device_id=@d";
+        seq.Parameters.AddWithValue("@i",instanceId);seq.Parameters.AddWithValue("@d",deviceId);var deviceSequence=Convert.ToInt64(await seq.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false));
+        var mutation=PersonalCloudDeleteCodec.CreateMutation(instanceId,deviceId,mutationId,deviceSequence,taskId,baseEntityVersion,timestamp,timestamp);
+        var json=PersonalCloudK0Codec.Canonicalize(PersonalCloudK0Codec.Serialize(mutation));var hash=PersonalCloudK0Codec.ComputeCanonicalHash(json);
+        var tombstone=connection.CreateCommand();tombstone.CommandText="INSERT INTO personal_cloud_tombstones(instance_id,product,entity_id,entity_version,deleted_at,purge_after) VALUES(@i,'tasks',@e,@v,@a,NULL)";
+        tombstone.Parameters.AddWithValue("@i",instanceId);tombstone.Parameters.AddWithValue("@e",taskId);tombstone.Parameters.AddWithValue("@v",checked(baseEntityVersion+1));tombstone.Parameters.AddWithValue("@a",normalized.ToUnixTimeMilliseconds());await tombstone.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        var outbox=connection.CreateCommand();outbox.CommandText="""
+          INSERT INTO personal_cloud_outbox(mutation_id,product,instance_id,device_id,device_sequence,operation,entity_id,canonical_json,canonical_hash,created_at)
+          VALUES(@m,'tasks',@i,@d,@s,'task.delete',@e,@j,@h,@a) RETURNING local_sequence
+          """;
+        outbox.Parameters.AddWithValue("@m",mutationId);outbox.Parameters.AddWithValue("@i",instanceId);outbox.Parameters.AddWithValue("@d",deviceId);outbox.Parameters.AddWithValue("@s",deviceSequence);outbox.Parameters.AddWithValue("@e",taskId);outbox.Parameters.AddWithValue("@j",json);outbox.Parameters.AddWithValue("@h",hash);outbox.Parameters.AddWithValue("@a",normalized.ToUnixTimeMilliseconds());var localSequence=Convert.ToInt64(await outbox.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false));
+        var advance=connection.CreateCommand();advance.CommandText="UPDATE personal_cloud_device_state SET next_device_sequence=@n WHERE instance_id=@i AND device_id=@d AND next_device_sequence=@s";
+        advance.Parameters.AddWithValue("@n",checked(deviceSequence+1));advance.Parameters.AddWithValue("@i",instanceId);advance.Parameters.AddWithValue("@d",deviceId);advance.Parameters.AddWithValue("@s",deviceSequence);
+        if(await advance.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false)!=1)throw new InvalidOperationException("The device sequence could not advance.");
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return new PersonalCloudK1OutboxEntry{LocalSequence=localSequence,MutationId=mutationId,Product="tasks",InstanceId=instanceId,DeviceId=deviceId,DeviceSequence=deviceSequence,Operation="task.delete",EntityId=taskId,CanonicalJson=json,CanonicalHash=hash,CreatedAt=normalized};
+    }
+
+    public async Task<PersonalCloudK1OutboxEntry> MutateTaskRelationshipWithPersonalCloudIntentAsync(
+        string taskId, string operation, string? relatedId, string? relatedName, long baseEntityVersion,
+        string instanceId, string deviceId, CancellationToken cancellationToken = default)
+    {
+        var allowed=new[]{"task.setProject","task.move","task.addLabel","task.removeLabel","task.setParent"};
+        if(!allowed.Contains(operation,StringComparer.Ordinal)) throw new PersonalCloudK0ContractException("invalid_request","The relationship operation is unsupported.");
+        if((operation is "task.move" or "task.addLabel" or "task.removeLabel") && string.IsNullOrWhiteSpace(relatedId)) throw new PersonalCloudK0ContractException("invalid_request","A related entity ID is required.");
+        if(((operation=="task.setProject" && relatedId is not null) || operation is "task.move" or "task.addLabel") && string.IsNullOrWhiteSpace(relatedName)) throw new PersonalCloudK0ContractException("invalid_request","A related entity name is required.");
+        await using var connection=await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);await using var transaction=await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        var read=connection.CreateCommand();read.CommandText="SELECT space_id,integration_id FROM tasks WHERE id=@id";read.Parameters.AddWithValue("@id",taskId);
+        string spaceId,integration;await using(var reader=await read.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false)){if(!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))throw new PersonalCloudK0ContractException("entity_not_found","The task does not exist.");spaceId=reader.GetString(0);integration=reader.GetString(1);}
+        if(integration!=IntegrationIds.Local)throw new PersonalCloudK0ContractException("invalid_request","Only a local Openza task can be changed here.");
+        var init=connection.CreateCommand();init.CommandText="INSERT OR IGNORE INTO personal_cloud_device_state(instance_id,device_id,next_device_sequence) VALUES(@i,@d,1)";init.Parameters.AddWithValue("@i",instanceId);init.Parameters.AddWithValue("@d",deviceId);await init.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        var seqCommand=connection.CreateCommand();seqCommand.CommandText="SELECT next_device_sequence FROM personal_cloud_device_state WHERE instance_id=@i AND device_id=@d";seqCommand.Parameters.AddWithValue("@i",instanceId);seqCommand.Parameters.AddWithValue("@d",deviceId);var sequence=Convert.ToInt64(await seqCommand.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false));
+        var now=DateTimeOffset.FromUnixTimeMilliseconds(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());var command=connection.CreateCommand();
+        object payload;
+        if(operation=="task.setProject") {if(relatedId is not null){command.CommandText="INSERT INTO projects(id,space_id,integration_id,name,created_at) VALUES(@r,@s,'openza_tasks',@n,@now) ON CONFLICT(id) DO UPDATE SET name=excluded.name";command.Parameters.AddWithValue("@r",relatedId);command.Parameters.AddWithValue("@s",spaceId);command.Parameters.AddWithValue("@n",relatedName!);command.Parameters.AddWithValue("@now",now.ToUnixTimeMilliseconds());await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);}command=connection.CreateCommand();command.CommandText="UPDATE tasks SET project_id=@r,revision=revision+1 WHERE id=@id";command.Parameters.AddWithValue("@r",(object?)relatedId??DBNull.Value);payload=relatedId is null?new Dictionary<string,object?>{{"project",null}}:new{project=new{id=relatedId,name=relatedName}};}
+        else if(operation=="task.move") {command.CommandText="INSERT INTO spaces(id,name,created_at) VALUES(@r,@n,@now) ON CONFLICT(id) DO UPDATE SET name=excluded.name";command.Parameters.AddWithValue("@r",relatedId!);command.Parameters.AddWithValue("@n",relatedName!);command.Parameters.AddWithValue("@now",now.ToUnixTimeMilliseconds());await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);command=connection.CreateCommand();command.CommandText="UPDATE tasks SET space_id=@r,project_id=NULL,parent_id=NULL,revision=revision+1 WHERE id=@id";command.Parameters.AddWithValue("@r",relatedId!);payload=new{space=new{id=relatedId,name=relatedName}};}
+        else if(operation=="task.addLabel") {command.CommandText="INSERT INTO labels(id,integration_id,name,created_at) VALUES(@r,'openza_tasks',@n,@now) ON CONFLICT(id) DO UPDATE SET name=excluded.name";command.Parameters.AddWithValue("@r",relatedId!);command.Parameters.AddWithValue("@n",relatedName!);command.Parameters.AddWithValue("@now",now.ToUnixTimeMilliseconds());await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);command=connection.CreateCommand();command.CommandText="INSERT INTO task_labels(task_id,label_id) VALUES(@id,@r)";command.Parameters.AddWithValue("@r",relatedId!);payload=new{label=new{id=relatedId,name=relatedName}};}
+        else if(operation=="task.removeLabel") {command.CommandText="DELETE FROM task_labels WHERE task_id=@id AND label_id=@r";command.Parameters.AddWithValue("@r",relatedId!);payload=new{labelId=relatedId};}
+        else {if(relatedId==taskId)throw new PersonalCloudK0ContractException("invalid_request","A task cannot parent itself.");if(relatedId is not null){var parent=connection.CreateCommand();parent.CommandText="SELECT COUNT(*) FROM tasks WHERE id=@p AND space_id=@s";parent.Parameters.AddWithValue("@p",relatedId);parent.Parameters.AddWithValue("@s",spaceId);if(Convert.ToInt64(await parent.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false))!=1)throw new PersonalCloudK0ContractException("parent_not_found","The parent must be in the same Space.");}command.CommandText="UPDATE tasks SET parent_id=@r,revision=revision+1 WHERE id=@id";command.Parameters.AddWithValue("@r",(object?)relatedId??DBNull.Value);payload=new{parentId=relatedId};}
+        command.Parameters.AddWithValue("@id",taskId);if(await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false)!=1)throw new PersonalCloudK0ContractException("invalid_request","The relationship did not change.");
+        var mutationId=$"mutation_{Guid.NewGuid():N}";var envelope=new{protocolVersion=1,product="tasks",instanceId,deviceId,mutationId,deviceSequence=sequence,operation,entityId=taskId,baseEntityVersion,payload,clientCreatedAt=now.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'",System.Globalization.CultureInfo.InvariantCulture)};
+        var json=PersonalCloudK0Codec.Canonicalize(PersonalCloudK0Codec.Serialize(envelope));var hash=PersonalCloudK0Codec.ComputeCanonicalHash(json);
+        var outbox=connection.CreateCommand();outbox.CommandText="""
+          INSERT INTO personal_cloud_outbox(mutation_id,product,instance_id,device_id,device_sequence,operation,entity_id,canonical_json,canonical_hash,created_at)
+          VALUES(@m,'tasks',@i,@d,@q,@o,@e,@j,@h,@a) RETURNING local_sequence
+          """;outbox.Parameters.AddWithValue("@m",mutationId);outbox.Parameters.AddWithValue("@i",instanceId);outbox.Parameters.AddWithValue("@d",deviceId);outbox.Parameters.AddWithValue("@q",sequence);outbox.Parameters.AddWithValue("@o",operation);outbox.Parameters.AddWithValue("@e",taskId);outbox.Parameters.AddWithValue("@j",json);outbox.Parameters.AddWithValue("@h",hash);outbox.Parameters.AddWithValue("@a",now.ToUnixTimeMilliseconds());var localSequence=Convert.ToInt64(await outbox.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false));
+        var advance=connection.CreateCommand();advance.CommandText="UPDATE personal_cloud_device_state SET next_device_sequence=@next WHERE instance_id=@i AND device_id=@d AND next_device_sequence=@q";advance.Parameters.AddWithValue("@next",sequence+1);advance.Parameters.AddWithValue("@i",instanceId);advance.Parameters.AddWithValue("@d",deviceId);advance.Parameters.AddWithValue("@q",sequence);if(await advance.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false)!=1)throw new InvalidOperationException("The device sequence could not advance.");
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);return new PersonalCloudK1OutboxEntry{LocalSequence=localSequence,MutationId=mutationId,Product="tasks",InstanceId=instanceId,DeviceId=deviceId,DeviceSequence=sequence,Operation=operation,EntityId=taskId,CanonicalJson=json,CanonicalHash=hash,CreatedAt=now};
+    }
+
+    public async Task<IReadOnlyList<PersonalCloudK1OutboxEntry>> MoveTaskTreeToSpaceWithPersonalCloudIntentAsync(
+        string taskId,
+        string targetSpaceId,
+        string targetSpaceName,
+        IReadOnlyDictionary<string, long> baseEntityVersions,
+        string instanceId,
+        string deviceId,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(taskId) || string.IsNullOrWhiteSpace(targetSpaceId) ||
+            string.IsNullOrWhiteSpace(targetSpaceName))
+            throw new PersonalCloudK0ContractException("invalid_request", "The task and target Space are required.");
+
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        var allTasks = await ReadTasksAsync(connection, cancellationToken).ConfigureAwait(false);
+        var root = allTasks.FirstOrDefault(task => task.Id == taskId)
+            ?? throw new PersonalCloudK0ContractException("entity_not_found", "The task does not exist.");
+        if (root.IntegrationId != IntegrationIds.Local)
+            throw new PersonalCloudK0ContractException("invalid_request", "Only a local Openza task can be moved here.");
+        if (string.Equals(root.SpaceId, targetSpaceId, StringComparison.Ordinal))
+            throw new PersonalCloudK0ContractException("invalid_request", "The task is already in this Space.");
+
+        var spaceCommand = connection.CreateCommand();
+        spaceCommand.CommandText = "SELECT name FROM spaces WHERE id=@id AND is_archived=0";
+        spaceCommand.Parameters.AddWithValue("@id", targetSpaceId);
+        var storedSpaceName = await spaceCommand.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) as string;
+        if (storedSpaceName is null)
+            throw new PersonalCloudK0ContractException("parent_not_found", "The target Space is not available.");
+        if (!string.Equals(storedSpaceName, targetSpaceName, StringComparison.Ordinal))
+            throw new PersonalCloudK0ContractException("invalid_request", "The target Space changed. Refresh and try again.");
+
+        var children = allTasks
+            .Where(task => !string.IsNullOrWhiteSpace(task.ParentId))
+            .GroupBy(task => task.ParentId!, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.Ordinal);
+        var movedTasks = new List<TaskItem>();
+        var pending = new Queue<TaskItem>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        pending.Enqueue(root);
+        while (pending.Count > 0)
+        {
+            var task = pending.Dequeue();
+            if (!seen.Add(task.Id))
+                throw new PersonalCloudK0ContractException("invalid_request", "The task hierarchy contains a cycle.");
+            if (task.IntegrationId != IntegrationIds.Local)
+                throw new PersonalCloudK0ContractException("invalid_request", "Only Openza tasks can move with this task.");
+            if (!baseEntityVersions.TryGetValue(task.Id, out var version) || version <= 0)
+                throw new PersonalCloudK0ContractException("invalid_request", "A cloud version is required for every moved task.");
+            movedTasks.Add(task);
+            if (children.TryGetValue(task.Id, out var childTasks))
+            {
+                foreach (var child in childTasks.OrderBy(item => item.CreatedAt).ThenBy(item => item.Id, StringComparer.Ordinal))
+                    pending.Enqueue(child);
+            }
+        }
+
+        var initializeDevice = connection.CreateCommand();
+        initializeDevice.CommandText = "INSERT OR IGNORE INTO personal_cloud_device_state(instance_id,device_id,next_device_sequence) VALUES(@i,@d,1)";
+        initializeDevice.Parameters.AddWithValue("@i", instanceId);
+        initializeDevice.Parameters.AddWithValue("@d", deviceId);
+        await initializeDevice.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        var sequenceCommand = connection.CreateCommand();
+        sequenceCommand.CommandText = "SELECT next_device_sequence FROM personal_cloud_device_state WHERE instance_id=@i AND device_id=@d";
+        sequenceCommand.Parameters.AddWithValue("@i", instanceId);
+        sequenceCommand.Parameters.AddWithValue("@d", deviceId);
+        var initialSequence = Convert.ToInt64(await sequenceCommand.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false));
+        var sequence = initialSequence;
+        var now = DateTimeOffset.FromUnixTimeMilliseconds(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+        var entries = new List<PersonalCloudK1OutboxEntry>();
+
+        async Task AppendAsync(string operation, TaskItem task, long baseEntityVersion, object payload)
+        {
+            var mutationId = $"mutation_{Guid.NewGuid():N}";
+            var envelope = new
+            {
+                protocolVersion = 1,
+                product = PersonalCloudK0Protocol.TasksProduct,
+                instanceId,
+                deviceId,
+                mutationId,
+                deviceSequence = sequence,
+                operation,
+                entityId = task.Id,
+                baseEntityVersion,
+                payload,
+                clientCreatedAt = now.ToUniversalTime().ToString(
+                    "yyyy-MM-dd'T'HH:mm:ss.fff'Z'", System.Globalization.CultureInfo.InvariantCulture),
+            };
+            var json = PersonalCloudK0Codec.Canonicalize(PersonalCloudK0Codec.Serialize(envelope));
+            var hash = PersonalCloudK0Codec.ComputeCanonicalHash(json);
+            var outbox = connection.CreateCommand();
+            outbox.CommandText = """
+                INSERT INTO personal_cloud_outbox
+                    (mutation_id,product,instance_id,device_id,device_sequence,operation,entity_id,canonical_json,canonical_hash,created_at)
+                VALUES(@m,'tasks',@i,@d,@q,@o,@e,@j,@h,@a)
+                RETURNING local_sequence
+                """;
+            outbox.Parameters.AddWithValue("@m", mutationId);
+            outbox.Parameters.AddWithValue("@i", instanceId);
+            outbox.Parameters.AddWithValue("@d", deviceId);
+            outbox.Parameters.AddWithValue("@q", sequence);
+            outbox.Parameters.AddWithValue("@o", operation);
+            outbox.Parameters.AddWithValue("@e", task.Id);
+            outbox.Parameters.AddWithValue("@j", json);
+            outbox.Parameters.AddWithValue("@h", hash);
+            outbox.Parameters.AddWithValue("@a", now.ToUnixTimeMilliseconds());
+            var localSequence = Convert.ToInt64(await outbox.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false));
+            entries.Add(new PersonalCloudK1OutboxEntry
+            {
+                LocalSequence = localSequence,
+                MutationId = mutationId,
+                Product = PersonalCloudK0Protocol.TasksProduct,
+                InstanceId = instanceId,
+                DeviceId = deviceId,
+                DeviceSequence = sequence,
+                Operation = operation,
+                EntityId = task.Id,
+                CanonicalJson = json,
+                CanonicalHash = hash,
+                CreatedAt = now,
+            });
+            sequence = checked(sequence + 1);
+        }
+
+        foreach (var task in movedTasks)
+        {
+            var version = baseEntityVersions[task.Id];
+            await AppendAsync("task.move", task, version, new { space = new { id = targetSpaceId, name = targetSpaceName } }).ConfigureAwait(false);
+            if (!string.Equals(task.Id, root.Id, StringComparison.Ordinal) && task.ParentId is { } parentId)
+                await AppendAsync("task.setParent", task, checked(version + 1), new { parentId }).ConfigureAwait(false);
+        }
+
+        var updateTasks = connection.CreateCommand();
+        updateTasks.CommandText = """
+            WITH RECURSIVE moved_tasks(id) AS (
+                SELECT id FROM tasks WHERE id=@task_id
+                UNION ALL
+                SELECT child.id FROM tasks child
+                INNER JOIN moved_tasks parent ON child.parent_id=parent.id
+            )
+            UPDATE tasks
+            SET space_id=@space_id,
+                project_id=NULL,
+                parent_id=CASE WHEN id=@task_id THEN NULL ELSE parent_id END,
+                updated_at=@updated_at,
+                revision=revision+1
+            WHERE id IN (SELECT id FROM moved_tasks)
+            """;
+        updateTasks.Parameters.AddWithValue("@task_id", taskId);
+        updateTasks.Parameters.AddWithValue("@space_id", targetSpaceId);
+        updateTasks.Parameters.AddWithValue("@updated_at", ToDbDate(now));
+        if (await updateTasks.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != movedTasks.Count)
+            throw new InvalidOperationException("The complete task hierarchy could not be moved.");
+
+        var updateSources = connection.CreateCommand();
+        updateSources.CommandText = """
+            WITH RECURSIVE moved_tasks(id) AS (
+                SELECT id FROM tasks WHERE id=@task_id
+                UNION ALL
+                SELECT child.id FROM tasks child
+                INNER JOIN moved_tasks parent ON child.parent_id=parent.id
+            )
+            UPDATE provider_source_items
+            SET suggested_space_id=@space_id,updated_at=@updated_at
+            WHERE adopted_task_id IN (SELECT id FROM moved_tasks)
+            """;
+        updateSources.Parameters.AddWithValue("@task_id", taskId);
+        updateSources.Parameters.AddWithValue("@space_id", targetSpaceId);
+        updateSources.Parameters.AddWithValue("@updated_at", ToDbDate(now));
+        await updateSources.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+
+        var advance = connection.CreateCommand();
+        advance.CommandText = "UPDATE personal_cloud_device_state SET next_device_sequence=@next WHERE instance_id=@i AND device_id=@d AND next_device_sequence=@initial";
+        advance.Parameters.AddWithValue("@next", sequence);
+        advance.Parameters.AddWithValue("@i", instanceId);
+        advance.Parameters.AddWithValue("@d", deviceId);
+        advance.Parameters.AddWithValue("@initial", initialSequence);
+        if (await advance.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+            throw new InvalidOperationException("The Personal Cloud device sequence could not be advanced atomically.");
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return entries;
+    }
+
+    public async Task AcknowledgePersonalCloudMutationAsync(
+        string instanceId,
+        string deviceId,
+        string receiptJson,
+        CancellationToken cancellationToken = default)
+    {
+        var receipt = PersonalCloudK0Codec.ParseMutationReceipt(receiptJson);
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+
+        var readCommand = connection.CreateCommand();
+        readCommand.CommandText = """
+            SELECT entity_id, operation, canonical_json
+            FROM personal_cloud_outbox
+            WHERE mutation_id = @mutation_id
+              AND product = @product
+              AND instance_id = @instance_id
+              AND device_id = @device_id
+            """;
+        readCommand.Parameters.AddWithValue("@mutation_id", receipt.MutationId);
+        readCommand.Parameters.AddWithValue("@product", PersonalCloudK0Protocol.TasksProduct);
+        readCommand.Parameters.AddWithValue("@instance_id", instanceId);
+        readCommand.Parameters.AddWithValue("@device_id", deviceId);
+        string? entityId = null;
+        string? operation = null;
+        string? canonicalJson = null;
+        await using (var reader = await readCommand.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+        {
+            if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                entityId = reader.GetString(0);
+                operation = reader.GetString(1);
+                canonicalJson = reader.GetString(2);
+            }
+        }
+        if (entityId is null || !string.Equals(entityId, receipt.EntityId, StringComparison.Ordinal))
+        {
+            throw new PersonalCloudK0ContractException(
+                "invalid_request",
+                "The mutation receipt does not match a local Personal Cloud outbox entry.");
+        }
+        var expectedEntityVersion = PersonalCloudMutationEntityVersion(operation!, canonicalJson!, instanceId);
+        var auxiliary = operation is "source.refreshSnapshot" or "externalCommand.confirm" or "externalCommand.reject";
+        if (!auxiliary && receipt.EntityVersion != expectedEntityVersion)
+        {
+            throw new PersonalCloudK0ContractException(
+                "invalid_request",
+                "The mutation receipt entity version does not match the local outbox entry.");
+        }
+
+        var acknowledgeCommand = connection.CreateCommand();
+        acknowledgeCommand.CommandText = """
+            UPDATE personal_cloud_outbox
+            SET acknowledged_at = COALESCE(acknowledged_at, @acknowledged_at)
+            WHERE mutation_id = @mutation_id
+              AND product = @product
+              AND instance_id = @instance_id
+              AND device_id = @device_id
+            """;
+        acknowledgeCommand.Parameters.AddWithValue("@acknowledged_at", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+        acknowledgeCommand.Parameters.AddWithValue("@mutation_id", receipt.MutationId);
+        acknowledgeCommand.Parameters.AddWithValue("@product", PersonalCloudK0Protocol.TasksProduct);
+        acknowledgeCommand.Parameters.AddWithValue("@instance_id", instanceId);
+        acknowledgeCommand.Parameters.AddWithValue("@device_id", deviceId);
+        if (await acknowledgeCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+        {
+            throw new InvalidOperationException("The Personal Cloud outbox acknowledgement was not stored.");
+        }
+
+        if (!auxiliary)
+            await UpsertPersonalCloudEntityVersionAsync(
+                connection, instanceId, entityId, receipt.EntityVersion, cancellationToken).ConfigureAwait(false);
+        if (operation is "externalCommand.confirm" or "externalCommand.reject")
+        {
+            var settle = connection.CreateCommand();
+            settle.CommandText = "UPDATE personal_cloud_provider_attempts SET state='settled' WHERE result_mutation_id=@m AND state='outcome'";
+            settle.Parameters.AddWithValue("@m", receipt.MutationId);
+            await settle.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<long?> GetPersonalCloudEntityVersionAsync(
+        string instanceId,
+        string entityId,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        var versionCommand = connection.CreateCommand();
+        versionCommand.CommandText = """
+            SELECT entity_version
+            FROM personal_cloud_entity_versions
+            WHERE instance_id = @instance_id AND product = @product AND entity_id = @entity_id
+            """;
+        versionCommand.Parameters.AddWithValue("@instance_id", instanceId);
+        versionCommand.Parameters.AddWithValue("@product", PersonalCloudK0Protocol.TasksProduct);
+        versionCommand.Parameters.AddWithValue("@entity_id", entityId);
+        var stored = await versionCommand.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+        long? version = stored is null or DBNull ? null : Convert.ToInt64(stored);
+
+        var outboxCommand = connection.CreateCommand();
+        outboxCommand.CommandText = """
+            SELECT operation, canonical_json
+            FROM personal_cloud_outbox
+            WHERE instance_id = @instance_id AND product = @product AND entity_id = @entity_id
+            ORDER BY device_sequence
+            """;
+        outboxCommand.Parameters.AddWithValue("@instance_id", instanceId);
+        outboxCommand.Parameters.AddWithValue("@product", PersonalCloudK0Protocol.TasksProduct);
+        outboxCommand.Parameters.AddWithValue("@entity_id", entityId);
+        await using var reader = await outboxCommand.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            if (reader.GetString(0) is "source.refreshSnapshot" or "externalCommand.confirm" or "externalCommand.reject") continue;
+            var outboxVersion = PersonalCloudMutationEntityVersion(reader.GetString(0), reader.GetString(1), instanceId);
+            version = version is null ? outboxVersion : Math.Max(version.Value, outboxVersion);
+        }
+        return version;
+    }
+
+    private static long PersonalCloudMutationEntityVersion(string operation, string canonicalJson, string instanceId) =>
+        operation switch
+        {
+            PersonalCloudK0Protocol.CreateTaskOperation => 1L,
+            PersonalCloudK0Protocol.UpdateOpenzaFieldsOperation =>
+                checked(PersonalCloudOpenzaFieldsUpdateCodec.ParseMutation(canonicalJson, instanceId).BaseEntityVersion + 1),
+            PersonalCloudK0Protocol.CompleteTaskOperation =>
+                checked(PersonalCloudCompletionCodec.ParseMutation(canonicalJson, instanceId).BaseEntityVersion + 1),
+            PersonalCloudK0Protocol.ReopenTaskOperation =>
+                checked(PersonalCloudReopenCodec.ParseMutation(canonicalJson, instanceId).BaseEntityVersion + 1),
+            PersonalCloudK0Protocol.DeleteTaskOperation =>
+                checked(PersonalCloudDeleteCodec.ParseMutation(canonicalJson, instanceId).BaseEntityVersion + 1),
+            "task.setProject" or "task.move" or "task.addLabel" or "task.removeLabel" or "task.setParent" =>
+                checked(JsonDocument.Parse(canonicalJson).RootElement.GetProperty("baseEntityVersion").GetInt64() + 1),
+            "source.refreshSnapshot" or "externalCommand.confirm" or "externalCommand.reject" => 0L,
+            _ => throw new PersonalCloudK0ContractException("invalid_request", "The local outbox operation is unsupported."),
+        };
+
+    private static async Task UpsertPersonalCloudEntityVersionAsync(
+        SqliteConnection connection,
+        string instanceId,
+        string entityId,
+        long entityVersion,
+        CancellationToken cancellationToken)
+    {
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO personal_cloud_entity_versions
+                (instance_id, product, entity_id, entity_version, updated_at)
+            VALUES
+                (@instance_id, @product, @entity_id, @entity_version, @updated_at)
+            ON CONFLICT(instance_id, product, entity_id) DO UPDATE SET
+                entity_version = excluded.entity_version,
+                updated_at = excluded.updated_at
+            WHERE personal_cloud_entity_versions.entity_version <= excluded.entity_version
+            """;
+        command.Parameters.AddWithValue("@instance_id", instanceId);
+        command.Parameters.AddWithValue("@product", PersonalCloudK0Protocol.TasksProduct);
+        command.Parameters.AddWithValue("@entity_id", entityId);
+        command.Parameters.AddWithValue("@entity_version", entityVersion);
+        command.Parameters.AddWithValue("@updated_at", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<long> GetPersonalCloudCheckpointAsync(
+        string instanceId,
+        string deviceId,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        return await ReadPersonalCloudCheckpointAsync(connection, instanceId, deviceId, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static DateTimeOffset ParseProtocolTimestamp(string value) => DateTimeOffset.ParseExact(
+        value,
+        "yyyy-MM-dd'T'HH:mm:ss.fff'Z'",
+        System.Globalization.CultureInfo.InvariantCulture,
+        System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal);
+
+    public async Task<long> ApplyPersonalCloudChangePageAsync(
+        string instanceId,
+        string deviceId,
+        string changePageJson,
+        bool failAfterTaskWrite = false,
+        CancellationToken cancellationToken = default)
+    {
+        var page = PersonalCloudK3Codec.ParseChangePage(changePageJson);
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        var currentCheckpoint = await ReadPersonalCloudCheckpointAsync(connection, instanceId, deviceId, cancellationToken).ConfigureAwait(false);
+
+        if (page.Changes.Count == 0)
+        {
+            if (page.NextCheckpoint != currentCheckpoint)
+            {
+                throw new PersonalCloudK0ContractException("sequence_gap", "The empty change page does not match the saved checkpoint.");
+            }
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            return currentCheckpoint;
+        }
+
+        var firstChange = page.Changes[0];
+        if (firstChange.ChangeSeq <= currentCheckpoint)
+        {
+            foreach (var repeated in page.Changes)
+            {
+                var appliedCommand = connection.CreateCommand();
+                appliedCommand.CommandText = """
+                    SELECT mutation_id, entity_id FROM personal_cloud_applied_changes
+                    WHERE instance_id=@instance_id AND product=@product AND change_seq=@change_seq
+                    """;
+                appliedCommand.Parameters.AddWithValue("@instance_id", instanceId);
+                appliedCommand.Parameters.AddWithValue("@product", PersonalCloudK0Protocol.TasksProduct);
+                appliedCommand.Parameters.AddWithValue("@change_seq", repeated.ChangeSeq);
+                await using var reader = await appliedCommand.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+                if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false) ||
+                    reader.GetString(0) != repeated.MutationId || reader.GetString(1) != repeated.EntityId)
+                    throw new PersonalCloudK0ContractException("sequence_gap", "The repeated page does not match applied replica state.");
+            }
+            if (page.NextCheckpoint != page.Changes[^1].ChangeSeq || page.NextCheckpoint > currentCheckpoint)
+                throw new PersonalCloudK0ContractException("sequence_gap", "The repeated page checkpoint is invalid.");
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            return currentCheckpoint;
+        }
+
+        for (var index = 0; index < page.Changes.Count; index++)
+        {
+            if (page.Changes[index].ChangeSeq != checked(currentCheckpoint + index + 1))
+                throw new PersonalCloudK0ContractException("sequence_gap", "The change page is not contiguous with the replica checkpoint.");
+        }
+        if (page.NextCheckpoint != page.Changes[^1].ChangeSeq)
+            throw new PersonalCloudK0ContractException("sequence_gap", "The change page checkpoint does not match its final change.");
+
+        foreach (var change in page.Changes)
+        {
+        var ownEchoCommand = connection.CreateCommand();
+        ownEchoCommand.CommandText = """
+            SELECT entity_id
+            FROM personal_cloud_outbox
+            WHERE mutation_id = @mutation_id
+              AND product = @product
+              AND instance_id = @instance_id
+              AND acknowledged_at IS NOT NULL
+            """;
+        ownEchoCommand.Parameters.AddWithValue("@mutation_id", change.MutationId);
+        ownEchoCommand.Parameters.AddWithValue("@product", PersonalCloudK0Protocol.TasksProduct);
+        ownEchoCommand.Parameters.AddWithValue("@instance_id", instanceId);
+        var ownEchoEntityId = (string?)await ownEchoCommand.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+        var isOwnEcho = ownEchoEntityId is not null;
+        if (isOwnEcho && !string.Equals(ownEchoEntityId, change.EntityId, StringComparison.Ordinal))
+        {
+            throw new PersonalCloudK0ContractException(
+                "invalid_request",
+                "The echoed Personal Cloud change does not match its local outbox entry.");
+        }
+
+        var pendingEntity = connection.CreateCommand();
+        pendingEntity.CommandText = """
+            SELECT COUNT(*) FROM personal_cloud_outbox
+            WHERE instance_id=@i AND product='tasks' AND entity_id=@e AND acknowledged_at IS NULL
+              AND operation NOT IN ('source.refreshSnapshot','externalCommand.confirm','externalCommand.reject')
+            """;
+        pendingEntity.Parameters.AddWithValue("@i", instanceId);
+        pendingEntity.Parameters.AddWithValue("@e", change.EntityId);
+        var hasPendingUserIntent = Convert.ToInt64(await pendingEntity.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)) > 0;
+        // Source descriptors and command receipts cannot overwrite optimistic Openza fields.
+        // They remain useful while a user edit is pending, including our own source echoes.
+        var isAuxiliaryChange = change is PersonalCloudSourceRefreshedChange or PersonalCloudExternalCommandChangedChange;
+        var skipAuxiliaryTaskWrite = false;
+        if (isAuxiliaryChange)
+        {
+            var deleted = connection.CreateCommand();
+            deleted.CommandText = """
+                SELECT EXISTS(SELECT 1 FROM personal_cloud_tombstones WHERE instance_id=@i AND entity_id=@e)
+                  OR EXISTS(SELECT 1 FROM personal_cloud_outbox WHERE instance_id=@i AND entity_id=@e
+                    AND operation='task.delete' AND acknowledged_at IS NULL)
+                """;
+            deleted.Parameters.AddWithValue("@i", instanceId); deleted.Parameters.AddWithValue("@e", change.EntityId);
+            skipAuxiliaryTaskWrite = Convert.ToInt64(await deleted.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)) != 0;
+        }
+        var deferChange = !isOwnEcho && !isAuxiliaryChange && hasPendingUserIntent;
+        if (deferChange)
+        {
+            var defer = connection.CreateCommand();
+            defer.CommandText = """
+                INSERT INTO personal_cloud_deferred_changes(instance_id,product,change_seq,entity_id,canonical_json)
+                VALUES(@i,'tasks',@q,@e,@json)
+                """;
+            defer.Parameters.AddWithValue("@i", instanceId);
+            defer.Parameters.AddWithValue("@q", change.ChangeSeq);
+            defer.Parameters.AddWithValue("@e", change.EntityId);
+            defer.Parameters.AddWithValue("@json", PersonalCloudK0Codec.Canonicalize(PersonalCloudK0Codec.Serialize((object)change)));
+            await defer.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        if ((!isOwnEcho || isAuxiliaryChange) && !deferChange && !skipAuxiliaryTaskWrite)
+        {
+        switch (change)
+        {
+            case K0TaskCreatedChange created:
+            {
+                var existingTaskCommand = connection.CreateCommand();
+                existingTaskCommand.CommandText = "SELECT COUNT(*) FROM tasks WHERE id = @id";
+                existingTaskCommand.Parameters.AddWithValue("@id", created.EntityId);
+                if (Convert.ToInt64(await existingTaskCommand.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)) != 0)
+                {
+                    throw new PersonalCloudK0ContractException("entity_exists", "The replica already contains this task from another change.");
+                }
+
+                var taskPayload = created.Payload.Task;
+                var sourcePayload = created.Payload.Source;
+                var task = new TaskItem
+                {
+                    Id = taskPayload.Id,
+                    SpaceId = taskPayload.SpaceId,
+                    Title = taskPayload.Title,
+                    CompletionState = TaskStatusExtensions.CompletionFromStorageValue(taskPayload.CompletionState),
+                    WorkflowStatus = TaskStatusExtensions.WorkflowFromStorageValue(taskPayload.WorkflowStatus),
+                    CreatedAt = DateTimeOffset.ParseExact(
+                        taskPayload.CreatedAt,
+                        "yyyy-MM-dd'T'HH:mm:ss.fff'Z'",
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal),
+                    SourceIntegrationId = sourcePayload?.IntegrationKind,
+                    SourceUrl = sourcePayload?.SourceUrl,
+                    SourceDescription = sourcePayload?.Description,
+                    SourceMetadataJson = sourcePayload is null ? null : PersonalCloudK0Codec.Serialize(sourcePayload),
+                };
+                await UpsertTaskCoreAsync(connection, task, cancellationToken).ConfigureAwait(false);
+                await SetTaskLabelsCoreAsync(connection, task.Id, task.Labels, cancellationToken).ConfigureAwait(false);
+                break;
+            }
+            case PersonalCloudTaskTitleUpdatedChange updated:
+            {
+                var updateTaskCommand = connection.CreateCommand();
+                updateTaskCommand.CommandText = """
+                    UPDATE tasks
+                    SET title = @title, updated_at = @updated_at, revision = revision + 1
+                    WHERE id = @id
+                    """;
+                updateTaskCommand.Parameters.AddWithValue("@title", updated.Payload.Task.Title);
+                updateTaskCommand.Parameters.AddWithValue(
+                    "@updated_at",
+                    DateTimeOffset.ParseExact(
+                        updated.ServerAcceptedAt,
+                        "yyyy-MM-dd'T'HH:mm:ss.fff'Z'",
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal).ToUnixTimeMilliseconds());
+                updateTaskCommand.Parameters.AddWithValue("@id", updated.EntityId);
+                if (await updateTaskCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+                {
+                    throw new PersonalCloudK0ContractException("entity_not_found", "The replica does not contain the task to update.");
+                }
+                break;
+            }
+            case PersonalCloudTaskWorkflowStatusUpdatedChange updated:
+            {
+                var updateTaskCommand = connection.CreateCommand();
+                updateTaskCommand.CommandText = """
+                    UPDATE tasks
+                    SET workflow_status = @workflow_status, updated_at = @updated_at, revision = revision + 1
+                    WHERE id = @id AND completion_state = 'open'
+                    """;
+                updateTaskCommand.Parameters.AddWithValue("@workflow_status", updated.Payload.Task.WorkflowStatus);
+                updateTaskCommand.Parameters.AddWithValue(
+                    "@updated_at",
+                    DateTimeOffset.ParseExact(
+                        updated.ServerAcceptedAt,
+                        "yyyy-MM-dd'T'HH:mm:ss.fff'Z'",
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal).ToUnixTimeMilliseconds());
+                updateTaskCommand.Parameters.AddWithValue("@id", updated.EntityId);
+                if (await updateTaskCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+                {
+                    throw new PersonalCloudK0ContractException(
+                        "entity_not_found",
+                        "The replica does not contain the open task to update.");
+                }
+                break;
+            }
+            case PersonalCloudTaskPriorityUpdatedChange updated:
+            {
+                var updateTaskCommand = connection.CreateCommand();
+                updateTaskCommand.CommandText = """
+                    UPDATE tasks
+                    SET priority = @priority, updated_at = @updated_at, revision = revision + 1
+                    WHERE id = @id
+                    """;
+                updateTaskCommand.Parameters.AddWithValue("@priority", updated.Payload.Task.Priority);
+                updateTaskCommand.Parameters.AddWithValue(
+                    "@updated_at",
+                    DateTimeOffset.ParseExact(
+                        updated.ServerAcceptedAt,
+                        "yyyy-MM-dd'T'HH:mm:ss.fff'Z'",
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal).ToUnixTimeMilliseconds());
+                updateTaskCommand.Parameters.AddWithValue("@id", updated.EntityId);
+                if (await updateTaskCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+                {
+                    throw new PersonalCloudK0ContractException("entity_not_found", "The replica does not contain the task to update.");
+                }
+                break;
+            }
+            case PersonalCloudTaskPlannedOnUpdatedChange updated:
+            {
+                var originalTask = (await ReadTasksAsync(connection, cancellationToken).ConfigureAwait(false))
+                    .FirstOrDefault(task => task.Id == updated.EntityId);
+                if (originalTask is null)
+                {
+                    throw new PersonalCloudK0ContractException("entity_not_found", "The replica does not contain the open task to plan.");
+                }
+                var updateTaskCommand = connection.CreateCommand();
+                updateTaskCommand.CommandText = """
+                    UPDATE tasks SET planned_on=@planned_on, planned_at=NULL,
+                        updated_at=@updated_at, revision=revision+1
+                    WHERE id=@id AND completion_state='open'
+                    """;
+                updateTaskCommand.Parameters.AddWithValue("@planned_on", (object?)updated.Payload.Task.PlannedOn ?? DBNull.Value);
+                updateTaskCommand.Parameters.AddWithValue("@updated_at", ParseProtocolTimestamp(updated.ServerAcceptedAt).ToUnixTimeMilliseconds());
+                updateTaskCommand.Parameters.AddWithValue("@id", updated.EntityId);
+                if (await updateTaskCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+                    throw new PersonalCloudK0ContractException("entity_not_found", "The replica does not contain the open task to plan.");
+                var plannedTask = (await ReadTasksAsync(connection, cancellationToken).ConfigureAwait(false))
+                    .First(task => task.Id == updated.EntityId);
+                var pendingDateUpdate = ProviderWriteBackPlanner.CreateTodoistDateUpdate(
+                    originalTask, plannedTask, ParseProtocolTimestamp(updated.ServerAcceptedAt));
+                if (pendingDateUpdate is not null)
+                {
+                    await QueueTaskDateUpdateCoreAsync(connection, pendingDateUpdate, cancellationToken).ConfigureAwait(false);
+                }
+                break;
+            }
+            case PersonalCloudTaskPlannedAtUpdatedChange updated:
+            {
+                var originalTask = (await ReadTasksAsync(connection, cancellationToken).ConfigureAwait(false))
+                    .FirstOrDefault(task => task.Id == updated.EntityId);
+                if (originalTask is null)
+                {
+                    throw new PersonalCloudK0ContractException("entity_not_found", "The replica does not contain the open task to plan.");
+                }
+                var updateTaskCommand = connection.CreateCommand();
+                updateTaskCommand.CommandText = """
+                    UPDATE tasks SET planned_on=NULL, planned_at=@planned_at,
+                        updated_at=@updated_at, revision=revision+1
+                    WHERE id=@id AND completion_state='open'
+                    """;
+                updateTaskCommand.Parameters.AddWithValue("@planned_at", updated.Payload.Task.PlannedAt is { } plannedAt
+                    ? ParseProtocolTimestamp(plannedAt).ToUnixTimeMilliseconds()
+                    : DBNull.Value);
+                updateTaskCommand.Parameters.AddWithValue("@updated_at", ParseProtocolTimestamp(updated.ServerAcceptedAt).ToUnixTimeMilliseconds());
+                updateTaskCommand.Parameters.AddWithValue("@id", updated.EntityId);
+                if (await updateTaskCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+                    throw new PersonalCloudK0ContractException("entity_not_found", "The replica does not contain the open task to plan.");
+                var plannedTask = (await ReadTasksAsync(connection, cancellationToken).ConfigureAwait(false))
+                    .First(task => task.Id == updated.EntityId);
+                var pendingDateUpdate = ProviderWriteBackPlanner.CreateTodoistDateUpdate(
+                    originalTask, plannedTask, ParseProtocolTimestamp(updated.ServerAcceptedAt));
+                if (pendingDateUpdate is not null)
+                {
+                    await QueueTaskDateUpdateCoreAsync(connection, pendingDateUpdate, cancellationToken).ConfigureAwait(false);
+                }
+                break;
+            }
+            case PersonalCloudTaskNotesUpdatedChange updated:
+            {
+                var command = connection.CreateCommand();
+                command.CommandText = "UPDATE tasks SET notes=@value,updated_at=@now,revision=revision+1 WHERE id=@id";
+                command.Parameters.AddWithValue("@value", (object?)updated.Payload.Task.Notes ?? DBNull.Value);
+                command.Parameters.AddWithValue("@now", ParseProtocolTimestamp(updated.ServerAcceptedAt).ToUnixTimeMilliseconds());
+                command.Parameters.AddWithValue("@id", updated.EntityId);
+                if (await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+                    throw new PersonalCloudK0ContractException("entity_not_found", "The replica does not contain the task to update.");
+                break;
+            }
+            case PersonalCloudTaskDeadlineOnUpdatedChange updated:
+            {
+                var command = connection.CreateCommand();
+                command.CommandText = "UPDATE tasks SET deadline_on=@value,deadline_at=NULL,updated_at=@now,revision=revision+1 WHERE id=@id";
+                command.Parameters.AddWithValue("@value", (object?)updated.Payload.Task.DeadlineOn ?? DBNull.Value);
+                command.Parameters.AddWithValue("@now", ParseProtocolTimestamp(updated.ServerAcceptedAt).ToUnixTimeMilliseconds());
+                command.Parameters.AddWithValue("@id", updated.EntityId);
+                if (await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+                    throw new PersonalCloudK0ContractException("entity_not_found", "The replica does not contain the task to update.");
+                break;
+            }
+            case PersonalCloudSourceRefreshedChange refreshed:
+            {
+                var source = refreshed.Payload.Task.Source;
+                var updateSourceCommand = connection.CreateCommand();
+                updateSourceCommand.CommandText = """
+                    UPDATE tasks
+                    SET source_integration_id = @integration_id,
+                        source_url = @source_url,
+                        source_description = @source_description,
+                        recurrence_rule = @recurrence_rule,
+                        source_metadata = @source_metadata,
+                        updated_at = @updated_at
+                    WHERE id = @id
+                      AND (source_integration_id IS NULL OR source_integration_id = @integration_id)
+                    """;
+                updateSourceCommand.Parameters.AddWithValue("@integration_id", source.IntegrationKind);
+                updateSourceCommand.Parameters.AddWithValue("@source_url", (object?)source.SourceUrl ?? DBNull.Value);
+                updateSourceCommand.Parameters.AddWithValue("@source_description", (object?)source.Description ?? DBNull.Value);
+                updateSourceCommand.Parameters.AddWithValue("@recurrence_rule", (object?)source.RecurrenceRule ?? DBNull.Value);
+                updateSourceCommand.Parameters.AddWithValue("@source_metadata", PersonalCloudK0Codec.Serialize(source));
+                updateSourceCommand.Parameters.AddWithValue(
+                    "@updated_at", ParseProtocolTimestamp(refreshed.ServerAcceptedAt).ToUnixTimeMilliseconds());
+                updateSourceCommand.Parameters.AddWithValue("@id", refreshed.EntityId);
+                if (await updateSourceCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+                    throw new PersonalCloudK0ContractException(
+                        "entity_not_found", "The replica does not contain the source-linked task to refresh.");
+                break;
+            }
+            case PersonalCloudExternalCommandChangedChange externalCommand:
+            {
+                var existsCommand = connection.CreateCommand();
+                existsCommand.CommandText = "SELECT COUNT(*) FROM tasks WHERE id = @id";
+                existsCommand.Parameters.AddWithValue("@id", externalCommand.EntityId);
+                if (Convert.ToInt64(await existsCommand.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)) != 1)
+                    throw new PersonalCloudK0ContractException(
+                        "entity_not_found", "The replica does not contain the task for the external command result.");
+                break;
+            }
+            case PersonalCloudTaskCompletedChange completed:
+            {
+                var completedAt = DateTimeOffset.ParseExact(
+                    completed.Payload.Task.CompletedAt,
+                    "yyyy-MM-dd'T'HH:mm:ss.fff'Z'",
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal);
+                var acceptedAt = DateTimeOffset.ParseExact(
+                    completed.ServerAcceptedAt,
+                    "yyyy-MM-dd'T'HH:mm:ss.fff'Z'",
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal);
+                var updateTaskCommand = connection.CreateCommand();
+                updateTaskCommand.CommandText = """
+                    UPDATE tasks
+                    SET completion_state = 'completed', completed_at = @completed_at,
+                        updated_at = @updated_at, revision = revision + 1
+                    WHERE id = @id AND completion_state = 'open'
+                    """;
+                updateTaskCommand.Parameters.AddWithValue("@completed_at", completedAt.ToUnixTimeMilliseconds());
+                updateTaskCommand.Parameters.AddWithValue("@updated_at", acceptedAt.ToUnixTimeMilliseconds());
+                updateTaskCommand.Parameters.AddWithValue("@id", completed.EntityId);
+                if (await updateTaskCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+                {
+                    var existsCommand = connection.CreateCommand();
+                    existsCommand.CommandText = "SELECT COUNT(*) FROM tasks WHERE id = @id";
+                    existsCommand.Parameters.AddWithValue("@id", completed.EntityId);
+                    var exists = Convert.ToInt64(await existsCommand.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)) == 1;
+                    throw new PersonalCloudK0ContractException(
+                        exists ? "invalid_transition" : "entity_not_found",
+                        exists ? "Only an open replica task can be completed." : "The replica does not contain the task to complete.");
+                }
+                break;
+            }
+            case PersonalCloudTaskReopenedChange reopened:
+            {
+                var acceptedAt = DateTimeOffset.ParseExact(
+                    reopened.ServerAcceptedAt,
+                    "yyyy-MM-dd'T'HH:mm:ss.fff'Z'",
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal);
+                var updateTaskCommand = connection.CreateCommand();
+                updateTaskCommand.CommandText = """
+                    UPDATE tasks
+                    SET completion_state = 'open', completed_at = NULL,
+                        updated_at = @updated_at, revision = revision + 1
+                    WHERE id = @id AND completion_state = 'completed'
+                    """;
+                updateTaskCommand.Parameters.AddWithValue("@updated_at", acceptedAt.ToUnixTimeMilliseconds());
+                updateTaskCommand.Parameters.AddWithValue("@id", reopened.EntityId);
+                if (await updateTaskCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+                {
+                    var existsCommand = connection.CreateCommand();
+                    existsCommand.CommandText = "SELECT COUNT(*) FROM tasks WHERE id = @id";
+                    existsCommand.Parameters.AddWithValue("@id", reopened.EntityId);
+                    var exists = Convert.ToInt64(await existsCommand.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)) == 1;
+                    throw new PersonalCloudK0ContractException(
+                        exists ? "invalid_transition" : "entity_not_found",
+                        exists ? "Only a completed replica task can be reopened." : "The replica does not contain the task to reopen.");
+                }
+                break;
+            }
+            case PersonalCloudTaskDeletedChange deleted:
+            {
+                var existsCommand=connection.CreateCommand();existsCommand.CommandText="SELECT COUNT(*) FROM tasks WHERE id=@id";existsCommand.Parameters.AddWithValue("@id",deleted.EntityId);
+                if(Convert.ToInt64(await existsCommand.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false))!=1)
+                {
+                    var known = connection.CreateCommand();
+                    known.CommandText = "SELECT entity_version FROM personal_cloud_tombstones WHERE instance_id=@i AND product='tasks' AND entity_id=@e";
+                    known.Parameters.AddWithValue("@i", instanceId); known.Parameters.AddWithValue("@e", deleted.EntityId);
+                    var prior = await known.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+                    if (prior is null or DBNull || Convert.ToInt64(prior) != deleted.EntityVersion)
+                        throw new PersonalCloudK0ContractException("entity_not_found", "The replica does not contain the task or matching tombstone to delete.");
+                }
+                var tombstone=connection.CreateCommand();tombstone.CommandText="""
+                  INSERT INTO personal_cloud_tombstones(instance_id,product,entity_id,entity_version,deleted_at,purge_after)
+                  VALUES(@i,'tasks',@e,@v,@a,NULL)
+                  ON CONFLICT(instance_id,product,entity_id) DO UPDATE SET
+                    entity_version=excluded.entity_version,deleted_at=excluded.deleted_at
+                  WHERE personal_cloud_tombstones.entity_version<=excluded.entity_version
+                  """;
+                tombstone.Parameters.AddWithValue("@i",instanceId);tombstone.Parameters.AddWithValue("@e",deleted.EntityId);tombstone.Parameters.AddWithValue("@v",deleted.EntityVersion);tombstone.Parameters.AddWithValue("@a",ParseProtocolTimestamp(deleted.Payload.Task.DeletedAt).ToUnixTimeMilliseconds());
+                await tombstone.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+                break;
+            }
+            case PersonalCloudTaskRelationshipChange relationship:
+            {
+                await ApplyPersonalCloudRelationshipChangeAsync(connection, relationship, cancellationToken).ConfigureAwait(false);
+                break;
+            }
+            default:
+                throw new PersonalCloudK0ContractException("invalid_request", "The change operation is not supported.");
+        }
+        }
+        if (failAfterTaskWrite && !isOwnEcho)
+        {
+            throw new InvalidOperationException("Injected failure after replica task write.");
+        }
+
+        if (!deferChange)
+            await RecordProviderBridgeChangeAsync(connection, instanceId, change, cancellationToken).ConfigureAwait(false);
+        if (!deferChange && !isAuxiliaryChange)
+            await UpsertPersonalCloudEntityVersionAsync(
+                connection, instanceId, change.EntityId, change.EntityVersion, cancellationToken).ConfigureAwait(false);
+
+        var appliedChangeCommand = connection.CreateCommand();
+        appliedChangeCommand.CommandText = """
+            INSERT INTO personal_cloud_applied_changes
+                (instance_id, product, change_seq, mutation_id, entity_id, applied_at)
+            VALUES
+                (@instance_id, @product, @change_seq, @mutation_id, @entity_id, @applied_at)
+            """;
+        appliedChangeCommand.Parameters.AddWithValue("@instance_id", instanceId);
+        appliedChangeCommand.Parameters.AddWithValue("@product", PersonalCloudK0Protocol.TasksProduct);
+        appliedChangeCommand.Parameters.AddWithValue("@change_seq", change.ChangeSeq);
+        appliedChangeCommand.Parameters.AddWithValue("@mutation_id", change.MutationId);
+        appliedChangeCommand.Parameters.AddWithValue("@entity_id", change.EntityId);
+        appliedChangeCommand.Parameters.AddWithValue("@applied_at", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+        await appliedChangeCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+
+        if (!deferChange)
+        {
+            var trackCommand=connection.CreateCommand();trackCommand.CommandText="INSERT OR IGNORE INTO personal_cloud_replica_entities(instance_id,product,entity_id) SELECT @i,'tasks',@e WHERE EXISTS(SELECT 1 FROM tasks WHERE id=@e)";trackCommand.Parameters.AddWithValue("@i",instanceId);trackCommand.Parameters.AddWithValue("@e",change.EntityId);await trackCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        }
+
+        var checkpointCommand = connection.CreateCommand();
+        checkpointCommand.CommandText = """
+            INSERT INTO personal_cloud_checkpoints
+                (instance_id, device_id, product, last_change_seq, updated_at)
+            VALUES
+                (@instance_id, @device_id, @product, @last_change_seq, @updated_at)
+            ON CONFLICT(instance_id, device_id, product) DO UPDATE SET
+                last_change_seq = excluded.last_change_seq,
+                updated_at = excluded.updated_at
+            WHERE personal_cloud_checkpoints.last_change_seq < excluded.last_change_seq
+            """;
+        checkpointCommand.Parameters.AddWithValue("@instance_id", instanceId);
+        checkpointCommand.Parameters.AddWithValue("@device_id", deviceId);
+        checkpointCommand.Parameters.AddWithValue("@product", PersonalCloudK0Protocol.TasksProduct);
+        checkpointCommand.Parameters.AddWithValue("@last_change_seq", page.NextCheckpoint);
+        checkpointCommand.Parameters.AddWithValue("@updated_at", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+        if (await checkpointCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+        {
+            throw new InvalidOperationException("The Personal Cloud replica checkpoint could not be advanced atomically.");
+        }
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return page.NextCheckpoint;
+    }
+
+    public async Task<long> ReplacePersonalCloudReplicaFromBootstrapAsync(
+        string instanceId,string deviceId,string bootstrapJson,CancellationToken cancellationToken=default)
+    {
+        var bootstrap=PersonalCloudBootstrapCodec.Parse(bootstrapJson);await using var connection=await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);await using var transaction=await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        await EnsureNoPendingPersonalCloudIntentsAsync(connection, cancellationToken).ConfigureAwait(false);
+        var clear=connection.CreateCommand();clear.CommandText="""
+          DELETE FROM personal_cloud_applied_changes WHERE instance_id=@i AND product='tasks';
+          DELETE FROM personal_cloud_checkpoints WHERE instance_id=@i AND product='tasks';
+          DELETE FROM personal_cloud_tombstones WHERE instance_id=@i AND product='tasks';
+          DELETE FROM personal_cloud_entity_versions WHERE instance_id=@i AND product='tasks';
+          DELETE FROM task_labels WHERE task_id IN(SELECT entity_id FROM personal_cloud_replica_entities WHERE instance_id=@i AND product='tasks');
+          DELETE FROM tasks WHERE id IN(SELECT entity_id FROM personal_cloud_replica_entities WHERE instance_id=@i AND product='tasks')
+            AND NOT EXISTS(SELECT 1 FROM personal_cloud_outbox o WHERE o.entity_id=tasks.id AND o.acknowledged_at IS NULL);
+          DELETE FROM personal_cloud_replica_entities WHERE instance_id=@i AND product='tasks';
+          DELETE FROM personal_cloud_provider_commands WHERE instance_id=@i;
+          DELETE FROM personal_cloud_provider_sources WHERE instance_id=@i;
+          """;clear.Parameters.AddWithValue("@i",instanceId);await clear.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        foreach(var space in bootstrap.Snapshot.Spaces.Where(s=>s.DeletedAt is null)){var c=connection.CreateCommand();c.CommandText="INSERT INTO spaces(id,name,created_at) VALUES(@id,@name,@now) ON CONFLICT(id) DO UPDATE SET name=excluded.name";c.Parameters.AddWithValue("@id",space.Id);c.Parameters.AddWithValue("@name",space.Name);c.Parameters.AddWithValue("@now",DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());await c.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);}
+        foreach(var project in bootstrap.Snapshot.Projects.Where(p=>p.DeletedAt is null)){var c=connection.CreateCommand();c.CommandText="INSERT INTO projects(id,space_id,integration_id,name,created_at) VALUES(@id,@space,'openza_tasks',@name,@now) ON CONFLICT(id) DO UPDATE SET space_id=excluded.space_id,name=excluded.name";c.Parameters.AddWithValue("@id",project.Id);c.Parameters.AddWithValue("@space",project.SpaceId);c.Parameters.AddWithValue("@name",project.Name);c.Parameters.AddWithValue("@now",DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());await c.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);}
+        foreach(var task in bootstrap.Snapshot.Tasks)
+        {
+            var source=bootstrap.Snapshot.SourceDescriptors.FirstOrDefault(value=>value.TaskId==task.Id);
+            var item=new TaskItem{Id=task.Id,SpaceId=task.SpaceId,ProjectId=task.ProjectId,ParentId=task.ParentId,Title=task.Title,Notes=task.Notes,CompletionState=TaskStatusExtensions.CompletionFromStorageValue(task.CompletionState),WorkflowStatus=TaskStatusExtensions.WorkflowFromStorageValue(task.WorkflowStatus),Priority=task.Priority,PlannedOn=task.PlannedOn is null?null:DateOnly.ParseExact(task.PlannedOn,"yyyy-MM-dd"),PlannedAt=task.PlannedAt is null?null:ParseProtocolTimestamp(task.PlannedAt),DeadlineOn=task.DeadlineOn is null?null:DateOnly.ParseExact(task.DeadlineOn,"yyyy-MM-dd"),CompletedAt=task.CompletedAt is null?null:ParseProtocolTimestamp(task.CompletedAt),CreatedAt=ParseProtocolTimestamp(task.CreatedAt),SourceIntegrationId=source?.IntegrationKind,SourceUrl=source?.SourceUrl,SourceDescription=source?.Description,SourceMetadataJson=source is null?null:PersonalCloudK0Codec.Serialize(source)};
+            await UpsertTaskCoreAsync(connection,item,cancellationToken).ConfigureAwait(false);var track=connection.CreateCommand();track.CommandText="INSERT INTO personal_cloud_replica_entities(instance_id,product,entity_id) VALUES(@i,'tasks',@e)";track.Parameters.AddWithValue("@i",instanceId);track.Parameters.AddWithValue("@e",task.Id);await track.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);await UpsertPersonalCloudEntityVersionAsync(connection,instanceId,task.Id,task.EntityVersion,cancellationToken).ConfigureAwait(false);
+        }
+        foreach(var label in bootstrap.Snapshot.Labels.Where(l=>l.DeletedAt is null)){var c=connection.CreateCommand();c.CommandText="INSERT INTO labels(id,integration_id,name,created_at) VALUES(@id,'openza_tasks',@name,@now) ON CONFLICT(id) DO UPDATE SET name=excluded.name";c.Parameters.AddWithValue("@id",label.Id);c.Parameters.AddWithValue("@name",label.Name);c.Parameters.AddWithValue("@now",DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());await c.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);}
+        foreach(var link in bootstrap.Snapshot.TaskLabels){var c=connection.CreateCommand();c.CommandText="INSERT INTO task_labels(task_id,label_id) VALUES(@task,@label)";c.Parameters.AddWithValue("@task",link.TaskId);c.Parameters.AddWithValue("@label",link.LabelId);await c.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);}
+        foreach(var tombstone in bootstrap.Snapshot.Tombstones){var c=connection.CreateCommand();c.CommandText="INSERT INTO personal_cloud_tombstones(instance_id,product,entity_id,entity_version,deleted_at,purge_after) VALUES(@i,'tasks',@e,@v,@d,@p)";c.Parameters.AddWithValue("@i",instanceId);c.Parameters.AddWithValue("@e",tombstone.EntityId);c.Parameters.AddWithValue("@v",tombstone.EntityVersion);c.Parameters.AddWithValue("@d",ParseProtocolTimestamp(tombstone.DeletedAt).ToUnixTimeMilliseconds());c.Parameters.AddWithValue("@p",tombstone.PurgeAfter is null?DBNull.Value:ParseProtocolTimestamp(tombstone.PurgeAfter).ToUnixTimeMilliseconds());await c.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);await UpsertPersonalCloudEntityVersionAsync(connection,instanceId,tombstone.EntityId,tombstone.EntityVersion,cancellationToken).ConfigureAwait(false);}
+        await RecordProviderBridgeBootstrapAsync(connection, instanceId, bootstrap, cancellationToken).ConfigureAwait(false);
+        var checkpoint=connection.CreateCommand();checkpoint.CommandText="INSERT INTO personal_cloud_checkpoints(instance_id,device_id,product,last_change_seq,updated_at) VALUES(@i,@d,'tasks',@c,@now) ON CONFLICT(instance_id,device_id,product) DO UPDATE SET last_change_seq=excluded.last_change_seq,updated_at=excluded.updated_at";checkpoint.Parameters.AddWithValue("@i",instanceId);checkpoint.Parameters.AddWithValue("@d",deviceId);checkpoint.Parameters.AddWithValue("@c",bootstrap.Checkpoint);checkpoint.Parameters.AddWithValue("@now",DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());await checkpoint.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);return bootstrap.Checkpoint;
+    }
+
+    private static async Task ApplyPersonalCloudRelationshipChangeAsync(
+        SqliteConnection connection, PersonalCloudTaskRelationshipChange change, CancellationToken cancellationToken)
+    {
+        var task = change.Payload.Task;
+        var now = ParseProtocolTimestamp(change.ServerAcceptedAt).ToUnixTimeMilliseconds();
+        if (change.Operation == "task.projectSet")
+        {
+            var project = task.GetProperty("project");
+            var command=connection.CreateCommand();
+            if(project.ValueKind!=JsonValueKind.Null){command.CommandText="""
+              INSERT INTO projects(id,space_id,integration_id,name,created_at)
+              SELECT @project_id,space_id,'openza_tasks',@name,@now FROM tasks WHERE id=@task_id
+              ON CONFLICT(id) DO UPDATE SET name=excluded.name
+              """;
+            command.Parameters.AddWithValue("@project_id",project.GetProperty("id").GetString()!); command.Parameters.AddWithValue("@name",project.GetProperty("name").GetString()!);
+            command.Parameters.AddWithValue("@now",now); command.Parameters.AddWithValue("@task_id",change.EntityId); await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);}
+            command=connection.CreateCommand(); command.CommandText="UPDATE tasks SET project_id=@value,updated_at=@now,revision=revision+1 WHERE id=@id";
+            var projectId=task.GetProperty("projectId");command.Parameters.AddWithValue("@value",projectId.ValueKind==JsonValueKind.Null?DBNull.Value:projectId.GetString()!);command.Parameters.AddWithValue("@now",now);command.Parameters.AddWithValue("@id",change.EntityId);
+            if(await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false)!=1) throw new PersonalCloudK0ContractException("entity_not_found","The replica task does not exist.");
+        }
+        else if(change.Operation=="task.moved")
+        {
+            var space=task.GetProperty("space"); var command=connection.CreateCommand(); command.CommandText="INSERT INTO spaces(id,name,created_at) VALUES(@id,@name,@now) ON CONFLICT(id) DO UPDATE SET name=excluded.name";
+            command.Parameters.AddWithValue("@id",space.GetProperty("id").GetString()!);command.Parameters.AddWithValue("@name",space.GetProperty("name").GetString()!);command.Parameters.AddWithValue("@now",now);await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            command=connection.CreateCommand();command.CommandText="UPDATE tasks SET space_id=@space,project_id=NULL,parent_id=NULL,updated_at=@now,revision=revision+1 WHERE id=@id";
+            command.Parameters.AddWithValue("@space",task.GetProperty("spaceId").GetString()!);command.Parameters.AddWithValue("@now",now);command.Parameters.AddWithValue("@id",change.EntityId);await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+        else if(change.Operation=="task.labelAdded")
+        {
+            var label=task.GetProperty("label");var command=connection.CreateCommand();command.CommandText="INSERT INTO labels(id,integration_id,name,created_at) VALUES(@id,'openza_tasks',@name,@now) ON CONFLICT(id) DO UPDATE SET name=excluded.name";
+            command.Parameters.AddWithValue("@id",label.GetProperty("id").GetString()!);command.Parameters.AddWithValue("@name",label.GetProperty("name").GetString()!);command.Parameters.AddWithValue("@now",now);await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            command=connection.CreateCommand();command.CommandText="INSERT INTO task_labels(task_id,label_id) VALUES(@task,@label)";command.Parameters.AddWithValue("@task",change.EntityId);command.Parameters.AddWithValue("@label",label.GetProperty("id").GetString()!);await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+        else if(change.Operation=="task.labelRemoved")
+        {
+            var command=connection.CreateCommand();command.CommandText="DELETE FROM task_labels WHERE task_id=@task AND label_id=@label";command.Parameters.AddWithValue("@task",change.EntityId);command.Parameters.AddWithValue("@label",task.GetProperty("labelId").GetString()!);await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            var command=connection.CreateCommand();command.CommandText="UPDATE tasks SET parent_id=@parent,updated_at=@now,revision=revision+1 WHERE id=@id";
+            var parent=task.GetProperty("parentId");command.Parameters.AddWithValue("@parent",parent.ValueKind==JsonValueKind.Null?DBNull.Value:parent.GetString()!);command.Parameters.AddWithValue("@now",now);command.Parameters.AddWithValue("@id",change.EntityId);await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private static async Task<long> ReadPersonalCloudCheckpointAsync(
+        SqliteConnection connection,
+        string instanceId,
+        string deviceId,
+        CancellationToken cancellationToken)
+    {
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            -- Tasks and the applied-change journal belong to this local replica,
+            -- not its replaceable authentication device. Device acknowledgements
+            -- remain scoped to the current device on the server.
+            SELECT MAX(last_change_seq)
+            FROM personal_cloud_checkpoints
+            WHERE instance_id = @instance_id AND product = @product
+            """;
+        command.Parameters.AddWithValue("@instance_id", instanceId);
+        command.Parameters.AddWithValue("@product", PersonalCloudK0Protocol.TasksProduct);
+        var value = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+        return value is null or DBNull ? 0L : Convert.ToInt64(value);
+    }
+
     public async Task UpsertTaskWithPendingUpdatesAsync(
         TaskItem task,
         PendingCompletion? completion,
@@ -2023,6 +4443,8 @@ public sealed class SqliteTaskStore(string databasePath, bool readOnly = false) 
                 END,
                 completion_state = CASE
                     WHEN EXISTS (SELECT 1 FROM pending_completions WHERE task_id = @task_id) THEN completion_state
+                    WHEN EXISTS (SELECT 1 FROM personal_cloud_outbox WHERE entity_id = @task_id AND operation IN ('task.complete','task.reopen'))
+                      OR EXISTS (SELECT 1 FROM personal_cloud_provider_commands WHERE task_id = @task_id) THEN completion_state
                     ELSE @completion_state
                 END,
                 source_integration_id = @source_integration_id,
@@ -2055,6 +4477,8 @@ public sealed class SqliteTaskStore(string databasePath, bool readOnly = false) 
                 revision = revision + 1,
                 completed_at = CASE
                     WHEN EXISTS (SELECT 1 FROM pending_completions WHERE task_id = @task_id) THEN completed_at
+                    WHEN EXISTS (SELECT 1 FROM personal_cloud_outbox WHERE entity_id = @task_id AND operation IN ('task.complete','task.reopen'))
+                      OR EXISTS (SELECT 1 FROM personal_cloud_provider_commands WHERE task_id = @task_id) THEN completed_at
                     WHEN @completion_state = 'completed' THEN COALESCE(completed_at, @updated_at)
                     ELSE NULL
                 END
@@ -2222,6 +4646,10 @@ public sealed class SqliteTaskStore(string databasePath, bool readOnly = false) 
             LEFT JOIN provider_source_items psi
               ON psi.provider_connection_id = t.source_connection_id
              AND psi.external_id = t.source_external_id
+            WHERE NOT EXISTS (
+              SELECT 1 FROM personal_cloud_tombstones pct
+              WHERE pct.product = 'tasks' AND pct.entity_id = t.id
+            )
             """.Replace("@revision_projection", revisionProjection, StringComparison.Ordinal);
 
         var tasks = new List<TaskItem>();
@@ -2618,6 +5046,7 @@ public sealed class SqliteTaskStore(string databasePath, bool readOnly = false) 
             await EnsureProviderSourceItemsCompatibilityAsync(connection, cancellationToken).ConfigureAwait(false);
             await EnsureLabelsCompatibilityAsync(connection, cancellationToken).ConfigureAwait(false);
             await EnsureTaskExternalLinksTableAsync(connection, cancellationToken).ConfigureAwait(false);
+            await EnsurePersonalCloudJournalCompatibilityAsync(connection, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -2647,6 +5076,31 @@ public sealed class SqliteTaskStore(string databasePath, bool readOnly = false) 
             CREATE INDEX IF NOT EXISTS idx_task_external_links_task ON task_external_links(task_id, integration_id);
             """;
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task EnsurePersonalCloudJournalCompatibilityAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        foreach (var table in new[] { "personal_cloud_outbox", "personal_cloud_applied_changes", "personal_cloud_tombstones" })
+        {
+            var inspect = connection.CreateCommand();
+            inspect.CommandText = $"PRAGMA foreign_key_list({table})";
+            var requiresMigration = false;
+            await using (var reader = await inspect.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+                while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                    requiresMigration |= reader.GetString(2) == "tasks";
+            if (!requiresMigration) continue;
+
+            var resource = $"Openza.Tasks.Core.Data.Migrations.0009_{table}.sql";
+            await using var script = typeof(SqliteTaskStore).Assembly.GetManifestResourceStream(resource)
+                ?? throw new InvalidOperationException("The Personal Cloud journal migration script is missing.");
+            using var source = new StreamReader(script);
+            var sql = await source.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
+            await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+            var migrate = connection.CreateCommand();
+            migrate.CommandText = sql;
+            await migrate.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        }
     }
 
     private static async Task EnsureProviderSourceItemsCompatibilityAsync(SqliteConnection connection, CancellationToken cancellationToken)
@@ -3732,6 +6186,103 @@ public sealed class SqliteTaskStore(string databasePath, bool readOnly = false) 
           error TEXT
         );
 
+        CREATE TABLE IF NOT EXISTS personal_cloud_device_state (
+          instance_id TEXT NOT NULL,
+          device_id TEXT NOT NULL,
+          next_device_sequence INTEGER NOT NULL CHECK (next_device_sequence > 0),
+          PRIMARY KEY (instance_id, device_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS personal_cloud_outbox (
+          local_sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+          mutation_id TEXT NOT NULL UNIQUE,
+          product TEXT NOT NULL,
+          instance_id TEXT NOT NULL,
+          device_id TEXT NOT NULL,
+          device_sequence INTEGER NOT NULL CHECK (device_sequence > 0),
+          operation TEXT NOT NULL,
+          entity_id TEXT NOT NULL,
+          canonical_json TEXT NOT NULL,
+          canonical_hash TEXT NOT NULL CHECK (length(canonical_hash) = 64),
+          created_at INTEGER NOT NULL,
+          acknowledged_at INTEGER,
+          UNIQUE (instance_id, device_id, device_sequence)
+        );
+
+        CREATE TABLE IF NOT EXISTS personal_cloud_checkpoints (
+          instance_id TEXT NOT NULL,
+          device_id TEXT NOT NULL,
+          product TEXT NOT NULL CHECK (product = 'tasks'),
+          last_change_seq INTEGER NOT NULL CHECK (last_change_seq >= 0),
+          updated_at INTEGER NOT NULL,
+          PRIMARY KEY (instance_id, device_id, product)
+        );
+
+        CREATE TABLE IF NOT EXISTS personal_cloud_provider_sources (
+          instance_id TEXT NOT NULL, task_id TEXT NOT NULL, source_json TEXT NOT NULL,
+          PRIMARY KEY(instance_id,task_id)
+        );
+        CREATE TABLE IF NOT EXISTS personal_cloud_provider_commands (
+          instance_id TEXT NOT NULL, task_id TEXT NOT NULL, requested_seq INTEGER NOT NULL CHECK(requested_seq>0),
+          command TEXT NOT NULL CHECK(command IN ('complete','reopen')),
+          state TEXT NOT NULL CHECK(state IN ('pending_desktop','confirmed','rejected','cancelled')),
+          error_code TEXT, retry_id TEXT,
+          PRIMARY KEY(instance_id,task_id)
+        );
+        CREATE TABLE IF NOT EXISTS personal_cloud_provider_attempts (
+          claim_id TEXT PRIMARY KEY, instance_id TEXT NOT NULL, task_id TEXT NOT NULL,
+          requested_seq INTEGER NOT NULL, device_id TEXT NOT NULL, account_binding TEXT NOT NULL,
+          command TEXT NOT NULL, source_json TEXT NOT NULL,
+          state TEXT NOT NULL CHECK(state IN ('claiming','reserved','starting','dispatching','uncertain','outcome','settled','cancelled')),
+          result_mutation_id TEXT,
+          UNIQUE(instance_id,task_id,requested_seq,device_id)
+        );
+        CREATE TABLE IF NOT EXISTS personal_cloud_deferred_changes (
+          instance_id TEXT NOT NULL,
+          product TEXT NOT NULL CHECK (product = 'tasks'),
+          change_seq INTEGER NOT NULL CHECK (change_seq > 0),
+          entity_id TEXT NOT NULL,
+          canonical_json TEXT NOT NULL,
+          PRIMARY KEY(instance_id,product,change_seq)
+        );
+
+        CREATE TABLE IF NOT EXISTS personal_cloud_applied_changes (
+          instance_id TEXT NOT NULL,
+          product TEXT NOT NULL CHECK (product = 'tasks'),
+          change_seq INTEGER NOT NULL CHECK (change_seq > 0),
+          mutation_id TEXT NOT NULL,
+          entity_id TEXT NOT NULL,
+          applied_at INTEGER NOT NULL,
+          PRIMARY KEY (instance_id, product, change_seq),
+          UNIQUE (instance_id, product, mutation_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS personal_cloud_tombstones (
+          instance_id TEXT NOT NULL,
+          product TEXT NOT NULL CHECK (product = 'tasks'),
+          entity_id TEXT NOT NULL,
+          entity_version INTEGER NOT NULL CHECK (entity_version > 0),
+          deleted_at INTEGER NOT NULL,
+          purge_after INTEGER,
+          PRIMARY KEY (instance_id, product, entity_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS personal_cloud_replica_entities (
+          instance_id TEXT NOT NULL,
+          product TEXT NOT NULL CHECK (product = 'tasks'),
+          entity_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+          PRIMARY KEY(instance_id,product,entity_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS personal_cloud_entity_versions (
+          instance_id TEXT NOT NULL,
+          product TEXT NOT NULL CHECK (product = 'tasks'),
+          entity_id TEXT NOT NULL,
+          entity_version INTEGER NOT NULL CHECK (entity_version > 0),
+          updated_at INTEGER NOT NULL,
+          PRIMARY KEY(instance_id,product,entity_id)
+        );
+
         CREATE INDEX IF NOT EXISTS idx_tasks_integration_id ON tasks(integration_id);
         CREATE INDEX IF NOT EXISTS idx_tasks_provider_connection_id ON tasks(provider_connection_id);
         CREATE INDEX IF NOT EXISTS idx_tasks_source ON tasks(source_connection_id, source_external_id);
@@ -3750,5 +6301,7 @@ public sealed class SqliteTaskStore(string databasePath, bool readOnly = false) 
         CREATE INDEX IF NOT EXISTS idx_provider_source_items_parent ON provider_source_items(provider_connection_id, parent_external_id);
         CREATE INDEX IF NOT EXISTS idx_task_external_links_task ON task_external_links(task_id, integration_id);
         CREATE INDEX IF NOT EXISTS idx_sync_item_links_route_source ON sync_item_links(route_id, source_external_id);
+        CREATE INDEX IF NOT EXISTS idx_personal_cloud_outbox_pending
+          ON personal_cloud_outbox(product, instance_id, device_id, acknowledged_at, device_sequence);
         """;
 }

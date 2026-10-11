@@ -35,6 +35,9 @@
     <MicrosoftGraphTenantId Condition="'$(MicrosoftGraphTenantId)' == ''">common</MicrosoftGraphTenantId>
     <GitHubClientId Condition="'$(GitHubClientId)' == '' and '$(OpenzaTasksGitHubClientId)' != ''">$(OpenzaTasksGitHubClientId)</GitHubClientId>
     <GitHubClientId Condition="'$(GitHubClientId)' == ''">Ov23liA6rFJwuT18Zv3m</GitHubClientId>
+    <CloudflareOAuthClientId Condition="'$(CloudflareOAuthClientId)' == ''">ab8248060e7dc03bb9ccf7f71c179e45</CloudflareOAuthClientId>
+    <CloudflareOAuthScopes Condition="'$(CloudflareOAuthScopes)' == ''">account-settings.read d1.write workers-scripts.write</CloudflareOAuthScopes>
+    <CloudflareOAuthRedirectUri Condition="'$(CloudflareOAuthRedirectUri)' == ''">http://127.0.0.1:48192/cloudflare/callback</CloudflareOAuthRedirectUri>
     <LocalPackageSigningEnabled Condition="'$(LocalPackageSigningEnabled)' == ''">false</LocalPackageSigningEnabled>
     <AppxPackageSigningEnabled Condition="'$(LocalPackageSigningEnabled)' == 'true' and Exists('$(LocalPackageCertificateKeyFile)')">true</AppxPackageSigningEnabled>
     <AppxPackageSigningEnabled Condition="'$(LocalPackageSigningEnabled)' != 'true' or !Exists('$(LocalPackageCertificateKeyFile)')">false</AppxPackageSigningEnabled>
@@ -66,6 +69,16 @@
       <_Parameter1>GitHubClientId</_Parameter1>
       <_Parameter2>$(GitHubClientId)</_Parameter2>
     </AssemblyAttribute>
+  </ItemGroup>
+
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute"><_Parameter1>CloudflareOAuthClientId</_Parameter1><_Parameter2>$(CloudflareOAuthClientId)</_Parameter2></AssemblyAttribute>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute"><_Parameter1>CloudflareOAuthScopes</_Parameter1><_Parameter2>$(CloudflareOAuthScopes)</_Parameter2></AssemblyAttribute>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute"><_Parameter1>CloudflareOAuthRedirectUri</_Parameter1><_Parameter2>$(CloudflareOAuthRedirectUri)</_Parameter2></AssemblyAttribute>
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(PersonalCloudArtifactDirectory)' != '' and Exists('$(PersonalCloudArtifactDirectory)/artifact-manifest.json')">
+    <Content Include="$(PersonalCloudArtifactDirectory)/**/*" Link="PersonalCloudArtifact/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

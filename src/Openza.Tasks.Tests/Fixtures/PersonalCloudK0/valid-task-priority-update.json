@@ -1,0 +1,15 @@
+{
+  "protocolVersion": 1,
+  "product": "tasks",
+  "instanceId": "instance_00000000000000000000000000000001",
+  "deviceId": "device_00000000000000000000000000000001",
+  "mutationId": "mutation_00000000000000000000000000000004",
+  "deviceSequence": 4,
+  "operation": "task.updateOpenzaFields",
+  "entityId": "local_00000000000000000000000000000001",
+  "baseEntityVersion": 3,
+  "payload": {
+    "priority": 1
+  },
+  "clientCreatedAt": "2026-09-13T06:36:00.000Z"
+}

@@ -20,6 +20,9 @@ grep -Fq 'command: bin/openza-cli-launch' "$manifest"
 awk '/^  openza:$/ { cli = 1; next } cli && /^[^ ]|^  [^ ]/ { exit } cli { print }' "$manifest" \
   | grep -Fq 'snap/command-chain/gpu-2404-wrapper'
 grep -Fq 'libsecret-tools' "$manifest"
+grep -Fq 'network-bind' "$manifest"
+grep -Fq 'password-manager-service' "$manifest"
+grep -Fq 'PersonalCloudArtifactDirectory: ../../packaging/personal-cloud/artifact' "$manifest"
 grep -Fq 'libicu74' "$manifest"
 grep -Fq 'extensions: [gnome]' "$manifest"
 test "$(grep -Fc "version: '1.1.0'" "$manifest")" -eq 1
@@ -27,7 +30,11 @@ test "$(grep -Ec "^[[:space:]]+Version: '1.1.0'$" "$manifest")" -eq 2
 test "$(grep -Ec "^[[:space:]]+InformationalVersion: '1.1.0'$" "$manifest")" -eq 2
 test "$(grep -Fc "'.openza-channel': opt/openza-tasks/" "$manifest")" -eq 2
 grep -Fq "'Openza.Tasks.Desktop': opt/openza-tasks/desktop/Openza.Tasks.Desktop" "$manifest"
+grep -Fq "'PersonalCloudArtifact': opt/openza-tasks/desktop/PersonalCloudArtifact" "$manifest"
 grep -Fq "'openza': opt/openza-tasks/cli/openza" "$manifest"
+grep -Fq 'expected_channel="${3:-Production}"' "$repo_root/packaging/snap/build-local-snap.sh"
+grep -Fq 'OpenzaPackagingProfile: Preview' "$repo_root/packaging/snap/build-personal-cloud-preview-snap.sh"
+grep -Fq 'openza-tasks_pcdev' "$repo_root/docs/snap-release.md"
 grep -Fq 'SNAP_USER_COMMON/dotnet/desktop' "$repo_root/snap/local/openza-tasks-launch"
 grep -Fq 'SNAP_USER_COMMON/dotnet/cli' "$repo_root/snap/local/openza-cli-launch"
 grep -Fq 'opt/openza-tasks/desktop/Openza.Tasks.Desktop' "$repo_root/snap/local/openza-tasks-launch"

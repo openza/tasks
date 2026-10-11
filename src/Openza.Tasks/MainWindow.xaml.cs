@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml.Media;
 using Openza.Tasks.Core.Credentials;
 using Openza.Tasks.Core.Data;
 using Openza.Tasks.Core.Services;
+using Openza.Tasks.Core.PersonalCloud;
 using Openza.Tasks.Core.Sync;
 using Openza.Tasks.Services;
 using Openza.Tasks.Shell;
@@ -23,7 +24,8 @@ public sealed partial class MainWindow : Window
         BackupService backupService,
         AppSettingsService settings,
         MicrosoftGraphAuthService microsoftAuth,
-        BackupInfo? startupRecoveryCandidate = null)
+        BackupInfo? startupRecoveryCandidate = null,
+        IPersonalCloudSetupService? personalCloudSetup = null)
     {
         _settings = settings;
 
@@ -40,7 +42,7 @@ public sealed partial class MainWindow : Window
         RestoreWindowState();
         Closed += OnClosed;
 
-        _shell = new AppShell(this, store, syncEngine, credentials, backupService, settings, microsoftAuth, startupRecoveryCandidate);
+        _shell = new AppShell(this, store, syncEngine, credentials, backupService, settings, microsoftAuth, startupRecoveryCandidate, personalCloudSetup);
         Root.Children.Add(_shell);
     }
 
