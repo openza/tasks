@@ -12,6 +12,38 @@ public sealed class PersonalCloudK3PullTests : IDisposable
     private readonly string _directory = Path.Combine(Path.GetTempPath(), "openza-personal-cloud-k3-tests", Guid.NewGuid().ToString("N"));
 
     [Fact]
+    public async Task Repaired_device_resumes_shared_replica_cursor_without_replaying_or_skipping_uncommitted_changes()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        await store.ApplyPersonalCloudChangePageAsync(InstanceId, DeviceId, ReadFixture("pulled-change-page.json"));
+        const string replacement = "device_replacement";
+        Assert.Equal(1, await store.GetPersonalCloudCheckpointAsync(InstanceId, replacement));
+        Assert.Equal(0, await store.GetPersonalCloudCheckpointAsync("different_instance", replacement));
+        var titlePage = ReadFixture("pulled-title-update-page.json");
+        await Assert.ThrowsAsync<InvalidOperationException>(() => store.ApplyPersonalCloudChangePageAsync(InstanceId, replacement, titlePage, failAfterTaskWrite: true));
+        Assert.Equal(1, await store.GetPersonalCloudCheckpointAsync(InstanceId, replacement));
+        Assert.Equal("Validate one task", (await store.GetTaskAsync("local_00000000000000000000000000000001"))!.Title);
+        Assert.Equal(2, await store.ApplyPersonalCloudChangePageAsync(InstanceId, replacement, titlePage));
+        Assert.Equal(2, await store.GetPersonalCloudCheckpointAsync(InstanceId, DeviceId));
+        Assert.Equal(2, await store.GetPersonalCloudCheckpointAsync(InstanceId, "third_device"));
+        Assert.Equal(2, await store.ApplyPersonalCloudChangePageAsync(InstanceId, DeviceId, titlePage));
+        Assert.Equal(1, await CountRowsAsync(store.DatabasePath, "tasks"));
+        Assert.Equal(2, await CountRowsAsync(store.DatabasePath, "personal_cloud_applied_changes"));
+        var fresh = new SqliteTaskStore(Path.Combine(_directory, "fresh.db"));
+        await fresh.InitializeAsync();
+        Assert.Equal(0, await fresh.GetPersonalCloudCheckpointAsync(InstanceId, replacement));
+        const string emptyBootstrap = """
+            {"protocolVersion":1,"product":"tasks","checkpoint":0,"snapshot":{"spaces":[],"projects":[],"tasks":[],"labels":[],"taskLabels":[],"tombstones":[]}}
+            """;
+        await store.ReplacePersonalCloudReplicaFromBootstrapAsync("different_instance", replacement, emptyBootstrap.Replace("\"checkpoint\":0", "\"checkpoint\":9"));
+        Assert.Equal(2, await store.GetPersonalCloudCheckpointAsync(InstanceId, replacement));
+        await store.ReplacePersonalCloudReplicaFromBootstrapAsync(InstanceId, replacement, emptyBootstrap);
+        Assert.Equal(0, await store.GetPersonalCloudCheckpointAsync(InstanceId, DeviceId));
+        Assert.Equal(9, await store.GetPersonalCloudCheckpointAsync("different_instance", replacement));
+    }
+
+    [Fact]
     public async Task One_change_reconstructs_the_task_and_checkpoint_and_repeated_apply_is_harmless()
     {
         var store = CreateStore();

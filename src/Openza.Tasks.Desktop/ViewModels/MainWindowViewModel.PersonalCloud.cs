@@ -109,6 +109,7 @@ public sealed partial class MainWindowViewModel
         IsConnectingPersonalCloud = true;
         PersonalCloudStatusText = "Pairing";
         PersonalCloudSummaryText = "Verifying this Personal Cloud and pairing this desktop.";
+        PersonalCloudConnectionProfile? pairedConnection = null;
         try
         {
             var connection = await _personalCloudSetup.PairExistingAsync(
@@ -117,6 +118,7 @@ public sealed partial class MainWindowViewModel
                 Environment.MachineName,
                 providerBridge,
                 cancellationToken);
+            pairedConnection = connection;
             var sync = await _personalCloudSetup.SyncAsync(cancellationToken);
             PersonalCloudStatusText = "Connected";
             PersonalCloudSummaryText = $"This desktop is paired with {connection.ServiceOrigin.Host}. Cloud connection verified at checkpoint {sync.Checkpoint}.";
@@ -126,12 +128,14 @@ public sealed partial class MainWindowViewModel
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
+            if (pairedConnection is not null) return ReportPairedSyncIncomplete(pairedConnection);
             PersonalCloudStatusText = "Not connected";
             PersonalCloudSummaryText = "Pairing was cancelled. The one-time code can be retried until it expires.";
             return null;
         }
         catch (PersonalCloudK0ContractException exception)
         {
+            if (pairedConnection is not null) return ReportPairedSyncIncomplete(pairedConnection);
             PersonalCloudStatusText = "Needs attention";
             PersonalCloudSummaryText = exception.Code == "health_mismatch"
                 ? "This Personal Cloud must be updated before this desktop can pair."
@@ -140,6 +144,7 @@ public sealed partial class MainWindowViewModel
         }
         catch
         {
+            if (pairedConnection is not null) return ReportPairedSyncIncomplete(pairedConnection);
             PersonalCloudStatusText = "Needs attention";
             PersonalCloudSummaryText = "Pairing stopped safely. Create a new code in Personal Cloud Settings and try again.";
             return null;
@@ -150,6 +155,15 @@ public sealed partial class MainWindowViewModel
         }
     }
 
+    private PersonalCloudConnectionProfile ReportPairedSyncIncomplete(PersonalCloudConnectionProfile connection)
+    {
+        PersonalCloudStatusText = "Needs attention";
+        PersonalCloudSummaryText = "This desktop is paired, but its first sync did not finish. Retry Sync; no new pairing code is needed.";
+        PersonalCloudActionText = "Manage Personal Cloud";
+        OnPropertyChanged(nameof(IsPersonalCloudConnected));
+        return connection;
+    }
+
     public Task OpenPersonalCloudSettingsAsync(CancellationToken cancellationToken = default)
     {
         var current = _personalCloudSetup?.CurrentConnection
@@ -157,16 +171,23 @@ public sealed partial class MainWindowViewModel
         return OpenUriAsync(new Uri(current.ServiceOrigin, "/settings"), cancellationToken);
     }
 
-    public async Task<bool> ExportPersonalCloudAsync(CancellationToken cancellationToken = default)
+    public async Task<bool> ExportPersonalCloudAsync(
+        Func<CloudflareD1Export, CancellationToken, Task> saveBackup,
+        CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(saveBackup);
         if (_personalCloudSetup is null) return false;
         return await RunManagementAsync(
-            "Preparing backup",
-            "Authorize Cloudflare to prepare a complete SQL backup.",
+            "Waiting for Cloudflare authorization",
+            "Complete Cloudflare authorization in your browser to prepare a backup. You can cancel this attempt in the management window; authorization expires after five minutes.",
             async () =>
             {
                 var result = await _personalCloudSetup.ExportAsync(cancellationToken);
-                PersonalCloudSummaryText = $"Cloudflare prepared {result.FileName}. The secure download opened in your browser.";
+                cancellationToken.ThrowIfCancellationRequested();
+                PersonalCloudStatusText = "Saving backup";
+                PersonalCloudSummaryText = "Choose a local destination for the Personal Cloud backup.";
+                await saveBackup(result, cancellationToken);
+                PersonalCloudSummaryText = "Personal Cloud backup saved.";
             });
     }
 
@@ -232,6 +253,7 @@ public sealed partial class MainWindowViewModel
             PersonalCloudSummaryText = exception.Code switch
             {
                 "oauth_denied" => "Cloudflare authorization was cancelled. No cloud resource was changed.",
+                "oauth_timeout" => "Cloudflare authorization expired. Open Manage Personal Cloud and try Download backup again.",
                 "resource_not_found" => "The Personal Cloud resources were not found in the authorized Cloudflare account.",
                 "account_selection_required" => "Authorize only the Cloudflare account containing this Personal Cloud.",
                 "cloudflare_export_timeout" => "Cloudflare did not finish the backup in time. Your Personal Cloud was not changed.",

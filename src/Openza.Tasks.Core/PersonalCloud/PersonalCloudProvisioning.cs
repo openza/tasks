@@ -208,10 +208,7 @@ public sealed class PersonalCloudSetupService(
         var current = RequireConnection();
         if (management is null)
             throw new PersonalCloudK0ContractException("management_unavailable", "Personal Cloud management is not available in this build.");
-        var export = await management.ExportAsync(current, cancellationToken).ConfigureAwait(false);
-        if (openOwnerBootstrap is not null)
-            await openOwnerBootstrap(export.DownloadUri, cancellationToken).ConfigureAwait(false);
-        return export;
+        return await management.ExportAsync(current, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<PersonalCloudUpgradeResult> UpgradeAsync(CancellationToken cancellationToken = default)

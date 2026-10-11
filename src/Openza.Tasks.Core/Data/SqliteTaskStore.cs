@@ -3546,6 +3546,7 @@ public sealed class SqliteTaskStore(string databasePath, bool readOnly = false) 
         var bootstrap=PersonalCloudBootstrapCodec.Parse(bootstrapJson);await using var connection=await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);await using var transaction=await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         var clear=connection.CreateCommand();clear.CommandText="""
           DELETE FROM personal_cloud_applied_changes WHERE instance_id=@i AND product='tasks';
+          DELETE FROM personal_cloud_checkpoints WHERE instance_id=@i AND product='tasks';
           DELETE FROM personal_cloud_tombstones WHERE instance_id=@i AND product='tasks';
           DELETE FROM personal_cloud_entity_versions WHERE instance_id=@i AND product='tasks';
           DELETE FROM task_labels WHERE task_id IN(SELECT entity_id FROM personal_cloud_replica_entities WHERE instance_id=@i AND product='tasks');
@@ -3620,12 +3621,14 @@ public sealed class SqliteTaskStore(string databasePath, bool readOnly = false) 
     {
         var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT last_change_seq
+            -- Tasks and the applied-change journal belong to this local replica,
+            -- not its replaceable authentication device. Device acknowledgements
+            -- remain scoped to the current device on the server.
+            SELECT MAX(last_change_seq)
             FROM personal_cloud_checkpoints
-            WHERE instance_id = @instance_id AND device_id = @device_id AND product = @product
+            WHERE instance_id = @instance_id AND product = @product
             """;
         command.Parameters.AddWithValue("@instance_id", instanceId);
-        command.Parameters.AddWithValue("@device_id", deviceId);
         command.Parameters.AddWithValue("@product", PersonalCloudK0Protocol.TasksProduct);
         var value = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
         return value is null or DBNull ? 0L : Convert.ToInt64(value);

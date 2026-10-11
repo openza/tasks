@@ -36,6 +36,17 @@ jobs:
         working-directory: src/Openza.Tasks.Desktop
         run: dotnet build Openza.Tasks.Desktop.csproj -c Release --no-restore
 
+      - name: Setup Node for pinned Personal Cloud artifact
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+
+      - name: Test artifact verification
+        run: node --test scripts/personal-cloud/stage-artifact.test.mjs
+
+      - name: Validate Desktop publish with pinned Personal Cloud artifact
+        run: node scripts/personal-cloud/publish-desktop.mjs 1.1.0
+
       - name: Validate Snap packaging contract
         run: bash packaging/snap/test-snap-package.sh
 

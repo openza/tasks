@@ -10,12 +10,12 @@ namespace Openza.Tasks.Tests;
 public sealed class PersonalCloudLifecycleIntegrationTests
 {
     [Fact]
-    public async Task Backup_opens_the_export_and_revokes_authorization_without_changing_tasks_or_profile()
+    public async Task Backup_returns_the_export_after_revoking_authorization_without_opening_it_or_changing_local_state()
     {
         using var f = await Fixture.CreateAsync();
         var result = await f.Service.ExportAsync();
         Assert.Equal(new Uri("https://downloads.example.test/backup.sql"), result.DownloadUri);
-        Assert.Equal(result.DownloadUri, Assert.Single(f.Opened));
+        Assert.Empty(f.Opened);
         Assert.Equal(new[] { "oauth-token", "accounts", "databases", "export", "oauth-revoke" }, f.Events);
         await f.AssertPreservedAsync();
     }

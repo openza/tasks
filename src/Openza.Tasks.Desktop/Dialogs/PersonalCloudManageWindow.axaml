@@ -73,7 +73,8 @@
         </StackPanel>
       </Border>
 
-      <TextBlock x:Name="ResultText" Foreground="{DynamicResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
+      <TextBlock x:Name="ResultText" Text="{ReflectionBinding PersonalCloudSummaryText}" Foreground="{DynamicResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
+      <Button x:Name="CancelBackupButton" IsVisible="False" HorizontalAlignment="Right" Click="OnCancelBackupClicked" Content="Cancel backup"/>
       <Button HorizontalAlignment="Right" Click="OnCloseClicked" Content="Close"/>
     </StackPanel>
   </ScrollViewer>

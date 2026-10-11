@@ -1,5 +1,7 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using Avalonia.Platform.Storage;
+using Openza.Tasks.Desktop.Services;
 using Openza.Tasks.Desktop.ViewModels;
 
 namespace Openza.Tasks.Desktop.Dialogs;
@@ -7,12 +9,14 @@ namespace Openza.Tasks.Desktop.Dialogs;
 public sealed partial class PersonalCloudManageWindow : Window
 {
     private readonly MainWindowViewModel? _viewModel;
+    private CancellationTokenSource? _backupCancellation;
 
     public PersonalCloudManageWindow() => InitializeComponent();
 
     public PersonalCloudManageWindow(MainWindowViewModel viewModel) : this()
     {
         _viewModel = viewModel;
+        DataContext = viewModel;
     }
 
     private async void OnOpenTasksClicked(object? sender, RoutedEventArgs e)
@@ -27,12 +31,46 @@ public sealed partial class PersonalCloudManageWindow : Window
 
     private async void OnExportClicked(object? sender, RoutedEventArgs e)
     {
-        if (_viewModel is null) return;
+        if (_viewModel is null || _backupCancellation is not null) return;
+        using var cancellation = new CancellationTokenSource();
+        _backupCancellation = cancellation;
         SetBusy(true);
-        var success = await _viewModel.ExportPersonalCloudAsync();
-        ResultText.Text = _viewModel.PersonalCloudSummaryText;
-        SetBusy(false);
-        if (success) RemoveConfirmationText.Text = string.Empty;
+        CancelBackupButton.IsVisible = true;
+        try
+        {
+            var success = await _viewModel.ExportPersonalCloudAsync(async (export, cancellationToken) =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                using var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+                {
+                    Title = "Save Personal Cloud backup",
+                    SuggestedFileName = $"openza-personal-cloud-{DateTime.Now:yyyy-MM-dd}.sql",
+                    DefaultExtension = "sql",
+                    FileTypeChoices = [new FilePickerFileType("SQL backup") { Patterns = ["*.sql"] }],
+                    ShowOverwritePrompt = true,
+                });
+                cancellationToken.ThrowIfCancellationRequested();
+                if (file is null) throw new OperationCanceledException();
+                var path = file.TryGetLocalPath();
+                if (string.IsNullOrWhiteSpace(path)) throw new IOException("Choose a local destination for the backup.");
+                await PersonalCloudBackupDownloader.Default.SaveAsync(export, path, cancellationToken);
+            }, cancellation.Token);
+            if (success) RemoveConfirmationText.Text = string.Empty;
+        }
+        finally
+        {
+            _backupCancellation = null;
+            CancelBackupButton.IsVisible = false;
+            SetBusy(false);
+        }
+    }
+
+    private void OnCancelBackupClicked(object? sender, RoutedEventArgs e) => _backupCancellation?.Cancel();
+
+    protected override void OnClosed(EventArgs e)
+    {
+        _backupCancellation?.Cancel();
+        base.OnClosed(e);
     }
 
     private async void OnUpdateClicked(object? sender, RoutedEventArgs e)
@@ -40,7 +78,6 @@ public sealed partial class PersonalCloudManageWindow : Window
         if (_viewModel is null) return;
         SetBusy(true);
         await _viewModel.UpgradePersonalCloudAsync();
-        ResultText.Text = _viewModel.PersonalCloudSummaryText;
         SetBusy(false);
     }
 
@@ -54,7 +91,6 @@ public sealed partial class PersonalCloudManageWindow : Window
         if (await _viewModel.DisconnectPersonalCloudAsync()) Close(true);
         else
         {
-            ResultText.Text = _viewModel.PersonalCloudSummaryText;
             SetBusy(false);
         }
     }
@@ -69,7 +105,6 @@ public sealed partial class PersonalCloudManageWindow : Window
         if (await _viewModel.RemovePersonalCloudAsync()) Close(true);
         else
         {
-            ResultText.Text = _viewModel.PersonalCloudSummaryText;
             SetBusy(false);
         }
     }
