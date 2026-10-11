@@ -99,8 +99,28 @@ public sealed class PersonalCloudSetupService(
     PersonalCloudDeviceIdentityClient? deviceIdentity = null,
     HttpClient? syncHttp = null,
     Openza.Tasks.Core.Data.SqliteTaskStore? taskStore = null,
-    PersonalCloudManagementCoordinator? management = null) : IPersonalCloudSetupService
+    PersonalCloudManagementCoordinator? management = null) : IPersonalCloudSetupService, IPersonalCloudProviderBridgeService
 {
+    private PersonalCloudProviderBridge CreateProviderBridge()
+    {
+        if (CurrentConnection is not { } current || syncHttp is null || deviceIdentity is null || taskStore is null)
+            throw new PersonalCloudK0ContractException("invalid_state", "Personal Cloud is not connected for provider delivery.");
+        return new PersonalCloudProviderBridge(taskStore,
+            new PersonalCloudProviderDeliveryClient(syncHttp, deviceIdentity, current), current);
+    }
+
+    public async Task<PersonalCloudProviderBridgeResult> RunProviderBridgeAsync(IReadOnlyList<PersonalCloudConfiguredProvider> providers,
+        CancellationToken cancellationToken = default)
+    {
+        using var lease = taskStore is null ? null : PersonalCloudConnectionLease.AcquireAuthoring(taskStore.DatabasePath);
+        return await CreateProviderBridge().RunAsync(providers, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task RetryProviderCommandAsync(string taskId, CancellationToken cancellationToken = default)
+    {
+        using var lease = taskStore is null ? null : PersonalCloudConnectionLease.AcquireAuthoring(taskStore.DatabasePath);
+        await CreateProviderBridge().RetryAsync(taskId, cancellationToken).ConfigureAwait(false);
+    }
     public bool IsConfigured => !string.IsNullOrWhiteSpace(artifactVersion);
     public PersonalCloudConnectionProfile? CurrentConnection { get; private set; } = connectionStore?.Load();
 
@@ -115,12 +135,15 @@ public sealed class PersonalCloudSetupService(
         CancellationToken cancellationToken = default,
         IProgress<PersonalCloudSetupProgress>? progress = null)
     {
+        using var connectionLease = taskStore is null ? null : PersonalCloudConnectionLease.AcquireReplacement(taskStore.DatabasePath);
+        if (taskStore is not null)
+            await taskStore.EnsureNoPendingPersonalCloudIntentsAsync(cancellationToken).ConfigureAwait(false);
         var result = await coordinator.ConnectAsync(artifactVersion, cancellationToken, progress).ConfigureAwait(false);
         if (connectionStore is not null)
         {
             if (result.InstanceId is null || result.DeviceId is null)
                 throw new PersonalCloudK0ContractException("invalid_state", "Personal Cloud pairing did not return a device identity.");
-            CurrentConnection = new PersonalCloudConnectionProfile
+            var connection = new PersonalCloudConnectionProfile
             {
                 ServiceOrigin = result.ServiceOrigin,
                 InstanceId = result.InstanceId,
@@ -128,7 +151,9 @@ public sealed class PersonalCloudSetupService(
                 ArtifactVersion = result.ArtifactVersion,
                 ConnectedAt = DateTimeOffset.UtcNow,
             };
-            await connectionStore.SaveAsync(CurrentConnection, cancellationToken).ConfigureAwait(false);
+            await connectionStore.SaveAsync(connection, cancellationToken).ConfigureAwait(false);
+            CurrentConnection = connection;
+            await coordinator.ConfirmConnectionSavedAsync(connection, cancellationToken).ConfigureAwait(false);
         }
         if (openOwnerBootstrap is not null)
             await openOwnerBootstrap(result.OwnerBootstrapUri, cancellationToken).ConfigureAwait(false);
@@ -138,12 +163,14 @@ public sealed class PersonalCloudSetupService(
 
     public async Task<PersonalCloudSyncResult> SyncAsync(CancellationToken cancellationToken = default)
     {
+        using var connectionLease = taskStore is null ? null : PersonalCloudConnectionLease.AcquireAuthoring(taskStore.DatabasePath);
         var current = CurrentConnection
             ?? throw new PersonalCloudK0ContractException("not_connected", "Personal Cloud is not connected.");
         if (deviceIdentity is null || syncHttp is null || taskStore is null)
             throw new PersonalCloudK0ContractException("sync_unavailable", "Personal Cloud sync is not available in this build.");
         var client = new PersonalCloudSyncClient(syncHttp, deviceIdentity, taskStore, current);
         var firstPass = await client.SyncAsync(cancellationToken).ConfigureAwait(false);
+        if (firstPass.BlockedCode is not null) return firstPass;
         var staged = await taskStore.StageUnpublishedTasksForPersonalCloudAsync(
             current.InstanceId,
             current.DeviceId,
@@ -161,6 +188,8 @@ public sealed class PersonalCloudSetupService(
             pushed = checked(pushed + pass.PushedMutations);
             pulled = checked(pulled + pass.PulledChanges);
             checkpoint = pass.Checkpoint;
+            if (pass.BlockedCode is not null)
+                return new PersonalCloudSyncResult(pushed, pulled, checkpoint) { BlockedCode = pass.BlockedCode };
         }
         return new PersonalCloudSyncResult(
             pushed,
@@ -177,6 +206,9 @@ public sealed class PersonalCloudSetupService(
     {
         if (connectionStore is null || deviceIdentity is null || syncHttp is null || taskStore is null)
             throw new PersonalCloudK0ContractException("sync_unavailable", "Personal Cloud pairing is not available in this build.");
+
+        using var connectionLease = PersonalCloudConnectionLease.AcquireReplacement(taskStore.DatabasePath);
+        await taskStore.EnsureNoPendingPersonalCloudIntentsAsync(cancellationToken).ConfigureAwait(false);
 
         var health = await new PersonalCloudHealthClient(syncHttp)
             .InspectAsync(serviceOrigin, cancellationToken).ConfigureAwait(false);
@@ -224,9 +256,12 @@ public sealed class PersonalCloudSetupService(
 
     public async Task DisconnectAsync(CancellationToken cancellationToken = default)
     {
+        using var connectionLease = taskStore is null ? null : PersonalCloudConnectionLease.AcquireReplacement(taskStore.DatabasePath);
         var current = RequireConnection();
         if (deviceIdentity is null || connectionStore is null)
             throw new PersonalCloudK0ContractException("management_unavailable", "Personal Cloud management is not available in this build.");
+        if (taskStore is not null)
+            await taskStore.EnsureNoPendingPersonalCloudIntentsAsync(cancellationToken).ConfigureAwait(false);
         await deviceIdentity.RevokeAsync(current.ServiceOrigin, cancellationToken).ConfigureAwait(false);
         await connectionStore.ClearAsync(cancellationToken).ConfigureAwait(false);
         CurrentConnection = null;
@@ -299,8 +334,10 @@ public sealed class PersonalCloudProvisioningCoordinator(
             throw new PersonalCloudK0ContractException("invalid_request", "A versioned Personal Cloud artifact is required.");
 
         var state = await stateStore.LoadAsync(cancellationToken).ConfigureAwait(false);
-        if (state is null || !string.Equals(state.ArtifactVersion, artifactVersion, StringComparison.Ordinal) ||
-            state.Stage == PersonalCloudProvisioningStage.Complete)
+        if (state is not null && !string.Equals(state.ArtifactVersion, artifactVersion, StringComparison.Ordinal))
+            throw new PersonalCloudK0ContractException("setup_resume_required",
+                "An interrupted Personal Cloud setup must be finished with its original artifact before starting another setup.");
+        if (state is null)
         {
             state = new PersonalCloudProvisioningState
             {
@@ -377,7 +414,6 @@ public sealed class PersonalCloudProvisioningCoordinator(
             await oauth.RevokeAsync(access.AccessToken, CancellationToken.None).ConfigureAwait(false);
             state = state with { Stage = PersonalCloudProvisioningStage.Complete, LastErrorCode = null };
             await stateStore.SaveAsync(state, cancellationToken).ConfigureAwait(false);
-            await stateStore.ClearAsync(cancellationToken).ConfigureAwait(false);
             return result;
         }
         catch (Exception exception)
@@ -391,6 +427,16 @@ public sealed class PersonalCloudProvisioningCoordinator(
             }
             throw;
         }
+    }
+
+    public async Task ConfirmConnectionSavedAsync(
+        PersonalCloudConnectionProfile connection, CancellationToken cancellationToken = default)
+    {
+        var state = await stateStore.LoadAsync(cancellationToken).ConfigureAwait(false);
+        if (state is null || state.Stage != PersonalCloudProvisioningStage.Complete ||
+            state.ServiceOrigin != connection.ServiceOrigin || state.ArtifactVersion != connection.ArtifactVersion)
+            throw new PersonalCloudK0ContractException("invalid_state", "The completed setup does not match the saved Personal Cloud connection.");
+        await stateStore.ClearAsync(cancellationToken).ConfigureAwait(false);
     }
 
     private static T Required<T>(T? value) where T : class => value ?? throw new PersonalCloudK0ContractException("invalid_state", "Personal Cloud setup state is incomplete.");

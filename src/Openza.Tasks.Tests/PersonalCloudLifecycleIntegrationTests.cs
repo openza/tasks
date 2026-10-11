@@ -4,11 +4,53 @@ using Openza.Tasks.Core.Credentials;
 using Openza.Tasks.Core.Data;
 using Openza.Tasks.Core.Models;
 using Openza.Tasks.Core.PersonalCloud;
+using Openza.Tasks.Application.Tasks;
 
 namespace Openza.Tasks.Tests;
 
 public sealed class PersonalCloudLifecycleIntegrationTests
 {
+    [Fact]
+    public async Task Connection_replacement_and_authoring_leases_close_the_pending_check_race()
+    {
+        using var f = await Fixture.CreateAsync();
+        using (PersonalCloudConnectionLease.AcquireAuthoring(f.Tasks.DatabasePath))
+        {
+            var error = await Assert.ThrowsAsync<PersonalCloudK0ContractException>(() => f.Service.DisconnectAsync());
+            Assert.Equal("connection_busy", error.Code);
+            Assert.Empty(f.Events);
+        }
+        using (PersonalCloudConnectionLease.AcquireReplacement(f.Tasks.DatabasePath))
+        {
+            var service = new TaskApplicationService(f.Tasks, () => f.Service.CurrentConnection);
+            var error = await Assert.ThrowsAsync<PersonalCloudK0ContractException>(() =>
+                service.CreateTaskAsync(new CreateTaskRequest { Title = "Do not create during replacement" }));
+            Assert.Equal("connection_busy", error.Code);
+            Assert.Single(await f.Tasks.GetTasksAsync(new TaskQuery { Kind = TaskListKind.All }));
+        }
+        await f.Service.DisconnectAsync();
+        Assert.Null(f.Service.CurrentConnection);
+    }
+
+    [Fact]
+    public async Task Pending_edits_block_disconnect_and_repair_before_credentials_or_profile_change()
+    {
+        using var f = await Fixture.CreateAsync();
+        var original = f.Service.CurrentConnection!;
+        await f.Tasks.StageUnpublishedTasksForPersonalCloudAsync(original.InstanceId, original.DeviceId);
+
+        var disconnect = await Assert.ThrowsAsync<PersonalCloudK0ContractException>(() => f.Service.DisconnectAsync());
+        var repair = await Assert.ThrowsAsync<PersonalCloudK0ContractException>(() =>
+            f.Service.PairExistingAsync(original.ServiceOrigin, "synthetic-pair-code-1234567890", "Replacement desktop", false));
+
+        Assert.Equal("pending_intents", disconnect.Code);
+        Assert.Equal("pending_intents", repair.Code);
+        Assert.Empty(f.Events);
+        Assert.Equal(original, f.Service.CurrentConnection);
+        Assert.Equal(original, f.Connections.Load());
+        Assert.NotEmpty(await f.Tasks.GetPendingPersonalCloudOutboxAsync(original.InstanceId, original.DeviceId));
+    }
+
     [Fact]
     public async Task Backup_returns_the_export_after_revoking_authorization_without_opening_it_or_changing_local_state()
     {

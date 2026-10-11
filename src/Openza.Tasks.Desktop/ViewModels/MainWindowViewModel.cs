@@ -844,6 +844,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             if (_showFirstRunInbox) SelectedNavigation = NavigationItems[0];
             PageTitle = SelectedNavigation.Title;
             await RefreshAsyncCore();
+            await RefreshProviderRequestStatusAsync();
             await LoadConnectedTasksCoreAsync();
             await RefreshTodoistConnectionAsync();
             StatusMessage = $"Local data · {_store.GetType().Name.Replace("TaskStore", string.Empty, StringComparison.Ordinal)}";
@@ -1517,6 +1518,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     public async Task ConnectTodoistAsync()
     {
+        if (IsSyncing) { StatusMessage = "Wait for the current sync before changing the Todoist connection."; return; }
         var token = TodoistToken.Trim();
         if (token.Length == 0)
         {
@@ -1587,39 +1589,57 @@ public sealed partial class MainWindowViewModel : ObservableObject
             if (!await SaveSelectedAsync()) return;
             LastSyncResult = "Syncing connected apps…";
             StatusMessage = LastSyncResult;
+            var bridgeProviders = new List<PersonalCloudConfiguredProvider>();
             var summaries = await Task.Run(async () =>
             {
                 using var databaseLease = Openza.Tasks.Application.Runtime.ChannelRuntimeLease.AcquireDatabaseRead(DesktopDataPaths.Runtime);
                 var results = new List<SyncSummary>();
-                async Task SyncProvider(string integrationId, Func<Task<ISyncProvider?>> factory)
+                async Task SyncProvider(string integrationId, Func<Task<PersonalCloudConfiguredProvider?>> factory)
                 {
                     try
                     {
                         using var lease = Openza.Tasks.Application.Runtime.ChannelRuntimeLease.AcquireProviderSync(DesktopDataPaths.Runtime, integrationId);
-                        var provider = await factory().ConfigureAwait(false);
-                        if (provider is not null) results.Add(await _syncEngine.SyncAsync(provider).ConfigureAwait(false));
+                        var configuration = await factory().ConfigureAwait(false);
+                        if (configuration is not null)
+                        {
+                            var summary = await _syncEngine.SyncAsync(configuration.Provider).ConfigureAwait(false);
+                            results.Add(summary);
+                            if (summary.Success) bridgeProviders.Add(configuration);
+                        }
                     }
                     catch (Exception exception) { results.Add(new SyncSummary(integrationId, false, 0, 0, 0, 0, 0, 0, exception.Message)); }
                 }
                 await SyncProvider(IntegrationIds.Todoist, async () =>
                 {
                     var token = await _credentials.GetAsync(TodoistTokenKey).ConfigureAwait(false);
-                    return string.IsNullOrWhiteSpace(token) ? null : _todoistSyncProviderFactory(token);
+                    return string.IsNullOrWhiteSpace(token) ? null : new PersonalCloudConfiguredProvider(_todoistSyncProviderFactory(token),
+                        Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(token))).ToLowerInvariant());
                 });
                 await SyncProvider(IntegrationIds.MicrosoftToDo, async () =>
                 {
-                    var token = await _microsoftAuth.GetTokenAsync("todo", _preferencesStore.Load().MicrosoftToDoAccount).ConfigureAwait(false);
-                    return string.IsNullOrWhiteSpace(token) ? null : _microsoftSyncProviderFactory(token);
+                    var account = _preferencesStore.Load().MicrosoftToDoAccount;
+                    var token = await _microsoftAuth.GetTokenAsync("todo", account).ConfigureAwait(false);
+                    return string.IsNullOrWhiteSpace(token) || account is null ? null :
+                        new PersonalCloudConfiguredProvider(_microsoftSyncProviderFactory(token), account.HomeAccountId);
                 });
                 return results;
             });
             PersonalCloudSyncResult? personalCloud = null;
+            PersonalCloudProviderBridgeResult? bridgeResult = null;
             string? personalCloudError = null;
             if (_personalCloudSetup?.CurrentConnection is not null)
             {
                 try
                 {
                     personalCloud = await _personalCloudSetup.SyncAsync().ConfigureAwait(true);
+                    if (personalCloud.BlockedCode is null && _personalCloudSetup is IPersonalCloudProviderBridgeService bridge)
+                    {
+                        bridgeResult = await Task.Run(() => bridge.RunProviderBridgeAsync(bridgeProviders)).ConfigureAwait(true);
+                        var resultPass = await _personalCloudSetup.SyncAsync().ConfigureAwait(true);
+                        personalCloud = new PersonalCloudSyncResult(personalCloud.PushedMutations + resultPass.PushedMutations,
+                            personalCloud.PulledChanges + resultPass.PulledChanges, resultPass.Checkpoint) { BlockedCode = resultPass.BlockedCode };
+                    }
+                    await RefreshProviderRequestStatusAsync().ConfigureAwait(true);
                 }
                 catch (Exception exception)
                 {
@@ -1642,9 +1662,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 ? $"{IntegrationIds.DisplayName(summary.Provider)} synced · {summary.TasksAdded} new, {summary.TasksUpdated} updated, {summary.CompletionsSynced} completions, {summary.DateUpdatesSynced} date changes"
                 : $"{IntegrationIds.DisplayName(summary.Provider)} sync failed: {summary.Error}").ToList();
             if (personalCloud is not null)
-                resultMessages.Add($"Personal Cloud synced · {personalCloud.PushedMutations} uploaded, {personalCloud.PulledChanges} downloaded");
+                resultMessages.Add(personalCloud.BlockedCode is null
+                    ? $"Personal Cloud synced · {personalCloud.PushedMutations} uploaded, {personalCloud.PulledChanges} downloaded"
+                    : $"Personal Cloud sync blocked ({personalCloud.BlockedCode}) · {personalCloud.PulledChanges} downloaded. Pending edits are preserved and require resolution.");
             if (personalCloudError is not null)
                 resultMessages.Add($"Personal Cloud sync failed: {personalCloudError}");
+            if (bridgeResult is not null) resultMessages.Add(bridgeResult.Summary);
             LastSyncResult = $"{DateTimeOffset.Now:g} · " + string.Join("; ", resultMessages);
             if (summaries.Any(summary => !summary.Success) || personalCloudError is not null) SetPersistentStatusMessage(LastSyncResult);
             else StatusMessage = LastSyncResult;

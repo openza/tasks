@@ -715,6 +715,12 @@ public sealed partial class MainWindow : Window
         await new PersonalCloudSetupWindow(ViewModel).ShowDialog(this);
     }
 
+    private async void OnRetryProviderRequestClicked(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Control { DataContext: Openza.Tasks.Core.Data.PersonalCloudProviderRequestStatus request } && request.CanRetry)
+            await ViewModel.RetryProviderRequestAsync(request.TaskId);
+    }
+
     private async void OnSyncNavigationClicked(object? sender, RoutedEventArgs e)
     {
         if (!await ViewModel.SaveSelectedAsync()) return;

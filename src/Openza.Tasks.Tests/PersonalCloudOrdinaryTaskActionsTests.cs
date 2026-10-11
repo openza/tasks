@@ -14,6 +14,55 @@ public sealed class PersonalCloudOrdinaryTaskActionsTests : IDisposable
         Path.GetTempPath(), "openza-personal-cloud-ordinary-actions", Guid.NewGuid().ToString("N"));
 
     [Fact]
+    public async Task First_connected_edit_stages_existing_rich_task_and_parent_before_the_edit()
+    {
+        Directory.CreateDirectory(_directory);
+        var store = new SqliteTaskStore(Path.Combine(_directory, "tasks.db"));
+        await store.InitializeAsync();
+        var parent = new TaskItem { Id = "task_existing_parent", Title = "Existing parent", SpaceId = SpaceIds.Default };
+        await store.UpsertTaskAsync(parent);
+        await store.UpsertTaskAsync(new TaskItem
+        {
+            Id = "task_existing_rich",
+            Title = "Existing rich task",
+            SpaceId = SpaceIds.Default,
+            ParentId = parent.Id,
+            WorkflowStatus = TaskWorkflowStatus.Waiting,
+            Priority = 4,
+            PlannedOn = new DateOnly(2026, 10, 12),
+            Notes = "Existing notes",
+        });
+        var original = (await store.GetTaskAsync("task_existing_rich"))!;
+        var connection = new PersonalCloudConnectionProfile
+        {
+            ServiceOrigin = new Uri("https://openza-personal-test.workers.dev/"),
+            InstanceId = InstanceId, DeviceId = DeviceId, ArtifactVersion = "1.2.3", ConnectedAt = DateTimeOffset.UtcNow,
+        };
+        var service = new TaskApplicationService(store, () => connection);
+
+        var updated = await service.UpdateTaskAsync(new UpdateTaskRequest
+        {
+            TaskId = original.Id,
+            ExpectedRevision = original.Revision,
+            Title = OptionalValue<string?>.Set("Edited rich task"),
+        });
+
+        Assert.Equal(original.Notes, updated.Notes);
+        Assert.Equal(original.ParentId, updated.ParentId);
+        Assert.Equal(original.WorkflowStatus, updated.WorkflowStatus);
+        var pending = await store.GetPendingPersonalCloudOutboxAsync(InstanceId, DeviceId);
+        Assert.Equal(2, pending.Count(item => item.Operation == "task.create"));
+        Assert.Contains(pending, item => item.Operation == "task.setParent" && item.EntityId == original.Id);
+        Assert.Contains(pending, item => item.CanonicalJson.Contains("\"workflowStatus\":\"waiting\"", StringComparison.Ordinal));
+        Assert.Contains(pending, item => item.CanonicalJson.Contains("\"priority\":4", StringComparison.Ordinal));
+        Assert.Contains(pending, item => item.CanonicalJson.Contains("2026-10-12", StringComparison.Ordinal));
+        Assert.Equal("task.updateOpenzaFields", pending[^1].Operation);
+        Assert.Contains("Edited rich task", pending[^1].CanonicalJson, StringComparison.Ordinal);
+        foreach (var create in pending.Where(item => item.Operation == "task.create"))
+            PersonalCloudK0Codec.ParseTaskCreateMutation(create.CanonicalJson, InstanceId);
+    }
+
+    [Fact]
     public async Task Connected_ordinary_task_actions_are_durable_cloud_intents()
     {
         Directory.CreateDirectory(_directory);
@@ -40,11 +89,13 @@ public sealed class PersonalCloudOrdinaryTaskActionsTests : IDisposable
             Status = OptionalValue<TaskWorkflowStatus>.Set(TaskWorkflowStatus.Next),
             Priority = OptionalValue<int>.Set(4),
             PlannedOn = OptionalValue<DateOnly?>.Set(new DateOnly(2026, 9, 20)),
+            LocalMetadataJson = OptionalValue<string?>.Set("{\"sourceDateAcknowledged\":true}"),
         });
         Assert.Equal("Renamed", updated.Title);
         Assert.Equal(TaskWorkflowStatus.Next, updated.WorkflowStatus);
         Assert.Equal(4, updated.Priority);
         Assert.Equal(new DateOnly(2026, 9, 20), updated.PlannedOn);
+        Assert.Equal("{\"sourceDateAcknowledged\":true}", updated.LocalMetadataJson);
         Assert.Equal(6, await store.GetPersonalCloudEntityVersionAsync(InstanceId, created.Id));
 
         var completed = await service.SetCompletedAsync(created.Id, true, updated.Revision);
@@ -60,6 +111,7 @@ public sealed class PersonalCloudOrdinaryTaskActionsTests : IDisposable
         Assert.Equal(9, await store.GetPersonalCloudEntityVersionAsync(InstanceId, created.Id));
 
         var pending = await store.GetPendingPersonalCloudOutboxAsync(InstanceId, DeviceId);
+        Assert.All(pending, item => Assert.DoesNotContain("sourceDateAcknowledged", item.CanonicalJson, StringComparison.Ordinal));
         Assert.Equal(
             [
                 "task.create",

@@ -13,7 +13,7 @@ public sealed class PersonalCloudSourceLinkedOpenzaTaskTests : IDisposable
         Path.GetTempPath(), "openza-personal-cloud-source-linked-tests", Guid.NewGuid().ToString("N"));
 
     [Fact]
-    public async Task Adopted_row_uses_the_normal_Openza_task_flow_and_queues_provider_write_back()
+    public async Task Adopted_cloud_row_uses_claimed_completion_delivery_and_preserves_date_write_back()
     {
         var store = CreateStore();
         await store.InitializeAsync();
@@ -69,18 +69,15 @@ public sealed class PersonalCloudSourceLinkedOpenzaTaskTests : IDisposable
             adopted.Id, DateTimeOffset.Parse("2026-09-13T12:01:00Z"), 5, InstanceId, DeviceId);
 
         var pendingCompletions = await store.GetPendingCompletionsAsync(IntegrationIds.Todoist);
-        Assert.Equal(2, pendingCompletions.Count);
-        Assert.All(pendingCompletions, pending => Assert.Equal("todoist_private_command_id", pending.ProviderTaskId));
-        Assert.True(pendingCompletions[0].Completed);
-        Assert.False(pendingCompletions[1].Completed);
+        Assert.Empty(pendingCompletions);
         Assert.Equal(6, (await store.GetPendingPersonalCloudOutboxAsync(InstanceId, DeviceId)).Count);
 
         var provider = new RecordingTodoistProvider();
         var engine = new TaskSyncEngine(store);
         Assert.Equal(1, await engine.SyncPendingTaskDateUpdatesAsync(provider));
-        Assert.Equal(2, await engine.SyncPendingCompletionsAsync(provider));
+        Assert.Equal(0, await engine.SyncPendingCompletionsAsync(provider));
         Assert.Equal(new DateOnly(2026, 9, 20), Assert.Single(provider.DateUpdates).PlannedOn);
-        Assert.Equal([true, false], provider.Completions.Select(item => item.Completed).ToArray());
+        Assert.Empty(provider.Completions);
         Assert.Empty(await store.GetPendingTaskDateUpdatesAsync(IntegrationIds.Todoist));
         Assert.Empty(await store.GetPendingCompletionsAsync(IntegrationIds.Todoist));
     }

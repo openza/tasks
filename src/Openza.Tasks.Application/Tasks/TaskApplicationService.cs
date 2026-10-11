@@ -22,6 +22,7 @@ public sealed class TaskApplicationService(
 
     public async Task<TaskItem> CreateTaskAsync(CreateTaskRequest request, CancellationToken cancellationToken = default)
     {
+        using var connectionLease = AcquirePersonalCloudAuthoringLease();
         var title = request.Title.Trim();
         if (title.Length == 0)
         {
@@ -99,6 +100,7 @@ public sealed class TaskApplicationService(
 
     public async Task<TaskItem> UpdateTaskAsync(UpdateTaskRequest request, CancellationToken cancellationToken = default)
     {
+        using var connectionLease = AcquirePersonalCloudAuthoringLease();
         var original = await RequireTaskAsync(request.TaskId, cancellationToken).ConfigureAwait(false);
         var expectedRevision = request.ExpectedRevision ?? original.Revision;
         var targetSpace = request.Space.IsSpecified
@@ -152,8 +154,7 @@ public sealed class TaskApplicationService(
             (request.Space.IsSpecified ? 1 : 0) +
             (request.Project.IsSpecified ? 1 : 0) +
             (request.Labels.IsSpecified ? 1 : 0);
-        var hasUnsupportedChanges = request.LocalMetadataJson.IsSpecified;
-        if (cloudScalarChangeCount + cloudRelationshipChangeCount > 0 && !hasUnsupportedChanges &&
+        if (cloudScalarChangeCount + cloudRelationshipChangeCount > 0 &&
             PersonalCloudTarget() is { } target && Store is SqliteTaskStore sqliteStore)
         {
             if (expectedRevision != original.Revision)
@@ -278,6 +279,16 @@ public sealed class TaskApplicationService(
                 }
                 changed = true;
             }
+            if (request.LocalMetadataJson.IsSpecified &&
+                !string.Equals(original.LocalMetadataJson, request.LocalMetadataJson.Value, StringComparison.Ordinal))
+            {
+                var current = await RequireTaskAsync(original.Id, cancellationToken).ConfigureAwait(false);
+                if (!await Store.TryUpsertTaskWithPendingUpdatesAsync(
+                    current with { LocalMetadataJson = request.LocalMetadataJson.Value, UpdatedAt = now },
+                    current.Revision, null, null, cancellationToken).ConfigureAwait(false))
+                    throw new TaskConflictException(original.Id);
+                changed = true;
+            }
             return changed
                 ? await RequireTaskAsync(original.Id, cancellationToken).ConfigureAwait(false)
                 : original;
@@ -317,6 +328,7 @@ public sealed class TaskApplicationService(
         long? expectedRevision = null,
         CancellationToken cancellationToken = default)
     {
+        using var connectionLease = AcquirePersonalCloudAuthoringLease();
         var original = await RequireTaskAsync(id, cancellationToken).ConfigureAwait(false);
         if (expectedRevision is not null && expectedRevision.Value != original.Revision)
             throw new TaskConflictException(id);
@@ -345,6 +357,7 @@ public sealed class TaskApplicationService(
 
     public async Task<TaskItem> SetCompletedAsync(string id, bool completed, long? expectedRevision = null, CancellationToken cancellationToken = default)
     {
+        using var connectionLease = AcquirePersonalCloudAuthoringLease();
         var original = await RequireTaskAsync(id, cancellationToken).ConfigureAwait(false);
         if (original.IsCompleted == completed)
         {
@@ -385,6 +398,7 @@ public sealed class TaskApplicationService(
 
     public async Task DeleteTaskAsync(string id, long? expectedRevision = null, CancellationToken cancellationToken = default)
     {
+        using var connectionLease = AcquirePersonalCloudAuthoringLease();
         var original = await RequireTaskAsync(id, cancellationToken).ConfigureAwait(false);
         if (expectedRevision is not null && expectedRevision.Value != original.Revision)
             throw new TaskConflictException(id);
@@ -407,6 +421,9 @@ public sealed class TaskApplicationService(
         ?? throw new KeyNotFoundException($"Task '{id}' was not found.");
 
     private PersonalCloudConnectionProfile? PersonalCloudTarget() => personalCloudConnection?.Invoke();
+
+    private PersonalCloudConnectionLease? AcquirePersonalCloudAuthoringLease() => Store is SqliteTaskStore sqlite
+        ? PersonalCloudConnectionLease.AcquireAuthoring(sqlite.DatabasePath) : null;
 
     private static async Task<long> ResolvePersonalCloudEntityVersionAsync(
         SqliteTaskStore store,

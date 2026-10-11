@@ -221,6 +221,10 @@ public sealed class TaskSyncEngine(ITaskStore store)
         var synced = 0;
         foreach (var completion in completions)
         {
+            // Preserve pre-bridge queue rows for recovery, but never let them bypass
+            // the cloud claim or replay an uncertain recurring-provider action.
+            if (store is SqliteTaskStore sqlite && await sqlite.IsPersonalCloudCompletionManagedAsync(completion.TaskId, cancellationToken).ConfigureAwait(false))
+                continue;
             // A date edited while this network request is in flight belongs to a
             // later user action; acknowledge only the updates present beforehand.
             var obsoleteDateUpdates = completion.Completed
@@ -257,7 +261,7 @@ public sealed class TaskSyncEngine(ITaskStore store)
         return synced;
     }
 
-    private static ProviderSourceItem ToProviderSourceItem(
+    public static ProviderSourceItem ToProviderSourceItem(
         TaskItem task,
         string providerConnectionId,
         IReadOnlyDictionary<string, string> projectNames)

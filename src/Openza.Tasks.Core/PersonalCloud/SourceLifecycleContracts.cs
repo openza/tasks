@@ -31,7 +31,11 @@ public sealed record PersonalCloudSourceRefreshedChange : IPersonalCloudTaskChan
 }
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-public sealed record PersonalCloudExternalCommandState(string Command, string State, string? ErrorCode);
+public sealed record PersonalCloudExternalCommandState(string Command, string State, string? ErrorCode)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? RequestedChangeSeq { get; init; }
+}
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record PersonalCloudExternalCommandTaskPayload(string Id, PersonalCloudExternalCommandState ExternalCommand);
@@ -69,7 +73,8 @@ public static class PersonalCloudSourceLifecycleCodec
         ValidateEnvelope(change, change.Payload?.Task?.Id);
         var command = change.Payload?.Task?.ExternalCommand;
         if (command is null || command.Command is not ("complete" or "reopen") ||
-            command.State is not ("confirmed" or "rejected") ||
+            command.State is not ("confirmed" or "rejected" or "pending_desktop") ||
+            (command.State == "pending_desktop" && (command.RequestedChangeSeq is null or <= 0 || command.ErrorCode is not null)) ||
             (command.State == "confirmed" && command.ErrorCode is not null) ||
             (command.State == "rejected" && string.IsNullOrWhiteSpace(command.ErrorCode)))
             throw new PersonalCloudK0ContractException("invalid_request", "The external command change is invalid.");

@@ -12,6 +12,62 @@ public sealed class PersonalCloudK3PullTests : IDisposable
     private readonly string _directory = Path.Combine(Path.GetTempPath(), "openza-personal-cloud-k3-tests", Guid.NewGuid().ToString("N"));
 
     [Fact]
+    public async Task Bootstrap_with_pending_local_edit_is_rejected_without_changing_values_or_checkpoint()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        await store.ApplyPersonalCloudChangePageAsync(InstanceId, DeviceId, ReadFixture("pulled-change-page.json"));
+        const string id = "local_00000000000000000000000000000001";
+        await store.UpdateTaskTitleWithPersonalCloudIntentAsync(id, "Preserve pending edit", 1, InstanceId, DeviceId);
+        const string bootstrap = """
+            {"protocolVersion":1,"product":"tasks","checkpoint":5,"snapshot":{"spaces":[],"projects":[],"tasks":[],"labels":[],"taskLabels":[],"tombstones":[]}}
+            """;
+
+        var error = await Assert.ThrowsAsync<PersonalCloudK0ContractException>(() =>
+            store.ReplacePersonalCloudReplicaFromBootstrapAsync(InstanceId, DeviceId, bootstrap));
+
+        Assert.Equal("pending_intents", error.Code);
+        Assert.Equal("Preserve pending edit", (await store.GetTaskAsync(id))!.Title);
+        Assert.Equal(1, await store.GetPersonalCloudCheckpointAsync(InstanceId, DeviceId));
+        Assert.Single(await store.GetPendingPersonalCloudOutboxAsync(InstanceId, DeviceId));
+        Assert.Equal(1, await CountRowsAsync(store.DatabasePath, "personal_cloud_applied_changes"));
+    }
+
+    [Fact]
+    public async Task Replacement_device_recognizes_acknowledged_create_echo_from_previous_device()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        const string id = "local_00000000000000000000000000000001";
+        var outbox = await store.CreateTaskWithPersonalCloudIntentAsync(new TaskItem
+        {
+            Id = id, Title = "Validate one task", SpaceId = SpaceIds.Default,
+            CreatedAt = DateTimeOffset.Parse("2026-09-13T06:30:00Z"),
+        }, InstanceId, DeviceId);
+        await store.AcknowledgePersonalCloudMutationAsync(InstanceId, DeviceId,
+            PersonalCloudK0Codec.Serialize(new K0MutationReceipt
+            {
+                ProtocolVersion = 1, Product = "tasks", MutationId = outbox.MutationId,
+                Outcome = "accepted", EntityId = id, EntityVersion = 1, ChangeSeq = 1,
+                ServerAcceptedAt = "2026-09-13T06:30:01.000Z",
+            }));
+        var originalPage = PersonalCloudK3Codec.ParseChangePage(ReadFixture("pulled-change-page.json"));
+        var change = Assert.IsType<K0TaskCreatedChange>(Assert.Single(originalPage.Changes));
+        var page = PersonalCloudK0Codec.Serialize(new
+        {
+            originalPage.ProtocolVersion,
+            originalPage.Product,
+            Changes = new[] { change with { MutationId = outbox.MutationId } },
+            originalPage.NextCheckpoint,
+        });
+
+        Assert.Equal(1, await store.ApplyPersonalCloudChangePageAsync(InstanceId, "device_replacement", page));
+        Assert.Equal(1, await CountRowsAsync(store.DatabasePath, "tasks"));
+        Assert.Equal(1, await CountRowsAsync(store.DatabasePath, "personal_cloud_applied_changes"));
+        Assert.Empty(await store.GetPendingPersonalCloudOutboxAsync(InstanceId, DeviceId));
+    }
+
+    [Fact]
     public async Task Repaired_device_resumes_shared_replica_cursor_without_replaying_or_skipping_uncommitted_changes()
     {
         var store = CreateStore();
@@ -112,9 +168,73 @@ public sealed class PersonalCloudK3PullTests : IDisposable
 
         await store.InitializeAsync();
 
-        Assert.Equal(8L, await ScalarAsync(store.DatabasePath, "PRAGMA user_version"));
+        Assert.Equal((long)SqliteTaskStore.CurrentSchemaVersion, await ScalarAsync(store.DatabasePath, "PRAGMA user_version"));
         Assert.Equal(1L, await CountRowsAsync(store.DatabasePath, "sqlite_master", "type = 'table' AND name = 'personal_cloud_checkpoints'"));
         Assert.Equal(1L, await CountRowsAsync(store.DatabasePath, "sqlite_master", "type = 'table' AND name = 'personal_cloud_applied_changes'"));
+    }
+
+    [Fact]
+    public async Task Schema_eight_journals_migrate_without_losing_history_and_allow_physical_task_deletion()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        await store.ApplyPersonalCloudChangePageAsync(InstanceId, DeviceId, ReadFixture("pulled-change-page.json"));
+        const string replicaId = "local_00000000000000000000000000000001";
+        var outbox = await store.CreateTaskWithPersonalCloudIntentAsync(new TaskItem
+        {
+            Id = "local_journal_task", Title = "Journal history", SpaceId = SpaceIds.Default,
+        }, InstanceId, DeviceId);
+        await store.AcknowledgePersonalCloudMutationAsync(InstanceId, DeviceId,
+            PersonalCloudK0Codec.Serialize(new K0MutationReceipt
+            {
+                ProtocolVersion = 1, Product = "tasks", MutationId = outbox.MutationId,
+                Outcome = "accepted", EntityId = outbox.EntityId, EntityVersion = 1, ChangeSeq = 2,
+                ServerAcceptedAt = "2026-09-13T06:30:01.000Z",
+            }));
+        await ExecuteAsync(store.DatabasePath, $"""
+            INSERT INTO personal_cloud_tombstones(instance_id,product,entity_id,entity_version,deleted_at)
+            VALUES('{InstanceId}','tasks','{replicaId}',2,1);
+            """);
+        await using (var fixture = new SqliteConnection($"Data Source={store.DatabasePath};Pooling=False"))
+        {
+            await fixture.OpenAsync();
+            foreach (var table in new[] { "personal_cloud_outbox", "personal_cloud_applied_changes", "personal_cloud_tombstones" })
+            {
+                var schema = fixture.CreateCommand();
+                schema.CommandText = "SELECT sql FROM sqlite_master WHERE type='table' AND name=@table";
+                schema.Parameters.AddWithValue("@table", table);
+                var oldSchema = ((string)(await schema.ExecuteScalarAsync())!)
+                    .Replace($"CREATE TABLE {table}", $"CREATE TABLE {table}_v8", StringComparison.Ordinal)
+                    .Replace("entity_id TEXT NOT NULL,", "entity_id TEXT NOT NULL REFERENCES tasks(id),", StringComparison.Ordinal);
+                var rebuild = fixture.CreateCommand();
+                rebuild.CommandText = $"""
+                    {oldSchema};
+                    INSERT INTO {table}_v8 SELECT * FROM {table};
+                    DROP TABLE {table};
+                    ALTER TABLE {table}_v8 RENAME TO {table};
+                    """;
+                await rebuild.ExecuteNonQueryAsync();
+            }
+            var version = fixture.CreateCommand();
+            version.CommandText = "PRAGMA user_version=8";
+            await version.ExecuteNonQueryAsync();
+        }
+
+        await store.InitializeAsync();
+        await store.InitializeAsync(); // The migration remains safe on restart.
+        await store.DeleteTaskAsync(outbox.EntityId);
+        await store.DeleteTaskAsync(replicaId);
+
+        Assert.Equal(SqliteTaskStore.CurrentSchemaVersion, await ScalarAsync(store.DatabasePath, "PRAGMA user_version"));
+        Assert.Equal(1, await CountRowsAsync(store.DatabasePath, "personal_cloud_outbox"));
+        Assert.Equal(1, await CountRowsAsync(store.DatabasePath, "personal_cloud_applied_changes"));
+        Assert.Equal(1, await CountRowsAsync(store.DatabasePath, "personal_cloud_tombstones"));
+        var next = await store.CreateTaskWithPersonalCloudIntentAsync(new TaskItem
+        {
+            Id = "local_after_migration", Title = "After migration", SpaceId = SpaceIds.Default,
+        }, InstanceId, DeviceId);
+        Assert.Equal(outbox.LocalSequence + 1, next.LocalSequence);
+        Assert.Equal(outbox.DeviceSequence + 1, next.DeviceSequence);
     }
 
     private SqliteTaskStore CreateStore()

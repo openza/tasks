@@ -16,8 +16,12 @@ public sealed record PersonalCloudDeviceAccess(
 
 public sealed record PersonalCloudStoredDevice(Uri ServiceOrigin, string InstanceId, string DeviceId);
 
-public sealed class PersonalCloudDeviceIdentityClient(HttpClient http, ICredentialStore credentials)
+public sealed class PersonalCloudDeviceIdentityClient(HttpClient http, ICredentialStore credentials, TimeProvider? timeProvider = null)
 {
+    private readonly TimeProvider _clock = timeProvider ?? TimeProvider.System;
+    private readonly SemaphoreSlim _accessGate = new(1, 1);
+    private readonly Dictionary<string, CachedAccess> _accessCache = new(StringComparer.Ordinal);
+    private sealed record CachedAccess(string CredentialFingerprint, PersonalCloudDeviceAccess Access);
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
     {
         UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
@@ -50,6 +54,7 @@ public sealed class PersonalCloudDeviceIdentityClient(HttpClient http, ICredenti
         var stored = new StoredCredential(origin.AbsoluteUri, body.InstanceId, body.DeviceId, body.RefreshCredential);
         await credentials.SaveAsync(CredentialKey(origin), JsonSerializer.Serialize(stored, Json), cancellationToken)
             .ConfigureAwait(false);
+        await InvalidateAccessTokenAsync(origin, CancellationToken.None).ConfigureAwait(false);
         return new PersonalCloudStoredDevice(origin, body.InstanceId, body.DeviceId);
     }
 
@@ -67,18 +72,42 @@ public sealed class PersonalCloudDeviceIdentityClient(HttpClient http, ICredenti
         CancellationToken cancellationToken = default)
     {
         var origin = NormalizeOrigin(serviceOrigin);
-        var stored = await ReadStoredCredentialAsync(origin, cancellationToken).ConfigureAwait(false);
-        if (!string.Equals(stored.ServiceOrigin, origin.AbsoluteUri, StringComparison.Ordinal))
-            throw Invalid("The stored desktop credential belongs to another Personal Cloud origin.");
+        await _accessGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var stored = await ReadStoredCredentialAsync(origin, cancellationToken).ConfigureAwait(false);
+            if (!string.Equals(stored.ServiceOrigin, origin.AbsoluteUri, StringComparison.Ordinal))
+                throw Invalid("The stored desktop credential belongs to another Personal Cloud origin.");
 
-        using var response = await http.PostAsJsonAsync(new Uri(origin, "/auth/device/token"),
-            new TokenRequest(stored.DeviceId, stored.RefreshCredential), Json, cancellationToken).ConfigureAwait(false);
-        var body = await ReadRequiredAsync<TokenResponse>(response, cancellationToken).ConfigureAwait(false);
-        RequireProtocol(body.ProtocolVersion);
-        RequireText(body.AccessToken, 20, 512, nameof(body.AccessToken));
-        if (body.ExpiresAt <= DateTimeOffset.UtcNow || !body.Capabilities.Contains("desktop_sync", StringComparer.Ordinal))
-            throw Invalid("The access response contains invalid or expired authority.");
-        return new PersonalCloudDeviceAccess(stored.InstanceId, stored.DeviceId, body.AccessToken, body.ExpiresAt, body.Capabilities);
+            // Authority is cached only in memory and always rechecked against the current
+            // credential identity. Minting per mutation exhausts the documented token limit.
+            var fingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(stored.RefreshCredential)));
+            if (_accessCache.TryGetValue(origin.AbsoluteUri, out var cached) && cached.CredentialFingerprint == fingerprint &&
+                cached.Access.InstanceId == stored.InstanceId && cached.Access.DeviceId == stored.DeviceId &&
+                cached.Access.ExpiresAt > _clock.GetUtcNow().AddSeconds(30)) return cached.Access;
+
+            using var response = await http.PostAsJsonAsync(new Uri(origin, "/auth/device/token"),
+                new TokenRequest(stored.DeviceId, stored.RefreshCredential), Json, cancellationToken).ConfigureAwait(false);
+            var body = await ReadRequiredAsync<TokenResponse>(response, cancellationToken).ConfigureAwait(false);
+            RequireProtocol(body.ProtocolVersion);
+            RequireText(body.AccessToken, 20, 512, nameof(body.AccessToken));
+            if (body.ExpiresAt <= _clock.GetUtcNow() || !body.Capabilities.Contains("desktop_sync", StringComparer.Ordinal) ||
+                body.Capabilities.Any(value => value is not ("desktop_sync" or "provider_bridge")))
+                throw Invalid("The access response contains invalid or expired authority.");
+            var access = new PersonalCloudDeviceAccess(stored.InstanceId, stored.DeviceId, body.AccessToken, body.ExpiresAt,
+                Array.AsReadOnly(body.Capabilities.ToArray()));
+            _accessCache[origin.AbsoluteUri] = new(fingerprint, access);
+            return access;
+        }
+        finally { _accessGate.Release(); }
+    }
+
+    public async Task InvalidateAccessTokenAsync(Uri serviceOrigin, CancellationToken cancellationToken = default)
+    {
+        var origin = NormalizeOrigin(serviceOrigin);
+        await _accessGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try { _accessCache.Remove(origin.AbsoluteUri); }
+        finally { _accessGate.Release(); }
     }
 
     private async Task<StoredCredential> ReadStoredCredentialAsync(Uri origin, CancellationToken cancellationToken)
@@ -96,8 +125,12 @@ public sealed class PersonalCloudDeviceIdentityClient(HttpClient http, ICredenti
         return stored;
     }
 
-    public Task ForgetAsync(Uri serviceOrigin, CancellationToken cancellationToken = default) =>
-        credentials.RemoveAsync(CredentialKey(NormalizeOrigin(serviceOrigin)), cancellationToken);
+    public async Task ForgetAsync(Uri serviceOrigin, CancellationToken cancellationToken = default)
+    {
+        var origin = NormalizeOrigin(serviceOrigin);
+        await credentials.RemoveAsync(CredentialKey(origin), cancellationToken).ConfigureAwait(false);
+        await InvalidateAccessTokenAsync(origin, CancellationToken.None).ConfigureAwait(false);
+    }
 
     public async Task RevokeAsync(Uri serviceOrigin, CancellationToken cancellationToken = default)
     {

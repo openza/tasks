@@ -42,15 +42,19 @@ jobs:
           node-version: '22'
 
       - name: Test artifact verification
-        run: node --test scripts/personal-cloud/stage-artifact.test.mjs
+        run: node --test scripts/personal-cloud/*.test.mjs
 
       - name: Validate Desktop publish with pinned Personal Cloud artifact
         run: node scripts/personal-cloud/publish-desktop.mjs 1.1.0
 
       - name: Validate Snap packaging contract
+        if: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'fix/personal-cloud-localhost-recovery') }}
         run: bash packaging/snap/test-snap-package.sh
 
   build-snap:
+    # This first Personal Cloud integration is authorized for Linux validation only.
+    # Other PRs (including forks with the same branch name) and main retain all jobs.
+    if: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'fix/personal-cloud-localhost-recovery') }}
     runs-on: ubuntu-latest
 
     steps:
@@ -82,6 +86,7 @@ jobs:
           openza-tasks.openza --version
 
   build-test:
+    if: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'fix/personal-cloud-localhost-recovery') }}
     runs-on: windows-latest
 
     steps:

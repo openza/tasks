@@ -15,8 +15,13 @@ namespace Openza.Tasks.Tests;
 
 public static class EditorTestAppBuilder
 {
-    public static AppBuilder BuildAvaloniaApp() => AppBuilder.Configure<Desktop.App>()
-        .UseHeadless(new AvaloniaHeadlessPlatformOptions());
+    public static AppBuilder BuildAvaloniaApp()
+    {
+        var render = !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("OPENZA_BRIDGE_UI_SCREENSHOT_PATH"));
+        var app = AppBuilder.Configure<Desktop.App>();
+        if (render) app = app.UseSkia();
+        return app.UseHeadless(new AvaloniaHeadlessPlatformOptions { UseHeadlessDrawing = !render });
+    }
 }
 
 public sealed class EditorTestSession : IDisposable

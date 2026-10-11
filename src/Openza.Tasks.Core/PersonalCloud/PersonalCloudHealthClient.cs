@@ -6,6 +6,8 @@ namespace Openza.Tasks.Core.PersonalCloud;
 
 public sealed class PersonalCloudHealthClient(HttpClient http)
 {
+    // Schema 18 adds parent-cycle invariants and 19 adds provider delivery
+    // ownership; 20 guards ambiguous provider aliases. Unknown schemas need review.
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
     {
         UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
@@ -31,7 +33,7 @@ public sealed class PersonalCloudHealthClient(HttpClient http)
         {
             var body = await response.Content.ReadFromJsonAsync<HealthResponse>(Json, cancellationToken).ConfigureAwait(false);
             if (body is null || body.Status != "ok" || body.ProtocolVersion != PersonalCloudK0Protocol.Version ||
-                body.Product != PersonalCloudK0Protocol.TasksProduct || body.SchemaVersion != 17 ||
+                body.Product != PersonalCloudK0Protocol.TasksProduct || body.SchemaVersion is not (17 or 18 or 19 or 20) ||
                 string.IsNullOrWhiteSpace(body.ArtifactVersion) || body.ArtifactVersion.Length > 128)
                 throw new PersonalCloudK0ContractException("health_mismatch", "The deployed Personal Cloud is not compatible with this Openza build.");
             return new PersonalCloudHealth(body.ArtifactVersion, body.SchemaVersion);

@@ -1,6 +1,6 @@
 {
   "repository": "https://github.com/openza/personal-cloud.git",
-  "revision": "23f15e915bcd69d6901d4c4be58cc26c476427da",
-  "artifactVersion": "0.1.0-preview.7",
-  "manifestSha256": "d3df7cca1d6f747334eca0fb17a557251be1d6a2988c876958ac3296165c70b9"
+  "revision": "be1691402129d7a571f9bd881a91d93bafe28ef1",
+  "artifactVersion": "0.1.0-preview.9",
+  "manifestSha256": "5eb0d68377c12f9f5a1f12f82f7f2330ff61d1c58689dae625f4c7fdbf02153d"
 }

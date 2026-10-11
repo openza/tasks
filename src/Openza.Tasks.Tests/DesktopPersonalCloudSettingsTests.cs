@@ -1,6 +1,10 @@
 using Avalonia.Controls;
+using Avalonia.VisualTree;
+using Avalonia.Headless;
 using Openza.Tasks.Core.Credentials;
 using Openza.Tasks.Core.Data;
+using Openza.Tasks.Core.Models;
+using Openza.Tasks.Core.Sync;
 using Openza.Tasks.Core.PersonalCloud;
 using Openza.Tasks.Desktop.ViewModels;
 
@@ -8,6 +12,121 @@ namespace Openza.Tasks.Tests;
 
 public sealed class DesktopPersonalCloudSettingsTests(EditorTestSession fixture) : IClassFixture<EditorTestSession>
 {
+    [Fact]
+    public async Task Native_sync_provider_retry_dispatches_the_selected_request_and_disables_while_busy()
+    {
+        await fixture.Session.Dispatch(async () =>
+        {
+            var directory = Path.Combine(Path.GetTempPath(), "openza-bridge-ui", Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(directory);
+            var service = new BridgeStubSetupService();
+            var preferences = new Openza.Tasks.Desktop.Services.DesktopPreferencesStore(Path.Combine(directory, "settings.json"));
+            await preferences.SaveAsync(new() { AutomaticSyncEnabled = false, AutomaticRestorePointsEnabled = false });
+            var vm = new MainWindowViewModel(new SqliteTaskStore(Path.Combine(directory, "tasks.db")), new InMemoryCredentialStore(),
+                preferencesStore: preferences, personalCloudSetup: service);
+            var window = new Openza.Tasks.Desktop.Shell.MainWindow(vm) { Width = 1440, Height = 900 };
+            try
+            {
+                window.Show();
+                using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                while (vm.SelectedNavigation is null || vm.IsBusy) await Task.Delay(10, deadline.Token);
+                var syncNavigation = window.GetVisualDescendants().OfType<Button>().Single(button =>
+                    button.Classes.Contains("nav-command") && button.GetVisualDescendants().OfType<TextBlock>().Any(text => text.Text == "Sync"));
+                syncNavigation.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+                while (!window.FindControl<ScrollViewer>("SyncWorkspace")!.IsVisible || window.FindControl<Control>("TaskWorkspace")!.IsVisible)
+                    await Task.Delay(10, deadline.Token);
+                Assert.False(window.FindControl<Control>("SettingsWorkspace")!.IsVisible);
+                vm.ProviderRequests.Add(new("local-rejected-ui", "Synthetic task", "Rejected (provider_rejected).", true));
+                vm.ProviderRequests.Add(new("local-pending-ui", "Synthetic pending task", "complete · pending_desktop", false));
+                vm.ProviderRequests.Add(new("local-uncertain-ui", "Synthetic uncertain task", "Outcome uncertain. Stop and revoke the old desktop, check provider state, then reconcile in Personal Cloud. Automatic retry is blocked.", false));
+                window.UpdateLayout();
+                Button? retry = null;
+                while ((retry = window.GetVisualDescendants().OfType<Button>().FirstOrDefault(button => Equals(button.Content, "Retry provider request"))) is null)
+                    await Task.Delay(10, deadline.Token);
+                Assert.True(retry.IsVisible); Assert.True(retry.IsEnabled);
+                if (Environment.GetEnvironmentVariable("OPENZA_BRIDGE_UI_SCREENSHOT_PATH") is { Length: > 0 } screenshot)
+                {
+                    using var frame = window.CaptureRenderedFrame();
+                    Assert.NotNull(frame);
+                    Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(screenshot))!);
+                    frame.Save(screenshot, new Avalonia.Media.Imaging.PngBitmapEncoderOptions());
+                }
+                retry.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+                Assert.Equal("local-rejected-ui", service.RetriedTaskId); Assert.True(vm.IsSyncing); Assert.False(retry.IsEnabled);
+                service.CompleteRetry();
+                while (vm.IsSyncing) await Task.Delay(10, deadline.Token);
+                Assert.Equal(1, service.SyncCalls); Assert.Contains("retry requested", vm.StatusMessage);
+            }
+            finally { service.CompleteRetry(); window.Close(); await Task.Delay(100); TestDirectory.Delete(directory); }
+            return true;
+        }, CancellationToken.None);
+    }
+    [Fact]
+    public async Task Normal_provider_sync_then_cloud_upload_preserves_adopted_completion_and_reopening()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "openza-cloud-composition", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var store = new SqliteTaskStore(Path.Combine(directory, "tasks.db")); await store.InitializeAsync();
+            var raw = new TaskItem { Id = "todoist_synthetic-recurring", ExternalId = "synthetic-recurring",
+                IntegrationId = "todoist", ProviderConnectionId = "todoist_default", Title = "Synthetic recurring source", RecurrenceRule = "every day" };
+            var source = TaskSyncEngine.ToProviderSourceItem(raw, "todoist_default", new Dictionary<string, string>());
+            await store.UpsertProviderSourceItemAsync(source);
+            var adopted = (await store.AdoptProviderSourceItemAsync((await store.GetProviderSourceItemsAsync("todoist")).Single().Id))!;
+            const string instance = "instance_composition"; const string device = "device_composition";
+            var create = await store.EnqueueExistingTaskForPersonalCloudAsync(adopted.Id, instance, device);
+            await store.AcknowledgePersonalCloudMutationAsync(instance, device, Accepted(create, 1));
+            var completedAt = DateTimeOffset.Parse("2026-10-11T06:00:00Z");
+            await store.CompleteTaskWithPersonalCloudIntentAsync(adopted.Id, completedAt, 1, instance, device);
+            var credentials = new InMemoryCredentialStore(); await credentials.SaveAsync("todoist-token", "publicfake-token");
+            var provider = new SnapshotProvider(raw);
+            var connection = new PersonalCloudConnectionProfile { ServiceOrigin = new Uri("https://composition.example.test/"),
+                InstanceId = instance, DeviceId = device, ArtifactVersion = "0.1.0-preview.9", ConnectedAt = DateTimeOffset.UtcNow };
+            var service = new StubSetupService(new(connection.ServiceOrigin, "worker", "database", connection.ArtifactVersion, connection.ServiceOrigin), connection);
+            var uploadCalls = 0;
+            service.SyncAction = async _ =>
+            {
+                uploadCalls++;
+                Assert.Equal(uploadCalls, provider.FetchCalls); // Normal Desktop imports before cloud upload.
+                var task = (await store.GetTaskAsync(adopted.Id))!;
+                Assert.Equal(uploadCalls == 1, task.IsCompleted);
+                Assert.Equal(uploadCalls == 1 ? completedAt : (DateTimeOffset?)null, task.CompletedAt);
+                var intent = Assert.Single(await store.GetPendingPersonalCloudOutboxAsync(instance, device));
+                Assert.Equal(uploadCalls == 1 ? "task.complete" : "task.reopen", intent.Operation);
+                await store.AcknowledgePersonalCloudMutationAsync(instance, device, Accepted(intent, uploadCalls + 1));
+                return new(1, 0, uploadCalls);
+            };
+            var preferences = new Openza.Tasks.Desktop.Services.DesktopPreferencesStore(Path.Combine(directory, "settings.json"));
+            await preferences.SaveAsync(new() { AutomaticSyncEnabled = false, AutomaticRestorePointsEnabled = false });
+            var vm = new MainWindowViewModel(store, credentials, preferencesStore: preferences,
+                personalCloudSetup: service, todoistSyncProviderFactory: _ => provider);
+            await vm.RunTodoistSyncAsync();
+            Assert.Equal(1, service.SyncCalls); Assert.True((await store.GetTaskAsync(adopted.Id))!.IsCompleted);
+            await store.ReopenTaskWithPersonalCloudIntentAsync(adopted.Id, completedAt.AddMinutes(1), 2, instance, device);
+            provider.Task = raw with { CompletionState = TaskCompletionState.Completed };
+            await vm.RunTodoistSyncAsync();
+            Assert.Equal(2, service.SyncCalls); Assert.False((await store.GetTaskAsync(adopted.Id))!.IsCompleted);
+            Assert.Equal(0, provider.Actions); Assert.Empty(await store.GetPendingPersonalCloudOutboxAsync(instance, device));
+        }
+        finally { TestDirectory.Delete(directory); }
+        static string Accepted(PersonalCloudK1OutboxEntry intent, long version) => PersonalCloudK0Codec.Serialize(new
+        { protocolVersion = 1, product = "tasks", mutationId = intent.MutationId, outcome = "accepted", entityId = intent.EntityId,
+            entityVersion = version, changeSeq = version, serverAcceptedAt = "2026-10-11T06:00:01.000Z" });
+    }
+
+    private sealed class SnapshotProvider(TaskItem task) : ISyncProvider
+    {
+        public TaskItem Task { get; set; } = task;
+        public string IntegrationId => "todoist";
+        public int FetchCalls { get; private set; }
+        public int Actions { get; private set; }
+        public Task<ProviderSnapshot> FetchSnapshotAsync(CancellationToken cancellationToken = default)
+        { FetchCalls++; return System.Threading.Tasks.Task.FromResult(new ProviderSnapshot([Task], [], [])); }
+        public Task CompleteTaskAsync(PendingCompletion completion, CancellationToken cancellationToken = default)
+        { Actions++; return System.Threading.Tasks.Task.CompletedTask; }
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -261,7 +380,7 @@ public sealed class DesktopPersonalCloudSettingsTests(EditorTestSession fixture)
         return new MainWindowViewModel(new SqliteTaskStore(path), new InMemoryCredentialStore(), personalCloudSetup: service);
     }
 
-    private sealed class StubSetupService(
+    private class StubSetupService(
         PersonalCloudProvisioningResult result,
         PersonalCloudConnectionProfile? connection = null,
         PersonalCloudSyncResult? syncResult = null) : IPersonalCloudSetupService
@@ -316,5 +435,17 @@ public sealed class DesktopPersonalCloudSettingsTests(EditorTestSession fixture)
             };
             return Task.FromResult(_connection!);
         }
+    }
+
+    private sealed class BridgeStubSetupService() : StubSetupService(new(new Uri("https://bridge.example.test/"), "worker", "database", "0.1.0-preview.9", new Uri("https://bridge.example.test/")),
+        new() { ServiceOrigin = new Uri("https://bridge.example.test/"), InstanceId = "instance-ui", DeviceId = "device-ui", ArtifactVersion = "0.1.0-preview.9", ConnectedAt = DateTimeOffset.UtcNow }), IPersonalCloudProviderBridgeService
+    {
+        private readonly TaskCompletionSource _retry = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public string? RetriedTaskId { get; private set; }
+        public Task RetryProviderCommandAsync(string taskId, CancellationToken cancellationToken = default)
+        { RetriedTaskId = taskId; return _retry.Task.WaitAsync(cancellationToken); }
+        public void CompleteRetry() => _retry.TrySetResult();
+        public Task<PersonalCloudProviderBridgeResult> RunProviderBridgeAsync(IReadOnlyList<PersonalCloudConfiguredProvider> providers,
+            CancellationToken cancellationToken = default) => Task.FromResult(new PersonalCloudProviderBridgeResult(0, 0, 0, 0));
     }
 }

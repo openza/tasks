@@ -8,9 +8,9 @@ using Openza.Tasks.Core.Sync;
 
 namespace Openza.Tasks.Core.Data;
 
-public sealed class SqliteTaskStore(string databasePath, bool readOnly = false) : ITaskStore
+public sealed partial class SqliteTaskStore(string databasePath, bool readOnly = false) : ITaskStore
 {
-    public const int CurrentSchemaVersion = 8;
+    public const int CurrentSchemaVersion = 9;
     public const int MinimumReadOnlySchemaVersion = 5;
 
     private sealed record ParentTaskContext(string Id, string SpaceId, string? ProjectId, TaskWorkflowStatus WorkflowStatus);
@@ -1463,21 +1463,51 @@ public sealed class SqliteTaskStore(string databasePath, bool readOnly = false) 
     public async Task<PersonalCloudK1OutboxEntry> EnqueueExistingTaskForPersonalCloudAsync(
         string taskId,string instanceId,string deviceId,CancellationToken cancellationToken=default)
     {
-        await using var connection=await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);await using var transaction=await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-        var task=(await ReadTasksAsync(connection,cancellationToken).ConfigureAwait(false)).FirstOrDefault(item=>item.Id==taskId)
-            ?? throw new PersonalCloudK0ContractException("entity_not_found","The Openza task does not exist.");
-        var existing=connection.CreateCommand();existing.CommandText="SELECT COUNT(*) FROM personal_cloud_outbox WHERE instance_id=@i AND entity_id=@e AND operation='task.create'";existing.Parameters.AddWithValue("@i",instanceId);existing.Parameters.AddWithValue("@e",taskId);
-        if(Convert.ToInt64(await existing.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false))!=0)throw new PersonalCloudK0ContractException("entity_exists","The Openza task is already queued for this Personal Cloud instance.");
-        var init=connection.CreateCommand();init.CommandText="INSERT OR IGNORE INTO personal_cloud_device_state(instance_id,device_id,next_device_sequence) VALUES(@i,@d,1)";init.Parameters.AddWithValue("@i",instanceId);init.Parameters.AddWithValue("@d",deviceId);await init.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-        var readSequence=connection.CreateCommand();readSequence.CommandText="SELECT next_device_sequence FROM personal_cloud_device_state WHERE instance_id=@i AND device_id=@d";readSequence.Parameters.AddWithValue("@i",instanceId);readSequence.Parameters.AddWithValue("@d",deviceId);var sequence=Convert.ToInt64(await readSequence.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false));
-        var mutationId=$"mutation_{Guid.NewGuid():N}";var now=DateTimeOffset.FromUnixTimeMilliseconds(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());var mutation=PersonalCloudK0Mapper.CreateTaskMutation(task,instanceId,deviceId,mutationId,sequence,now);
-        var json=PersonalCloudK0Codec.Canonicalize(PersonalCloudK0Codec.Serialize(mutation));var hash=PersonalCloudK0Codec.ComputeCanonicalHash(json);
-        var outbox=connection.CreateCommand();outbox.CommandText="""
-          INSERT INTO personal_cloud_outbox(mutation_id,product,instance_id,device_id,device_sequence,operation,entity_id,canonical_json,canonical_hash,created_at)
-          VALUES(@m,'tasks',@i,@d,@q,'task.create',@e,@j,@h,@a) RETURNING local_sequence
-          """;outbox.Parameters.AddWithValue("@m",mutationId);outbox.Parameters.AddWithValue("@i",instanceId);outbox.Parameters.AddWithValue("@d",deviceId);outbox.Parameters.AddWithValue("@q",sequence);outbox.Parameters.AddWithValue("@e",taskId);outbox.Parameters.AddWithValue("@j",json);outbox.Parameters.AddWithValue("@h",hash);outbox.Parameters.AddWithValue("@a",now.ToUnixTimeMilliseconds());var localSequence=Convert.ToInt64(await outbox.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false));
-        var advance=connection.CreateCommand();advance.CommandText="UPDATE personal_cloud_device_state SET next_device_sequence=@next WHERE instance_id=@i AND device_id=@d AND next_device_sequence=@q";advance.Parameters.AddWithValue("@next",sequence+1);advance.Parameters.AddWithValue("@i",instanceId);advance.Parameters.AddWithValue("@d",deviceId);advance.Parameters.AddWithValue("@q",sequence);if(await advance.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false)!=1)throw new InvalidOperationException("The device sequence could not advance.");
-        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);return new PersonalCloudK1OutboxEntry{LocalSequence=localSequence,MutationId=mutationId,Product="tasks",InstanceId=instanceId,DeviceId=deviceId,DeviceSequence=sequence,Operation="task.create",EntityId=taskId,CanonicalJson=json,CanonicalHash=hash,CreatedAt=now};
+        if (await GetTaskAsync(taskId, cancellationToken).ConfigureAwait(false) is null)
+            throw new PersonalCloudK0ContractException("entity_not_found", "The Openza task does not exist.");
+        if (await GetPersonalCloudEntityVersionAsync(instanceId, taskId, cancellationToken).ConfigureAwait(false) is not null)
+            throw new PersonalCloudK0ContractException("entity_exists", "The Openza task is already queued or published to this Personal Cloud instance.");
+
+        // Use the same normalized capture/restoration sequence as initial sync.
+        // Staging all unpublished tasks also stages parent dependencies first.
+        await StageUnpublishedTasksForPersonalCloudAsync(instanceId, deviceId, cancellationToken).ConfigureAwait(false);
+        var pending = await GetPendingPersonalCloudOutboxAsync(instanceId, deviceId, cancellationToken).ConfigureAwait(false);
+        return pending.FirstOrDefault(item => item.EntityId == taskId &&
+                   item.Operation == PersonalCloudK0Protocol.CreateTaskOperation)
+            ?? throw new PersonalCloudK0ContractException("entity_exists", "The Openza task is already published to this Personal Cloud instance.");
+    }
+
+    public async Task EnsureNoPendingPersonalCloudIntentsAsync(CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await EnsureNoPendingPersonalCloudIntentsAsync(connection, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task EnsureNoPendingPersonalCloudIntentsAsync(
+        SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        if (!await TableExistsAsync(connection, "personal_cloud_outbox", cancellationToken).ConfigureAwait(false)) return;
+        var hasDeferredTable = await TableExistsAsync(connection, "personal_cloud_deferred_changes", cancellationToken).ConfigureAwait(false);
+        var hasBridgeTable = await TableExistsAsync(connection, "personal_cloud_provider_attempts", cancellationToken).ConfigureAwait(false);
+        var hasLegacyCompletions = await TableExistsAsync(connection, "pending_completions", cancellationToken).ConfigureAwait(false);
+        var command = connection.CreateCommand();
+        command.CommandText = "SELECT (SELECT COUNT(*) FROM personal_cloud_outbox WHERE product='tasks' AND acknowledged_at IS NULL)" +
+            (hasDeferredTable ? " + (SELECT COUNT(*) FROM personal_cloud_deferred_changes)" : "") +
+            (hasBridgeTable ? " + (SELECT COUNT(*) FROM personal_cloud_provider_attempts WHERE state NOT IN ('settled','cancelled'))" : "") +
+            (hasLegacyCompletions ? " + (SELECT COUNT(*) FROM pending_completions p WHERE EXISTS(SELECT 1 FROM personal_cloud_outbox o WHERE o.entity_id=p.task_id AND o.operation IN ('task.complete','task.reopen'))" +
+                (hasBridgeTable ? " OR EXISTS(SELECT 1 FROM personal_cloud_provider_commands c WHERE c.task_id=p.task_id)" : "") + ")" : "");
+        if (Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)) > 0)
+            throw new PersonalCloudK0ContractException("pending_intents",
+                "Pending Personal Cloud edits must be synced or explicitly resolved before replacing the replica or changing its connection. Your edits have been preserved.");
+    }
+
+    public async Task<int> GetDeferredPersonalCloudChangeCountAsync(string instanceId, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        var command = connection.CreateCommand();
+        command.CommandText = "SELECT COUNT(*) FROM personal_cloud_deferred_changes WHERE instance_id=@i AND product='tasks'";
+        command.Parameters.AddWithValue("@i", instanceId);
+        return Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false));
     }
 
     public async Task<int> StageUnpublishedTasksForPersonalCloudAsync(
@@ -2478,8 +2508,6 @@ public sealed class SqliteTaskStore(string databasePath, bool readOnly = false) 
         updateCommand.Parameters.AddWithValue("@id", taskId);
         if (await updateCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
             throw new PersonalCloudK0ContractException("invalid_transition", "Only an open task can be completed.");
-        var pendingCompletion=ProviderWriteBackPlanner.CreateCompletion(originalTask,true,normalizedCompletedAt);
-        if(pendingCompletion is not null)await QueueCompletionCoreAsync(connection,pendingCompletion,cancellationToken).ConfigureAwait(false);
 
         var outboxCommand = connection.CreateCommand();
         outboxCommand.CommandText = """
@@ -2606,8 +2634,6 @@ public sealed class SqliteTaskStore(string databasePath, bool readOnly = false) 
         updateCommand.Parameters.AddWithValue("@id", taskId);
         if (await updateCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
             throw new PersonalCloudK0ContractException("invalid_transition", "Only a completed task can be reopened.");
-        var pendingCompletion=ProviderWriteBackPlanner.CreateCompletion(originalTask,false,normalizedReopenedAt);
-        if(pendingCompletion is not null)await QueueCompletionCoreAsync(connection,pendingCompletion,cancellationToken).ConfigureAwait(false);
 
         var outboxCommand = connection.CreateCommand();
         outboxCommand.CommandText = """
@@ -2964,7 +2990,8 @@ public sealed class SqliteTaskStore(string databasePath, bool readOnly = false) 
                 "The mutation receipt does not match a local Personal Cloud outbox entry.");
         }
         var expectedEntityVersion = PersonalCloudMutationEntityVersion(operation!, canonicalJson!, instanceId);
-        if (receipt.EntityVersion != expectedEntityVersion)
+        var auxiliary = operation is "source.refreshSnapshot" or "externalCommand.confirm" or "externalCommand.reject";
+        if (!auxiliary && receipt.EntityVersion != expectedEntityVersion)
         {
             throw new PersonalCloudK0ContractException(
                 "invalid_request",
@@ -2990,8 +3017,16 @@ public sealed class SqliteTaskStore(string databasePath, bool readOnly = false) 
             throw new InvalidOperationException("The Personal Cloud outbox acknowledgement was not stored.");
         }
 
-        await UpsertPersonalCloudEntityVersionAsync(
-            connection, instanceId, entityId, receipt.EntityVersion, cancellationToken).ConfigureAwait(false);
+        if (!auxiliary)
+            await UpsertPersonalCloudEntityVersionAsync(
+                connection, instanceId, entityId, receipt.EntityVersion, cancellationToken).ConfigureAwait(false);
+        if (operation is "externalCommand.confirm" or "externalCommand.reject")
+        {
+            var settle = connection.CreateCommand();
+            settle.CommandText = "UPDATE personal_cloud_provider_attempts SET state='settled' WHERE result_mutation_id=@m AND state='outcome'";
+            settle.Parameters.AddWithValue("@m", receipt.MutationId);
+            await settle.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
 
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
     }
@@ -3027,6 +3062,7 @@ public sealed class SqliteTaskStore(string databasePath, bool readOnly = false) 
         await using var reader = await outboxCommand.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
         {
+            if (reader.GetString(0) is "source.refreshSnapshot" or "externalCommand.confirm" or "externalCommand.reject") continue;
             var outboxVersion = PersonalCloudMutationEntityVersion(reader.GetString(0), reader.GetString(1), instanceId);
             version = version is null ? outboxVersion : Math.Max(version.Value, outboxVersion);
         }
@@ -3047,6 +3083,7 @@ public sealed class SqliteTaskStore(string databasePath, bool readOnly = false) 
                 checked(PersonalCloudDeleteCodec.ParseMutation(canonicalJson, instanceId).BaseEntityVersion + 1),
             "task.setProject" or "task.move" or "task.addLabel" or "task.removeLabel" or "task.setParent" =>
                 checked(JsonDocument.Parse(canonicalJson).RootElement.GetProperty("baseEntityVersion").GetInt64() + 1),
+            "source.refreshSnapshot" or "externalCommand.confirm" or "externalCommand.reject" => 0L,
             _ => throw new PersonalCloudK0ContractException("invalid_request", "The local outbox operation is unsupported."),
         };
 
@@ -3154,13 +3191,11 @@ public sealed class SqliteTaskStore(string databasePath, bool readOnly = false) 
             WHERE mutation_id = @mutation_id
               AND product = @product
               AND instance_id = @instance_id
-              AND device_id = @device_id
               AND acknowledged_at IS NOT NULL
             """;
         ownEchoCommand.Parameters.AddWithValue("@mutation_id", change.MutationId);
         ownEchoCommand.Parameters.AddWithValue("@product", PersonalCloudK0Protocol.TasksProduct);
         ownEchoCommand.Parameters.AddWithValue("@instance_id", instanceId);
-        ownEchoCommand.Parameters.AddWithValue("@device_id", deviceId);
         var ownEchoEntityId = (string?)await ownEchoCommand.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
         var isOwnEcho = ownEchoEntityId is not null;
         if (isOwnEcho && !string.Equals(ownEchoEntityId, change.EntityId, StringComparison.Ordinal))
@@ -3170,7 +3205,46 @@ public sealed class SqliteTaskStore(string databasePath, bool readOnly = false) 
                 "The echoed Personal Cloud change does not match its local outbox entry.");
         }
 
-        if (!isOwnEcho)
+        var pendingEntity = connection.CreateCommand();
+        pendingEntity.CommandText = """
+            SELECT COUNT(*) FROM personal_cloud_outbox
+            WHERE instance_id=@i AND product='tasks' AND entity_id=@e AND acknowledged_at IS NULL
+              AND operation NOT IN ('source.refreshSnapshot','externalCommand.confirm','externalCommand.reject')
+            """;
+        pendingEntity.Parameters.AddWithValue("@i", instanceId);
+        pendingEntity.Parameters.AddWithValue("@e", change.EntityId);
+        var hasPendingUserIntent = Convert.ToInt64(await pendingEntity.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)) > 0;
+        // Source descriptors and command receipts cannot overwrite optimistic Openza fields.
+        // They remain useful while a user edit is pending, including our own source echoes.
+        var isAuxiliaryChange = change is PersonalCloudSourceRefreshedChange or PersonalCloudExternalCommandChangedChange;
+        var skipAuxiliaryTaskWrite = false;
+        if (isAuxiliaryChange)
+        {
+            var deleted = connection.CreateCommand();
+            deleted.CommandText = """
+                SELECT EXISTS(SELECT 1 FROM personal_cloud_tombstones WHERE instance_id=@i AND entity_id=@e)
+                  OR EXISTS(SELECT 1 FROM personal_cloud_outbox WHERE instance_id=@i AND entity_id=@e
+                    AND operation='task.delete' AND acknowledged_at IS NULL)
+                """;
+            deleted.Parameters.AddWithValue("@i", instanceId); deleted.Parameters.AddWithValue("@e", change.EntityId);
+            skipAuxiliaryTaskWrite = Convert.ToInt64(await deleted.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)) != 0;
+        }
+        var deferChange = !isOwnEcho && !isAuxiliaryChange && hasPendingUserIntent;
+        if (deferChange)
+        {
+            var defer = connection.CreateCommand();
+            defer.CommandText = """
+                INSERT INTO personal_cloud_deferred_changes(instance_id,product,change_seq,entity_id,canonical_json)
+                VALUES(@i,'tasks',@q,@e,@json)
+                """;
+            defer.Parameters.AddWithValue("@i", instanceId);
+            defer.Parameters.AddWithValue("@q", change.ChangeSeq);
+            defer.Parameters.AddWithValue("@e", change.EntityId);
+            defer.Parameters.AddWithValue("@json", PersonalCloudK0Codec.Canonicalize(PersonalCloudK0Codec.Serialize((object)change)));
+            await defer.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        if ((!isOwnEcho || isAuxiliaryChange) && !deferChange && !skipAuxiliaryTaskWrite)
         {
         switch (change)
         {
@@ -3430,9 +3504,6 @@ public sealed class SqliteTaskStore(string databasePath, bool readOnly = false) 
                         exists ? "invalid_transition" : "entity_not_found",
                         exists ? "Only an open replica task can be completed." : "The replica does not contain the task to complete.");
                 }
-                var completedTask=(await ReadTasksAsync(connection,cancellationToken).ConfigureAwait(false)).First(task=>task.Id==completed.EntityId);
-                var pending=ProviderWriteBackPlanner.CreateCompletion(completedTask,true,completedAt);
-                if(pending is not null)await QueueCompletionCoreAsync(connection,pending,cancellationToken).ConfigureAwait(false);
                 break;
             }
             case PersonalCloudTaskReopenedChange reopened:
@@ -3461,19 +3532,26 @@ public sealed class SqliteTaskStore(string databasePath, bool readOnly = false) 
                         exists ? "invalid_transition" : "entity_not_found",
                         exists ? "Only a completed replica task can be reopened." : "The replica does not contain the task to reopen.");
                 }
-                var reopenedTask=(await ReadTasksAsync(connection,cancellationToken).ConfigureAwait(false)).First(task=>task.Id==reopened.EntityId);
-                var pending=ProviderWriteBackPlanner.CreateCompletion(reopenedTask,false,acceptedAt);
-                if(pending is not null)await QueueCompletionCoreAsync(connection,pending,cancellationToken).ConfigureAwait(false);
                 break;
             }
             case PersonalCloudTaskDeletedChange deleted:
             {
                 var existsCommand=connection.CreateCommand();existsCommand.CommandText="SELECT COUNT(*) FROM tasks WHERE id=@id";existsCommand.Parameters.AddWithValue("@id",deleted.EntityId);
                 if(Convert.ToInt64(await existsCommand.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false))!=1)
-                    throw new PersonalCloudK0ContractException("entity_not_found","The replica does not contain the task to delete.");
+                {
+                    var known = connection.CreateCommand();
+                    known.CommandText = "SELECT entity_version FROM personal_cloud_tombstones WHERE instance_id=@i AND product='tasks' AND entity_id=@e";
+                    known.Parameters.AddWithValue("@i", instanceId); known.Parameters.AddWithValue("@e", deleted.EntityId);
+                    var prior = await known.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+                    if (prior is null or DBNull || Convert.ToInt64(prior) != deleted.EntityVersion)
+                        throw new PersonalCloudK0ContractException("entity_not_found", "The replica does not contain the task or matching tombstone to delete.");
+                }
                 var tombstone=connection.CreateCommand();tombstone.CommandText="""
                   INSERT INTO personal_cloud_tombstones(instance_id,product,entity_id,entity_version,deleted_at,purge_after)
                   VALUES(@i,'tasks',@e,@v,@a,NULL)
+                  ON CONFLICT(instance_id,product,entity_id) DO UPDATE SET
+                    entity_version=excluded.entity_version,deleted_at=excluded.deleted_at
+                  WHERE personal_cloud_tombstones.entity_version<=excluded.entity_version
                   """;
                 tombstone.Parameters.AddWithValue("@i",instanceId);tombstone.Parameters.AddWithValue("@e",deleted.EntityId);tombstone.Parameters.AddWithValue("@v",deleted.EntityVersion);tombstone.Parameters.AddWithValue("@a",ParseProtocolTimestamp(deleted.Payload.Task.DeletedAt).ToUnixTimeMilliseconds());
                 await tombstone.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
@@ -3493,8 +3571,11 @@ public sealed class SqliteTaskStore(string databasePath, bool readOnly = false) 
             throw new InvalidOperationException("Injected failure after replica task write.");
         }
 
-        await UpsertPersonalCloudEntityVersionAsync(
-            connection, instanceId, change.EntityId, change.EntityVersion, cancellationToken).ConfigureAwait(false);
+        if (!deferChange)
+            await RecordProviderBridgeChangeAsync(connection, instanceId, change, cancellationToken).ConfigureAwait(false);
+        if (!deferChange && !isAuxiliaryChange)
+            await UpsertPersonalCloudEntityVersionAsync(
+                connection, instanceId, change.EntityId, change.EntityVersion, cancellationToken).ConfigureAwait(false);
 
         var appliedChangeCommand = connection.CreateCommand();
         appliedChangeCommand.CommandText = """
@@ -3511,7 +3592,10 @@ public sealed class SqliteTaskStore(string databasePath, bool readOnly = false) 
         appliedChangeCommand.Parameters.AddWithValue("@applied_at", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
         await appliedChangeCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
 
-        var trackCommand=connection.CreateCommand();trackCommand.CommandText="INSERT OR IGNORE INTO personal_cloud_replica_entities(instance_id,product,entity_id) VALUES(@i,'tasks',@e)";trackCommand.Parameters.AddWithValue("@i",instanceId);trackCommand.Parameters.AddWithValue("@e",change.EntityId);await trackCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        if (!deferChange)
+        {
+            var trackCommand=connection.CreateCommand();trackCommand.CommandText="INSERT OR IGNORE INTO personal_cloud_replica_entities(instance_id,product,entity_id) SELECT @i,'tasks',@e WHERE EXISTS(SELECT 1 FROM tasks WHERE id=@e)";trackCommand.Parameters.AddWithValue("@i",instanceId);trackCommand.Parameters.AddWithValue("@e",change.EntityId);await trackCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
 
         }
 
@@ -3544,6 +3628,7 @@ public sealed class SqliteTaskStore(string databasePath, bool readOnly = false) 
         string instanceId,string deviceId,string bootstrapJson,CancellationToken cancellationToken=default)
     {
         var bootstrap=PersonalCloudBootstrapCodec.Parse(bootstrapJson);await using var connection=await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);await using var transaction=await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        await EnsureNoPendingPersonalCloudIntentsAsync(connection, cancellationToken).ConfigureAwait(false);
         var clear=connection.CreateCommand();clear.CommandText="""
           DELETE FROM personal_cloud_applied_changes WHERE instance_id=@i AND product='tasks';
           DELETE FROM personal_cloud_checkpoints WHERE instance_id=@i AND product='tasks';
@@ -3553,6 +3638,8 @@ public sealed class SqliteTaskStore(string databasePath, bool readOnly = false) 
           DELETE FROM tasks WHERE id IN(SELECT entity_id FROM personal_cloud_replica_entities WHERE instance_id=@i AND product='tasks')
             AND NOT EXISTS(SELECT 1 FROM personal_cloud_outbox o WHERE o.entity_id=tasks.id AND o.acknowledged_at IS NULL);
           DELETE FROM personal_cloud_replica_entities WHERE instance_id=@i AND product='tasks';
+          DELETE FROM personal_cloud_provider_commands WHERE instance_id=@i;
+          DELETE FROM personal_cloud_provider_sources WHERE instance_id=@i;
           """;clear.Parameters.AddWithValue("@i",instanceId);await clear.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         foreach(var space in bootstrap.Snapshot.Spaces.Where(s=>s.DeletedAt is null)){var c=connection.CreateCommand();c.CommandText="INSERT INTO spaces(id,name,created_at) VALUES(@id,@name,@now) ON CONFLICT(id) DO UPDATE SET name=excluded.name";c.Parameters.AddWithValue("@id",space.Id);c.Parameters.AddWithValue("@name",space.Name);c.Parameters.AddWithValue("@now",DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());await c.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);}
         foreach(var project in bootstrap.Snapshot.Projects.Where(p=>p.DeletedAt is null)){var c=connection.CreateCommand();c.CommandText="INSERT INTO projects(id,space_id,integration_id,name,created_at) VALUES(@id,@space,'openza_tasks',@name,@now) ON CONFLICT(id) DO UPDATE SET space_id=excluded.space_id,name=excluded.name";c.Parameters.AddWithValue("@id",project.Id);c.Parameters.AddWithValue("@space",project.SpaceId);c.Parameters.AddWithValue("@name",project.Name);c.Parameters.AddWithValue("@now",DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());await c.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);}
@@ -3565,6 +3652,7 @@ public sealed class SqliteTaskStore(string databasePath, bool readOnly = false) 
         foreach(var label in bootstrap.Snapshot.Labels.Where(l=>l.DeletedAt is null)){var c=connection.CreateCommand();c.CommandText="INSERT INTO labels(id,integration_id,name,created_at) VALUES(@id,'openza_tasks',@name,@now) ON CONFLICT(id) DO UPDATE SET name=excluded.name";c.Parameters.AddWithValue("@id",label.Id);c.Parameters.AddWithValue("@name",label.Name);c.Parameters.AddWithValue("@now",DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());await c.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);}
         foreach(var link in bootstrap.Snapshot.TaskLabels){var c=connection.CreateCommand();c.CommandText="INSERT INTO task_labels(task_id,label_id) VALUES(@task,@label)";c.Parameters.AddWithValue("@task",link.TaskId);c.Parameters.AddWithValue("@label",link.LabelId);await c.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);}
         foreach(var tombstone in bootstrap.Snapshot.Tombstones){var c=connection.CreateCommand();c.CommandText="INSERT INTO personal_cloud_tombstones(instance_id,product,entity_id,entity_version,deleted_at,purge_after) VALUES(@i,'tasks',@e,@v,@d,@p)";c.Parameters.AddWithValue("@i",instanceId);c.Parameters.AddWithValue("@e",tombstone.EntityId);c.Parameters.AddWithValue("@v",tombstone.EntityVersion);c.Parameters.AddWithValue("@d",ParseProtocolTimestamp(tombstone.DeletedAt).ToUnixTimeMilliseconds());c.Parameters.AddWithValue("@p",tombstone.PurgeAfter is null?DBNull.Value:ParseProtocolTimestamp(tombstone.PurgeAfter).ToUnixTimeMilliseconds());await c.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);await UpsertPersonalCloudEntityVersionAsync(connection,instanceId,tombstone.EntityId,tombstone.EntityVersion,cancellationToken).ConfigureAwait(false);}
+        await RecordProviderBridgeBootstrapAsync(connection, instanceId, bootstrap, cancellationToken).ConfigureAwait(false);
         var checkpoint=connection.CreateCommand();checkpoint.CommandText="INSERT INTO personal_cloud_checkpoints(instance_id,device_id,product,last_change_seq,updated_at) VALUES(@i,@d,'tasks',@c,@now) ON CONFLICT(instance_id,device_id,product) DO UPDATE SET last_change_seq=excluded.last_change_seq,updated_at=excluded.updated_at";checkpoint.Parameters.AddWithValue("@i",instanceId);checkpoint.Parameters.AddWithValue("@d",deviceId);checkpoint.Parameters.AddWithValue("@c",bootstrap.Checkpoint);checkpoint.Parameters.AddWithValue("@now",DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());await checkpoint.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);return bootstrap.Checkpoint;
     }
@@ -4355,6 +4443,8 @@ public sealed class SqliteTaskStore(string databasePath, bool readOnly = false) 
                 END,
                 completion_state = CASE
                     WHEN EXISTS (SELECT 1 FROM pending_completions WHERE task_id = @task_id) THEN completion_state
+                    WHEN EXISTS (SELECT 1 FROM personal_cloud_outbox WHERE entity_id = @task_id AND operation IN ('task.complete','task.reopen'))
+                      OR EXISTS (SELECT 1 FROM personal_cloud_provider_commands WHERE task_id = @task_id) THEN completion_state
                     ELSE @completion_state
                 END,
                 source_integration_id = @source_integration_id,
@@ -4387,6 +4477,8 @@ public sealed class SqliteTaskStore(string databasePath, bool readOnly = false) 
                 revision = revision + 1,
                 completed_at = CASE
                     WHEN EXISTS (SELECT 1 FROM pending_completions WHERE task_id = @task_id) THEN completed_at
+                    WHEN EXISTS (SELECT 1 FROM personal_cloud_outbox WHERE entity_id = @task_id AND operation IN ('task.complete','task.reopen'))
+                      OR EXISTS (SELECT 1 FROM personal_cloud_provider_commands WHERE task_id = @task_id) THEN completed_at
                     WHEN @completion_state = 'completed' THEN COALESCE(completed_at, @updated_at)
                     ELSE NULL
                 END
@@ -4954,6 +5046,7 @@ public sealed class SqliteTaskStore(string databasePath, bool readOnly = false) 
             await EnsureProviderSourceItemsCompatibilityAsync(connection, cancellationToken).ConfigureAwait(false);
             await EnsureLabelsCompatibilityAsync(connection, cancellationToken).ConfigureAwait(false);
             await EnsureTaskExternalLinksTableAsync(connection, cancellationToken).ConfigureAwait(false);
+            await EnsurePersonalCloudJournalCompatibilityAsync(connection, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -4983,6 +5076,31 @@ public sealed class SqliteTaskStore(string databasePath, bool readOnly = false) 
             CREATE INDEX IF NOT EXISTS idx_task_external_links_task ON task_external_links(task_id, integration_id);
             """;
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task EnsurePersonalCloudJournalCompatibilityAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        foreach (var table in new[] { "personal_cloud_outbox", "personal_cloud_applied_changes", "personal_cloud_tombstones" })
+        {
+            var inspect = connection.CreateCommand();
+            inspect.CommandText = $"PRAGMA foreign_key_list({table})";
+            var requiresMigration = false;
+            await using (var reader = await inspect.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+                while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                    requiresMigration |= reader.GetString(2) == "tasks";
+            if (!requiresMigration) continue;
+
+            var resource = $"Openza.Tasks.Core.Data.Migrations.0009_{table}.sql";
+            await using var script = typeof(SqliteTaskStore).Assembly.GetManifestResourceStream(resource)
+                ?? throw new InvalidOperationException("The Personal Cloud journal migration script is missing.");
+            using var source = new StreamReader(script);
+            var sql = await source.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
+            await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+            var migrate = connection.CreateCommand();
+            migrate.CommandText = sql;
+            await migrate.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        }
     }
 
     private static async Task EnsureProviderSourceItemsCompatibilityAsync(SqliteConnection connection, CancellationToken cancellationToken)
@@ -6083,7 +6201,7 @@ public sealed class SqliteTaskStore(string databasePath, bool readOnly = false) 
           device_id TEXT NOT NULL,
           device_sequence INTEGER NOT NULL CHECK (device_sequence > 0),
           operation TEXT NOT NULL,
-          entity_id TEXT NOT NULL REFERENCES tasks(id),
+          entity_id TEXT NOT NULL,
           canonical_json TEXT NOT NULL,
           canonical_hash TEXT NOT NULL CHECK (length(canonical_hash) = 64),
           created_at INTEGER NOT NULL,
@@ -6100,12 +6218,40 @@ public sealed class SqliteTaskStore(string databasePath, bool readOnly = false) 
           PRIMARY KEY (instance_id, device_id, product)
         );
 
+        CREATE TABLE IF NOT EXISTS personal_cloud_provider_sources (
+          instance_id TEXT NOT NULL, task_id TEXT NOT NULL, source_json TEXT NOT NULL,
+          PRIMARY KEY(instance_id,task_id)
+        );
+        CREATE TABLE IF NOT EXISTS personal_cloud_provider_commands (
+          instance_id TEXT NOT NULL, task_id TEXT NOT NULL, requested_seq INTEGER NOT NULL CHECK(requested_seq>0),
+          command TEXT NOT NULL CHECK(command IN ('complete','reopen')),
+          state TEXT NOT NULL CHECK(state IN ('pending_desktop','confirmed','rejected','cancelled')),
+          error_code TEXT, retry_id TEXT,
+          PRIMARY KEY(instance_id,task_id)
+        );
+        CREATE TABLE IF NOT EXISTS personal_cloud_provider_attempts (
+          claim_id TEXT PRIMARY KEY, instance_id TEXT NOT NULL, task_id TEXT NOT NULL,
+          requested_seq INTEGER NOT NULL, device_id TEXT NOT NULL, account_binding TEXT NOT NULL,
+          command TEXT NOT NULL, source_json TEXT NOT NULL,
+          state TEXT NOT NULL CHECK(state IN ('claiming','reserved','starting','dispatching','uncertain','outcome','settled','cancelled')),
+          result_mutation_id TEXT,
+          UNIQUE(instance_id,task_id,requested_seq,device_id)
+        );
+        CREATE TABLE IF NOT EXISTS personal_cloud_deferred_changes (
+          instance_id TEXT NOT NULL,
+          product TEXT NOT NULL CHECK (product = 'tasks'),
+          change_seq INTEGER NOT NULL CHECK (change_seq > 0),
+          entity_id TEXT NOT NULL,
+          canonical_json TEXT NOT NULL,
+          PRIMARY KEY(instance_id,product,change_seq)
+        );
+
         CREATE TABLE IF NOT EXISTS personal_cloud_applied_changes (
           instance_id TEXT NOT NULL,
           product TEXT NOT NULL CHECK (product = 'tasks'),
           change_seq INTEGER NOT NULL CHECK (change_seq > 0),
           mutation_id TEXT NOT NULL,
-          entity_id TEXT NOT NULL REFERENCES tasks(id),
+          entity_id TEXT NOT NULL,
           applied_at INTEGER NOT NULL,
           PRIMARY KEY (instance_id, product, change_seq),
           UNIQUE (instance_id, product, mutation_id)
@@ -6114,7 +6260,7 @@ public sealed class SqliteTaskStore(string databasePath, bool readOnly = false) 
         CREATE TABLE IF NOT EXISTS personal_cloud_tombstones (
           instance_id TEXT NOT NULL,
           product TEXT NOT NULL CHECK (product = 'tasks'),
-          entity_id TEXT NOT NULL REFERENCES tasks(id),
+          entity_id TEXT NOT NULL,
           entity_version INTEGER NOT NULL CHECK (entity_version > 0),
           deleted_at INTEGER NOT NULL,
           purge_after INTEGER,

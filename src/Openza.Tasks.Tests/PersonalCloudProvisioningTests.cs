@@ -85,6 +85,13 @@ public sealed class PersonalCloudProvisioningTests
         Assert.Equal(1, gateway.HealthCalls);
         Assert.Equal(1, gateway.PairingCalls);
         Assert.Equal(1, gateway.OwnerBootstrapCalls);
+        Assert.Equal(PersonalCloudProvisioningStage.Complete, stateStore.Value!.Stage);
+        await coordinator.ConfirmConnectionSavedAsync(new PersonalCloudConnectionProfile
+        {
+            ServiceOrigin = result.ServiceOrigin,
+            InstanceId = result.InstanceId!, DeviceId = result.DeviceId!, ArtifactVersion = result.ArtifactVersion,
+            ConnectedAt = DateTimeOffset.UtcNow,
+        });
         Assert.Null(stateStore.Value);
         Assert.Single(credentials.Values);
         Assert.DoesNotContain("temporary-oauth-token", credentials.Values.Single().Value, StringComparison.Ordinal);
@@ -108,6 +115,40 @@ public sealed class PersonalCloudProvisioningTests
             PersonalCloudSetupStep.PairingDesktop,
             PersonalCloudSetupStep.CreatingOwnerAccess,
         ], resumedProgress.Steps);
+    }
+
+    [Fact]
+    public async Task Profile_save_failure_keeps_completed_resource_identity_and_retry_reuses_it()
+    {
+        var oauthHandler = new RecordingHandler(
+            Json(HttpStatusCode.OK, """{"access_token":"temporary-oauth-token-one","token_type":"Bearer","expires_in":600,"scope":"account-settings.read d1.write workers-scripts.write"}"""),
+            Json(HttpStatusCode.OK, "{}"),
+            Json(HttpStatusCode.OK, """{"access_token":"temporary-oauth-token-two","token_type":"Bearer","expires_in":600,"scope":"account-settings.read d1.write workers-scripts.write"}"""),
+            Json(HttpStatusCode.OK, "{}"));
+        var identity = new PersonalCloudDeviceIdentityClient(new HttpClient(new RecordingHandler(Json(HttpStatusCode.Created,
+            """{"protocolVersion":1,"instanceId":"instance_personal","deviceId":"device_1234567890","refreshCredential":"refresh-secret-value-1234567890","capabilities":["desktop_sync"],"refreshExpiresAt":"2099-01-01T00:00:00Z"}"""))), new RecordingCredentialStore());
+        var state = new MemoryStateStore();
+        var gateway = new RecordingGateway();
+        var coordinator = new PersonalCloudProvisioningCoordinator(
+            new CloudflareOAuthClient(new HttpClient(oauthHandler), Configuration),
+            new CallbackBroker(CallbackFor), gateway, state, identity);
+        var connections = new FailFirstConnectionStore();
+        var service = new PersonalCloudSetupService(coordinator, "1.2.3", connectionStore: connections);
+
+        await Assert.ThrowsAsync<IOException>(() => service.ConnectAsync());
+        Assert.Null(service.CurrentConnection);
+        Assert.Equal(PersonalCloudProvisioningStage.Complete, state.Value!.Stage);
+        var attemptId = state.Value.AttemptId;
+        var result = await service.ConnectAsync();
+
+        Assert.Equal(result.ServiceOrigin, service.CurrentConnection!.ServiceOrigin);
+        Assert.Equal(connections.Load(), service.CurrentConnection);
+        Assert.Null(state.Value);
+        Assert.Equal(1, gateway.DatabaseCalls);
+        Assert.Equal(1, gateway.DeployCalls);
+        Assert.Equal(1, gateway.PairingCalls);
+        Assert.Equal(2, gateway.OwnerBootstrapCalls);
+        Assert.StartsWith("pc_", attemptId, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -236,7 +277,7 @@ public sealed class PersonalCloudProvisioningTests
     }
 
     [Fact]
-    public async Task Health_verification_requires_the_exact_artifact_protocol_and_schema()
+    public async Task Health_verification_requires_the_exact_artifact_version()
     {
         var success = new PersonalCloudHealthClient(new HttpClient(new RecordingHandler(Json(HttpStatusCode.OK, """
             {"status":"ok","protocolVersion":1,"product":"tasks","artifactVersion":"1.2.3","schemaVersion":17}
@@ -248,6 +289,41 @@ public sealed class PersonalCloudProvisioningTests
             """))));
         var error = await Assert.ThrowsAsync<PersonalCloudK0ContractException>(() => mismatch.VerifyAsync(
             new Uri("https://openza-personal-test.workers.dev/"), "1.2.3"));
+        Assert.Equal("health_mismatch", error.Code);
+    }
+
+    [Theory]
+    [InlineData(17)]
+    [InlineData(18)]
+    [InlineData(19)]
+    [InlineData(20)]
+    public async Task Health_verification_accepts_compatible_schema_migrations(int schemaVersion)
+    {
+        var client = new PersonalCloudHealthClient(new HttpClient(new RecordingHandler(Json(HttpStatusCode.OK,
+            $$"""{"status":"ok","protocolVersion":1,"product":"tasks","artifactVersion":"1.2.3","schemaVersion":{{schemaVersion}}}"""))));
+
+        var health = await client.InspectAsync(new Uri("https://openza-personal-test.workers.dev/"));
+
+        Assert.Equal(schemaVersion, health.SchemaVersion);
+        await new PersonalCloudHealthClient(new HttpClient(new RecordingHandler(Json(HttpStatusCode.OK,
+            $$"""{"status":"ok","protocolVersion":1,"product":"tasks","artifactVersion":"1.2.3","schemaVersion":{{schemaVersion}}}"""))))
+            .VerifyAsync(new Uri("https://openza-personal-test.workers.dev/"), "1.2.3");
+    }
+
+    [Theory]
+    [InlineData(16, 1, "tasks")]
+    [InlineData(21, 1, "tasks")]
+    [InlineData(18, 2, "tasks")]
+    [InlineData(18, 1, "reader")]
+    public async Task Health_verification_rejects_incompatible_schema_protocol_or_product(
+        int schemaVersion, int protocolVersion, string product)
+    {
+        var client = new PersonalCloudHealthClient(new HttpClient(new RecordingHandler(Json(HttpStatusCode.OK,
+            $$"""{"status":"ok","protocolVersion":{{protocolVersion}},"product":"{{product}}","artifactVersion":"1.2.3","schemaVersion":{{schemaVersion}}}"""))));
+
+        var error = await Assert.ThrowsAsync<PersonalCloudK0ContractException>(() => client.InspectAsync(
+            new Uri("https://openza-personal-test.workers.dev/")));
+
         Assert.Equal("health_mismatch", error.Code);
     }
 
@@ -501,6 +577,20 @@ public sealed class PersonalCloudProvisioningTests
         public Task<PersonalCloudProvisioningState?> LoadAsync(CancellationToken cancellationToken = default) => Task.FromResult(Value);
         public Task SaveAsync(PersonalCloudProvisioningState state, CancellationToken cancellationToken = default) { Value = state; return Task.CompletedTask; }
         public Task ClearAsync(CancellationToken cancellationToken = default) { Value = null; return Task.CompletedTask; }
+    }
+
+    private sealed class FailFirstConnectionStore : IPersonalCloudConnectionStore
+    {
+        private bool _fail = true;
+        private PersonalCloudConnectionProfile? _value;
+        public PersonalCloudConnectionProfile? Load() => _value;
+        public Task SaveAsync(PersonalCloudConnectionProfile connection, CancellationToken cancellationToken = default)
+        {
+            if (_fail) { _fail = false; throw new IOException("Injected profile save failure."); }
+            _value = connection;
+            return Task.CompletedTask;
+        }
+        public Task ClearAsync(CancellationToken cancellationToken = default) { _value = null; return Task.CompletedTask; }
     }
 
     private sealed class RecordingGateway : ICloudflareProvisioningGateway

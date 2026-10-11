@@ -17,6 +17,97 @@ public sealed class PersonalCloudSyncClientTests : IDisposable
         Guid.NewGuid().ToString("N"));
 
     [Fact]
+    public async Task Permanent_rejection_preserves_local_intent_and_downloads_unrelated_changes()
+    {
+        Directory.CreateDirectory(_directory);
+        var store = new SqliteTaskStore(Path.Combine(_directory, "conflict.db"));
+        await store.InitializeAsync();
+        var handler = new SyncHandler { ErrorCode = "version_conflict" };
+        var client = await CreateClientAsync(store, handler);
+        var local = new TaskItem { Id = "local_conflict", Title = "Keep local intent", SpaceId = SpaceIds.Default };
+        var outbox = await store.CreateTaskWithPersonalCloudIntentAsync(local, InstanceId, DeviceId);
+        K0TaskCreatedChange Change(TaskItem task, long sequence) => new()
+        {
+            ProtocolVersion = 1, Product = "tasks", ChangeSeq = sequence, MutationId = $"mutation_remote_{sequence}",
+            Operation = "task.created", EntityKind = "task", EntityId = task.Id, EntityVersion = 1,
+            Payload = PersonalCloudK0Mapper.CreateTaskMutation(task, InstanceId, DeviceId, $"mutation_remote_{sequence}", sequence, DateTimeOffset.UtcNow).Payload,
+            ServerAcceptedAt = "2026-09-14T04:30:01.000Z",
+        };
+        handler.PullBody = PersonalCloudK0Codec.Serialize(new
+        {
+            ProtocolVersion = 1, Product = "tasks", NextCheckpoint = 2,
+            Changes = new[] { Change(local with { Title = "Remote title" }, 1), Change(local with { Id = "local_unrelated", Title = "Unrelated remote task" }, 2) },
+        });
+
+        var result = await client.SyncAsync();
+
+        Assert.Equal("version_conflict", result.BlockedCode);
+        Assert.Equal(0, result.PushedMutations);
+        Assert.Equal(2, result.PulledChanges);
+        Assert.Equal(2, result.Checkpoint);
+        Assert.Equal(local.Title, (await store.GetTaskAsync(local.Id))!.Title);
+        Assert.Equal("Unrelated remote task", (await store.GetTaskAsync("local_unrelated"))!.Title);
+        Assert.Equal(outbox.CanonicalJson, Assert.Single(await store.GetPendingPersonalCloudOutboxAsync(InstanceId, DeviceId)).CanonicalJson);
+        Assert.Equal(1, await store.GetDeferredPersonalCloudChangeCountAsync(InstanceId));
+        await client.SyncAsync();
+        Assert.Equal(1, await store.GetDeferredPersonalCloudChangeCountAsync(InstanceId));
+    }
+
+    [Fact]
+    public async Task Expired_checkpoint_rebuilds_only_when_no_unresolved_intent_exists()
+    {
+        Directory.CreateDirectory(_directory);
+        var store = new SqliteTaskStore(Path.Combine(_directory, "expired.db"));
+        await store.InitializeAsync();
+        var handler = new SyncHandler
+        {
+            ExpireCheckpointOnce = true,
+            PullBody = """{"protocolVersion":1,"product":"tasks","changes":[],"nextCheckpoint":5}""",
+        };
+        var client = await CreateClientAsync(store, handler);
+
+        var result = await client.SyncAsync();
+
+        Assert.Equal(5, result.Checkpoint);
+        Assert.Contains("/sync/bootstrap", handler.Paths);
+        Assert.Equal(5, await store.GetPersonalCloudCheckpointAsync(InstanceId, DeviceId));
+    }
+
+    [Fact]
+    public async Task Expired_checkpoint_with_pending_intent_keeps_it_and_does_not_request_bootstrap()
+    {
+        Directory.CreateDirectory(_directory);
+        var store = new SqliteTaskStore(Path.Combine(_directory, "expired-pending.db"));
+        await store.InitializeAsync();
+        var handler = new SyncHandler { ErrorCode = "version_conflict", ExpireCheckpointOnce = true };
+        var client = await CreateClientAsync(store, handler);
+        var outbox = await store.CreateTaskWithPersonalCloudIntentAsync(new TaskItem
+        {
+            Id = "local_pending_expired", Title = "Preserve pending", SpaceId = SpaceIds.Default,
+        }, InstanceId, DeviceId);
+
+        var error = await Assert.ThrowsAsync<PersonalCloudK0ContractException>(() => client.SyncAsync());
+
+        Assert.Equal("checkpoint_expired_pending", error.Code);
+        Assert.DoesNotContain("/sync/bootstrap", handler.Paths);
+        Assert.Equal(outbox.CanonicalJson, Assert.Single(await store.GetPendingPersonalCloudOutboxAsync(InstanceId, DeviceId)).CanonicalJson);
+        Assert.Equal(0, await store.GetPersonalCloudCheckpointAsync(InstanceId, DeviceId));
+    }
+
+    private static async Task<PersonalCloudSyncClient> CreateClientAsync(SqliteTaskStore store, SyncHandler handler)
+    {
+        var http = new HttpClient(handler);
+        var identity = new PersonalCloudDeviceIdentityClient(http, new InMemoryCredentialStore());
+        var origin = new Uri("https://personal-cloud.example.test/");
+        var paired = await identity.PairAsync(origin, "pair-one-time-secret-123456789", "Test desktop", false);
+        return new PersonalCloudSyncClient(http, identity, store, new PersonalCloudConnectionProfile
+        {
+            ServiceOrigin = origin, InstanceId = paired.InstanceId, DeviceId = paired.DeviceId,
+            ArtifactVersion = "0.1.0-preview.8", ConnectedAt = DateTimeOffset.UtcNow,
+        });
+    }
+
+    [Fact]
     public async Task Sync_pushes_pending_work_pulls_own_echo_once_and_acknowledges_checkpoint()
     {
         Directory.CreateDirectory(_directory);
@@ -101,6 +192,10 @@ public sealed class PersonalCloudSyncClientTests : IDisposable
     private sealed class SyncHandler(bool rejectMutation = false) : HttpMessageHandler
     {
         private K0TaskCreateMutation? _mutation;
+        private bool _expired;
+        public string? ErrorCode { get; init; }
+        public string? PullBody { get; set; }
+        public bool ExpireCheckpointOnce { get; init; }
         public List<string> Paths { get; } = [];
         public List<string?> AuthorizationSchemes { get; } = [];
         public long? AcknowledgedCheckpoint { get; private set; }
@@ -122,6 +217,7 @@ public sealed class PersonalCloudSyncClientTests : IDisposable
                     """),
                 "/v1/tasks/mutations" => await AcceptMutationAsync(request, cancellationToken),
                 "/sync/changes" => ChangePage(),
+                "/sync/bootstrap" => Json(HttpStatusCode.OK, """{"protocolVersion":1,"product":"tasks","checkpoint":5,"snapshot":{"spaces":[],"projects":[],"tasks":[],"labels":[],"taskLabels":[],"tombstones":[]}}"""),
                 "/sync/checkpoints" => await AcknowledgeCheckpointAsync(request, cancellationToken),
                 _ => throw new InvalidOperationException($"Unexpected request path: {request.RequestUri.AbsolutePath}"),
             };
@@ -131,6 +227,8 @@ public sealed class PersonalCloudSyncClientTests : IDisposable
             HttpRequestMessage request,
             CancellationToken cancellationToken)
         {
+            if (ErrorCode is not null)
+                return Json(HttpStatusCode.Conflict, $$$"""{"error":{"code":"{{{ErrorCode}}}","message":"private database detail"}}""");
             if (rejectMutation)
                 return Json(HttpStatusCode.InternalServerError, "{\"error\":\"private database detail\"}");
             _mutation = PersonalCloudK0Codec.ParseTaskCreateMutation(
@@ -151,6 +249,12 @@ public sealed class PersonalCloudSyncClientTests : IDisposable
 
         private HttpResponseMessage ChangePage()
         {
+            if (ExpireCheckpointOnce && !_expired)
+            {
+                _expired = true;
+                return Json(HttpStatusCode.Conflict, """{"error":{"code":"checkpoint_expired"}}""");
+            }
+            if (PullBody is not null) return Json(HttpStatusCode.OK, PullBody);
             if (_mutation is null) throw new InvalidOperationException("The mutation must be accepted before changes are pulled.");
             var change = new K0TaskCreatedChange
             {

@@ -163,7 +163,7 @@ public static class PersonalCloudK0Mapper
         return mutation;
     }
 
-    private static K0SafeSourceDescriptor? CreateSafeSourceDescriptor(TaskItem task)
+    public static K0SafeSourceDescriptor? CreateSafeSourceDescriptor(TaskItem task)
     {
         if (!task.HasProviderSource) return null;
         var identity=Encoding.UTF8.GetBytes($"{task.SourceIntegrationId}:{task.SourceExternalId}");
@@ -180,7 +180,7 @@ public static class PersonalCloudK0Mapper
         };
     }
 
-    private static string FormatTimestamp(DateTimeOffset value) =>
+    public static string FormatTimestamp(DateTimeOffset value) =>
         value.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture);
 }
 
@@ -414,7 +414,7 @@ public static class PersonalCloudK0Codec
     {
         if(string.IsNullOrWhiteSpace(source.IntegrationKind)||source.IntegrationKind.Length>64||
            source.ExternalIdHash.Length!=64||source.ExternalIdHash.Any(c=>!char.IsAsciiHexDigit(c)||char.IsUpper(c))||
-           string.IsNullOrWhiteSpace(source.Title)||source.Priority is <1 or >4)
+           string.IsNullOrWhiteSpace(source.Title)||StrictUtf8.GetByteCount(source.Title)>PersonalCloudK0Protocol.MaximumTitleUtf8Bytes||source.Priority is <1 or >4)
             throw Invalid("invalid_request","The safe source descriptor is invalid.");
         ValidateTimestamp(source.RefreshedAt,"payload.source.refreshedAt");
         if(source.PlannedAt is not null)ValidateTimestamp(source.PlannedAt,"payload.source.plannedAt");

@@ -4,6 +4,29 @@ namespace Openza.Tasks.Desktop.ViewModels;
 
 public sealed partial class MainWindowViewModel
 {
+    public System.Collections.ObjectModel.ObservableCollection<Openza.Tasks.Core.Data.PersonalCloudProviderRequestStatus> ProviderRequests { get; } = [];
+
+    private async Task RefreshProviderRequestStatusAsync()
+    {
+        ProviderRequests.Clear();
+        if (_store is not Openza.Tasks.Core.Data.SqliteTaskStore store || _personalCloudSetup?.CurrentConnection is not { } current) return;
+        foreach (var item in await store.GetPersonalCloudProviderRequestStatusAsync(current.InstanceId)) ProviderRequests.Add(item);
+    }
+
+    public async Task RetryProviderRequestAsync(string taskId)
+    {
+        if (_personalCloudSetup is not IPersonalCloudProviderBridgeService bridge || !await _syncGate.WaitAsync(0)) return;
+        IsSyncing = true;
+        try
+        {
+            await bridge.RetryProviderCommandAsync(taskId);
+            await _personalCloudSetup.SyncAsync();
+            await RefreshProviderRequestStatusAsync();
+            StatusMessage = "Provider retry requested. Sync to deliver it through the connected account.";
+        }
+        catch (Exception exception) { SetPersistentStatusMessage(exception.Message); }
+        finally { IsSyncing = false; _syncGate.Release(); }
+    }
     public string PersonalCloudStatusText
     {
         get => _personalCloudStatusText;
@@ -54,7 +77,9 @@ public sealed partial class MainWindowViewModel
             var result = await _personalCloudSetup.ConnectAsync(cancellationToken, progress);
             var sync = await _personalCloudSetup.SyncAsync(cancellationToken);
             PersonalCloudStatusText = "Connected";
-            PersonalCloudSummaryText = $"This desktop is paired with {result.ServiceOrigin.Host}. Cloud connection verified at checkpoint {sync.Checkpoint}.";
+            PersonalCloudSummaryText = sync.BlockedCode is null
+                ? $"This desktop is paired with {result.ServiceOrigin.Host}. Cloud connection verified at checkpoint {sync.Checkpoint}."
+                : $"This desktop is paired. Sync is blocked ({sync.BlockedCode}); pending edits are preserved and require resolution.";
             PersonalCloudActionText = "Manage Personal Cloud";
             OnPropertyChanged(nameof(IsPersonalCloudConnected));
             return result;
@@ -121,7 +146,9 @@ public sealed partial class MainWindowViewModel
             pairedConnection = connection;
             var sync = await _personalCloudSetup.SyncAsync(cancellationToken);
             PersonalCloudStatusText = "Connected";
-            PersonalCloudSummaryText = $"This desktop is paired with {connection.ServiceOrigin.Host}. Cloud connection verified at checkpoint {sync.Checkpoint}.";
+            PersonalCloudSummaryText = sync.BlockedCode is null
+                ? $"This desktop is paired with {connection.ServiceOrigin.Host}. Cloud connection verified at checkpoint {sync.Checkpoint}."
+                : $"This desktop is paired. Sync is blocked ({sync.BlockedCode}); pending edits are preserved and require resolution.";
             PersonalCloudActionText = "Manage Personal Cloud";
             OnPropertyChanged(nameof(IsPersonalCloudConnected));
             return connection;
@@ -137,9 +164,12 @@ public sealed partial class MainWindowViewModel
         {
             if (pairedConnection is not null) return ReportPairedSyncIncomplete(pairedConnection);
             PersonalCloudStatusText = "Needs attention";
-            PersonalCloudSummaryText = exception.Code == "health_mismatch"
-                ? "This Personal Cloud must be updated before this desktop can pair."
-                : "The Personal Cloud address or one-time pairing code was rejected.";
+            PersonalCloudSummaryText = exception.Code switch
+            {
+                "health_mismatch" => "This Personal Cloud must be updated before this desktop can pair.",
+                "pending_intents" => "Pending edits or deferred cloud changes must be synced or explicitly resolved before replacing this connection. Your edits have been preserved.",
+                _ => "The Personal Cloud address or one-time pairing code was rejected.",
+            };
             return null;
         }
         catch
@@ -252,6 +282,7 @@ public sealed partial class MainWindowViewModel
             PersonalCloudStatusText = "Needs attention";
             PersonalCloudSummaryText = exception.Code switch
             {
+                "pending_intents" => "Pending edits or deferred cloud changes must be synced or explicitly resolved before changing this connection. Your edits have been preserved.",
                 "oauth_denied" => "Cloudflare authorization was cancelled. No cloud resource was changed.",
                 "oauth_timeout" => "Cloudflare authorization expired. Open Manage Personal Cloud and try Download backup again.",
                 "resource_not_found" => "The Personal Cloud resources were not found in the authorized Cloudflare account.",
