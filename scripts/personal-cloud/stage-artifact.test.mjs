@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { verifyArtifact } from './stage-artifact.mjs';
 import { reservePublishOutput } from './publish-output.mjs';
+import { stageSnapArtifact } from './stage-snap-artifact.mjs';
 
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 async function fixture(t, file = 'worker.js') {
@@ -51,4 +52,21 @@ test('overlapping publishers reserve exactly one destination and preserve its fi
   await writeFile(join(output, 'retained.txt'), 'keep');
   await assert.rejects(reservePublishOutput(output), /already exists/);
   assert.equal(await readFile(join(output, 'retained.txt'), 'utf8'), 'keep');
+});
+test('Snap staging verifies before copying and preserves an existing destination', async t => {
+  const { directory, lock } = await fixture(t);
+  const output = join(directory, 'snap/artifact');
+  await writeFile(join(directory, 'worker.js'), 'changed');
+  await assert.rejects(stageSnapArtifact(directory, output, lock), /checksum/);
+  await assert.rejects(readFile(join(output, 'artifact-manifest.json')), { code: 'ENOENT' });
+  await writeFile(join(directory, 'worker.js'), 'test Worker');
+  // Keep the destination outside the source: verified artifacts reject extra files.
+  const parent = await mkdtemp(join(tmpdir(), 'openza-snap-stage-test-'));
+  t.after(() => rm(parent, { recursive: true, force: true }));
+  const destination = join(parent, 'artifact');
+  await stageSnapArtifact(directory, destination, lock);
+  await verifyArtifact(destination, lock);
+  await writeFile(join(destination, 'retained.txt'), 'keep');
+  await assert.rejects(stageSnapArtifact(directory, destination, lock), /already exists/);
+  assert.equal(await readFile(join(destination, 'retained.txt'), 'utf8'), 'keep');
 });

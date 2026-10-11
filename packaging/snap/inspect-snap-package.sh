@@ -7,6 +7,7 @@ if [[ $# -lt 1 || $# -gt 2 ]]; then
 fi
 
 snap_path="$1"
+repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 expected_channel="${2:-Production}"
 if [[ "$expected_channel" != Production && "$expected_channel" != Preview ]]; then
   echo "Expected channel must be Production or Preview." >&2
@@ -46,6 +47,12 @@ test -x "$root/opt/openza-tasks/cli/openza"
 test -x "$root/usr/bin/secret-tool"
 test -f "$root/opt/openza-tasks/desktop/PersonalCloudArtifact/artifact-manifest.json"
 test -f "$root/opt/openza-tasks/desktop/PersonalCloudArtifact/worker.js"
+node --input-type=module - "$root/opt/openza-tasks/desktop/PersonalCloudArtifact" "$repo_root" <<'NODE'
+import { pathToFileURL } from 'node:url';
+const { verifyArtifact } = await import(pathToFileURL(`${process.argv[3]}/scripts/personal-cloud/stage-artifact.mjs`));
+const manifest = await verifyArtifact(process.argv[2]);
+console.log(`Verified pinned Personal Cloud artifact: ${manifest.artifactVersion}, ${1 + manifest.assets.length + manifest.migrations.length} entries, ${manifest.migrations.length} migrations.`);
+NODE
 grep -Fq 'network-bind' "$metadata"
 grep -Fq 'password-manager-service' "$metadata"
 test -f "$root/meta/gui/openza-tasks.desktop"

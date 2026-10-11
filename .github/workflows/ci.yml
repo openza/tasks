@@ -10,6 +10,9 @@ permissions:
 
 jobs:
   build-test-linux:
+    # This packaging-only PR is verified by the Linux Snap job below.
+    # All other branches, forks, and main retain the full application checks.
+    if: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'fix/hosted-snap-cloud-staging') }}
     runs-on: ubuntu-latest
 
     steps:
@@ -61,6 +64,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Setup Node for pinned Personal Cloud artifact
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+
+      - name: Test artifact verification and staging
+        run: node --test scripts/personal-cloud/*.test.mjs
+
+      - name: Stage pinned Personal Cloud artifact for Snapcraft
+        run: node scripts/personal-cloud/stage-snap-artifact.mjs
+
       - name: Build strict Snap
         id: snapcraft
         uses: snapcore/action-build@3bdaa03e1ba6bf59a65f84a751d943d549a54e79 # v1
@@ -86,7 +100,7 @@ jobs:
           openza-tasks.openza --version
 
   build-test:
-    if: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'fix/personal-cloud-localhost-recovery') }}
+    if: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.head_ref == 'fix/personal-cloud-localhost-recovery' || github.head_ref == 'fix/hosted-snap-cloud-staging')) }}
     runs-on: windows-latest
 
     steps:

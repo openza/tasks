@@ -5,12 +5,19 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      platforms:
+        description: Validation scope (Linux Snap artifacts do not publish a release)
+        type: choice
+        options: [all, linux-snap]
+        default: all
 
 permissions:
   contents: read
 
 jobs:
   validate-windows:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.platforms != 'linux-snap' }}
     runs-on: windows-latest
 
     steps:
@@ -47,10 +54,22 @@ jobs:
         run: sudo apt-get update && sudo apt-get install --yes appstream desktop-file-utils
 
       - name: Test Core
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.platforms != 'linux-snap' }}
         run: dotnet test src/Openza.Tasks.Tests/Openza.Tasks.Tests.csproj -c Release
 
       - name: Validate Linux metadata
         run: bash packaging/snap/test-snap-package.sh
+
+      - name: Setup Node for pinned Personal Cloud artifact
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+
+      - name: Test artifact verification and staging
+        run: node --test scripts/personal-cloud/*.test.mjs
+
+      - name: Stage pinned Personal Cloud artifact for Snapcraft
+        run: node scripts/personal-cloud/stage-snap-artifact.mjs
 
       - name: Build strict Snap
         id: snapcraft

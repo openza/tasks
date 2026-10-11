@@ -68,6 +68,29 @@ minimum required interfaces for `openza-tasks_pcdev`, test against the retained
 Dev Personal Cloud, and remove only that named instance after preserving any
 requested diagnostics. Never install this preview file as plain `openza-tasks`.
 
+## Hosted artifact preparation without publication
+
+For a personal candidate, dispatch **Release Validation** at the reviewed source
+branch with `platforms=linux-snap`:
+
+```bash
+gh workflow run release.yml --ref <reviewed-branch> -f platforms=linux-snap
+```
+
+This scope runs Linux metadata and artifact tests, builds the same-name Production
+Snap, inspects it, smoke-tests its CLI on the disposable hosted runner, and retains
+`openza-tasks-release-snap`. It skips Windows and the unchanged Core test suite.
+It does not tag, create a release, publish to the Store, or install on a user's
+computer. Installation still requires separate approval. Omitting the input or
+using `all` keeps full platform validation; tag runs also retain full validation.
+The packaging-only `fix/hosted-snap-cloud-staging` PR runs the Linux Snap job;
+other PRs and main retain their existing job selection.
+
+All hosted Snap builds stage the public artifact from
+`scripts/personal-cloud/artifact-lock.json` before Snapcraft. Inspection verifies
+the packed manifest digest, every file's size and hash, and the absence of extra
+artifact files against that same lock. Node.js 22 is required for local inspection.
+
 ## Publish and promote one revision
 
 1. Complete Linux, Windows, and Snap CI for the reviewed commit, then manually run
