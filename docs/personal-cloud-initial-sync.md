@@ -38,13 +38,13 @@ Paged change feeds use explicit `hasMore` rather than treating a short page as c
 
 ## Local bundle verification and release boundary
 
-The combined source bundle is verified through `scripts/personal-cloud/stage-artifact.mjs` and `PersonalCloudArtifactDirectory.Load`, then copied into a Dev build with `-p:PersonalCloudArtifactDirectory=<verified-directory>`. Its Worker, static assets and all 24 migrations must match the manifest hashes and sizes. This verification neither deploys the Worker nor installs or launches a package.
+The combined source bundle is verified through `scripts/personal-cloud/stage-artifact.mjs` and `PersonalCloudArtifactDirectory.Load`, then copied into a Dev build with `-p:PersonalCloudArtifactDirectory=<verified-directory>`. Its Worker, static assets and all 25 migrations must match the manifest hashes and sizes. This verification neither deploys the Worker nor installs or launches a package.
 
 The normal release artifact lock remains pinned to the existing preview.9 revision. A future authorized release must commit the combined Cloud source and update that lock to its actual revision, version and manifest checksum before claiming the combined behavior in a packaged release. Local source/artifact validation does not establish production or Windows acceptance.
 
 ## Optional cloud report
 
-The desktop sends `POST /sync/initial-status` with its existing `Bearer` device access token. Cloud schema 21 adds this endpoint; health checks accept schemas 17–24. Requests contain:
+The desktop sends `POST /sync/initial-status` with its existing `Bearer` device access token. Cloud schema 21 adds this endpoint; health checks accept schemas 17–25. Requests contain:
 
 ```json
 {"protocolVersion":1,"reportSequence":1,"state":"uploading","acknowledged":0,"total":400}

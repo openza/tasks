@@ -73,7 +73,7 @@ stores; never let two hosts share one writable database.
 
 ## Select and verify the current combined Cloud bundle
 
-The companion branch contains Cloud migrations through 24 and the current Web
+The companion branch contains Cloud migrations through 25 and the current Web
 parity source. There is no newly approved distributable artifact/version/hash
 for that branch in this handoff. Verify the companion repository's current
 Windows continuation note and exact commit before selecting a bundle.
@@ -96,13 +96,12 @@ Its builder invokes Wrangler `deploy --dry-run`, writes a complete versioned
 directory under `dist/`, and generates `artifact-manifest.json` with path, size
 and SHA-256 entries. This is local artifact generation, not a Cloud deployment.
 Use a new validation version: the builder replaces an existing output with the
-same name. Artifact generation was validated on Linux; its Windows tool-launch
-path remains to be checked. If a bundle is prepared on another approved build
+same name. Artifact generation has been validated on Linux and Windows. If a bundle is prepared on another approved build
 host, transfer only the verified public-safe artifact, never its local data or
 credentials. Do not create a credential workaround or an unreviewed builder.
 
 Before injecting a selected bundle, independently confirm the source commit,
-version, manifest SHA-256 and all 24 migration hashes against its reviewed
+version, manifest SHA-256 and all 25 migration hashes against its reviewed
 record. From the Tasks worktree, the existing verifier accepts an explicit
 expected version/hash for a feature-validation bundle:
 

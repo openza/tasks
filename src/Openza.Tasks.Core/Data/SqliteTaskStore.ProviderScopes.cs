@@ -96,7 +96,7 @@ public sealed partial class SqliteTaskStore
             var route = new { id = routeId, scopeId, label = rule is null ? WText(remote, "label") : string.IsNullOrWhiteSpace(rule.Label) ? null : rule.Label,
                 spaceId = rule?.SpaceId ?? WText(remote, "spaceId"), moveToProjectId = rule is null ? WText(remote, "moveToProjectId") : choice };
             if (rule is not null && remote.ValueKind != JsonValueKind.Undefined && WText(remote, "deletedAt") is null &&
-                WText(remote, "scopeId") == scopeId && WText(remote, "label") == route.label && WText(remote, "spaceId") == route.spaceId && WText(remote, "moveToProjectId") == choice) continue;
+                remote.TryGetProperty("scopeId", out _) && WText(remote, "scopeId") == scopeId && WText(remote, "label") == route.label && WText(remote, "spaceId") == route.spaceId && WText(remote, "moveToProjectId") == choice) continue;
             var intent = new { bridgeDeviceId = deviceId, action = rule is null ? "route.delete" : "route.put", catalogId = (string?)null, spaceId = (string?)null, route };
             var fingerprint = PersonalCloudK0Codec.Canonicalize(PersonalCloudK0Codec.Serialize(intent));
             await PersonalCloudLocalRouteIdAsync(connection, instanceId, scopeId, routeId, cancellationToken).ConfigureAwait(false);

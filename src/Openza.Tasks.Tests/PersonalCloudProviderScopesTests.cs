@@ -91,6 +91,31 @@ public sealed class PersonalCloudProviderScopesTests : IDisposable
         public Task<ProviderSnapshot> FetchSnapshotAsync(CancellationToken cancellationToken = default) => Task.FromResult(new ProviderSnapshot([], [], []));
         public Task CompleteTaskAsync(PendingCompletion completion, CancellationToken cancellationToken = default) => throw new InvalidOperationException("Routing must not complete a provider task.");
     }
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task Route_intent_waits_through_missing_snapshots_and_recovers_without_rejection(bool started, bool unavailable)
+    {
+        var store = await StoreAsync(); var configured = new PersonalCloudConfiguredProvider(new EmptyTodoist(), "local-account");
+        var scopeId = (await store.EnqueuePersonalCloudProviderScopeAsync(Instance, Device, IntegrationIds.Todoist, "todoist_default", true, [], []))!;
+        await AckAsync(store); await store.ApplyPersonalCloudChangePageAsync(Instance, Device, PersonalCloudWorkspaceTests.Page(1, scopes: [Scope(scopeId)]));
+        if (started) { await store.ProcessPersonalCloudRouteIntentAsync(Instance, Device, Intent(scopeId), [configured]); await AckAsync(store); }
+        if (unavailable) await store.ApplyPersonalCloudChangePageAsync(Instance, Device, PersonalCloudWorkspaceTests.Page(2, scopes: [Scope(scopeId, available: false, version: 2)]));
+        var intent = Intent(scopeId, state: started ? "started" : "pending_desktop", version: started ? 2 : 1);
+        for (var retry = 0; retry < 2; retry++)
+        {
+            Assert.False(await store.ProcessPersonalCloudRouteIntentAsync(Instance, Device, intent, []));
+            Assert.Empty(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device));
+            Assert.Equal(started ? "prepared" : null, (await store.GetPersonalCloudCatalogActionAsync(Instance, "intent_scope_test"))?.Phase);
+        }
+        if (unavailable) await store.ApplyPersonalCloudChangePageAsync(Instance, Device, PersonalCloudWorkspaceTests.Page(3, scopes: [Scope(scopeId, version: 3)]));
+        if (!started) { await store.ProcessPersonalCloudRouteIntentAsync(Instance, Device, Intent(scopeId), [configured]); await AckAsync(store); }
+        Assert.True(await store.ProcessPersonalCloudRouteIntentAsync(Instance, Device, Intent(scopeId, state: "started", version: 2), [configured]));
+        Assert.Single(await store.GetSyncRoutesAsync());
+        Assert.Contains("confirmed", Assert.Single(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device)).CanonicalJson);
+    }
     [Fact]
     public async Task Desktop_rule_export_handles_new_nullable_mapping_and_preserves_one_pending_request_after_restart()
     {
@@ -104,6 +129,19 @@ public sealed class PersonalCloudProviderScopesTests : IDisposable
         var resumed = new SqliteTaskStore(store.DatabasePath); await resumed.InitializeAsync();
         await resumed.EnqueuePersonalCloudTodoistRoutesAsync(Instance, Device, scopeId);
         Assert.Equal(first, Assert.Single(await resumed.GetPendingPersonalCloudOutboxAsync(Instance, Device)));
+        await AckAsync(resumed);
+        using var envelope = JsonDocument.Parse(first.CanonicalJson);
+        var routeId = envelope.RootElement.GetProperty("payload").GetProperty("intent").GetProperty("route").GetProperty("id").GetString();
+        var legacyRoute = new { id = routeId, bridgeDeviceId = Device, label = "Typed label", spaceId = SpaceIds.Default,
+            moveToProjectId = (string?)null, entityVersion = 1, createdAt = Stamp, updatedAt = Stamp, deletedAt = (string?)null };
+        await resumed.ApplyPersonalCloudChangePageAsync(Instance, Device, PersonalCloudWorkspaceTests.Page(2, routes: [legacyRoute]));
+        await resumed.EnqueuePersonalCloudTodoistRoutesAsync(Instance, Device, scopeId);
+        Assert.Empty(await resumed.GetPendingPersonalCloudOutboxAsync(Instance, Device));
+        await resumed.UpsertSyncRouteAsync(new() { Id = TodoistRoutingRuleCodec.RouteId, Name = "Example", SourceConnectionId = "todoist_default", IsEnabled = true,
+            SettingsJson = TodoistRoutingRuleCodec.Write(new([new("rule_desktop", "Changed label", SpaceIds.Default, null)], null)) });
+        await resumed.EnqueuePersonalCloudTodoistRoutesAsync(Instance, Device, scopeId);
+        var scopedUpdate = Assert.Single(await resumed.GetPendingPersonalCloudOutboxAsync(Instance, Device));
+        Assert.Contains(scopeId, scopedUpdate.CanonicalJson);
     }
     public void Dispose() { if (Directory.Exists(_directory)) Directory.Delete(_directory, true); }
 }

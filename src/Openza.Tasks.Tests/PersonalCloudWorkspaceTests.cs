@@ -278,6 +278,21 @@ public sealed class PersonalCloudWorkspaceTests : IDisposable
             SourceProviderTaskId = sourceTask.SourceProviderTaskId, LocalMetadataJson = "{\"example\":true}" });
         await store.UpsertTaskExternalLinkAsync(new() { Id = "link_local_example", TaskId = task.Id, IntegrationId = IntegrationIds.Todoist, ExternalId = "linked_private_example" });
         await store.UpsertTaskAsync(new() { Id = "task_unpublished", Title = "Unpublished" });
+        await store.UpsertSyncRouteAsync(new() { Id = "route_bootstrap_links", Name = "Synthetic", SourceConnectionId = "todoist_default" });
+        await using (var connection = new SqliteConnection($"Data Source={store.DatabasePath};Pooling=False"))
+        {
+            await connection.OpenAsync();
+            var references = connection.CreateCommand();
+            references.CommandText = """
+                INSERT INTO provider_source_items(id,integration_id,provider_connection_id,external_id,provider_task_id,title,adoption_state,adopted_task_id)
+                VALUES('source_removed','todoist','todoist_default','removed_external','removed_provider','Synthetic','adopted','task_removed'),
+                      ('source_retained','todoist','todoist_default','retained_external','retained_provider','Synthetic','adopted','task_test');
+                INSERT INTO sync_item_links(id,route_id,source_external_id,local_task_id)
+                VALUES('link_removed','route_bootstrap_links','removed_external','task_removed'),
+                      ('link_retained','route_bootstrap_links','retained_external','task_test');
+                """;
+            await references.ExecuteNonQueryAsync();
+        }
         var bootstrapSource = changedBinding ? PersonalCloudK0Mapper.CreateSafeSourceDescriptor(sourceTask with { SourceExternalId = "other_private_example" })! : source;
         var bootstrap = PersonalCloudK0Codec.Serialize(new { protocolVersion = 1, product = "tasks", checkpoint = 4, snapshot = new {
             spaces = new[] { Space() }, projects = new[] { Project() }, tasks = new[] { With(remote, ("source", bootstrapSource), ("entityVersion", 2)) },
@@ -292,6 +307,17 @@ public sealed class PersonalCloudWorkspaceTests : IDisposable
         Assert.Equal(changedBinding ? null : sourceTask.SourceProviderTaskId, task.SourceProviderTaskId);
         Assert.Null(await store.GetTaskAsync("task_removed")); Assert.NotNull(await store.GetTaskAsync("task_unpublished"));
         Assert.Equal(4, await store.GetPersonalCloudCheckpointAsync(Instance, Device));
+        await using (var connection = new SqliteConnection($"Data Source={store.DatabasePath};Pooling=False"))
+        {
+            await connection.OpenAsync(); var references = connection.CreateCommand();
+            references.CommandText = "SELECT adopted_task_id,adoption_state FROM provider_source_items WHERE id='source_removed'";
+            await using (var reader = await references.ExecuteReaderAsync()) { Assert.True(await reader.ReadAsync()); Assert.True(reader.IsDBNull(0)); Assert.Equal("missing", reader.GetString(1)); }
+            references.CommandText = "SELECT local_task_id FROM sync_item_links WHERE id='link_removed'";
+            Assert.IsType<DBNull>(await references.ExecuteScalarAsync());
+            references.CommandText = "SELECT adopted_task_id FROM provider_source_items WHERE id='source_retained'"; Assert.Equal("task_test", await references.ExecuteScalarAsync());
+            references.CommandText = "SELECT local_task_id FROM sync_item_links WHERE id='link_retained'"; Assert.Equal("task_test", await references.ExecuteScalarAsync());
+            references.CommandText = "PRAGMA foreign_key_check"; await using var clean = await references.ExecuteReaderAsync(); Assert.False(await clean.ReadAsync());
+        }
     }
 
     [Theory]

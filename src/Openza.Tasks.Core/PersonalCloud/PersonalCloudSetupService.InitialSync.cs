@@ -56,8 +56,8 @@ public sealed partial class PersonalCloudSetupService
             var pushed = firstPass.PushedMutations;
             var pulled = firstPass.PulledChanges;
             var checkpoint = firstPass.Checkpoint;
-            // Preserve the existing batch/cadence behavior; feedback must not change upload throughput.
-            if (staged > 0)
+            // A restarted initial seed is already staged; one retry must drain its remaining batches too.
+            if (staged > 0 || tracking)
             {
                 while ((await taskStore.GetPendingPersonalCloudOutboxAsync(current.InstanceId, current.DeviceId, cancellationToken).ConfigureAwait(false)).Count > 0)
                 {

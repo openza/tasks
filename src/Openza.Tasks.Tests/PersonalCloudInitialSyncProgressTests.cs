@@ -91,12 +91,9 @@ public sealed class PersonalCloudInitialSyncProgressTests : IDisposable
             syncHttp: new HttpClient(handler), taskStore: store);
         Assert.Equal(interrupted, await restarted.GetInitialSyncProgressAsync());
         handler.FailAfterMutations = null;
-        PersonalCloudSyncResult result;
-        do
-        {
-            result = await restarted.SyncAsync();
-            Assert.Equal(frozenTotal, result.InitialSyncProgress!.Total);
-        } while (!result.InitialSyncProgress!.IsComplete);
+        var result = await restarted.SyncAsync();
+        Assert.Equal(frozenTotal, result.InitialSyncProgress!.Total);
+        Assert.True(result.InitialSyncProgress.IsComplete);
         Assert.Equal(frozenTotal, result.InitialSyncProgress.Acknowledged);
         Assert.Empty(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device));
         Assert.True(handler.Reports.First(item => item.GetProperty("reportSequence").GetInt64() > lastSequence)

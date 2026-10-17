@@ -37,8 +37,7 @@ public sealed partial class SqliteTaskStore
         var scopeId = route.TryGetProperty("scopeId", out _) ? WText(route, "scopeId") : null;
         var deleting = WText(intent, "action") == "route.delete";
         var scope = scopeId is null ? null : (await GetPersonalCloudWorkspaceRecordsAsync(instanceId, "scopes", cancellationToken).ConfigureAwait(false)).Cast<JsonElement?>().SingleOrDefault(s => WText(s!.Value, "id") == scopeId);
-        var supported = scope is { } owned && WText(owned, "bridgeDeviceId") == deviceId && WText(owned, "integrationKind") == IntegrationIds.Todoist &&
-            (deleting || owned.GetProperty("available").GetBoolean());
+        var supported = scope is { } owned && WText(owned, "bridgeDeviceId") == deviceId && WText(owned, "integrationKind") == IntegrationIds.Todoist;
         var choice = WText(route, "moveToProjectId"); string? providerProject = null; string? providerConnection = null; var binding = string.Empty;
         await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         if (supported)
@@ -47,6 +46,10 @@ public sealed partial class SqliteTaskStore
             read.Parameters.AddWithValue("@i", instanceId); read.Parameters.AddWithValue("@s", scopeId!); read.Parameters.AddWithValue("@k", IntegrationIds.Todoist);
             providerConnection = (string?)await read.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
             var matching = providers.Where(p => p.Provider.IntegrationId == IntegrationIds.Todoist && p.Provider.ProviderConnectionId == providerConnection).ToArray();
+            // An unavailable observation is not evidence that the local connection is unsupported.
+            // Keep the intent untouched until both the snapshot and its published scope recover.
+            if (!deleting && providerConnection == "todoist_default" &&
+                (matching.Length == 0 || !scope!.Value.GetProperty("available").GetBoolean())) return false;
             supported = providerConnection == "todoist_default" && (deleting || matching.Length == 1);
             binding = matching.Length == 1 ? matching[0].AccountBinding : string.Empty;
             if (!deleting && choice is not null)

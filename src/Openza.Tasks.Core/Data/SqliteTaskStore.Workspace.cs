@@ -236,6 +236,12 @@ public sealed partial class SqliteTaskStore
         // Keep retained task rows and their device-only metadata/links. Only absent or
         // deleted replica tasks are removed; unpublished local data remains for staging.
         await WorkspaceExecuteAsync(connection, """
+            UPDATE provider_source_items SET adopted_task_id=NULL,adoption_state='missing',updated_at=@now
+              WHERE adopted_task_id IN(SELECT entity_id FROM personal_cloud_replica_entities WHERE instance_id=@i AND product='tasks')
+              AND adopted_task_id NOT IN(SELECT id FROM incoming_workspace_tasks);
+            UPDATE sync_item_links SET local_task_id=NULL,updated_at=@now
+              WHERE local_task_id IN(SELECT entity_id FROM personal_cloud_replica_entities WHERE instance_id=@i AND product='tasks')
+              AND local_task_id NOT IN(SELECT id FROM incoming_workspace_tasks);
             DELETE FROM task_labels WHERE task_id IN(SELECT entity_id FROM personal_cloud_replica_entities WHERE instance_id=@i AND product='tasks')
               AND task_id NOT IN(SELECT id FROM incoming_workspace_tasks);
             DELETE FROM tasks WHERE id IN(SELECT entity_id FROM personal_cloud_replica_entities WHERE instance_id=@i AND product='tasks')
@@ -249,7 +255,7 @@ public sealed partial class SqliteTaskStore
             DELETE FROM personal_cloud_provider_commands WHERE instance_id=@i;
             DELETE FROM personal_cloud_workspace_records WHERE instance_id=@i;
             DELETE FROM personal_cloud_workspace_indirect_versions WHERE instance_id=@i;
-            """, cancellationToken, ("@i", instanceId)).ConfigureAwait(false);
+            """, cancellationToken, ("@i", instanceId), ("@now", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds())).ConfigureAwait(false);
     }
 
     private async Task ApplyWorkspaceBootstrapSnapshotAsync(SqliteConnection connection, string instanceId, JsonElement snapshot, CancellationToken cancellationToken,

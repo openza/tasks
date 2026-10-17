@@ -95,6 +95,32 @@ public sealed class DesktopTaskCreationTests : IDisposable
         Assert.NotNull(task.CompletedAt);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Create_and_open_reveals_task_without_replacing_target_view_saved_filters(bool completed)
+    {
+        var store = await CreateStoreAsync();
+        var preferences = new DesktopPreferencesStore(Path.Combine(_directory, "create-open-filters.json"));
+        var target = completed ? "completed" : "tasks";
+        var key = $"{SpaceIds.Default}|{target}|all";
+        await preferences.SaveAsync(new() { HasSelectedSpace = true, SelectedSpaceId = SpaceIds.Default,
+            ShowGetStarted = false, AutomaticSyncEnabled = false, AutomaticRestorePointsEnabled = false,
+            TaskViewSettings = new() { [key] = new() { PriorityFilterIndex = 1, RepeatFilterIndex = 2 } } });
+        var vm = new MainWindowViewModel(store, new InMemoryCredentialStore(), preferencesStore: preferences);
+        await vm.InitializeAsync();
+        await vm.SelectNavigationAsync(vm.NavigationItems.Single(item => item.Kind == TaskListKind.NextActions));
+        await vm.CreateTaskAsync(new("Reveal created task", "", null, completed ? 4 : 0, 2, null, "", true));
+        Assert.Equal("Reveal created task", vm.SelectedTask!.Task.Title);
+        Assert.Equal(completed ? TaskListKind.Completed : TaskListKind.Open, vm.SelectedNavigation!.Kind);
+        Assert.Equal(0, vm.PriorityFilterIndex); Assert.Equal(0, vm.RepeatFilterIndex);
+        Assert.Equal(1, preferences.Load().TaskViewSettings[key].PriorityFilterIndex);
+        Assert.Equal(2, preferences.Load().TaskViewSettings[key].RepeatFilterIndex);
+        var restarted = new MainWindowViewModel(store, new InMemoryCredentialStore(), preferencesStore: preferences);
+        await restarted.InitializeAsync();
+        Assert.Equal(1, restarted.PriorityFilterIndex); Assert.Equal(2, restarted.RepeatFilterIndex);
+    }
+
     [Fact]
     public async Task Quick_add_defaults_to_normal_priority()
     {

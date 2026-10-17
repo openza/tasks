@@ -2145,7 +2145,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 RepeatFilterIndex = 0;
                 SelectedLabelFilter = LabelFilterOptions.FirstOrDefault(item => item.LabelId is null);
                 _restoredLabelFilterId = null;
-                await SaveTaskViewPreferencesAsync();
+                // Reveal this task temporarily without replacing the target view's saved filters.
                 await _preferencesStore.UpdateAsync(preferences => preferences with { LastView = SelectedNavigation.Kind.ToString() });
                 await RefreshAsyncCore(task.Id);
             }
