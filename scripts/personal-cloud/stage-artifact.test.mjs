@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { verifyArtifact } from './stage-artifact.mjs';
 import { reservePublishOutput } from './publish-output.mjs';
+import { copySnapArtifact } from './stage-snap-artifact.mjs';
 
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 async function fixture(t, file = 'worker.js') {
@@ -31,6 +32,18 @@ test('modified manifest fails pinned digest', async t => {
   const { directory, lock } = await fixture(t);
   await writeFile(join(directory, 'artifact-manifest.json'), '{}');
   await assert.rejects(verifyArtifact(directory, lock), /source lock/);
+});
+test('Snap staging copies verified bytes and refuses to overwrite a corrupt destination', async t => {
+  const { directory, lock } = await fixture(t);
+  const root = await mkdtemp(join(tmpdir(), 'openza-snap-artifact-test-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const destination = join(root, 'artifact');
+  await copySnapArtifact(directory, destination, lock);
+  await verifyArtifact(destination, lock);
+  await copySnapArtifact(directory, destination, lock);
+  await writeFile(join(destination, 'worker.js'), 'retain corrupt bytes for diagnosis');
+  await assert.rejects(copySnapArtifact(directory, destination, lock), /checksum/);
+  assert.equal(await readFile(join(destination, 'worker.js'), 'utf8'), 'retain corrupt bytes for diagnosis');
 });
 test('traversal paths and symlink entries fail', async t => {
   const traversal = await fixture(t, '../worker.js');
