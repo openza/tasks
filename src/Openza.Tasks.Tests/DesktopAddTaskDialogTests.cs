@@ -37,7 +37,7 @@ public sealed class DesktopAddTaskDialogTests(EditorTestSession fixture)
                 dialog.FindControl<TextBox>("NotesBox")!.Text = "Synthetic dialog notes\nनमस्ते";
                 dialog.FindControl<ComboBox>("StatusPicker")!.SelectedIndex = 1;
                 dialog.FindControl<ComboBox>("PriorityPicker")!.SelectedIndex = 0;
-                dialog.FindControl<DatePicker>("DatePicker")!.SelectedDate = new DateTimeOffset(2026, 10, 19, 12, 0, 0, TimeSpan.Zero);
+                dialog.FindControl<CalendarDatePicker>("DatePicker")!.SelectedDate = new DateTime(2026, 10, 19);
                 dialog.FindControl<AutoCompleteBox>("LabelsBox")!.Text = "review, desktop, REVIEW";
                 create.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 var draft = await result;

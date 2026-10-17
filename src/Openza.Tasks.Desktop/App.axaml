@@ -17,6 +17,7 @@
                 <ColorPaletteResources x:Key="Dark" Accent="#CBD5E1" />
             </FluentTheme.Palettes>
         </FluentTheme>
+        <StyleInclude Source="avares://Openza.Tasks.Desktop/Styles/Controls.axaml" />
         <Style Selector="Button.accent">
             <Setter Property="Background" Value="{DynamicResource OpenzaAccentBrush}" />
             <Setter Property="Foreground" Value="{DynamicResource OpenzaOnAccentBrush}" />
@@ -71,8 +72,8 @@
             <Setter Property="BorderThickness" Value="0" />
         </Style>
         <Style Selector="Button.list-command">
-            <Setter Property="Background" Value="{DynamicResource ControlFillColorDefaultBrush}" />
-            <Setter Property="BorderBrush" Value="{DynamicResource ControlStrokeColorDefaultBrush}" />
+            <Setter Property="Background" Value="{DynamicResource OpenzaElevatedSurfaceBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource OpenzaBorderBrush}" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="VerticalContentAlignment" Value="Center" />
         </Style>
@@ -85,8 +86,9 @@
             <Setter Property="FontSize" Value="{DynamicResource OpenzaPageTitleSize}" />
             <Setter Property="FontWeight" Value="SemiBold" />
             <Setter Property="Foreground" Value="{DynamicResource OpenzaTextPrimaryBrush}" />
+            <Setter Property="TextTrimming" Value="CharacterEllipsis" />
         </Style>
-        <Style Selector="TextBlock.metadata">
+        <Style Selector="TextBlock.metadata, SelectableTextBlock.metadata">
             <Setter Property="FontSize" Value="{DynamicResource OpenzaMetadataSize}" />
             <Setter Property="Foreground" Value="{DynamicResource OpenzaTextSecondaryBrush}" />
             <Setter Property="TextTrimming" Value="CharacterEllipsis" />
@@ -108,7 +110,7 @@
         </Style>
         <Style Selector="TextBlock.field-label">
             <Setter Property="FontSize" Value="13" />
-            <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource OpenzaTextSecondaryBrush}" />
         </Style>
         <Style Selector="Border.task-row StackPanel.quick-actions">
             <Setter Property="Opacity" Value="0" />
@@ -139,12 +141,17 @@
             <Setter Property="Opacity" Value="1" />
         </Style>
         <Style Selector="Button.row-action">
+            <Setter Property="MinHeight" Value="32" />
             <Setter Property="Width" Value="32" />
             <Setter Property="MinWidth" Value="32" />
             <Setter Property="Height" Value="32" />
             <Setter Property="Padding" Value="0" />
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderThickness" Value="0" />
+        </Style>
+        <Style Selector="Button.nav-command.active">
+            <Setter Property="Background" Value="{DynamicResource OpenzaNavSelectedBrush}" />
+            <Setter Property="FontWeight" Value="SemiBold" />
         </Style>
     </Application.Styles>
 </Application>

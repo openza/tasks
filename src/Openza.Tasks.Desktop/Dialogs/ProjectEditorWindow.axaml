@@ -3,16 +3,18 @@
     xmlns="https://github.com/avaloniaui"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     Width="460"
-    Height="470"
-    CanResize="False"
+    Height="510"
+    MinWidth="420"
+    MinHeight="480"
+    CanResize="True"
     ShowInTaskbar="False"
     Title="Edit project"
     WindowStartupLocation="CenterOwner"
     Opened="OnOpened">
     <Grid Margin="24" RowDefinitions="Auto,*,Auto" RowSpacing="20">
         <StackPanel Spacing="4">
-            <TextBlock FontSize="24" FontWeight="SemiBold" Text="Edit project" />
-            <TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+            <TextBlock Classes="dialog-title" Text="Edit project" />
+            <TextBlock Foreground="{DynamicResource OpenzaTextSecondaryBrush}"
                        Text="Update how this project appears and where it belongs in your workflow."
                        TextWrapping="Wrap" />
         </StackPanel>
@@ -32,12 +34,12 @@
             <StackPanel Spacing="6">
                 <TextBlock Text="Color" />
                 <TextBox x:Name="ColorBox" PlaceholderText="#808080" AutomationProperties.Name="Project color" />
-                <TextBlock x:Name="ColorError" IsVisible="False" Text="Enter a color such as #808080." />
+                <TextBlock x:Name="ColorError" Foreground="{DynamicResource OpenzaDangerBrush}" IsVisible="False" Text="Enter a color such as #808080." />
             </StackPanel>
             <CheckBox x:Name="FavoriteBox" Content="Favorite project" />
         </StackPanel>
         <Grid Grid.Row="2" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
-            <Button Grid.Column="1" Click="OnCancelClicked" Content="Cancel" />
+            <Button Grid.Column="1" Click="OnCancelClicked" Content="Cancel" IsCancel="True" />
             <Button Grid.Column="2" Classes="accent" Click="OnSaveClicked" Content="Save" />
         </Grid>
     </Grid>

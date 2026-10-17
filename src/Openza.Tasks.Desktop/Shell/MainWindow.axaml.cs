@@ -20,7 +20,7 @@ namespace Openza.Tasks.Desktop.Shell;
 
 public sealed partial class MainWindow : Window
 {
-    private const double ExpandedNavigationWidth = 220;
+    private const double ExpandedNavigationWidth = 208;
     private const double CompactNavigationWidth = 64;
     private bool _initialized;
     private bool _changingNavigation;
@@ -52,11 +52,6 @@ public sealed partial class MainWindow : Window
     {
         Interval = TimeSpan.FromMilliseconds(250),
     };
-    private static readonly IBrush LightHoverBrush = new SolidColorBrush(Color.Parse("#F0F3F6"));
-    private static readonly IBrush LightPressedBrush = new SolidColorBrush(Color.Parse("#DDE3EA"));
-    private static readonly IBrush DarkHoverBrush = new SolidColorBrush(Color.Parse("#263447"));
-    private static readonly IBrush DarkPressedBrush = new SolidColorBrush(Color.Parse("#334155"));
-
     public MainWindow()
         : this(new MainWindowViewModel(new SqliteTaskStore(DesktopDataPaths.DatabasePath)))
     {
@@ -221,33 +216,6 @@ public sealed partial class MainWindow : Window
         UpdateWorkbenchLayout();
     }
 
-    private void OnInteractiveSurfacePointerEntered(object? sender, PointerEventArgs e) =>
-        SetInteractiveSurface(sender, IsDarkTheme ? DarkHoverBrush : LightHoverBrush);
-
-    private void OnInteractiveSurfacePointerExited(object? sender, PointerEventArgs e) =>
-        SetInteractiveSurface(sender, Brushes.Transparent);
-
-    private void OnInteractiveSurfacePointerPressed(object? sender, PointerPressedEventArgs e) =>
-        SetInteractiveSurface(sender, IsDarkTheme ? DarkPressedBrush : LightPressedBrush);
-
-    private void OnInteractiveSurfacePointerReleased(object? sender, PointerReleasedEventArgs e) =>
-        SetInteractiveSurface(sender, IsDarkTheme ? DarkHoverBrush : LightHoverBrush);
-
-    private bool IsDarkTheme => ActualThemeVariant == ThemeVariant.Dark;
-
-    private static void SetInteractiveSurface(object? sender, IBrush brush)
-    {
-        switch (sender)
-        {
-            case Border border:
-                border.Background = brush;
-                break;
-            case Button button:
-                button.Background = brush;
-                break;
-        }
-    }
-
     private void OnNavigationCollapseClicked(object? sender, RoutedEventArgs e)
     {
         _navigationCollapsed = !_navigationCollapsed;
@@ -257,6 +225,8 @@ public sealed partial class MainWindow : Window
         ToolTip.SetTip(
             NavigationCollapseButton,
             _navigationCollapsed ? "Expand navigation" : "Collapse navigation");
+        Avalonia.Automation.AutomationProperties.SetName(
+            NavigationCollapseButton, _navigationCollapsed ? "Expand navigation" : "Collapse navigation");
         UpdateWorkbenchLayout();
     }
 
@@ -310,8 +280,12 @@ public sealed partial class MainWindow : Window
             (ViewModel.SelectedProject is not null || ViewModel.SelectedNavigation?.Kind == TaskListKind.Open);
         var showDetails = TaskWorkspace.IsVisible && ViewModel.HasSelectedTask && !_connectedPaneOpen;
         var narrow = width < 900;
-        TaskList.Classes.Set("hide-row-actions", showDetails);
-        UpdateTaskFilterLayout(width < 1120 || (width < 1360 && (showDetails || _connectedPaneOpen)));
+        var secondaryWidth = showDetails || _connectedPaneOpen ? Math.Clamp(width * 0.4, 420, 520) : 0;
+        // Three panes must leave enough room for readable task titles and commands.
+        var projectWidth = showProjects && (secondaryWidth == 0 || width >= 1240) ? 280 : 0;
+        var listWidth = narrow ? width : width - secondaryWidth - projectWidth;
+        TaskList.Classes.Set("hide-row-actions", showDetails || listWidth < 640);
+        UpdateTaskFilterLayout(listWidth < 1000);
 
         ProjectsCommand.IsVisible = narrow && showProjects && !showDetails && !_connectedPaneOpen;
 
@@ -349,17 +323,15 @@ public sealed partial class MainWindow : Window
 
         _narrowProjectsOpen = false;
 
-        WorkbenchGrid.ColumnDefinitions[0].Width = showProjects
-            ? new GridLength(width < 1250 ? 300 : 360)
-            : new GridLength(0);
+        WorkbenchGrid.ColumnDefinitions[0].Width = new GridLength(projectWidth);
         WorkbenchGrid.ColumnDefinitions[1].Width = new GridLength(1, GridUnitType.Star);
         WorkbenchGrid.ColumnDefinitions[2].Width = showDetails
-            ? new GridLength(Math.Clamp(width * 0.42, 460, 620))
+            ? new GridLength(secondaryWidth)
             : new GridLength(0);
         WorkbenchGrid.ColumnDefinitions[3].Width = _connectedPaneOpen
-            ? new GridLength(width < 1250 ? 420 : 520)
+            ? new GridLength(secondaryWidth)
             : new GridLength(0);
-        ProjectsPane.IsVisible = showProjects;
+        ProjectsPane.IsVisible = projectWidth > 0;
         TaskListPane.IsVisible = true;
         DetailsPane.IsVisible = showDetails;
         ConnectedPane.IsVisible = _connectedPaneOpen;
@@ -690,6 +662,7 @@ public sealed partial class MainWindow : Window
         TaskWorkspace.IsVisible = false;
         SyncWorkspace.IsVisible = false;
         SettingsWorkspace.IsVisible = true;
+        UpdateWorkspaceNavigation();
         _connectedPaneOpen = false;
         ViewModel.LoadRestorePoints();
         var preferences = _preferencesStore.Load();
@@ -728,6 +701,7 @@ public sealed partial class MainWindow : Window
         TaskWorkspace.IsVisible = false;
         SettingsWorkspace.IsVisible = false;
         SyncWorkspace.IsVisible = true;
+        UpdateWorkspaceNavigation();
         _connectedPaneOpen = false;
     }
 
@@ -1161,13 +1135,13 @@ public sealed partial class MainWindow : Window
 
     private static bool IsInteractiveElement(object? source)
     {
-        if (source is Button or CheckBox or ComboBox or TextBox or SelectableTextBlock or CalendarDatePicker)
+        if (source is Button or CheckBox or ComboBox or TextBox or CalendarDatePicker)
         {
             return true;
         }
 
         return source is Visual visual && visual.GetVisualAncestors().Any(ancestor =>
-            ancestor is Button or CheckBox or ComboBox or TextBox or SelectableTextBlock or CalendarDatePicker);
+            ancestor is Button or CheckBox or ComboBox or TextBox or CalendarDatePicker);
     }
 
     private async Task<bool> SelectTaskAfterSavingAsync(TaskListItemViewModel task)
@@ -1493,7 +1467,15 @@ public sealed partial class MainWindow : Window
         TaskWorkspace.IsVisible = true;
         SyncWorkspace.IsVisible = false;
         SettingsWorkspace.IsVisible = false;
+        UpdateWorkspaceNavigation();
         UpdateWorkbenchLayout();
+    }
+
+    private void UpdateWorkspaceNavigation()
+    {
+        NavigationList.Classes.Set("navigation-inactive", !TaskWorkspace.IsVisible);
+        SettingsNavigationButton.Classes.Set("active", SettingsWorkspace.IsVisible);
+        SyncNavigationButton.Classes.Set("active", SyncWorkspace.IsVisible);
     }
 
     private async void OnSearchCommandClicked(object? sender, RoutedEventArgs e) => await OpenGlobalSearchAsync();

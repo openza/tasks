@@ -88,6 +88,7 @@ public sealed partial class GlobalSearchWindow : Window
         }
 
         var generation = ++_searchGeneration;
+        ClearResults();
         ResultStatus.Text = "Searching…";
         IReadOnlyList<GlobalSearchResult> results;
         try
@@ -135,10 +136,12 @@ public sealed partial class GlobalSearchWindow : Window
         ResultStatus.Text = results.Count == 0
             ? "No matching tasks or projects."
             : $"{results.Count} result{(results.Count == 1 ? string.Empty : "s")}";
+        OpenResultButton.IsEnabled = SelectedResult() is not null;
     }
 
     private void ClearResults()
     {
+        OpenResultButton.IsEnabled = false;
         TaskResults.Clear();
         ProjectResults.Clear();
         TaskResultsList.SelectedIndex = -1;

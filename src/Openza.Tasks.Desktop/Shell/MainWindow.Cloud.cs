@@ -65,13 +65,19 @@ public sealed partial class MainWindow
 
     private Task<string?> PromptPassphraseAsync(bool confirm)
     {
-        var window = new Window { Title = "Backup passphrase", Width = 480, Height = 330, WindowStartupLocation = WindowStartupLocation.CenterOwner };
+        var window = new Window { Title = "Backup passphrase", Width = 480, SizeToContent = SizeToContent.Height,
+            CanResize = false, ShowInTaskbar = false, WindowStartupLocation = WindowStartupLocation.CenterOwner };
         var password = new TextBox { PasswordChar = '●', PlaceholderText = "Passphrase" };
         var repeated = new TextBox { PasswordChar = '●', PlaceholderText = "Confirm passphrase", IsVisible = confirm };
         var error = new TextBlock { TextWrapping = TextWrapping.Wrap };
-        var save = new Button { Content = "Continue" }; var cancel = new Button { Content = "Cancel" };
+        var save = new Button { Content = "Continue", Classes = { "accent" } }; var cancel = new Button { Content = "Cancel", IsCancel = true };
+        Avalonia.Automation.AutomationProperties.SetName(password, "Passphrase");
+        Avalonia.Automation.AutomationProperties.SetName(repeated, "Confirm passphrase");
         window.Content = new StackPanel { Margin = new Thickness(24), Spacing = 12, Children =
-        { new TextBlock { Text = confirm ? "Keep this passphrase safe. It is required to restore encrypted backups. Changing it affects future backups only." : "Enter the passphrase used when this backup was created.", TextWrapping = TextWrapping.Wrap }, password, repeated, error, save, cancel } };
+        { new TextBlock { Text = "Backup passphrase", Classes = { "dialog-title" } },
+          new TextBlock { Text = confirm ? "Keep this passphrase safe. It is required to restore encrypted backups. Changing it affects future backups only." : "Enter the passphrase used when this backup was created.", TextWrapping = TextWrapping.Wrap }, password, repeated, error,
+          new StackPanel { HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right, Orientation = Avalonia.Layout.Orientation.Horizontal,
+              Spacing = 8, Children = { cancel, save } } } };
         save.Click += (_, _) =>
         {
             if (string.IsNullOrWhiteSpace(password.Text) || (confirm && password.Text != repeated.Text)) { error.Text = "Enter matching, non-empty passphrases."; return; }

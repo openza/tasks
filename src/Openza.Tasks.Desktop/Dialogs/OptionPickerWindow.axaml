@@ -12,8 +12,8 @@
     Opened="OnOpened">
     <Grid RowDefinitions="Auto,*,Auto">
         <StackPanel Margin="24,22,24,14" Spacing="4">
-            <TextBlock x:Name="TitleText" FontSize="22" FontWeight="SemiBold" />
-            <TextBlock x:Name="DescriptionText" Foreground="{DynamicResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
+            <TextBlock x:Name="TitleText" Classes="dialog-title" />
+            <TextBlock x:Name="DescriptionText" Foreground="{DynamicResource OpenzaTextSecondaryBrush}" TextWrapping="Wrap" />
         </StackPanel>
         <ListBox
             x:Name="OptionsList"
@@ -25,15 +25,15 @@
                 <DataTemplate>
                     <StackPanel Margin="8,7" Spacing="3">
                         <TextBlock FontWeight="SemiBold" Text="{Binding Title}" />
-                        <TextBlock FontSize="12" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{Binding Subtitle}" TextWrapping="Wrap" />
+                        <TextBlock FontSize="12" Foreground="{DynamicResource OpenzaTextSecondaryBrush}" Text="{Binding Subtitle}" TextWrapping="Wrap" />
                     </StackPanel>
                 </DataTemplate>
             </ListBox.ItemTemplate>
         </ListBox>
-        <Border Grid.Row="2" Padding="24,14" BorderBrush="{DynamicResource DividerStrokeColorDefaultBrush}" BorderThickness="0,1,0,0">
+        <Border Grid.Row="2" Padding="24,14" BorderBrush="{DynamicResource OpenzaSeparatorBrush}" BorderThickness="0,1,0,0">
             <StackPanel HorizontalAlignment="Right" Orientation="Horizontal" Spacing="10">
                 <Button MinWidth="100" Click="OnCancelClicked" Content="Cancel" IsCancel="True" />
-                <Button MinWidth="100" Classes="accent" Click="OnChooseClicked" Content="Choose" IsDefault="True" />
+                <Button MinWidth="100" Classes="accent" Click="OnChooseClicked" Content="Choose" IsDefault="True" IsEnabled="{Binding #OptionsList.SelectedItem, Converter={x:Static ObjectConverters.IsNotNull}}" />
             </StackPanel>
         </Border>
     </Grid>
