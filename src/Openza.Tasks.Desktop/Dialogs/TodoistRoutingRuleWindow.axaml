@@ -35,7 +35,7 @@
                     BorderThickness="1"
                     CornerRadius="4"
                     IsVisible="False">
-                    <ListBox
+                    <ListBox AutomationProperties.Name="Todoist label suggestions"
                         x:Name="LabelSuggestionsList"
                         BorderThickness="0"
                         SelectionChanged="OnLabelSuggestionSelected">

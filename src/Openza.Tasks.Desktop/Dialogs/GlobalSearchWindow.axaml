@@ -20,7 +20,7 @@
             <Button Grid.Column="1" Classes="accent" Click="OnSearchClicked" Content="Search" />
         </Grid>
         <Grid Grid.Row="2" ColumnDefinitions="Auto,Auto,*" ColumnSpacing="16">
-            <ComboBox x:Name="ScopeSelector" MinWidth="150" SelectionChanged="OnSearchOptionsChanged">
+            <ComboBox AutomationProperties.Name="Search scope" x:Name="ScopeSelector" MinWidth="150" SelectionChanged="OnSearchOptionsChanged">
                 <ComboBoxItem Content="Current space" />
                 <ComboBoxItem Content="All spaces" />
             </ComboBox>

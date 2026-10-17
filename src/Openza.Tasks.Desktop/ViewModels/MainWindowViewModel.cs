@@ -162,6 +162,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     public string AppVersion => CurrentAppVersion;
 
+    internal DesktopPreferencesStore PreferencesStore => _preferencesStore;
+
     private static DesktopPreferencesStore CreatePreferencesStore(ITaskStore store)
     {
         if (store is SqliteTaskStore sqliteStore &&
@@ -1048,10 +1050,14 @@ public sealed partial class MainWindowViewModel : ObservableObject
         await RunBusyAsync(() => RefreshAsyncCore(RememberedTaskSelection()));
     }
 
-    public Task ApplySearchAsync() => RefreshAsync();
+    public async Task ApplySearchAsync()
+    {
+        if (await SaveSelectedAsync()) await RefreshAsync();
+    }
 
     public async Task ApplyListOptionsAsync()
     {
+        if (!await SaveSelectedAsync()) return;
         await SaveTaskViewPreferencesAsync();
         await RefreshAsync();
     }
@@ -1454,7 +1460,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         var token = GitHubToken.Trim();
         if (token.Length == 0)
         {
-            StatusMessage = "Paste a GitHub token first.";
+            ReportError("Paste a GitHub token first.");
             return;
         }
 
@@ -1507,7 +1513,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         var value = GitHubDefaultRepository.Trim();
         if (!TryParseRepository(value, out _, out _))
         {
-            StatusMessage = "Use the GitHub repository format owner/name.";
+            ReportError("Use the GitHub repository format owner/name.");
             return false;
         }
 
@@ -1539,7 +1545,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         var token = TodoistToken.Trim();
         if (token.Length == 0)
         {
-            StatusMessage = "Paste a Todoist API token first.";
+            ReportError("Paste a Todoist API token first.");
             return;
         }
 

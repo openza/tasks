@@ -21,7 +21,7 @@
             </Grid>
         </Border>
 
-        <TextBox
+        <TextBox AutomationProperties.Name="Filter connected tasks"
             x:Name="SearchBox"
             Grid.Row="1"
             Margin="24,16,24,8"
@@ -29,7 +29,7 @@
             TextChanged="OnSearchChanged" />
 
         <Grid Grid.Row="2">
-            <ListBox Margin="20,0" ItemsSource="{Binding FilteredConnectedTasks}">
+            <ListBox AutomationProperties.Name="Connected tasks" Margin="20,0" ItemsSource="{Binding FilteredConnectedTasks}">
                 <ListBox.ItemTemplate>
                     <DataTemplate>
                         <Border Padding="12" BorderBrush="{DynamicResource OpenzaSeparatorBrush}" BorderThickness="0,0,0,1">

@@ -32,7 +32,7 @@
                                 <TextBlock FontWeight="SemiBold" Text="Theme" />
                                 <TextBlock Foreground="{DynamicResource OpenzaTextSecondaryBrush}" Text="Follow the desktop or choose a fixed appearance." />
                             </StackPanel>
-                            <ComboBox x:Name="ThemePicker" Grid.Column="1" Width="140" SelectionChanged="OnThemeChanged">
+                            <ComboBox AutomationProperties.Name="Theme" x:Name="ThemePicker" Grid.Column="1" Width="140" SelectionChanged="OnThemeChanged">
                                 <ComboBoxItem Content="System" />
                                 <ComboBoxItem Content="Light" />
                                 <ComboBoxItem Content="Dark" />
@@ -46,10 +46,10 @@
                     <Border Padding="16" Classes="card">
                         <Grid RowDefinitions="Auto,Auto" RowSpacing="12">
                             <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                                <TextBox x:Name="NewSpaceBox" PlaceholderText="New space name" KeyDown="OnNewSpaceKeyDown" />
+                                <TextBox AutomationProperties.Name="New space name" x:Name="NewSpaceBox" PlaceholderText="New space name" KeyDown="OnNewSpaceKeyDown" />
                                 <Button Grid.Column="1" Classes="accent" Click="OnAddSpaceClicked" Content="Add space" />
                             </Grid>
-                            <ListBox x:Name="SpacesList" Grid.Row="1" ItemsSource="{Binding EditableSpaceItems}">
+                            <ListBox AutomationProperties.Name="Spaces" x:Name="SpacesList" Grid.Row="1" ItemsSource="{Binding EditableSpaceItems}">
                                 <ListBox.ItemTemplate>
                                     <DataTemplate>
                                         <Grid Margin="2" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
@@ -79,7 +79,7 @@
                                 <Button Margin="0,0,8,8" Click="OnOpenDataFolderClicked" Content="Open data folder" />
                             </WrapPanel>
                             <TextBlock FontWeight="SemiBold" Text="Restore points" />
-                            <ListBox MaxHeight="190" ItemsSource="{Binding RestorePoints}" SelectedItem="{Binding SelectedRestorePoint}">
+                            <ListBox AutomationProperties.Name="Local restore points" MaxHeight="190" ItemsSource="{Binding RestorePoints}" SelectedItem="{Binding SelectedRestorePoint}">
                                 <ListBox.ItemTemplate>
                                     <DataTemplate>
                                         <StackPanel Margin="2" Spacing="2">
@@ -90,8 +90,8 @@
                                 </ListBox.ItemTemplate>
                             </ListBox>
                             <StackPanel Orientation="Horizontal" Spacing="8">
-                                <Button Click="OnRestoreSelectedPointClicked" Content="Restore selected" />
-                                <Button Click="OnDeleteSelectedPointClicked" Content="Delete selected" />
+                                <Button IsEnabled="{Binding SelectedRestorePoint, Converter={x:Static ObjectConverters.IsNotNull}}" Click="OnRestoreSelectedPointClicked" Content="Restore selected" />
+                                <Button IsEnabled="{Binding SelectedRestorePoint, Converter={x:Static ObjectConverters.IsNotNull}}" Click="OnDeleteSelectedPointClicked" Content="Delete selected" />
                             </StackPanel>
                             <TextBlock Foreground="{DynamicResource OpenzaTextSecondaryBrush}" Text="Restore always creates a safety restore point first." />
                         </StackPanel>
@@ -101,12 +101,12 @@
                             <TextBlock FontWeight="SemiBold" Text="GitHub issues" />
                             <TextBlock Foreground="{DynamicResource OpenzaTextSecondaryBrush}" Text="{Binding GitHubConnectionText}" TextWrapping="Wrap" />
                             <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
-                                <TextBox PasswordChar="●" RevealPassword="False" PlaceholderText="GitHub token" Text="{Binding GitHubToken, Mode=TwoWay}" />
+                                <TextBox AutomationProperties.Name="GitHub token" PasswordChar="●" RevealPassword="False" PlaceholderText="GitHub token" Text="{Binding GitHubToken, Mode=TwoWay}" />
                                 <Button Grid.Column="1" Classes="accent" Click="OnConnectGitHubClicked" Content="Connect" />
                                 <Button Grid.Column="2" Click="OnDisconnectGitHubClicked" Content="Disconnect" />
                             </Grid>
                             <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                                <TextBox PlaceholderText="Default repository, for example openza/tasks" Text="{Binding GitHubDefaultRepository, Mode=TwoWay}" />
+                                <TextBox AutomationProperties.Name="Default GitHub repository" PlaceholderText="Default repository, for example openza/tasks" Text="{Binding GitHubDefaultRepository, Mode=TwoWay}" />
                                 <Button Grid.Column="1" Click="OnSaveGitHubRepositoryClicked" Content="Save repository" />
                             </Grid>
                             <TextBlock FontSize="12" Foreground="{DynamicResource OpenzaTextSecondaryBrush}" Text="The token is stored in the system credential store. New issues use the selected task title and details." TextWrapping="Wrap" />
@@ -121,7 +121,7 @@
                             <TextBlock FontWeight="SemiBold" Text="Todoist" />
                             <TextBlock Foreground="{DynamicResource OpenzaTextSecondaryBrush}" Text="{Binding TodoistConnectionText}" TextWrapping="Wrap" />
                             <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
-                                <TextBox PasswordChar="●" RevealPassword="False" PlaceholderText="Todoist API token" Text="{Binding TodoistToken, Mode=TwoWay}" />
+                                <TextBox AutomationProperties.Name="Todoist API token" PasswordChar="●" RevealPassword="False" PlaceholderText="Todoist API token" Text="{Binding TodoistToken, Mode=TwoWay}" />
                                 <Button Grid.Column="1" Classes="accent" Click="OnConnectTodoistClicked" Content="Connect" />
                                 <Button Grid.Column="2" Click="OnDisconnectTodoistClicked" Content="Disconnect" />
                             </Grid>
@@ -135,7 +135,7 @@
 
         <Border Grid.Row="2" Padding="18,12" BorderBrush="{DynamicResource OpenzaSeparatorBrush}" BorderThickness="0,1,0,0">
             <Grid ColumnDefinitions="*,Auto">
-                <TextBlock VerticalAlignment="Center" Foreground="{DynamicResource OpenzaTextSecondaryBrush}" Text="{Binding StatusMessage}" />
+                <TextBlock Margin="0,0,12,0" VerticalAlignment="Center" Foreground="{DynamicResource OpenzaTextSecondaryBrush}" Text="{Binding StatusMessage}" TextWrapping="Wrap" />
                 <Button Grid.Column="1" Click="OnCloseClicked" Content="Close" />
             </Grid>
         </Border>

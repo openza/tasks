@@ -39,7 +39,7 @@ public sealed partial class MainWindow : Window
     private bool _pendingListOptionsApply;
     private bool _closingAfterSave;
     private Size _normalWindowSize;
-    private readonly DesktopPreferencesStore _preferencesStore = new();
+    private readonly DesktopPreferencesStore _preferencesStore;
     private readonly DispatcherTimer _automaticSyncTimer = new()
     {
         Interval = TimeSpan.FromMinutes(5),
@@ -59,6 +59,7 @@ public sealed partial class MainWindow : Window
 
     public MainWindow(MainWindowViewModel viewModel)
     {
+        _preferencesStore = viewModel.PreferencesStore;
         InitializeComponent();
         ViewModel = viewModel;
         DataContext = viewModel;
@@ -981,6 +982,15 @@ public sealed partial class MainWindow : Window
         await SelectTaskAfterSavingAsync(task);
     }
 
+    private void OnRowDateFlyoutOpened(object? sender, EventArgs e)
+    {
+        if (sender is Flyout { Content: Control content, Target.DataContext: TaskListEntryViewModel entry })
+        {
+            // Keep the selected task stable while saving a date refreshes/recycles its row.
+            content.DataContext = entry;
+        }
+    }
+
     private async void OnRowDateChanged(object? sender, SelectionChangedEventArgs e)
     {
         if (sender is CalendarDatePicker { DataContext: TaskListEntryViewModel { Task: { } item }, SelectedDate: { } selectedDate })
@@ -1247,21 +1257,24 @@ public sealed partial class MainWindow : Window
     private async void OnToggleCompletionClicked(object? sender, RoutedEventArgs e)
     {
         e.Handled = true;
-        if (_taskCompletionInProgress || sender is not CheckBox checkbox)
+        if (_taskCompletionInProgress || sender is not Button control)
         {
             return;
         }
 
         _taskCompletionInProgress = true;
-        checkbox.IsEnabled = false;
+        control.IsEnabled = false;
         try
         {
             await ViewModel.ToggleSelectedCompletionAsync();
         }
         finally
         {
-            checkbox.IsChecked = ViewModel.SelectedTask?.Task.IsCompleted;
-            checkbox.IsEnabled = true;
+            if (control is CheckBox checkbox)
+            {
+                checkbox.IsChecked = ViewModel.SelectedTask?.Task.IsCompleted;
+            }
+            control.IsEnabled = true;
             _taskCompletionInProgress = false;
         }
     }
@@ -1349,8 +1362,12 @@ public sealed partial class MainWindow : Window
 
     private async void OnDetailDateChanged(object? sender, SelectionChangedEventArgs e)
     {
-        if (_initialized && ViewModel.HasSelectedTask && !ViewModel.IsUpdatingDetails)
+        if (_initialized && ViewModel.HasSelectedTask && !ViewModel.IsUpdatingDetails && sender is CalendarDatePicker picker)
         {
+            // CalendarDatePicker can raise this event before its two-way binding.
+            // Capture the actual control value, including a cleared date, first.
+            if (ReferenceEquals(picker, DetailDatePicker)) ViewModel.DetailCalendarDate = picker.SelectedDate;
+            else if (ReferenceEquals(picker, DetailDeadlinePicker)) ViewModel.DetailCalendarDeadline = picker.SelectedDate;
             await ViewModel.SaveSelectedAsync();
         }
     }
@@ -1525,8 +1542,9 @@ public sealed partial class MainWindow : Window
 
     private void OnShowSkippedChanged(object? sender, RoutedEventArgs e)
     {
-        if (_initialized)
+        if (_initialized && sender is ToggleSwitch toggle)
         {
+            ViewModel.ShowSkippedConnectedTasks = toggle.IsChecked == true;
             ViewModel.ApplyConnectedFilters();
         }
     }
@@ -1667,7 +1685,7 @@ public sealed partial class MainWindow : Window
     {
         var dialog = new ConfirmWindow(
             "Disconnect Todoist?",
-            "The secure token will be removed from this Linux installation. Existing local tasks remain available.");
+            "The secure token will be removed from this device. Existing local tasks remain available.", "Disconnect", showCancel: true);
         if (await dialog.ShowDialog<bool>(this))
         {
             await ViewModel.DisconnectTodoistAsync();
@@ -1722,7 +1740,7 @@ public sealed partial class MainWindow : Window
     {
         var dialog = new ConfirmWindow(
             "Disconnect GitHub?",
-            "The secure token will be removed from this Linux installation. Existing task-to-issue links remain.");
+            "The secure token will be removed from this device. Existing task-to-issue links remain.", "Disconnect", showCancel: true);
         if (await dialog.ShowDialog<bool>(this))
         {
             await ViewModel.DisconnectGitHubAsync();
@@ -1762,7 +1780,7 @@ public sealed partial class MainWindow : Window
 
         var dialog = new ConfirmWindow(
             "Archive space?",
-            $"{item.Title} will be hidden from normal navigation. Its tasks and projects remain in the database.");
+            $"{item.Title} will be hidden from normal navigation. Its tasks and projects remain in the database.", "Archive", showCancel: true);
         if (await dialog.ShowDialog<bool>(this))
         {
             await ViewModel.ArchiveSpaceAsync(item);

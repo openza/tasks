@@ -39,6 +39,7 @@ public sealed partial class MainWindow
             Title = "Export selected restore point",
             SuggestedFileName = "openza-restore-point.db",
             DefaultExtension = "db",
+            FileTypeChoices = [new FilePickerFileType("SQLite database") { Patterns = ["*.db"] }],
         });
         if (file?.TryGetLocalPath() is { } path) await ViewModel.ExportSelectedRestorePointAsync(path);
     }
