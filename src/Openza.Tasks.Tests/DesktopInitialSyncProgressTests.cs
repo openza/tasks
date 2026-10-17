@@ -122,6 +122,44 @@ public sealed class DesktopInitialSyncProgressTests(EditorTestSession fixture)
         finally { TestDirectory.Delete(directory); }
     }
 
+    [Fact]
+    public async Task Background_initial_sync_does_not_replace_backup_prompt_success_or_failure()
+    {
+        await fixture.Session.Dispatch(async () =>
+        {
+            var directory = Path.Combine(Path.GetTempPath(), "openza-backup-progress", Guid.NewGuid().ToString("N"));
+            var store = new SqliteTaskStore(Path.Combine(directory, "tasks.db"));
+            await store.InitializeAsync();
+            var preferences = new DesktopPreferencesStore(Path.Combine(directory, "settings.json"));
+            await preferences.SaveAsync(new() { AutomaticSyncEnabled = false, AutomaticRestorePointsEnabled = false });
+            var service = new ProgressService();
+            var vm = new MainWindowViewModel(store, new InMemoryCredentialStore(), preferencesStore: preferences, personalCloudSetup: service);
+            try
+            {
+                var complete = new PersonalCloudInitialSyncProgress("instance-ui", "device-ui", PersonalCloudInitialSyncPhase.Complete, 500, 500);
+                service.ExportAction = _ =>
+                {
+                    service.Publish(complete);
+                    Assert.Equal("Waiting for Cloudflare authorization", vm.PersonalCloudStatusText);
+                    Assert.Contains("Complete Cloudflare authorization", vm.PersonalCloudSummaryText);
+                    return Task.FromResult(new CloudflareD1Export("backup.sql", new Uri("https://downloads.example.test/backup.sql")));
+                };
+                Assert.True(await vm.ExportPersonalCloudAsync((_, _) => Task.CompletedTask));
+                service.Publish(complete);
+                Assert.Equal("Personal Cloud backup saved.", vm.PersonalCloudSummaryText);
+                Assert.True(vm.InitialSyncProgress!.IsComplete);
+
+                Assert.False(await vm.ExportPersonalCloudAsync((_, _) => throw new IOException("synthetic failure")));
+                var error = vm.PersonalCloudSummaryText;
+                service.Publish(complete);
+                Assert.Equal(error, vm.PersonalCloudSummaryText);
+                Assert.Equal("Needs attention", vm.PersonalCloudStatusText);
+            }
+            finally { TestDirectory.Delete(directory); }
+            return true;
+        }, CancellationToken.None);
+    }
+
     private sealed class ProgressService : IPersonalCloudSetupService, IPersonalCloudInitialSyncProgressService
     {
         private PersonalCloudInitialSyncProgress _progress = new("instance-ui", "device-ui", PersonalCloudInitialSyncPhase.Interrupted, 150, 500, "interrupted");
@@ -166,7 +204,8 @@ public sealed class DesktopInitialSyncProgressTests(EditorTestSession fixture)
             return Task.FromResult(CurrentConnection);
         }
         public Task OpenAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
-        public Task<CloudflareD1Export> ExportAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Func<CancellationToken, Task<CloudflareD1Export>>? ExportAction { get; set; }
+        public Task<CloudflareD1Export> ExportAsync(CancellationToken cancellationToken = default) => ExportAction?.Invoke(cancellationToken) ?? throw new NotSupportedException();
         public Task<PersonalCloudUpgradeResult> UpgradeAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task DisconnectAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task RemoveAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();

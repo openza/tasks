@@ -5,6 +5,7 @@ namespace Openza.Tasks.Desktop.ViewModels;
 public sealed partial class MainWindowViewModel
 {
     private PersonalCloudInitialSyncProgress? _initialSyncProgress;
+    private bool _isManagingPersonalCloud;
     private bool _isPairingInitialSync;
     public bool IsPairingInitialSync
     {
@@ -28,12 +29,17 @@ public sealed partial class MainWindowViewModel
     {
         if (_personalCloudSetup?.CurrentConnection is not { } current || current.InstanceId != progress.InstanceId || current.DeviceId != progress.DeviceId) return;
         if (_initialSyncProgress is { IsComplete: true } completed && completed.InstanceId == progress.InstanceId && completed.DeviceId == progress.DeviceId && !progress.IsComplete) return;
+        var completedAgain = _initialSyncProgress is { IsComplete: true } previous && progress.IsComplete &&
+            previous.InstanceId == progress.InstanceId && previous.DeviceId == progress.DeviceId;
         _initialSyncProgress = progress;
         OnPropertyChanged(nameof(InitialSyncProgress));
         OnPropertyChanged(nameof(InitialSyncSummary));
         OnPropertyChanged(nameof(HasInitialSyncProgress));
         OnPropertyChanged(nameof(HasActiveInitialSyncProgress));
         OnPropertyChanged(nameof(CanRetryInitialSync));
+        // Background sync still updates its banner, but must not replace a backup
+        // prompt/result or repeat a completed initial upload over a management result.
+        if (_isManagingPersonalCloud || completedAgain) return;
         PersonalCloudSummaryText = progress.Summary;
         PersonalCloudStatusText = progress.Phase switch
         {
@@ -378,6 +384,7 @@ public sealed partial class MainWindowViewModel
 
     private async Task<bool> RunManagementAsync(string status, string summary, Func<Task> action)
     {
+        _isManagingPersonalCloud = true;
         IsConnectingPersonalCloud = true;
         PersonalCloudStatusText = status;
         PersonalCloudSummaryText = summary;
@@ -416,6 +423,7 @@ public sealed partial class MainWindowViewModel
         }
         finally
         {
+            _isManagingPersonalCloud = false;
             IsConnectingPersonalCloud = false;
         }
     }
