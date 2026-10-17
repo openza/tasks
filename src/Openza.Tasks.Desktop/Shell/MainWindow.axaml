@@ -60,6 +60,7 @@
                     <ListBox.ItemContainerTheme>
                         <ControlTheme TargetType="ListBoxItem">
                             <Setter Property="Height" Value="48" />
+                            <Setter Property="AutomationProperties.Name" Value="{Binding Title}" />
                             <Setter Property="Margin" Value="4,1" />
                             <Setter Property="Padding" Value="0" />
                                 <Setter Property="CornerRadius" Value="{DynamicResource OpenzaControlCornerRadius}" />
@@ -88,7 +89,7 @@
                     </ListBox.ItemTemplate>
                 </ListBox>
 
-                <Button Grid.Row="4" Height="46" Margin="8,2" Padding="14,0" HorizontalContentAlignment="Left" Classes="nav-command" Click="OnSyncNavigationClicked" PointerEntered="OnInteractiveSurfacePointerEntered" PointerExited="OnInteractiveSurfacePointerExited" PointerPressed="OnInteractiveSurfacePointerPressed" PointerReleased="OnInteractiveSurfacePointerReleased">
+                <Button Grid.Row="4" Height="46" Margin="8,2" Padding="14,0" HorizontalContentAlignment="Left" AutomationProperties.Name="Sync" Classes="nav-command" Click="OnSyncNavigationClicked" PointerEntered="OnInteractiveSurfacePointerEntered" PointerExited="OnInteractiveSurfacePointerExited" PointerPressed="OnInteractiveSurfacePointerPressed" PointerReleased="OnInteractiveSurfacePointerReleased">
                     <StackPanel Orientation="Horizontal" Spacing="14">
                         <ic:FluentIcon Icon="ArrowSync" FontSize="20" />
                         <TextBlock Classes="nav-label" VerticalAlignment="Center" Text="Sync" />
@@ -97,6 +98,7 @@
 
                 <ComboBox
                     x:Name="SpacePicker"
+                    AutomationProperties.Name="Space"
                     Classes="space-picker"
                     Grid.Row="5"
                     Height="44"
@@ -148,7 +150,7 @@
                     </Button.Flyout>
                 </Button>
 
-                <Button Grid.Row="6" Height="46" Margin="8,2" Padding="14,0" HorizontalContentAlignment="Left" Classes="nav-command" Click="OnSettingsClicked" PointerEntered="OnInteractiveSurfacePointerEntered" PointerExited="OnInteractiveSurfacePointerExited" PointerPressed="OnInteractiveSurfacePointerPressed" PointerReleased="OnInteractiveSurfacePointerReleased">
+                <Button Grid.Row="6" Height="46" Margin="8,2" Padding="14,0" HorizontalContentAlignment="Left" AutomationProperties.Name="Settings" Classes="nav-command" Click="OnSettingsClicked" PointerEntered="OnInteractiveSurfacePointerEntered" PointerExited="OnInteractiveSurfacePointerExited" PointerPressed="OnInteractiveSurfacePointerPressed" PointerReleased="OnInteractiveSurfacePointerReleased">
                     <StackPanel Orientation="Horizontal" Spacing="14">
                         <ic:FluentIcon Icon="SettingsCogMultiple" FontSize="20" />
                         <TextBlock Classes="nav-label" VerticalAlignment="Center" Text="Settings" />
@@ -277,7 +279,7 @@
                                     <WrapPanel><Button Margin="0,0,8,4" Content="Add task" Click="OnAddTaskClicked"/><Button Margin="0,0,8,4" Content="Connect apps" Click="OnSettingsClicked"/><Button Margin="0,0,8,4" Content="Sync" Click="OnSyncClicked"/><Button Content="Dismiss" Click="OnDismissGetStartedClicked"/></WrapPanel>
                                 </StackPanel>
                             </Border>
-                            <Border x:Name="InitialSyncBanner" Grid.Row="3" Grid.ColumnSpan="2" Margin="0,12,0,0" Padding="12" Classes="settings-card" IsVisible="{Binding HasInitialSyncProgress}">
+                            <Border x:Name="InitialSyncBanner" Grid.Row="3" Grid.ColumnSpan="2" Margin="0,12,0,0" Padding="12" Classes="settings-card" IsVisible="{Binding HasActiveInitialSyncProgress}">
                                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
                                     <TextBlock Text="{Binding InitialSyncSummary}" TextWrapping="Wrap" VerticalAlignment="Center"/>
                                     <Button Grid.Column="1" Content="Retry Sync" Click="OnSyncClicked" IsVisible="{Binding CanRetryInitialSync}"/>
@@ -395,7 +397,7 @@
                                                         <SelectableTextBlock Classes="metadata" MaxLines="1" Text="{Binding Task.MetadataText}" TextTrimming="CharacterEllipsis" />
                                                     </StackPanel>
                                                     <Grid Grid.Column="2" HorizontalAlignment="Right" VerticalAlignment="Center">
-                                                        <Border Classes="priority-chip" Padding="9,4" Background="{DynamicResource OpenzaChipBackgroundBrush}" CornerRadius="12" IsVisible="{Binding Task.HasPriority}">
+                                                        <Border Classes="priority-chip" HorizontalAlignment="Right" Padding="9,4" Background="{DynamicResource OpenzaChipBackgroundBrush}" CornerRadius="4" IsVisible="{Binding Task.HasPriority}">
                                                             <TextBlock Classes="metadata" Foreground="{DynamicResource OpenzaChipForegroundBrush}" Text="{Binding Task.PriorityText}" />
                                                         </Border>
                                                         <StackPanel Width="260" Classes="quick-actions" Orientation="Horizontal" Spacing="4">

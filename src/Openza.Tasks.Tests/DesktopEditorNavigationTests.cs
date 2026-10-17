@@ -37,6 +37,34 @@ public sealed class EditorTestCollection : ICollectionFixture<EditorTestSession>
 [Collection(nameof(EditorTestCollection))]
 public sealed class DesktopEditorNavigationTests(EditorTestSession fixture)
 {
+    [Theory]
+    [InlineData("Sync", "SyncWorkspace")]
+    [InlineData("Settings", "SettingsWorkspace")]
+    public async Task Startup_navigation_does_not_replace_the_saved_workspace(string view, string controlName)
+    {
+        await fixture.Session.Dispatch(async () =>
+        {
+            var directory = Path.Combine(Path.GetTempPath(), "openza-startup-parity", Guid.NewGuid().ToString("N"));
+            var store = new SqliteTaskStore(Path.Combine(directory, "tasks.db"));
+            await store.InitializeAsync();
+            await store.UpsertTaskAsync(new TaskItem { Id = "task", Title = "Synthetic task" });
+            var preferences = new DesktopPreferencesStore(Path.Combine(directory, "settings.json"));
+            await preferences.SaveAsync(new() { LastView = view, ShowGetStarted = false, HasSelectedSpace = true,
+                AutomaticSyncEnabled = false, AutomaticRestorePointsEnabled = false });
+            var vm = new MainWindowViewModel(store, new InMemoryCredentialStore(), preferencesStore: preferences);
+            var window = new MainWindow(vm);
+            try
+            {
+                window.Show();
+                await WaitForAsync(() => window.FindControl<ScrollViewer>(controlName)!.IsVisible && !vm.IsBusy);
+                Assert.Equal(view, preferences.Load().LastView);
+                Assert.Null(vm.SelectedSpace!.SpaceId);
+            }
+            finally { window.Close(); await Task.Delay(100); TestDirectory.Delete(directory); }
+            return true;
+        }, CancellationToken.None);
+    }
+
     [Fact]
     public async Task Getting_started_banner_is_only_visible_in_empty_unfiltered_Inbox()
     {

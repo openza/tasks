@@ -8,6 +8,19 @@ namespace Openza.Tasks.Tests;
 
 public sealed class PersonalCloudWorkspaceTests : IDisposable
 {
+    [Fact]
+    public async Task Full_record_keeps_the_authoritative_cloud_modification_time()
+    {
+        var store = Store(); await store.InitializeAsync();
+        const string updated = "2026-10-17T10:00:00.000Z";
+        await store.ApplyPersonalCloudChangePageAsync(Instance, Device,
+            Page(1, [Space()], [Project()], [With(TaskRecord(), ("updatedAt", updated))]));
+        Assert.Equal(DateTimeOffset.Parse(updated), (await store.GetTaskAsync("task_test"))!.UpdatedAt);
+        await store.ApplyPersonalCloudChangePageAsync(Instance, Device,
+            Page(2, tasks: [With(TaskRecord(version: 2), ("updatedAt", (object?)null))]));
+        Assert.Null((await store.GetTaskAsync("task_test"))!.UpdatedAt);
+    }
+
     private readonly string _directory = Path.Combine(Path.GetTempPath(), "openza-workspace-tests", Guid.NewGuid().ToString("N"));
     private const string Instance = "instance_workspace_test";
     private const string Device = "device_workspace_test";
@@ -305,5 +318,5 @@ public sealed class PersonalCloudWorkspaceTests : IDisposable
         Assert.Equal(moment ? DateTimeOffset.Parse(Stamp) : null, prefix == "planned" ? task.PlannedAt : task.DeadlineAt);
     }
 
-    public void Dispose() { if (Directory.Exists(_directory)) Directory.Delete(_directory, recursive: true); }
+    public void Dispose() { SqliteConnection.ClearAllPools(); if (Directory.Exists(_directory)) Directory.Delete(_directory, recursive: true); }
 }

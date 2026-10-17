@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { cp, mkdir, mkdtemp, readFile, rm, lstat, readdir } from 'node:fs/promises';
-import { dirname, join, resolve, relative } from 'node:path';
+import { dirname, join, resolve, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 
@@ -20,7 +20,7 @@ export async function verifyArtifact(directory, lock = artifactLock) {
   const expected = new Set(['artifact-manifest.json']);
   for (const entry of entries) {
     const path = resolve(directory, entry.file);
-    const inside = relative(resolve(directory), path);
+    const inside = relative(resolve(directory), path).split(sep).join('/');
     if (!inside || inside.startsWith('..') || inside !== entry.file || expected.has(entry.file))
       throw new Error('Invalid or duplicate artifact path.');
     expected.add(entry.file);

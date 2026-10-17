@@ -35,7 +35,7 @@ public sealed class PersonalCloudHealthClient(HttpClient http)
         {
             var body = await response.Content.ReadFromJsonAsync<HealthResponse>(Json, cancellationToken).ConfigureAwait(false);
             if (body is null || body.Status != "ok" || body.ProtocolVersion != PersonalCloudK0Protocol.Version ||
-                body.Product != PersonalCloudK0Protocol.TasksProduct || body.SchemaVersion is not (17 or 18 or 19 or 20 or 21 or 22 or 23 or 24) ||
+                body.Product != PersonalCloudK0Protocol.TasksProduct || body.SchemaVersion is not (17 or 18 or 19 or 20 or 21 or 22 or 23 or 24 or 25) ||
                 string.IsNullOrWhiteSpace(body.ArtifactVersion) || body.ArtifactVersion.Length > 128)
                 throw new PersonalCloudK0ContractException("health_mismatch", "The deployed Personal Cloud is not compatible with this Openza build.");
             var batch = ParseMutationBatch(body.Capabilities);
@@ -43,7 +43,7 @@ public sealed class PersonalCloudHealthClient(HttpClient http)
             var catalogProtocol = ParseProviderCatalog(body.Capabilities);
             var catalog = catalogProtocol > 0;
             var paging = ParseWorkspacePaging(body.Capabilities);
-            if ((workspace || catalog) && body.SchemaVersion is not (23 or 24) || catalog && !workspace || paging && (!workspace || body.SchemaVersion != 24))
+            if ((workspace || catalog) && body.SchemaVersion is not (23 or 24 or 25) || catalog && !workspace || paging && (!workspace || body.SchemaVersion is not (24 or 25)))
                 throw new PersonalCloudK0ContractException("health_mismatch", "The workspace capabilities do not match the cloud schema.");
             return new PersonalCloudHealth(body.ArtifactVersion, body.SchemaVersion)
             {

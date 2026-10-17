@@ -830,7 +830,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
             var preferences = _preferencesStore.Load();
             AutomaticSyncEnabled = preferences.AutomaticSyncEnabled;
             var preferredSpaceId = preferences.SelectedSpaceId;
-            var initialSpace = SpaceItems.FirstOrDefault(item => item.SpaceId == preferredSpaceId && item.Space is not null);
+            var initialSpace = SpaceItems.FirstOrDefault(item => item.SpaceId == preferredSpaceId &&
+                (item.Space is not null || preferences.HasSelectedSpace));
             if (initialSpace is null && spaces.Count > 0)
             {
                 var rankedSpaces = new List<(string SpaceId, int OpenTasks)>();
@@ -879,6 +880,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
         var wasProjectView = SelectedProject is not null;
         SelectedSpace = item;
         _currentSpaceId = item.SpaceId;
+        await _preferencesStore.UpdateAsync(preferences => preferences with
+        {
+            SelectedSpaceId = _currentSpaceId,
+            HasSelectedSpace = true,
+        });
         SelectedProject = null;
         if (wasProjectView)
         {
@@ -1666,6 +1672,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             }
             await RunBusyAsync(async () =>
             {
+                await ReloadSpacesAsync();
                 await LoadConnectedTasksCoreAsync();
                 await RefreshAsyncCore(SelectedTask?.Task.Id, preserveEditor: true);
                 await LoadTodoistRoutingRulesCoreAsync();
@@ -2123,6 +2130,25 @@ public sealed partial class MainWindowViewModel : ObservableObject
             });
             StatusMessage = "Task added";
             await RefreshAsyncCore(draft.OpenAfterCreate ? task.Id : null);
+            if (draft.OpenAfterCreate && SelectedTask?.Task.Id != task.Id)
+            {
+                // Creation may choose a status/date outside the current smart list.
+                // Open the accepted task in its full list instead of silently losing it.
+                SelectedProject = null;
+                SelectedNavigation = NavigationItems.Single(item => item.Kind ==
+                    (task.IsCompleted ? TaskListKind.Completed : TaskListKind.Open));
+                PageTitle = SelectedNavigation.Title;
+                PageSubtitle = SubtitleFor(SelectedNavigation.Kind);
+                SearchText = string.Empty;
+                ApplyTaskViewPreferencesForCurrentContext();
+                PriorityFilterIndex = 0;
+                RepeatFilterIndex = 0;
+                SelectedLabelFilter = LabelFilterOptions.FirstOrDefault(item => item.LabelId is null);
+                _restoredLabelFilterId = null;
+                await SaveTaskViewPreferencesAsync();
+                await _preferencesStore.UpdateAsync(preferences => preferences with { LastView = SelectedNavigation.Kind.ToString() });
+                await RefreshAsyncCore(task.Id);
+            }
         });
     }
 
@@ -2906,22 +2932,42 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     private async Task ReloadSpacesAsync()
     {
+        var selectedSpaceId = _currentSpaceId;
         var spaces = await _store.GetSpacesAsync();
         _defaultSpaceId = spaces.FirstOrDefault()?.Id ?? SpaceIds.Default;
         LoadSpaceCollections(spaces);
+        SelectedSpace = SpaceItems.FirstOrDefault(item => item.SpaceId == selectedSpaceId) ?? SpaceItems[0];
+        _currentSpaceId = SelectedSpace.SpaceId;
+        await _preferencesStore.UpdateAsync(preferences => preferences with
+        {
+            SelectedSpaceId = _currentSpaceId,
+            HasSelectedSpace = true,
+        });
     }
 
     private void LoadSpaceCollections(IReadOnlyList<SpaceItem> spaces)
     {
-        SpaceItems.Clear();
+        // Keep the selected ComboBox item alive during sync. Resetting the list
+        // fires navigation/blur handlers even when its Space has not changed.
+        if (SpaceItems.Count == 0) SpaceItems.Add(new SpaceNavigationItemViewModel(null));
         EditableSpaceItems.Clear();
-        SpaceItems.Add(new SpaceNavigationItemViewModel(null));
-        foreach (var space in spaces)
+        for (var index = 0; index < spaces.Count; index++)
         {
-            var item = new SpaceNavigationItemViewModel(space);
-            SpaceItems.Add(item);
+            var space = spaces[index];
+            var item = SpaceItems.FirstOrDefault(candidate => candidate.SpaceId == space.Id);
+            if (item is null)
+            {
+                item = new SpaceNavigationItemViewModel(space);
+                SpaceItems.Insert(index + 1, item);
+            }
+            else
+            {
+                item.UpdateSpace(space);
+                if (SpaceItems.IndexOf(item) != index + 1) SpaceItems.Move(SpaceItems.IndexOf(item), index + 1);
+            }
             EditableSpaceItems.Add(item);
         }
+        while (SpaceItems.Count > spaces.Count + 1) SpaceItems.RemoveAt(SpaceItems.Count - 1);
     }
 
     private void RebuildProjectItems()

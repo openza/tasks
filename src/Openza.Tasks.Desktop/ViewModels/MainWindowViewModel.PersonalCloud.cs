@@ -21,6 +21,7 @@ public sealed partial class MainWindowViewModel
     public PersonalCloudInitialSyncProgress? InitialSyncProgress => _initialSyncProgress;
     public string InitialSyncSummary => _initialSyncProgress?.Summary ?? string.Empty;
     public bool HasInitialSyncProgress => IsPersonalCloudConnected && _initialSyncProgress is not null;
+    public bool HasActiveInitialSyncProgress => HasInitialSyncProgress && _initialSyncProgress is { IsComplete: false };
     public bool CanRetryInitialSync => HasInitialSyncProgress && _initialSyncProgress is { IsComplete: false } && !IsSyncing && !IsConnectingPersonalCloud;
 
     private void ApplyInitialSyncProgress(PersonalCloudInitialSyncProgress progress)
@@ -31,6 +32,7 @@ public sealed partial class MainWindowViewModel
         OnPropertyChanged(nameof(InitialSyncProgress));
         OnPropertyChanged(nameof(InitialSyncSummary));
         OnPropertyChanged(nameof(HasInitialSyncProgress));
+        OnPropertyChanged(nameof(HasActiveInitialSyncProgress));
         OnPropertyChanged(nameof(CanRetryInitialSync));
         PersonalCloudSummaryText = progress.Summary;
         PersonalCloudStatusText = progress.Phase switch
@@ -421,6 +423,7 @@ public sealed partial class MainWindowViewModel
     private void SetDisconnected(string summary)
     {
         _initialSyncProgress = null;
+        OnPropertyChanged(nameof(HasActiveInitialSyncProgress));
         OnPropertyChanged(nameof(HasInitialSyncProgress));
         OnPropertyChanged(nameof(CanRetryInitialSync));
         OnPropertyChanged(nameof(InitialSyncSummary));

@@ -11,10 +11,21 @@
         </ResourceDictionary>
     </Application.Resources>
     <Application.Styles>
-        <FluentTheme DensityStyle="Normal" />
+        <FluentTheme DensityStyle="Normal">
+            <FluentTheme.Palettes>
+                <ColorPaletteResources x:Key="Light" Accent="#1E293B" />
+                <ColorPaletteResources x:Key="Dark" Accent="#CBD5E1" />
+            </FluentTheme.Palettes>
+        </FluentTheme>
         <Style Selector="Button.accent">
-            <Setter Property="Background" Value="{DynamicResource AccentFillColorDefaultBrush}" />
-            <Setter Property="Foreground" Value="{DynamicResource TextOnAccentFillColorPrimaryBrush}" />
+            <Setter Property="Background" Value="{DynamicResource OpenzaAccentBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource OpenzaOnAccentBrush}" />
+        </Style>
+        <Style Selector="Button.accent:pointerover">
+            <Setter Property="Background" Value="{DynamicResource OpenzaAccentHoverBrush}" />
+        </Style>
+        <Style Selector="Button.accent:pressed">
+            <Setter Property="Background" Value="{DynamicResource OpenzaAccentPressedBrush}" />
         </Style>
         <Style Selector="Button.primary-command">
             <Setter Property="Background" Value="{DynamicResource OpenzaAccentBrush}" />

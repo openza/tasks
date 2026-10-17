@@ -106,6 +106,7 @@ public static class PersonalCloudWorkspaceCodec
             _ => throw Invalid(),
         };
         if (kind is "catalog" or "routes" && item.TryGetProperty("scopeId", out _)) keys += " scopeId";
+        if (kind == "tasks" && item.TryGetProperty("updatedAt", out _)) keys += " updatedAt";
         Keys(item, keys);
         foreach (var name in new[] { "id", "spaceId", "projectId", "parentId", "bridgeDeviceId", "catalogId", "adoptedTaskId", "sourceOwnerDeviceId", "moveToProjectId", "scopeId" })
             if (item.TryGetProperty(name, out _ ) && Text(item, name) is { } id) PersonalCloudK0Codec.ValidateIdentifier(id, name);

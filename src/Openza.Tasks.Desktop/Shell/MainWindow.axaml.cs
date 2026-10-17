@@ -417,7 +417,7 @@ public sealed partial class MainWindow : Window
 
     private async void OnNavigationSelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
-        if (NavigationList.SelectedItem is not NavigationItemViewModel item)
+        if (!_initialized || NavigationList.SelectedItem is not NavigationItemViewModel item)
         {
             return;
         }

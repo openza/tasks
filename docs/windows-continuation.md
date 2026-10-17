@@ -1,5 +1,14 @@
 # Windows continuation: Personal Cloud and task workspace
 
+The Windows shared-task continuation now supports Cloud schema 25, authoritative
+task modification times, stable Spaces selection/navigation, and the desktop-core
+product boundary. Web shares task workflows and styling; third-party accounts,
+intake and routing belong to Desktop. The companion repository's
+`docs/local-parity-validation.md` describes a disposable Worker/SQLite round-trip
+fixture, including the opt-in `PersonalCloudSharedWorkerAcceptanceTests`.
+The earlier handoff below records the pre-validation snapshot. Release artifact
+pinning and production deployment are separate from local candidate validation.
+
 Continue Tasks on `feat/personal-cloud-initial-sync-progress` and
 [Personal Cloud](https://github.com/openza/personal-cloud) on
 `feat/web-desktop-functional-parity`. Use repository-specific managed worktrees,

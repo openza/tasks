@@ -14,6 +14,38 @@ namespace Openza.Tasks.Tests;
 public sealed class PersonalCloudProviderBridgeTests : IDisposable
 {
     [Fact]
+    public async Task Openza_completion_does_not_create_provider_delivery_and_legacy_phantoms_are_hidden()
+    {
+        var store = await StoreAsync("local-completion.db");
+        await using (var connection = new SqliteConnection($"Data Source={store.DatabasePath};Pooling=False"))
+        {
+            await connection.OpenAsync();
+            var command = connection.CreateCommand();
+            command.CommandText = "DELETE FROM personal_cloud_provider_sources; UPDATE tasks SET completion_state='open', completed_at=NULL";
+            await command.ExecuteNonQueryAsync();
+        }
+        // The bootstrap above deliberately leaves a historical phantom command behind.
+        Assert.Empty(await store.GetPersonalCloudProviderRequestStatusAsync(Instance));
+        await store.ApplyPersonalCloudChangePageAsync(Instance, Device, PersonalCloudK0Codec.Serialize(new
+        {
+            protocolVersion = 1, product = "tasks", nextCheckpoint = 43,
+            changes = new[] { new PersonalCloudTaskCompletedChange
+            {
+                ProtocolVersion = 1, Product = "tasks", ChangeSeq = 43, MutationId = "local_complete",
+                Operation = "task.completed", EntityKind = "task", EntityId = TaskId, EntityVersion = 3,
+                ServerAcceptedAt = "2026-10-11T07:00:00.000Z",
+                Payload = new() { Task = new() { Id = TaskId, CompletionState = "completed", CompletedAt = "2026-10-11T07:00:00.000Z" } },
+            } },
+        }));
+        Assert.Empty(await store.GetPersonalCloudProviderRequestStatusAsync(Instance));
+        await using var verify = new SqliteConnection($"Data Source={store.DatabasePath};Pooling=False");
+        await verify.OpenAsync();
+        var read = verify.CreateCommand();
+        read.CommandText = "SELECT requested_seq FROM personal_cloud_provider_commands";
+        Assert.Equal(42L, Convert.ToInt64(await read.ExecuteScalarAsync()));
+    }
+
+    [Fact]
     public async Task Unchanged_newer_observations_do_not_churn_and_fence_delayed_fields_across_restart()
     {
         var store = await StoreAsync("dedup-observation.db");
@@ -560,5 +592,5 @@ public sealed class PersonalCloudProviderBridgeTests : IDisposable
         private static HttpResponseMessage Json(object body) => new(HttpStatusCode.OK) { Content = new StringContent(PersonalCloudK0Codec.Serialize(body), Encoding.UTF8, "application/json") };
     }
 
-    public void Dispose() { if (Directory.Exists(_directory)) Directory.Delete(_directory, true); }
+    public void Dispose() { SqliteConnection.ClearAllPools(); if (Directory.Exists(_directory)) Directory.Delete(_directory, true); }
 }

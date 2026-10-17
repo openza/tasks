@@ -39,6 +39,7 @@ public sealed partial class SqliteTaskStore
               (SELECT a.state FROM personal_cloud_provider_attempts a WHERE a.instance_id=c.instance_id AND a.task_id=c.task_id
                AND a.state NOT IN ('settled','cancelled') ORDER BY a.requested_seq LIMIT 1)
             FROM personal_cloud_provider_commands c LEFT JOIN tasks t ON t.id=c.task_id
+            JOIN personal_cloud_provider_sources s ON s.instance_id=c.instance_id AND s.task_id=c.task_id
             WHERE c.instance_id=@i AND (c.state IN ('pending_desktop','rejected') OR EXISTS(
               SELECT 1 FROM personal_cloud_provider_attempts a WHERE a.instance_id=c.instance_id AND a.task_id=c.task_id
               AND a.state NOT IN ('settled','cancelled')))
@@ -149,8 +150,17 @@ public sealed partial class SqliteTaskStore
         if (change is PersonalCloudSourceRefreshedChange refreshed)
             await SaveBridgeSourceAsync(connection, instanceId, change.EntityId, refreshed.Payload.Task.Source, cancellationToken).ConfigureAwait(false);
         if (change is PersonalCloudTaskCompletedChange or PersonalCloudTaskReopenedChange)
-            await SaveBridgeCommandAsync(connection, instanceId, change.EntityId, change.ChangeSeq,
-                change is PersonalCloudTaskCompletedChange ? "complete" : "reopen", "pending_desktop", null, cancellationToken).ConfigureAwait(false);
+        {
+            // Completion is also replicated for Openza-owned tasks. Only a linked source
+            // needs an external delivery; never manufacture a provider request for local work.
+            var sourceExists = connection.CreateCommand();
+            sourceExists.CommandText = "SELECT EXISTS(SELECT 1 FROM personal_cloud_provider_sources WHERE instance_id=@i AND task_id=@t)";
+            sourceExists.Parameters.AddWithValue("@i", instanceId);
+            sourceExists.Parameters.AddWithValue("@t", change.EntityId);
+            if (Convert.ToInt64(await sourceExists.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)) != 0)
+                await SaveBridgeCommandAsync(connection, instanceId, change.EntityId, change.ChangeSeq,
+                    change is PersonalCloudTaskCompletedChange ? "complete" : "reopen", "pending_desktop", null, cancellationToken).ConfigureAwait(false);
+        }
         if (change is PersonalCloudExternalCommandChangedChange external)
         {
             var value = external.Payload.Task.ExternalCommand;

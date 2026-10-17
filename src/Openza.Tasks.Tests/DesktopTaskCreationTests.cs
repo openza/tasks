@@ -8,6 +8,35 @@ namespace Openza.Tasks.Tests;
 
 public sealed class DesktopTaskCreationTests : IDisposable
 {
+    [Fact]
+    public void Row_preserves_both_exact_planned_date_and_deadline()
+    {
+        var row = new TaskListItemViewModel(new TaskItem
+        {
+            PlannedAt = new DateTimeOffset(2026, 10, 17, 12, 30, 0, TimeSpan.Zero),
+            DeadlineOn = new DateOnly(2026, 10, 20),
+        }, null);
+        Assert.Contains(" · Due ", row.DateText);
+        Assert.Contains("20 Oct", row.DateText);
+    }
+
+    [Fact]
+    public async Task All_spaces_selection_survives_restart()
+    {
+        Directory.CreateDirectory(_directory);
+        var store = new SqliteTaskStore(Path.Combine(_directory, "space-restart.db"));
+        var preferences = new DesktopPreferencesStore(Path.Combine(_directory, "space-restart.json"));
+        await preferences.SaveAsync(new() { ShowGetStarted = false, AutomaticSyncEnabled = false });
+        var vm = new MainWindowViewModel(store, new InMemoryCredentialStore(), preferencesStore: preferences);
+        await vm.InitializeAsync();
+        await vm.SelectSpaceAsync(vm.SpaceItems.Single(item => item.SpaceId is null));
+        await vm.SelectNavigationAsync(vm.NavigationItems.Single(item => item.Kind == TaskListKind.Open));
+        var restarted = new MainWindowViewModel(store, new InMemoryCredentialStore(), preferencesStore: preferences);
+        await restarted.InitializeAsync();
+        Assert.Same(restarted.SpaceItems[0], restarted.SelectedSpace);
+        Assert.Equal(TaskListKind.Open, restarted.SelectedNavigation!.Kind);
+    }
+
     private readonly string _directory = Path.Combine(
         Path.GetTempPath(),
         "openza-tasks-desktop-tests",
