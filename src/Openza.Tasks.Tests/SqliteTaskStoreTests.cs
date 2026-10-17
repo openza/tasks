@@ -971,7 +971,8 @@ public sealed class SqliteTaskStoreTests : IDisposable
         Assert.Equal(TaskWorkflowStatus.Someday, task.WorkflowStatus);
         Assert.Equal(TaskCompletionState.Open, task.CompletionState);
         Assert.Equal(new DateOnly(2026, 6, 6), task.PlannedOn);
-        Assert.Equal("every 6th", task.RecurrenceRule);
+        Assert.Equal("every 6th", task.SourceRecurrenceRule);
+        Assert.Null(task.RecurrenceRule);
     }
 
     [Fact]
@@ -1002,7 +1003,8 @@ public sealed class SqliteTaskStoreTests : IDisposable
         var task = Assert.Single(all);
         Assert.Equal(source.AdoptedTaskId, task.Id);
         Assert.Equal(TaskWorkflowStatus.Someday, task.WorkflowStatus);
-        Assert.Equal("every 6th", task.RecurrenceRule);
+        Assert.Equal("every 6th", task.SourceRecurrenceRule);
+        Assert.Null(task.RecurrenceRule);
     }
 
     [Fact]

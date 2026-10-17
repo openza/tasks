@@ -10,7 +10,8 @@ using Openza.Tasks.Desktop.ViewModels;
 
 namespace Openza.Tasks.Tests;
 
-public sealed class DesktopPersonalCloudSettingsTests(EditorTestSession fixture) : IClassFixture<EditorTestSession>
+[Collection(nameof(EditorTestCollection))]
+public sealed class DesktopPersonalCloudSettingsTests(EditorTestSession fixture)
 {
     [Fact]
     public async Task Native_sync_provider_retry_dispatches_the_selected_request_and_disables_while_busy()

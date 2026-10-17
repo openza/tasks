@@ -21,7 +21,7 @@ public interface IPersonalCloudProviderBridgeService
     Task RetryProviderCommandAsync(string taskId, CancellationToken cancellationToken = default);
 }
 
-public sealed class PersonalCloudProviderBridge(SqliteTaskStore store, PersonalCloudProviderDeliveryClient delivery,
+public sealed partial class PersonalCloudProviderBridge(SqliteTaskStore store, PersonalCloudProviderDeliveryClient delivery,
     PersonalCloudConnectionProfile connection)
 {
     public async Task<PersonalCloudProviderBridgeResult> RunAsync(IReadOnlyList<PersonalCloudConfiguredProvider> providers,
@@ -36,9 +36,12 @@ public sealed class PersonalCloudProviderBridge(SqliteTaskStore store, PersonalC
             return new(0, 0, 0, (await store.GetPendingPersonalCloudProviderCommandsAsync(connection.InstanceId, cancellationToken: cancellationToken).ConfigureAwait(false)).Count);
         var confirmed = 0; var rejected = 0; var uncertain = 0; var pending = 0;
         var snapshots = new Dictionary<string, (PersonalCloudConfiguredProvider Configuration, IReadOnlyList<ProviderSourceItem> Tasks, DateTimeOffset ObservedAt)>();
+        var catalogProjects = new Dictionary<string, IReadOnlyList<ProjectItem>>();
+        var catalogLabels = new Dictionary<string, IReadOnlyList<string>>();
         foreach (var configuration in providers)
         {
-            if (string.IsNullOrWhiteSpace(configuration.AccountBinding) || snapshots.ContainsKey(configuration.Provider.IntegrationId)) continue;
+            if (string.IsNullOrWhiteSpace(configuration.AccountBinding) || snapshots.ContainsKey(configuration.Provider.IntegrationId) ||
+                providers.Count(p => p.Provider.IntegrationId == configuration.Provider.IntegrationId) != 1) continue;
             try
             {
                 var snapshot = await configuration.Provider.FetchSnapshotAsync(cancellationToken).ConfigureAwait(false);
@@ -49,9 +52,17 @@ public sealed class PersonalCloudProviderBridge(SqliteTaskStore store, PersonalC
                         (task.ProviderConnectionId is null || task.ProviderConnectionId == configuration.Provider.ProviderConnectionId))
                     .Select(task => TaskSyncEngine.ToProviderSourceItem(task, configuration.Provider.ProviderConnectionId, projects)).ToArray();
                 snapshots.Add(configuration.Provider.IntegrationId, (configuration, sources, observedAt));
+                catalogProjects[configuration.Provider.IntegrationId] = snapshot.Projects;
+                catalogLabels[configuration.Provider.IntegrationId] = snapshot.Labels.Select(l => l.Name).Where(n => !string.IsNullOrWhiteSpace(n)).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).Take(32).ToArray();
             }
             catch (OperationCanceledException) { throw; }
             catch (Exception) { /* No fresh account/source evidence: leave every request unclaimed. */ }
+        }
+        if (await store.SupportsPersonalCloudWorkspaceAsync(connection.InstanceId, cancellationToken).ConfigureAwait(false) &&
+            await delivery.IsCatalogEnabledAsync(cancellationToken).ConfigureAwait(false))
+        {
+            var catalogResult = await RunCatalogAsync(snapshots, catalogProjects, catalogLabels, cancellationToken).ConfigureAwait(false);
+            confirmed += catalogResult.Confirmed; rejected += catalogResult.Rejected; uncertain += catalogResult.Uncertain; pending += catalogResult.Pending;
         }
         var knownSources = await store.GetPersonalCloudProviderSourcesAsync(connection.InstanceId, cancellationToken).ConfigureAwait(false);
         long afterRequestedSequence = 0;

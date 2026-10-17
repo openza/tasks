@@ -1713,7 +1713,7 @@ public sealed partial class AppShell
     {
         if (existing is null ||
             !IsTodoistLinkedTask(existing) ||
-            !string.IsNullOrWhiteSpace(existing.RecurrenceRule) ||
+            !string.IsNullOrWhiteSpace(existing.SourceRecurrenceRule) ||
             !TaskDateChanged(existing.PlannedOn, existing.PlannedAt, updated.PlannedOn, updated.PlannedAt))
         {
             return;

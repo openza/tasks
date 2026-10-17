@@ -35,7 +35,7 @@ public sealed class TaskListItemViewModel
     public string MetadataText => string.Join(" · ", new[]
     {
         IsProjectView ? string.Empty : ProjectName,
-        Task.RecurrenceRule is null ? DateText : $"Repeating {DateText}".Trim(),
+        Task.EffectiveRecurrenceRule is null ? DateText : $"Repeating {DateText}".Trim(),
         StatusText,
         (Task.SourceIntegrationId ?? Task.IntegrationId) == IntegrationIds.Local ? string.Empty : SourceText,
         LabelSummaryText,
@@ -84,7 +84,17 @@ public sealed class TaskListItemViewModel
 
     private static string FormatDate(TaskItem task)
     {
-        var date = task.PlannedOn ?? task.DeadlineOn;
+        var planned = task.PlannedOn ?? (task.PlannedAt is { } plannedAt ? DateOnly.FromDateTime(plannedAt.LocalDateTime) : (DateOnly?)null);
+        var deadline = task.DeadlineOn ?? (task.DeadlineAt is { } deadlineAt ? DateOnly.FromDateTime(deadlineAt.LocalDateTime) : (DateOnly?)null);
+        return string.Join(" · ", new[]
+        {
+            FormatDateValue(planned),
+            deadline is null ? string.Empty : $"Due {FormatDateValue(deadline)}",
+        }.Where(value => value.Length > 0));
+    }
+
+    private static string FormatDateValue(DateOnly? date)
+    {
         if (date is null)
         {
             return string.Empty;
@@ -101,6 +111,6 @@ public sealed class TaskListItemViewModel
             return "Tomorrow";
         }
 
-        return date.Value.ToString("ddd, d MMM");
+        return date.Value.ToString(date.Value.Year == today.Year ? "ddd, d MMM" : "ddd, d MMM yyyy");
     }
 }

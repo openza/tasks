@@ -24,6 +24,7 @@ public sealed class PersonalCloudManagementCoordinator(
         CancellationToken cancellationToken = default) =>
         WithResourcesAsync(connection, async (access, accountId, workerName, database, token) =>
         {
+            await provisioning.VerifyMigrationHistoryAsync(access, accountId, database.Id, artifactVersion, token).ConfigureAwait(false);
             var deployed = await deployment.DeployAsync(
                 access,
                 accountId,

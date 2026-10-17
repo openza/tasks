@@ -10,6 +10,26 @@ namespace Openza.Tasks.Tests;
 
 public sealed class DesktopSyncResponsivenessTests : IDisposable
 {
+    [Fact]
+    public async Task Sync_rebinds_renamed_and_new_spaces_without_losing_all_spaces_scope()
+    {
+        var (store, vm, provider) = await CreateAsync();
+        await vm.InitializeAsync();
+        await vm.SelectSpaceAsync(vm.SpaceItems.Single(item => item.SpaceId is null));
+        var selectedScope = vm.SelectedSpace;
+        var original = Assert.Single(await store.GetSpacesAsync());
+        await store.UpsertSpaceAsync(original with { Name = "Renamed in cloud" });
+        await store.UpsertSpaceAsync(new SpaceItem { Id = "cloud-space", Name = "Cloud space" });
+        provider.Release.TrySetResult();
+        await vm.RunTodoistSyncAsync();
+        Assert.Same(vm.SpaceItems[0], vm.SelectedSpace);
+        Assert.Same(selectedScope, vm.SelectedSpace);
+        Assert.Contains(vm.SpaceItems, item => item.Title == "Renamed in cloud");
+        Assert.Contains(vm.EditableSpaceItems, item => item.SpaceId == "cloud-space");
+        await vm.CreateSpaceAsync("Desktop space");
+        Assert.Same(vm.SpaceItems[0], vm.SelectedSpace);
+    }
+
     private readonly string _directory = Path.Combine(Path.GetTempPath(), "openza-sync-ui-tests", Guid.NewGuid().ToString("N"));
 
     [Fact]

@@ -113,6 +113,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
     {
         _store = store;
         _personalCloudSetup = personalCloudSetup;
+        if (personalCloudSetup is IPersonalCloudInitialSyncProgressService progressService)
+            progressService.InitialSyncProgressChanged += progress =>
+            {
+                if (Avalonia.Threading.Dispatcher.UIThread.CheckAccess()) ApplyInitialSyncProgress(progress);
+                else Avalonia.Threading.Dispatcher.UIThread.Post(() => ApplyInitialSyncProgress(progress));
+            };
         _taskService = new TaskApplicationService(store, () => _personalCloudSetup?.CurrentConnection);
         _credentials = credentials;
         _microsoftAuth = microsoftAuth ?? new DesktopMicrosoftAuthService(credentials);
@@ -343,9 +349,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
         ? FormatPriority(priority)
         : "No priority";
     public string SourceTaskCreated => SelectedTask?.Task is { } task ? FormatTaskDate(task.CreatedAt) : string.Empty;
-    public string SourceTaskRecurrence => string.IsNullOrWhiteSpace(SelectedTask?.Task.RecurrenceRule)
+    public string SourceTaskRecurrence => string.IsNullOrWhiteSpace(SelectedTask?.Task.SourceRecurrenceRule)
         ? "Not recurring"
-        : SelectedTask.Task.RecurrenceRule;
+        : SelectedTask.Task.SourceRecurrenceRule;
     public string LocalTaskCreated => SelectedTask?.Task is { } localTask ? FormatTaskDateTime(localTask.CreatedAt) : string.Empty;
     public string LocalTaskUpdated => SelectedTask?.Task.UpdatedAt is { } updatedAt ? FormatTaskDateTime(updatedAt) : "Not modified";
     public bool HasSourceDateMismatch => BuildSourceDateMismatch() is not null;
@@ -615,7 +621,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
         get => _isSyncing;
         private set
         {
-            if (SetProperty(ref _isSyncing, value)) OnPropertyChanged(nameof(IsBusy));
+            if (SetProperty(ref _isSyncing, value))
+            {
+                OnPropertyChanged(nameof(IsBusy));
+                OnPropertyChanged(nameof(CanRetryInitialSync));
+            }
         }
     }
 
@@ -812,6 +822,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         await RunBusyAsync(async () =>
         {
             await _store.InitializeAsync();
+            await RefreshInitialSyncProgressAsync();
             await EnsureDailyRestorePointAsync();
             var spaces = await _store.GetSpacesAsync();
             _defaultSpaceId = spaces.FirstOrDefault()?.Id ?? SpaceIds.Default;
@@ -819,7 +830,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
             var preferences = _preferencesStore.Load();
             AutomaticSyncEnabled = preferences.AutomaticSyncEnabled;
             var preferredSpaceId = preferences.SelectedSpaceId;
-            var initialSpace = SpaceItems.FirstOrDefault(item => item.SpaceId == preferredSpaceId && item.Space is not null);
+            var initialSpace = SpaceItems.FirstOrDefault(item => item.SpaceId == preferredSpaceId &&
+                (item.Space is not null || preferences.HasSelectedSpace));
             if (initialSpace is null && spaces.Count > 0)
             {
                 var rankedSpaces = new List<(string SpaceId, int OpenTasks)>();
@@ -868,6 +880,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
         var wasProjectView = SelectedProject is not null;
         SelectedSpace = item;
         _currentSpaceId = item.SpaceId;
+        await _preferencesStore.UpdateAsync(preferences => preferences with
+        {
+            SelectedSpaceId = _currentSpaceId,
+            HasSelectedSpace = true,
+        });
         SelectedProject = null;
         if (wasProjectView)
         {
@@ -946,7 +963,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 return;
             }
 
-            await _store.UpsertSpaceAsync(new SpaceItem
+            await UpsertSpaceWithCloudAsync(new SpaceItem
             {
                 Id = $"space_{Guid.NewGuid():N}",
                 Name = name,
@@ -978,7 +995,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 return;
             }
 
-            await _store.UpsertSpaceAsync(item.Space with
+            await UpsertSpaceWithCloudAsync(item.Space with
             {
                 IsArchived = true,
                 UpdatedAt = DateTimeOffset.UtcNow,
@@ -1009,7 +1026,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
         await RunBusyAsync(async () =>
         {
-            await _store.UpsertSpaceAsync(item.Space with
+            await UpsertSpaceWithCloudAsync(item.Space with
             {
                 Name = name.Trim(),
                 UpdatedAt = DateTimeOffset.UtcNow,
@@ -1631,18 +1648,19 @@ public sealed partial class MainWindowViewModel : ObservableObject
             {
                 try
                 {
-                    personalCloud = await _personalCloudSetup.SyncAsync().ConfigureAwait(true);
+                    personalCloud = await SyncPersonalCloudWithProgressAsync().ConfigureAwait(true);
                     if (personalCloud.BlockedCode is null && _personalCloudSetup is IPersonalCloudProviderBridgeService bridge)
                     {
                         bridgeResult = await Task.Run(() => bridge.RunProviderBridgeAsync(bridgeProviders)).ConfigureAwait(true);
-                        var resultPass = await _personalCloudSetup.SyncAsync().ConfigureAwait(true);
+                        var resultPass = await SyncPersonalCloudWithProgressAsync().ConfigureAwait(true);
                         personalCloud = new PersonalCloudSyncResult(personalCloud.PushedMutations + resultPass.PushedMutations,
-                            personalCloud.PulledChanges + resultPass.PulledChanges, resultPass.Checkpoint) { BlockedCode = resultPass.BlockedCode };
+                            personalCloud.PulledChanges + resultPass.PulledChanges, resultPass.Checkpoint) { BlockedCode = resultPass.BlockedCode, InitialSyncProgress = resultPass.InitialSyncProgress };
                     }
                     await RefreshProviderRequestStatusAsync().ConfigureAwait(true);
                 }
                 catch (Exception exception)
                 {
+                    await RefreshInitialSyncProgressAsync();
                     personalCloudError = exception.Message;
                 }
             }
@@ -1654,6 +1672,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             }
             await RunBusyAsync(async () =>
             {
+                await ReloadSpacesAsync();
                 await LoadConnectedTasksCoreAsync();
                 await RefreshAsyncCore(SelectedTask?.Task.Id, preserveEditor: true);
                 await LoadTodoistRoutingRulesCoreAsync();
@@ -1662,7 +1681,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 ? $"{IntegrationIds.DisplayName(summary.Provider)} synced · {summary.TasksAdded} new, {summary.TasksUpdated} updated, {summary.CompletionsSynced} completions, {summary.DateUpdatesSynced} date changes"
                 : $"{IntegrationIds.DisplayName(summary.Provider)} sync failed: {summary.Error}").ToList();
             if (personalCloud is not null)
-                resultMessages.Add(personalCloud.BlockedCode is null
+                resultMessages.Add(personalCloud.InitialSyncProgress is { IsComplete: false } initialProgress ? initialProgress.Summary : personalCloud.BlockedCode is null
                     ? $"Personal Cloud synced · {personalCloud.PushedMutations} uploaded, {personalCloud.PulledChanges} downloaded"
                     : $"Personal Cloud sync blocked ({personalCloud.BlockedCode}) · {personalCloud.PulledChanges} downloaded. Pending edits are preserved and require resolution.");
             if (personalCloudError is not null)
@@ -1677,7 +1696,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             LastSyncResult = $"Sync failed: {exception.Message}";
             SetPersistentStatusMessage(LastSyncResult);
         }
-        finally { IsSyncing = false; _syncGate.Release(); }
+        finally { IsSyncing = false; OnPropertyChanged(nameof(CanRetryInitialSync)); _syncGate.Release(); }
     }
 
     public void FilterConnectedTasks(string searchText)
@@ -1881,7 +1900,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
         await RunBusyAsync(async () =>
         {
-            await _store.UpsertProjectAsync(project);
+            await UpsertProjectWithCloudAsync(project);
             NewProjectName = string.Empty;
             StatusMessage = "Project created";
             await RefreshAsyncCore();
@@ -1922,7 +1941,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             CreatedAt = DateTimeOffset.UtcNow,
             UpdatedAt = DateTimeOffset.UtcNow,
         };
-        if (!await RunBusyAsync(() => _store.UpsertProjectAsync(project)))
+        if (!await RunBusyAsync(() => UpsertProjectWithCloudAsync(project)))
         {
             return false;
         }
@@ -1958,7 +1977,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             CreatedAt = DateTimeOffset.UtcNow,
             UpdatedAt = DateTimeOffset.UtcNow,
         };
-        if (!await RunBusyAsync(() => _store.UpsertProjectAsync(project)))
+        if (!await RunBusyAsync(() => UpsertProjectWithCloudAsync(project)))
         {
             return false;
         }
@@ -1983,7 +2002,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         var project = SelectedProject.Project;
         await RunBusyAsync(async () =>
         {
-            await _store.UpsertProjectAsync(project with
+            await UpsertProjectWithCloudAsync(project with
             {
                 Name = name.Trim(),
                 UpdatedAt = DateTimeOffset.UtcNow,
@@ -2014,7 +2033,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 .FirstOrDefault(item => item.Id == projectId);
             if (project is null || project.IntegrationId != IntegrationIds.Local) return;
             var isSelected = SelectedProject?.Project.Id == projectId;
-            await _store.UpsertProjectAsync(project with
+            await UpsertProjectWithCloudAsync(project with
             {
                 Name = name.Trim(),
                 Status = status,
@@ -2048,7 +2067,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 .FirstOrDefault(item => item.Id == projectId);
             if (project is null || project.IntegrationId != IntegrationIds.Local) return;
             var isSelected = SelectedProject?.Project.Id == projectId;
-            await _store.DeleteProjectAsync(projectId, moveTasksToInbox: true);
+            if (_store is Openza.Tasks.Core.Data.SqliteTaskStore sqlite && _personalCloudSetup?.CurrentConnection is { } cloud &&
+                await sqlite.SupportsPersonalCloudWorkspaceAsync(cloud.InstanceId))
+                await sqlite.DeleteProjectWithPersonalCloudIntentAsync(projectId, cloud.InstanceId, cloud.DeviceId);
+            else await _store.DeleteProjectAsync(projectId, moveTasksToInbox: true);
             if (isSelected)
             {
                 SelectedProject = null;
@@ -2108,6 +2130,25 @@ public sealed partial class MainWindowViewModel : ObservableObject
             });
             StatusMessage = "Task added";
             await RefreshAsyncCore(draft.OpenAfterCreate ? task.Id : null);
+            if (draft.OpenAfterCreate && SelectedTask?.Task.Id != task.Id)
+            {
+                // Creation may choose a status/date outside the current smart list.
+                // Open the accepted task in its full list instead of silently losing it.
+                SelectedProject = null;
+                SelectedNavigation = NavigationItems.Single(item => item.Kind ==
+                    (task.IsCompleted ? TaskListKind.Completed : TaskListKind.Open));
+                PageTitle = SelectedNavigation.Title;
+                PageSubtitle = SubtitleFor(SelectedNavigation.Kind);
+                SearchText = string.Empty;
+                ApplyTaskViewPreferencesForCurrentContext();
+                PriorityFilterIndex = 0;
+                RepeatFilterIndex = 0;
+                SelectedLabelFilter = LabelFilterOptions.FirstOrDefault(item => item.LabelId is null);
+                _restoredLabelFilterId = null;
+                // Reveal this task temporarily without replacing the target view's saved filters.
+                await _preferencesStore.UpdateAsync(preferences => preferences with { LastView = SelectedNavigation.Kind.ToString() });
+                await RefreshAsyncCore(task.Id);
+            }
         });
     }
 
@@ -2891,22 +2932,42 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     private async Task ReloadSpacesAsync()
     {
+        var selectedSpaceId = _currentSpaceId;
         var spaces = await _store.GetSpacesAsync();
         _defaultSpaceId = spaces.FirstOrDefault()?.Id ?? SpaceIds.Default;
         LoadSpaceCollections(spaces);
+        SelectedSpace = SpaceItems.FirstOrDefault(item => item.SpaceId == selectedSpaceId) ?? SpaceItems[0];
+        _currentSpaceId = SelectedSpace.SpaceId;
+        await _preferencesStore.UpdateAsync(preferences => preferences with
+        {
+            SelectedSpaceId = _currentSpaceId,
+            HasSelectedSpace = true,
+        });
     }
 
     private void LoadSpaceCollections(IReadOnlyList<SpaceItem> spaces)
     {
-        SpaceItems.Clear();
+        // Keep the selected ComboBox item alive during sync. Resetting the list
+        // fires navigation/blur handlers even when its Space has not changed.
+        if (SpaceItems.Count == 0) SpaceItems.Add(new SpaceNavigationItemViewModel(null));
         EditableSpaceItems.Clear();
-        SpaceItems.Add(new SpaceNavigationItemViewModel(null));
-        foreach (var space in spaces)
+        for (var index = 0; index < spaces.Count; index++)
         {
-            var item = new SpaceNavigationItemViewModel(space);
-            SpaceItems.Add(item);
+            var space = spaces[index];
+            var item = SpaceItems.FirstOrDefault(candidate => candidate.SpaceId == space.Id);
+            if (item is null)
+            {
+                item = new SpaceNavigationItemViewModel(space);
+                SpaceItems.Insert(index + 1, item);
+            }
+            else
+            {
+                item.UpdateSpace(space);
+                if (SpaceItems.IndexOf(item) != index + 1) SpaceItems.Move(SpaceItems.IndexOf(item), index + 1);
+            }
             EditableSpaceItems.Add(item);
         }
+        while (SpaceItems.Count > spaces.Count + 1) SpaceItems.RemoveAt(SpaceItems.Count - 1);
     }
 
     private void RebuildProjectItems()
@@ -3089,7 +3150,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         if (SelectedTask?.Task is not { } task ||
             !task.HasProviderSource ||
             IsTodoistNonRecurringSourceTask(task) ||
-            !string.IsNullOrWhiteSpace(task.RecurrenceRule))
+            !string.IsNullOrWhiteSpace(task.SourceRecurrenceRule))
         {
             return null;
         }
@@ -3148,7 +3209,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     private static bool IsTodoistNonRecurringSourceTask(TaskItem task) =>
         string.Equals(task.SourceIntegrationId ?? task.IntegrationId, IntegrationIds.Todoist, StringComparison.Ordinal) &&
-        string.IsNullOrWhiteSpace(task.RecurrenceRule);
+        string.IsNullOrWhiteSpace(task.SourceRecurrenceRule);
 
     private static string? ReadSourceDateMismatchAcknowledgementKey(string? localMetadataJson)
     {

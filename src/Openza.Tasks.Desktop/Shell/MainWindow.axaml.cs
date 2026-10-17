@@ -417,7 +417,7 @@ public sealed partial class MainWindow : Window
 
     private async void OnNavigationSelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
-        if (NavigationList.SelectedItem is not NavigationItemViewModel item)
+        if (!_initialized || NavigationList.SelectedItem is not NavigationItemViewModel item)
         {
             return;
         }
@@ -1639,7 +1639,8 @@ public sealed partial class MainWindow : Window
 
         var dialog = new ConfirmWindow(
             "Restore this database?",
-            "The current database will be replaced after Openza creates a safety restore point.");
+            "The current database will be replaced after Openza creates a safety restore point.",
+            "Restore", showCancel: true);
         if (await dialog.ShowDialog<bool>(this))
         {
             await ViewModel.RestoreDatabaseAsync(path);
@@ -1654,7 +1655,8 @@ public sealed partial class MainWindow : Window
         }
         var dialog = new ConfirmWindow(
             "Restore selected point?",
-            "The current database will be replaced after Openza creates a new safety restore point.");
+            "The current database will be replaced after Openza creates a new safety restore point.",
+            "Restore", showCancel: true);
         if (await dialog.ShowDialog<bool>(this))
         {
             await ViewModel.RestoreSelectedPointAsync();

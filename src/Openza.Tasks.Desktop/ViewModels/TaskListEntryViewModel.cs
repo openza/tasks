@@ -14,6 +14,7 @@ public sealed class TaskListEntryViewModel
     public bool IsGroupExpanded { get; private init; }
     public string GroupExpandGlyph => IsGroupExpanded ? "▾" : "▸";
     public TaskListItemViewModel? Task { get; private init; }
+    public string AccessibleName => IsHeader ? $"{GroupTitle}, {GroupCount}" : Task?.Title ?? string.Empty;
 
     public static TaskListEntryViewModel Header(string key, string title, int count, bool isExpanded) => new()
     {

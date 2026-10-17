@@ -88,7 +88,7 @@ public static class PersonalCloudProviderBridgeCodec
     }
 }
 
-public sealed class PersonalCloudProviderDeliveryClient(HttpClient http, PersonalCloudDeviceIdentityClient identity,
+public sealed partial class PersonalCloudProviderDeliveryClient(HttpClient http, PersonalCloudDeviceIdentityClient identity,
     PersonalCloudConnectionProfile connection)
 {
     public async Task<bool> IsEnabledAsync(CancellationToken cancellationToken = default)

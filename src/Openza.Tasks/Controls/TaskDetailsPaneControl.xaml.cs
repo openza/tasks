@@ -388,7 +388,7 @@ public sealed partial class TaskDetailsPaneControl : UserControl
         ProviderPriorityText.Text = FormatSourcePriority(task.SourcePriority);
         ProviderSourceText.Text = editor.SourceText;
         ProviderCreatedText.Text = FormatDate(task.CreatedAt);
-        ProviderRecurringText.Text = FormatRecurrence(task.RecurrenceRule);
+        ProviderRecurringText.Text = FormatRecurrence(task.SourceRecurrenceRule);
     }
 
     private void SetLocalMetadataPresentation(TaskItem task)
@@ -597,7 +597,7 @@ public sealed partial class TaskDetailsPaneControl : UserControl
         if (_loadedTask is null ||
             !_loadedTask.HasProviderSource ||
             IsTodoistNonRecurringSourceTask(_loadedTask) ||
-            !string.IsNullOrWhiteSpace(_loadedTask.RecurrenceRule))
+            !string.IsNullOrWhiteSpace(_loadedTask.SourceRecurrenceRule))
         {
             HideSourceDateMismatchNotice();
             return;
@@ -742,7 +742,7 @@ public sealed partial class TaskDetailsPaneControl : UserControl
 
     private static bool IsTodoistNonRecurringSourceTask(TaskItem task) =>
         string.Equals(task.SourceIntegrationId ?? task.IntegrationId, IntegrationIds.Todoist, StringComparison.Ordinal) &&
-        string.IsNullOrWhiteSpace(task.RecurrenceRule);
+        string.IsNullOrWhiteSpace(task.SourceRecurrenceRule);
 
     private string CurrentSnapshot() =>
         string.Join('\u001f',

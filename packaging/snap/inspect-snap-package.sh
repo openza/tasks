@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
+trap 'printf "Snap inspection failed at line %s: %s\n" "$LINENO" "$BASH_COMMAND" >&2' ERR
 
 if [[ $# -lt 1 || $# -gt 2 ]]; then
   echo "Usage: $0 <openza-tasks.snap> [Production|Preview]" >&2

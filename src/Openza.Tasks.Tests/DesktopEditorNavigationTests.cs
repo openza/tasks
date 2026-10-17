@@ -30,8 +30,68 @@ public sealed class EditorTestSession : IDisposable
     public void Dispose() => Session.Dispose();
 }
 
-public sealed class DesktopEditorNavigationTests(EditorTestSession fixture) : IClassFixture<EditorTestSession>
+// MainWindow's cached brushes belong to one dispatcher across headless UI cases.
+[CollectionDefinition(nameof(EditorTestCollection))]
+public sealed class EditorTestCollection : ICollectionFixture<EditorTestSession> { }
+
+[Collection(nameof(EditorTestCollection))]
+public sealed class DesktopEditorNavigationTests(EditorTestSession fixture)
 {
+    [Fact]
+    public async Task Task_rows_expose_the_task_title_to_accessibility()
+    {
+        await fixture.Session.Dispatch(async () =>
+        {
+            var directory = Path.Combine(Path.GetTempPath(), "openza-task-row-names", Guid.NewGuid().ToString("N"));
+            var store = new SqliteTaskStore(Path.Combine(directory, "tasks.db"));
+            await store.InitializeAsync();
+            await store.UpsertTaskAsync(new TaskItem { Id = "task", Title = "Synthetic accessible task" });
+            var preferences = new DesktopPreferencesStore(Path.Combine(directory, "settings.json"));
+            await preferences.SaveAsync(new() { ShowGetStarted = false, AutomaticSyncEnabled = false, AutomaticRestorePointsEnabled = false });
+            var vm = new MainWindowViewModel(store, new InMemoryCredentialStore(), preferencesStore: preferences);
+            var window = new MainWindow(vm);
+            try
+            {
+                window.Show();
+                await WaitForAsync(() => !vm.IsBusy && window.FindControl<ListBox>("TaskList")!.GetVisualDescendants().OfType<ListBoxItem>().Any());
+                var row = window.FindControl<ListBox>("TaskList")!.GetVisualDescendants().OfType<ListBoxItem>()
+                    .Single(item => item.DataContext is TaskListEntryViewModel { IsTask: true });
+                Assert.Equal("Synthetic accessible task", AutomationProperties.GetName(row));
+                Assert.Equal("Today, 2 tasks", TaskListEntryViewModel.Header("today", "Today", 2, true).AccessibleName);
+            }
+            finally { window.Close(); await Task.Delay(100); TestDirectory.Delete(directory); }
+            return true;
+        }, CancellationToken.None);
+    }
+
+    [Theory]
+    [InlineData("Sync", "SyncWorkspace")]
+    [InlineData("Settings", "SettingsWorkspace")]
+    public async Task Startup_navigation_does_not_replace_the_saved_workspace(string view, string controlName)
+    {
+        await fixture.Session.Dispatch(async () =>
+        {
+            var directory = Path.Combine(Path.GetTempPath(), "openza-startup-parity", Guid.NewGuid().ToString("N"));
+            var store = new SqliteTaskStore(Path.Combine(directory, "tasks.db"));
+            await store.InitializeAsync();
+            await store.UpsertTaskAsync(new TaskItem { Id = "task", Title = "Synthetic task" });
+            var preferences = new DesktopPreferencesStore(Path.Combine(directory, "settings.json"));
+            await preferences.SaveAsync(new() { LastView = view, ShowGetStarted = false, HasSelectedSpace = true,
+                AutomaticSyncEnabled = false, AutomaticRestorePointsEnabled = false });
+            var vm = new MainWindowViewModel(store, new InMemoryCredentialStore(), preferencesStore: preferences);
+            var window = new MainWindow(vm);
+            try
+            {
+                window.Show();
+                await WaitForAsync(() => window.FindControl<ScrollViewer>(controlName)!.IsVisible && !vm.IsBusy);
+                Assert.Equal(view, preferences.Load().LastView);
+                Assert.Null(vm.SelectedSpace!.SpaceId);
+            }
+            finally { window.Close(); await Task.Delay(100); TestDirectory.Delete(directory); }
+            return true;
+        }, CancellationToken.None);
+    }
+
     [Fact]
     public async Task Getting_started_banner_is_only_visible_in_empty_unfiltered_Inbox()
     {
