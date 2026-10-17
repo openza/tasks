@@ -37,6 +37,33 @@ public sealed class EditorTestCollection : ICollectionFixture<EditorTestSession>
 [Collection(nameof(EditorTestCollection))]
 public sealed class DesktopEditorNavigationTests(EditorTestSession fixture)
 {
+    [Fact]
+    public async Task Task_rows_expose_the_task_title_to_accessibility()
+    {
+        await fixture.Session.Dispatch(async () =>
+        {
+            var directory = Path.Combine(Path.GetTempPath(), "openza-task-row-names", Guid.NewGuid().ToString("N"));
+            var store = new SqliteTaskStore(Path.Combine(directory, "tasks.db"));
+            await store.InitializeAsync();
+            await store.UpsertTaskAsync(new TaskItem { Id = "task", Title = "Synthetic accessible task" });
+            var preferences = new DesktopPreferencesStore(Path.Combine(directory, "settings.json"));
+            await preferences.SaveAsync(new() { ShowGetStarted = false, AutomaticSyncEnabled = false, AutomaticRestorePointsEnabled = false });
+            var vm = new MainWindowViewModel(store, new InMemoryCredentialStore(), preferencesStore: preferences);
+            var window = new MainWindow(vm);
+            try
+            {
+                window.Show();
+                await WaitForAsync(() => !vm.IsBusy && window.FindControl<ListBox>("TaskList")!.GetVisualDescendants().OfType<ListBoxItem>().Any());
+                var row = window.FindControl<ListBox>("TaskList")!.GetVisualDescendants().OfType<ListBoxItem>()
+                    .Single(item => item.DataContext is TaskListEntryViewModel { IsTask: true });
+                Assert.Equal("Synthetic accessible task", AutomationProperties.GetName(row));
+                Assert.Equal("Today, 2 tasks", TaskListEntryViewModel.Header("today", "Today", 2, true).AccessibleName);
+            }
+            finally { window.Close(); await Task.Delay(100); TestDirectory.Delete(directory); }
+            return true;
+        }, CancellationToken.None);
+    }
+
     [Theory]
     [InlineData("Sync", "SyncWorkspace")]
     [InlineData("Settings", "SettingsWorkspace")]
