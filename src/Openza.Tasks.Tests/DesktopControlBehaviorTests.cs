@@ -381,13 +381,28 @@ public sealed partial class DesktopControlBehaviorTests(EditorTestSession fixtur
         context.Vm.SelectedRestorePoint = null;
         Assert.False(FindButton(settings, "Restore selected").IsEnabled);
         Assert.False(FindButton(settings, "Delete selected").IsEnabled);
-        settings.FindControl<ComboBox>("ThemePicker")!.SelectedIndex = 2;
-        await Until(() => context.Preferences.Load().Theme == "Dark");
+        foreach (var (index, theme) in new[] { (1, "Light"), (2, "Dark"), (0, "System") })
+        {
+            settings.FindControl<ComboBox>("ThemePicker")!.SelectedIndex = index;
+            await Until(() => context.Preferences.Load().Theme == theme);
+        }
         Click(settings, "Create restore point");
         await Until(() => context.Vm.RestorePoints.Count > 0);
         context.Vm.SelectedRestorePoint = context.Vm.RestorePoints[0];
+        var snapshot = context.Vm.SelectedRestorePoint;
         Assert.True(FindButton(settings, "Restore selected").IsEnabled);
         Assert.True(FindButton(settings, "Delete selected").IsEnabled);
+        await context.Store.UpsertTaskAsync((await context.Store.GetTaskAsync("task-0"))! with { Title = "After legacy snapshot" });
+        Click(settings, "Restore selected");
+        await Until(() => settings.OwnedWindows.OfType<ConfirmWindow>().Any());
+        Click(settings.OwnedWindows.OfType<ConfirmWindow>().Single(), "Restore");
+        await Until(() => context.Vm.StatusMessage.Contains("safety restore point") && !context.Vm.IsBusy);
+        Assert.Equal("Control test 0", (await context.Store.GetTaskAsync("task-0"))!.Title);
+        context.Vm.SelectedRestorePoint = context.Vm.RestorePoints.Single(point => point.Backup.Path == snapshot.Backup.Path);
+        Click(settings, "Delete selected");
+        await Until(() => settings.OwnedWindows.OfType<ConfirmWindow>().Any());
+        Click(settings.OwnedWindows.OfType<ConfirmWindow>().Single(), "Delete");
+        await Until(() => !File.Exists(snapshot.Backup.Path));
         Click(settings, "Close"); Assert.False(settings.IsVisible);
     });
 
