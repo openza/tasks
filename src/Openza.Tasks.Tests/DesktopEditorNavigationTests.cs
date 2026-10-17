@@ -30,7 +30,12 @@ public sealed class EditorTestSession : IDisposable
     public void Dispose() => Session.Dispose();
 }
 
-public sealed class DesktopEditorNavigationTests(EditorTestSession fixture) : IClassFixture<EditorTestSession>
+// MainWindow's cached brushes belong to one dispatcher across headless UI cases.
+[CollectionDefinition(nameof(EditorTestCollection))]
+public sealed class EditorTestCollection : ICollectionFixture<EditorTestSession> { }
+
+[Collection(nameof(EditorTestCollection))]
+public sealed class DesktopEditorNavigationTests(EditorTestSession fixture)
 {
     [Fact]
     public async Task Getting_started_banner_is_only_visible_in_empty_unfiltered_Inbox()

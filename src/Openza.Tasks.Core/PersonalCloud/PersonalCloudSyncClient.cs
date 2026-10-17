@@ -9,18 +9,21 @@ namespace Openza.Tasks.Core.PersonalCloud;
 public sealed record PersonalCloudSyncResult(int PushedMutations, int PulledChanges, long Checkpoint)
 {
     public string? BlockedCode { get; init; }
+    public PersonalCloudInitialSyncProgress? InitialSyncProgress { get; init; }
 }
 
-public sealed class PersonalCloudSyncClient(
+public sealed partial class PersonalCloudSyncClient(
     HttpClient http,
     PersonalCloudDeviceIdentityClient identity,
     SqliteTaskStore store,
-    PersonalCloudConnectionProfile connection)
+    PersonalCloudConnectionProfile connection,
+    Func<PersonalCloudInitialSyncPhase, CancellationToken, Task>? progress = null)
 {
     private const int ChangePageLimit = 50;
     private const int PushBatchLimit = 100;
     private const int MaximumChangePages = 100;
     private const int MaximumResponseBytes = 2 * 1024 * 1024;
+    private bool _supportsWorkspacePaging;
 
     public async Task<PersonalCloudSyncResult> SyncAsync(CancellationToken cancellationToken = default)
     {
@@ -33,31 +36,25 @@ public sealed class PersonalCloudSyncClient(
                 "The paired desktop identity does not match the saved Personal Cloud connection.");
         }
 
+        await DiscoverCapabilitiesAsync(cancellationToken).ConfigureAwait(false);
+        var bootstrapAttempts = 0;
+        bool ReserveBootstrapAttempt() => ++bootstrapAttempts <= 3;
+        if (progress is not null) await progress(PersonalCloudInitialSyncPhase.Uploading, cancellationToken).ConfigureAwait(false);
         var pushed = 0;
         string? blockedCode = null;
         var pending = await store.GetPendingPersonalCloudOutboxAsync(
             connection.InstanceId,
             connection.DeviceId,
             cancellationToken).ConfigureAwait(false);
-        foreach (var mutation in pending.Take(PushBatchLimit))
-        {
-            using var request = CreateAuthorizedRequest(HttpMethod.Post, "/v1/tasks/mutations", access.AccessToken);
-            request.Content = new StringContent(mutation.CanonicalJson, Encoding.UTF8, "application/json");
-            string receiptJson;
-            try { receiptJson = await SendForJsonAsync(request, cancellationToken).ConfigureAwait(false); }
-            catch (PersonalCloudK0ContractException exception) when (IsPermanentMutationRejection(exception.Code))
-            {
-                blockedCode = exception.Code;
-                break; // Keep this exact intent and sequence; downloads can still continue.
-            }
-            await store.AcknowledgePersonalCloudMutationAsync(
-                connection.InstanceId,
-                connection.DeviceId,
-                receiptJson,
-                cancellationToken).ConfigureAwait(false);
-            pushed++;
-        }
+        if (pending.Count > 0)
+            (pushed, blockedCode) = await PushPendingAsync(pending.Take(PushBatchLimit).ToArray(), access.AccessToken, cancellationToken).ConfigureAwait(false);
 
+        if (progress is not null) await progress(PersonalCloudInitialSyncPhase.Downloading, cancellationToken).ConfigureAwait(false);
+        if (_supportsWorkspace && blockedCode is null && !await store.HasPersonalCloudWorkspaceBaselineAsync(connection.InstanceId, cancellationToken).ConfigureAwait(false) &&
+            (await store.GetPendingPersonalCloudOutboxAsync(connection.InstanceId, connection.DeviceId, cancellationToken).ConfigureAwait(false)).Count == 0)
+        {
+            await ReplaceWorkspaceBaselineAsync(access.AccessToken, ReserveBootstrapAttempt, cancellationToken).ConfigureAwait(false);
+        }
         var checkpoint = await store.GetPersonalCloudCheckpointAsync(
             connection.InstanceId,
             connection.DeviceId,
@@ -67,6 +64,8 @@ public sealed class PersonalCloudSyncClient(
         for (var pageNumber = 0; pageNumber < MaximumChangePages; pageNumber++)
         {
             var path = $"/sync/changes?after={checkpoint.ToString(CultureInfo.InvariantCulture)}&limit={ChangePageLimit}";
+            if (_supportsWorkspace) path += "&workspace=1";
+            if (_supportsWorkspacePaging) path += "&paged=1";
             using var request = CreateAuthorizedRequest(HttpMethod.Get, path, access.AccessToken);
             string pageJson;
             try { pageJson = await SendForJsonAsync(request, cancellationToken).ConfigureAwait(false); }
@@ -78,20 +77,25 @@ public sealed class PersonalCloudSyncClient(
                     throw new PersonalCloudK0ContractException("checkpoint_expired_pending",
                         "Cloud history expired while local edits or deferred changes remain unresolved. They have been preserved; resolve them before replacing the replica.");
                 }
-                using var bootstrapRequest = CreateAuthorizedRequest(HttpMethod.Get, "/sync/bootstrap", access.AccessToken);
-                var bootstrapJson = await SendForJsonAsync(bootstrapRequest, cancellationToken).ConfigureAwait(false);
-                checkpoint = await store.ReplacePersonalCloudReplicaFromBootstrapAsync(
-                    connection.InstanceId, connection.DeviceId, bootstrapJson, cancellationToken).ConfigureAwait(false);
+                if (_supportsWorkspace) checkpoint = await ReplaceWorkspaceBaselineAsync(access.AccessToken, ReserveBootstrapAttempt, cancellationToken).ConfigureAwait(false);
+                else
+                {
+                    using var bootstrapRequest = CreateAuthorizedRequest(HttpMethod.Get, "/sync/bootstrap", access.AccessToken);
+                    var bootstrapJson = await SendForJsonAsync(bootstrapRequest, cancellationToken).ConfigureAwait(false);
+                    checkpoint = await store.ReplacePersonalCloudReplicaFromBootstrapAsync(connection.InstanceId, connection.DeviceId, bootstrapJson, cancellationToken).ConfigureAwait(false);
+                }
                 continue;
             }
             var page = PersonalCloudK3Codec.ParseChangePage(pageJson);
+            if (_supportsWorkspacePaging && (page.HasMore is null || page.HasMore == true && page.Changes.Count == 0))
+                throw new PersonalCloudK0ContractException("invalid_response", "Personal Cloud returned an invalid paged change response.");
             checkpoint = await store.ApplyPersonalCloudChangePageAsync(
                 connection.InstanceId,
                 connection.DeviceId,
                 pageJson,
                 cancellationToken: cancellationToken).ConfigureAwait(false);
             pulled = checked(pulled + page.Changes.Count);
-            if (page.Changes.Count < ChangePageLimit)
+            if (page.HasMore is false || page.HasMore is null && page.Changes.Count < ChangePageLimit)
             {
                 caughtUp = true;
                 break;
@@ -136,12 +140,14 @@ public sealed class PersonalCloudSyncClient(
         return request;
     }
 
-    private async Task<string> SendForJsonAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    private async Task<string> SendForJsonAsync(HttpRequestMessage request, CancellationToken cancellationToken, bool batchRequest = false)
     {
         using var response = await http.SendAsync(
             request,
             HttpCompletionOption.ResponseHeadersRead,
             cancellationToken).ConfigureAwait(false);
+        if (batchRequest && response.StatusCode is System.Net.HttpStatusCode.NotFound or System.Net.HttpStatusCode.MethodNotAllowed or System.Net.HttpStatusCode.NotImplemented)
+            throw new BatchEndpointUnavailableException();
         if (response.StatusCode is System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden)
         {
             await identity.InvalidateAccessTokenAsync(connection.ServiceOrigin, CancellationToken.None).ConfigureAwait(false);
@@ -182,18 +188,23 @@ public sealed class PersonalCloudSyncClient(
                     if (document.RootElement.TryGetProperty("error", out var error) && error.ValueKind == JsonValueKind.Object &&
                         error.TryGetProperty("code", out var value) && value.ValueKind == JsonValueKind.String &&
                         value.GetString() is { } returnedCode &&
-                        (IsPermanentMutationRejection(returnedCode) || returnedCode == "checkpoint_expired"))
+                        (IsPermanentMutationRejection(returnedCode) || returnedCode is "checkpoint_expired" or "upgrade_required" or "bootstrap_changed" or "response_too_large"))
                         code = returnedCode;
                 }
                 catch (JsonException) { /* Do not expose untrusted response contents. */ }
             }
-            throw new PersonalCloudK0ContractException(code, "Personal Cloud could not complete the sync request. Pending edits have been preserved.");
+            throw new PersonalCloudK0ContractException(code, code switch
+            {
+                "bootstrap_changed" => "Personal Cloud changed while downloading its baseline. Retry Sync to download a consistent snapshot.",
+                "response_too_large" => "A Personal Cloud record exceeds the supported response size. The current replica and pending edits have been preserved.",
+                _ => "Personal Cloud could not complete the sync request. Pending edits have been preserved.",
+            });
         }
         return json;
     }
 
     private static bool IsPermanentMutationRejection(string code) => code is
         "version_conflict" or "entity_exists" or "entity_not_found" or "invalid_transition" or
-        "command_superseded" or "sequence_gap" or "mutation_id_reuse" or "invalid_request" or
-        "parent_not_found" or "source_not_found" or "command_not_found" or "source_identity_conflict" or "stale_snapshot";
+        "command_superseded" or "sequence_gap" or "mutation_id_reuse" or "mutation_id_reused" or "invalid_request" or
+        "parent_not_found" or "source_not_found" or "command_not_found" or "source_identity_conflict" or "stale_snapshot" or "response_too_large";
 }

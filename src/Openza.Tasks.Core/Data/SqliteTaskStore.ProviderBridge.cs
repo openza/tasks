@@ -15,6 +15,8 @@ public sealed record PersonalCloudProviderRequestStatus(string TaskId, string Ti
 
 public sealed partial class SqliteTaskStore
 {
+    // Preserve factual cloud freshness with at most one unchanged full snapshot every six hours.
+    private static readonly TimeSpan SourceSnapshotHeartbeatInterval = TimeSpan.FromHours(6);
     public async Task<bool> IsPersonalCloudCompletionManagedAsync(string taskId, CancellationToken cancellationToken = default)
     {
         await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
@@ -59,6 +61,18 @@ public sealed partial class SqliteTaskStore
                 : state == "rejected" ? $"Rejected ({(reader.IsDBNull(4) ? "provider_rejected" : reader.GetString(4))})."
                 : $"{reader.GetString(2)} · {state}";
             result.Add(new(reader.GetString(0), reader.GetString(1), status, state == "rejected" && attempt is null && !ambiguous));
+        }
+        foreach (var intent in await GetPersonalCloudWorkspaceRecordsAsync(instanceId, "intents", cancellationToken).ConfigureAwait(false))
+        {
+            var state = WText(intent, "state");
+            if (state is "confirmed" or "rejected") continue;
+            var id = WText(intent, "id")!;
+            var action = await GetPersonalCloudCatalogActionAsync(instanceId, id, cancellationToken).ConfigureAwait(false);
+            var status = action?.Phase == "result_queued" ? "Local result saved; awaiting cloud sync."
+                : state == "uncertain" || action?.Phase is "dispatching" or "uncertain" ? "Outcome uncertain; reconcile the provider state before another action."
+                : state == "pending_desktop" ? "Pending Desktop"
+                : "Started on the owning Desktop";
+            result.Add(new(id, WText(intent, "action")!, status, false));
         }
         return result;
     }
@@ -305,18 +319,68 @@ public sealed partial class SqliteTaskStore
     public async Task EnqueuePersonalCloudSourceSnapshotAsync(string instanceId, string deviceId, string taskId,
         K0SafeSourceDescriptor source, CancellationToken cancellationToken = default)
     {
+        PersonalCloudK0Codec.ValidateSafeSource(source);
         using var lease = PersonalCloudConnectionLease.AcquireAuthoring(DatabasePath);
         await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         var read = connection.CreateCommand();
-        read.CommandText = "SELECT source_json FROM personal_cloud_provider_sources WHERE instance_id=@i AND task_id=@t";
+        read.CommandText = """
+            SELECT s.source_json FROM personal_cloud_provider_sources s WHERE s.instance_id=@i AND s.task_id=@t
+              AND NOT EXISTS(SELECT 1 FROM personal_cloud_tombstones t WHERE t.instance_id=@i AND t.entity_id=@t)
+              AND NOT EXISTS(SELECT 1 FROM personal_cloud_outbox o WHERE o.instance_id=@i AND o.entity_id=@t
+                AND o.operation='task.delete' AND o.acknowledged_at IS NULL)
+            """;
         read.Parameters.AddWithValue("@i", instanceId); read.Parameters.AddWithValue("@t", taskId);
         var json = (string?)await read.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
         if (json is null) return;
         var current = PersonalCloudK0Codec.Deserialize<K0SafeSourceDescriptor>(json);
         if (current.IntegrationKind != source.IntegrationKind || current.ExternalIdHash != source.ExternalIdHash)
             throw new PersonalCloudK0ContractException("source_identity_conflict", "Source identity changed during refresh.");
-        if (ParseProtocolTimestamp(source.RefreshedAt) <= ParseProtocolTimestamp(current.RefreshedAt)) return;
+        var baseline = current;
+        var latest = connection.CreateCommand();
+        latest.CommandText = """
+            SELECT canonical_json FROM personal_cloud_outbox
+            WHERE instance_id=@i AND entity_id=@t AND operation='source.refreshSnapshot'
+            ORDER BY local_sequence DESC LIMIT 1
+            """;
+        latest.Parameters.AddWithValue("@i", instanceId); latest.Parameters.AddWithValue("@t", taskId);
+        if (await latest.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is string latestJson)
+        {
+            using var document = System.Text.Json.JsonDocument.Parse(latestJson);
+            var queued = PersonalCloudK0Codec.Deserialize<K0SafeSourceDescriptor>(document.RootElement.GetProperty("payload").GetProperty("source").GetRawText());
+            if (queued.IntegrationKind == current.IntegrationKind && queued.ExternalIdHash == current.ExternalIdHash &&
+                ParseProtocolTimestamp(queued.RefreshedAt) > ParseProtocolTimestamp(current.RefreshedAt))
+                baseline = queued; // Includes pending/in-flight and receipt-acknowledged snapshots whose echo has not arrived.
+        }
+        var observedAt = ParseProtocolTimestamp(source.RefreshedAt);
+        var watermark = connection.CreateCommand();
+        watermark.CommandText = """
+            SELECT observed_at FROM personal_cloud_source_observations WHERE instance_id=@i AND task_id=@t
+                AND integration_kind=@kind AND external_id_hash=@hash
+            """;
+        watermark.Parameters.AddWithValue("@i", instanceId); watermark.Parameters.AddWithValue("@t", taskId);
+        watermark.Parameters.AddWithValue("@kind", source.IntegrationKind); watermark.Parameters.AddWithValue("@hash", source.ExternalIdHash);
+        var previousObservation = await watermark.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+        if (observedAt <= ParseProtocolTimestamp(baseline.RefreshedAt) ||
+            previousObservation is long timestamp && observedAt.ToUnixTimeMilliseconds() <= timestamp) return;
+
+        var observe = connection.CreateCommand();
+        observe.CommandText = """
+            INSERT INTO personal_cloud_source_observations(instance_id,task_id,integration_kind,external_id_hash,observed_at)
+            VALUES(@i,@t,@kind,@hash,@at)
+            ON CONFLICT(instance_id,task_id) DO UPDATE SET integration_kind=excluded.integration_kind,
+                external_id_hash=excluded.external_id_hash,observed_at=excluded.observed_at
+            """;
+        observe.Parameters.AddWithValue("@i", instanceId); observe.Parameters.AddWithValue("@t", taskId);
+        observe.Parameters.AddWithValue("@kind", source.IntegrationKind); observe.Parameters.AddWithValue("@hash", source.ExternalIdHash);
+        observe.Parameters.AddWithValue("@at", observedAt.ToUnixTimeMilliseconds());
+        await observe.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        if ((source with { RefreshedAt = string.Empty }) == (baseline with { RefreshedAt = string.Empty }) &&
+            observedAt - ParseProtocolTimestamp(baseline.RefreshedAt) < SourceSnapshotHeartbeatInterval)
+        {
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            return;
+        }
         var mutationId = $"mutation_{Guid.NewGuid():N}";
         await AppendProviderSemanticAsync(connection, instanceId, deviceId, taskId, mutationId,
             (sequence, timestamp) => PersonalCloudProviderBridgeCodec.SourceMutation(instanceId, deviceId,

@@ -10,6 +10,17 @@ namespace Openza.Tasks.Tests;
 
 public sealed class PersonalCloudLifecycleIntegrationTests
 {
+    [Theory]
+    [InlineData(17)] [InlineData(18)] [InlineData(19)] [InlineData(20)] [InlineData(21)] [InlineData(22)] [InlineData(23)]
+    public async Task Compatible_cloud_schema_supports_pairing_and_upgrade_without_replacing_local_tasks(int schemaVersion)
+    {
+        using var f = await Fixture.CreateAsync(schemaVersion);
+        Assert.NotNull(f.Service.CurrentConnection);
+        Assert.Equal(PersonalCloudInitialSyncPhase.Interrupted, (await f.Service.GetInitialSyncProgressAsync())!.Phase);
+        await f.Service.UpgradeAsync();
+        Assert.Equal("2.0.0", f.Service.CurrentConnection!.ArtifactVersion);
+        Assert.NotNull(await f.Tasks.GetTaskAsync("local_task"));
+    }
     [Fact]
     public async Task Connection_replacement_and_authoring_leases_close_the_pending_check_race()
     {
@@ -245,12 +256,13 @@ public sealed class PersonalCloudLifecycleIntegrationTests
             var coordinator = new PersonalCloudManagementCoordinator(oauth, new Broker(), management, Deployment, gateway, health, "2.0.0");
             Service = new PersonalCloudSetupService(null!, "2.0.0", (uri, _) => { Opened.Add(uri); return Task.CompletedTask; }, Connections, Identity, http, Tasks, coordinator);
         }
-        internal static async Task<Fixture> CreateAsync()
+        internal static async Task<Fixture> CreateAsync(int schemaVersion = 17)
         {
             var f = new Fixture();
             await f.Tasks.InitializeAsync();
             await f.Tasks.UpsertTaskAsync(new TaskItem { Id = "local_task", Title = "Synthetic local task" });
             f.Http.HealthVersion = "1.0.0";
+            f.Http.HealthSchema = schemaVersion;
             await f.Service.PairExistingAsync(Origin, "synthetic-pair-code-1234567890", "Test desktop", false);
             f.Http.HealthVersion = "2.0.0";
             f.Events.Clear();
@@ -294,6 +306,7 @@ public sealed class PersonalCloudLifecycleIntegrationTests
     {
         public string Resources { get; set; } = "normal";
         public string HealthVersion { get; set; } = "2.0.0";
+        public int HealthSchema { get; set; } = 17;
         public bool FailHealthOnce { get; set; }
         public bool FailDatabaseDeleteOnce { get; set; }
         public bool FailDeviceRevoke { get; set; }
@@ -311,7 +324,7 @@ public sealed class PersonalCloudLifecycleIntegrationTests
             if (path == "/auth/pair") return Reply("pair", """{"protocolVersion":1,"instanceId":"instance_test","deviceId":"device_test","refreshCredential":"synthetic-refresh-1234567890","capabilities":["desktop_sync"],"refreshExpiresAt":"2099-01-01T00:00:00Z"}""");
             if (path == "/auth/device/token") return Reply("device-token", """{"protocolVersion":1,"accessToken":"synthetic-access-1234567890","capabilities":["desktop_sync"],"expiresAt":"2099-01-01T00:00:00Z"}""");
             if (path == "/auth/device/revoke") return Reply("device-revoke", """{"protocolVersion":1,"outcome":"revoked","deviceId":"device_test"}""", FailDeviceRevoke ? HttpStatusCode.BadRequest : HttpStatusCode.OK);
-            if (path == "/health") { var fail = FailHealthOnce; FailHealthOnce = false; return Reply("health", $"{{\"status\":\"ok\",\"protocolVersion\":1,\"product\":\"tasks\",\"artifactVersion\":\"{HealthVersion}\",\"schemaVersion\":17}}", fail ? HttpStatusCode.ServiceUnavailable : HttpStatusCode.OK); }
+            if (path == "/health") { var fail = FailHealthOnce; FailHealthOnce = false; return Reply("health", $"{{\"status\":\"ok\",\"protocolVersion\":1,\"product\":\"tasks\",\"artifactVersion\":\"{HealthVersion}\",\"schemaVersion\":{HealthSchema}}}", fail ? HttpStatusCode.ServiceUnavailable : HttpStatusCode.OK); }
             if (path == "/client/v4/accounts") return Reply("accounts", Resources == "account-ambiguous" ? """{"success":true,"result":[{"id":"account_test","name":"Test"},{"id":"account_other","name":"Other"}]}""" : """{"success":true,"result":[{"id":"account_test","name":"Test"}]}""");
             Assert.StartsWith("/client/v4/accounts/account_test/", path, StringComparison.Ordinal);
             if (path.EndsWith("/d1/database", StringComparison.Ordinal)) return Reply("databases", Resources switch { "none" => """{"success":true,"result":[]}""", "ambiguous" => """{"success":true,"result":[{"uuid":"database_test","name":"openza-personal-test"},{"uuid":"database_other","name":"openza-personal-test"}]}""", _ => """{"success":true,"result":[{"uuid":"database_test","name":"openza-personal-test"},{"uuid":"database_unrelated","name":"unrelated"}]}""" });

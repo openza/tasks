@@ -251,7 +251,7 @@
                     </Border>
 
                     <Grid x:Name="TaskListPane" Grid.Column="1" Background="{DynamicResource OpenzaAppCanvasBrush}" RowDefinitions="Auto,Auto,*">
-                        <Grid Margin="32,30,32,0" ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto">
+                        <Grid Margin="32,30,32,0" ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto,Auto">
                             <TextBlock Classes="page-title" Text="{Binding PageTitle}" />
                             <TextBlock Grid.Row="1" Classes="metadata" Margin="2,4,0,0" Text="{Binding PageSubtitle}" />
                             <StackPanel Grid.Column="1" Grid.RowSpan="2" VerticalAlignment="Center" Orientation="Horizontal" Spacing="4">
@@ -276,6 +276,12 @@
                                     <TextBlock Text="Capture a task, connect an app, or sync your tasks." TextWrapping="Wrap"/>
                                     <WrapPanel><Button Margin="0,0,8,4" Content="Add task" Click="OnAddTaskClicked"/><Button Margin="0,0,8,4" Content="Connect apps" Click="OnSettingsClicked"/><Button Margin="0,0,8,4" Content="Sync" Click="OnSyncClicked"/><Button Content="Dismiss" Click="OnDismissGetStartedClicked"/></WrapPanel>
                                 </StackPanel>
+                            </Border>
+                            <Border x:Name="InitialSyncBanner" Grid.Row="3" Grid.ColumnSpan="2" Margin="0,12,0,0" Padding="12" Classes="settings-card" IsVisible="{Binding HasInitialSyncProgress}">
+                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                                    <TextBlock Text="{Binding InitialSyncSummary}" TextWrapping="Wrap" VerticalAlignment="Center"/>
+                                    <Button Grid.Column="1" Content="Retry Sync" Click="OnSyncClicked" IsVisible="{Binding CanRetryInitialSync}"/>
+                                </Grid>
                             </Border>
                         </Grid>
 
@@ -662,6 +668,7 @@
                             <StackPanel Grid.Column="2" HorizontalAlignment="Right" Spacing="8">
                                 <TextBlock HorizontalAlignment="Right" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{Binding PersonalCloudStatusText}"/>
                                 <Button Classes="accent" Click="OnConnectPersonalCloudClicked" Content="{Binding PersonalCloudActionText}" IsEnabled="{Binding CanConnectPersonalCloud}"/>
+                                <Button Content="Retry Sync" Click="OnSyncClicked" IsVisible="{Binding CanRetryInitialSync}"/>
                             </StackPanel>
                         </Grid>
                     </Border>

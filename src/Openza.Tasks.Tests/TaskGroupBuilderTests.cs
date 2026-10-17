@@ -5,6 +5,16 @@ namespace Openza.Tasks.Tests;
 
 public sealed class TaskGroupBuilderTests
 {
+    [Theory]
+    [InlineData(false)] [InlineData(true)]
+    public void Provider_recurrence_keeps_repeat_group_and_Desktop_badge_with_independent_local_overlay(bool localOverlay)
+    {
+        var task = new TaskItem { Id = "local_recurring", SourceIntegrationId = IntegrationIds.Todoist, SourceMetadataJson = "{\"recurrenceRule\":\"daily\"}", RecurrenceRule = localOverlay ? "weekly" : null };
+        Assert.Equal("daily", task.SourceRecurrenceRule);
+        Assert.Equal(localOverlay ? "weekly" : "daily", task.EffectiveRecurrenceRule);
+        Assert.Equal("Repeating", Assert.Single(TaskGroupBuilder.GetAssignments(task, null, TaskGroupMode.Repeating)).Title);
+        Assert.Contains("Repeating", new Openza.Tasks.Desktop.ViewModels.TaskListItemViewModel(task, null).MetadataText);
+    }
     [Fact]
     public void Label_grouping_places_multi_label_tasks_in_each_label()
     {

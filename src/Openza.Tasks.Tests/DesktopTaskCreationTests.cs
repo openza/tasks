@@ -320,7 +320,8 @@ public sealed class DesktopTaskCreationTests : IDisposable
             SourceProjectName = "Work Tasks",
             SourcePriority = 1,
             SourcePlannedOn = new DateOnly(2026, 8, 17),
-            RecurrenceRule = "every weekday",
+            SourceMetadataJson = "{\"recurrenceRule\":\"every weekday\"}",
+            RecurrenceRule = "monthly",
         });
         var viewModel = new MainWindowViewModel(store, new InMemoryCredentialStore());
 
@@ -334,6 +335,7 @@ public sealed class DesktopTaskCreationTests : IDisposable
         Assert.Equal("Work Tasks", viewModel.SourceTaskProject);
         Assert.Equal("Urgent", viewModel.SourceTaskPriority);
         Assert.Equal("every weekday", viewModel.SourceTaskRecurrence);
+        Assert.Equal("monthly", viewModel.SelectedTask!.Task.RecurrenceRule);
     }
 
     [Fact]

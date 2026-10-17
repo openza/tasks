@@ -10,6 +10,7 @@ public sealed record PersonalCloudK3ChangePage
     public required string Product { get; init; }
     public required IReadOnlyList<JsonElement> Changes { get; init; }
     public required long NextCheckpoint { get; init; }
+    public bool? HasMore { get; init; }
 }
 
 public sealed record PersonalCloudK3ParsedChangePage
@@ -18,6 +19,7 @@ public sealed record PersonalCloudK3ParsedChangePage
     public required string Product { get; init; }
     public required IReadOnlyList<IPersonalCloudTaskChange> Changes { get; init; }
     public required long NextCheckpoint { get; init; }
+    public bool? HasMore { get; init; }
 }
 
 public static class PersonalCloudK3Codec
@@ -51,6 +53,9 @@ public static class PersonalCloudK3Codec
 
             switch (operationElement.GetString())
             {
+                case "workspace.changed":
+                    changes.Add(PersonalCloudWorkspaceCodec.ParseChange(element));
+                    break;
                 case PersonalCloudK0Protocol.TaskCreatedOperation:
                     var created = PersonalCloudK0Codec.Deserialize<K0TaskCreatedChange>(element.GetRawText());
                     PersonalCloudK0Codec.ValidateTaskCreatedChange(created);
@@ -93,6 +98,7 @@ public static class PersonalCloudK3Codec
             Product = page.Product,
             Changes = changes,
             NextCheckpoint = page.NextCheckpoint,
+            HasMore = page.HasMore,
         };
     }
 

@@ -133,22 +133,31 @@ public sealed class PersonalCloudProvisioningTests
             new CloudflareOAuthClient(new HttpClient(oauthHandler), Configuration),
             new CallbackBroker(CallbackFor), gateway, state, identity);
         var connections = new FailFirstConnectionStore();
-        var service = new PersonalCloudSetupService(coordinator, "1.2.3", connectionStore: connections);
+        var directory = Path.Combine(Path.GetTempPath(), "openza-profile-marker", Guid.NewGuid().ToString("N"));
+        var store = new Openza.Tasks.Core.Data.SqliteTaskStore(Path.Combine(directory, "tasks.db"));
+        await store.InitializeAsync();
+        connections.BeforeSave = async connection => Assert.NotNull(await store.GetPersonalCloudInitialSyncProgressAsync(connection.InstanceId, connection.DeviceId));
+        var service = new PersonalCloudSetupService(coordinator, "1.2.3", connectionStore: connections, taskStore: store);
+        try
+        {
+            await Assert.ThrowsAsync<IOException>(() => service.ConnectAsync());
+            Assert.Null(service.CurrentConnection);
+            Assert.NotNull(await store.GetPersonalCloudInitialSyncProgressAsync("instance_personal", "device_1234567890"));
+            Assert.Equal(PersonalCloudProvisioningStage.Complete, state.Value!.Stage);
+            var attemptId = state.Value.AttemptId;
+            var result = await service.ConnectAsync();
 
-        await Assert.ThrowsAsync<IOException>(() => service.ConnectAsync());
-        Assert.Null(service.CurrentConnection);
-        Assert.Equal(PersonalCloudProvisioningStage.Complete, state.Value!.Stage);
-        var attemptId = state.Value.AttemptId;
-        var result = await service.ConnectAsync();
-
-        Assert.Equal(result.ServiceOrigin, service.CurrentConnection!.ServiceOrigin);
-        Assert.Equal(connections.Load(), service.CurrentConnection);
-        Assert.Null(state.Value);
-        Assert.Equal(1, gateway.DatabaseCalls);
-        Assert.Equal(1, gateway.DeployCalls);
-        Assert.Equal(1, gateway.PairingCalls);
-        Assert.Equal(2, gateway.OwnerBootstrapCalls);
-        Assert.StartsWith("pc_", attemptId, StringComparison.Ordinal);
+            Assert.Equal(result.ServiceOrigin, service.CurrentConnection!.ServiceOrigin);
+            Assert.Equal(connections.Load(), service.CurrentConnection);
+            Assert.NotNull(await service.GetInitialSyncProgressAsync());
+            Assert.Null(state.Value);
+            Assert.Equal(1, gateway.DatabaseCalls);
+            Assert.Equal(1, gateway.DeployCalls);
+            Assert.Equal(1, gateway.PairingCalls);
+            Assert.Equal(2, gateway.OwnerBootstrapCalls);
+            Assert.StartsWith("pc_", attemptId, StringComparison.Ordinal);
+        }
+        finally { TestDirectory.Delete(directory); }
     }
 
     [Fact]
@@ -291,12 +300,26 @@ public sealed class PersonalCloudProvisioningTests
             new Uri("https://openza-personal-test.workers.dev/"), "1.2.3"));
         Assert.Equal("health_mismatch", error.Code);
     }
+    [Theory]
+    [InlineData(1)] [InlineData(2)]
+    public async Task Health_preserves_catalog_capability_version_and_requires_exact_workspace_contract(int catalogVersion)
+    {
+        var body = JsonSerializer.Serialize(new { status = "ok", protocolVersion = 1, product = "tasks", artifactVersion = "test", schemaVersion = 23,
+            capabilities = new { workspace = new { protocolVersion = 1, path = "/v1/tasks/mutations", schemaVersion = 23 }, providerCatalog = new { protocolVersion = catalogVersion, path = "/v1/provider/catalog", intentsPath = "/v1/provider/intents" } } });
+        var client = new PersonalCloudHealthClient(new HttpClient(new RecordingHandler(Json(HttpStatusCode.OK, body))));
+        var health = await client.InspectAsync(new("https://synthetic.example.test/"));
+        Assert.True(health.SupportsWorkspace); Assert.True(health.SupportsProviderCatalog); Assert.Equal(catalogVersion, health.ProviderCatalogProtocolVersion);
+    }
 
     [Theory]
     [InlineData(17)]
     [InlineData(18)]
     [InlineData(19)]
     [InlineData(20)]
+    [InlineData(21)]
+    [InlineData(22)]
+    [InlineData(23)]
+    [InlineData(24)]
     public async Task Health_verification_accepts_compatible_schema_migrations(int schemaVersion)
     {
         var client = new PersonalCloudHealthClient(new HttpClient(new RecordingHandler(Json(HttpStatusCode.OK,
@@ -312,7 +335,7 @@ public sealed class PersonalCloudProvisioningTests
 
     [Theory]
     [InlineData(16, 1, "tasks")]
-    [InlineData(21, 1, "tasks")]
+    [InlineData(25, 1, "tasks")]
     [InlineData(18, 2, "tasks")]
     [InlineData(18, 1, "reader")]
     public async Task Health_verification_rejects_incompatible_schema_protocol_or_product(
@@ -581,14 +604,15 @@ public sealed class PersonalCloudProvisioningTests
 
     private sealed class FailFirstConnectionStore : IPersonalCloudConnectionStore
     {
+        public Func<PersonalCloudConnectionProfile, Task>? BeforeSave { get; set; }
         private bool _fail = true;
         private PersonalCloudConnectionProfile? _value;
         public PersonalCloudConnectionProfile? Load() => _value;
-        public Task SaveAsync(PersonalCloudConnectionProfile connection, CancellationToken cancellationToken = default)
+        public async Task SaveAsync(PersonalCloudConnectionProfile connection, CancellationToken cancellationToken = default)
         {
+            if (BeforeSave is not null) await BeforeSave(connection);
             if (_fail) { _fail = false; throw new IOException("Injected profile save failure."); }
             _value = connection;
-            return Task.CompletedTask;
         }
         public Task ClearAsync(CancellationToken cancellationToken = default) { _value = null; return Task.CompletedTask; }
     }
