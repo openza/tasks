@@ -411,6 +411,7 @@ public sealed partial class MainWindowViewModel
                 "resource_not_found" => "The Personal Cloud resources were not found in the authorized Cloudflare account.",
                 "account_selection_required" => "Authorize only the Cloudflare account containing this Personal Cloud.",
                 "cloudflare_export_timeout" => "Cloudflare did not finish the backup in time. Your Personal Cloud was not changed.",
+                "migration_mismatch" => "The bundled database migrations differ from this Personal Cloud's history. Use a matching Openza build before updating.",
                 _ => "The Personal Cloud action stopped safely. You can try again.",
             };
             return false;
