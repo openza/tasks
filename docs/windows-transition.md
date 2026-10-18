@@ -34,6 +34,8 @@ The Windows branch contains the continuity Application contracts, Desktop Servic
 
 Current WinUI [TasksPage](../src/Openza.Tasks/Pages/TasksPage.xaml.cs) returns All for DateScopeFilter and its setter exposes no other mode. [AppShell](../src/Openza.Tasks/Shell/AppShell.xaml.cs) initializes/resets to All and persists that getter; the [Core enum](../src/Openza.Tasks.Core/Data/TaskQuery.cs) contains only All. The inspected repository history introduces these paths in 58e6a36 with the same restriction. This establishes the checked WinUI writer behavior, not every historical released or manually edited settings file. Unknown persisted values must not be silently reinterpreted; conversion retains the original and rejects unsupported DateScope values. No installed settings were inspected.
 
+That guarantee concerns values authored by the current task-view UI. [AppSettingsService](../src/Openza.Tasks/Services/AppSettingsService.cs) loads/saves string fields without normalizing DateScope, so a pre-existing unknown value can be round-tripped by generic settings persistence. Source does not justify saying that a non-All value could never appear in a saved file.
+
 ## Identity and version constraints
 
 | Lane | Required identity | Agreed version lane | Baseline WinUI manifest |
