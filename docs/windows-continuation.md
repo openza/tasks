@@ -48,8 +48,9 @@ and feature parity remain unverified, as do live external-provider/OneDrive
 acceptance and interactive Ubuntu font rendering, scaling, keyboard,
 accessibility and small-window behavior. Continue Ubuntu UI checks with
 `./dev.sh` and disposable Dev data, preserving the installed app, existing
-pairing and real data. Cloud implementation/deployment remains paused at the
-user's request; this note does not authorize resuming it.
+pairing and real data. At the Windows handoff, further Cloud work was paused.
+The subsequent review-fix work is limited to corrections in the existing PRs;
+deployment remains unauthorized.
 
 ## Historical Ubuntu handoff and WinUI scope
 
