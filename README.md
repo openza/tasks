@@ -2,7 +2,7 @@
 
 **A simple local-first task app that grows with you, with an optional cloud you control.**
 
-Openza Tasks supports fast local capture and completion without requiring projects or a planning method. Avalonia is the desktop implementation reference, with Windows as the major target and Linux supported. The current Windows Store edition still uses WinUI 3 and receives necessary maintenance during a deliberate transition. Both hosts use the shared SQLite core; replacing the Store host requires the [Windows transition gates](docs/windows-transition.md). macOS is deferred.
+Openza Tasks supports fast local capture and completion without requiring projects or a planning method. Avalonia is the desktop implementation reference, with Windows as the major target and Linux supported. The current Windows Store edition uses WinUI 3 and receives necessary maintenance. Windows transition execution is deferred until its [acceptance gates](docs/windows-transition.md) and user decisions are satisfied. Both hosts use the shared SQLite core. macOS is deferred.
 
 Openza Tasks is maintained by Deependra Solanky as a personal open-source project. Microsoft sign-in may show the Openza app name with the `solanky.dev` publisher/contact identity.
 
@@ -42,7 +42,7 @@ Snap uses `--dangerous` for a local package installed without a Snap Store
 assertion. Openza Tasks remains strictly confined. The release page explains
 how to switch to Store-signed automatic updates when they become available.
 
-Legacy Flutter-era packages remain available in older GitHub releases, but they are no longer the active product line. Store V1 starts with a clean WinUI workspace and can reconnect integrations.
+Legacy Flutter-era packages remain available in older GitHub releases. Store V1 starts with a clean workspace and does not automatically import those stores. A separately authorized, guarded WinUI-to-Avalonia upgrade is a different transition, currently deferred; it does not enable broad legacy imports.
 
 ## Building From Source
 
@@ -77,6 +77,8 @@ Integration configuration and remaining native acceptance checks are documented
 in [docs/avalonia-parity.md](docs/avalonia-parity.md).
 
 ### Current WinUI Windows host prerequisites
+
+Reference for necessary maintenance only. Windows transition, native validation and packaging work remain deferred.
 
 - Windows 10 22H2 or Windows 11
 - .NET 10 SDK
@@ -125,7 +127,7 @@ The sync engine is C# in `Openza.Tasks.Core`. Historical Rust FFI work is preser
 The last Flutter-era mainline is preserved on the [`legacy-flutter-app`](https://github.com/openza/tasks/tree/legacy-flutter-app) branch. Active desktop development targets Avalonia in `src/Openza.Tasks.Desktop/`; WinUI in `src/Openza.Tasks/` receives necessary maintenance until the transition is accepted.
 
 See [docs/architecture.md](docs/architecture.md) for architecture and the task model, [behavior contracts](docs/behavior-contracts.md) for product semantics, and [docs/TODO.md](docs/TODO.md) for the ordered follow-up work.
-See [docs/design-guidelines.md](docs/design-guidelines.md) for the Openza Calm Fluent production UI language.
+See [docs/design-guidelines.md](docs/design-guidelines.md) for the built-in Avalonia Fluent baseline and the separate WinUI maintenance reference.
 
 Microsoft To Do and OneDrive backup use Openza's built-in public Microsoft app registration. Developers can override the public client ID at build time for testing, but normal users do not need to configure Azure app registrations or client IDs.
 

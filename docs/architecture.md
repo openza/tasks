@@ -2,7 +2,7 @@
 
 ## Direction and contract authority
 
-The direction adopted on 2026-10-18 is a simple local-first task app that grows with the user, with an optional cloud they control. Avalonia is the one desktop UI receiving active development. Windows is the major target, Linux is supported, and macOS is deferred. WinUI receives necessary maintenance as the current Windows Store host until the [transition gates](windows-transition.md) are accepted; this decision does not establish that replacement is ready.
+The direction adopted on 2026-10-18 is a simple local-first task app that grows with the user, with an optional cloud they control. Avalonia receives active desktop development using its built-in Fluent theme and controls. Windows is the major target, Linux is supported, and macOS is deferred. WinUI is the current Windows Store host and receives necessary maintenance. Windows transition execution remains deferred; the [acceptance gates](windows-transition.md) and unresolved user policies must be satisfied before replacement.
 
 Lightweight [behavior contracts](behavior-contracts.md) are the product source of truth. Avalonia is the practical reference for ordinary desktop interactions. Existing protocol documents retain their detailed wire contracts; historical staged checkpoints are not a complete description of today's UI. Resolve discrepancies explicitly rather than copying behavior between hosts blindly.
 
@@ -50,7 +50,7 @@ Global search is available as a temporary navigation overlay. It starts in Curre
 
 For a clean new database, Openza creates one default space. If setup/import tooling creates spaces first, the app does not add an extra empty default space.
 
-Store V1 is a fresh-start WinUI product. It does not auto-migrate old local app stores; future import tooling can be designed as an explicit user action if needed.
+The fresh-start Store rule excludes automatic import of legacy Flutter-era stores. A separately authorized, guarded WinUI-to-Avalonia package transition is distinct from legacy import and remains deferred. It is not permission to discover or migrate other app stores.
 
 ## Task Model
 
@@ -59,7 +59,7 @@ Tasks separate completion from workflow:
 - `completion_state`: whether the task is open, completed, or cancelled
 - `workflow_status`: whether an open task is in Inbox, Next, Waiting For, Someday, or no workflow list
 
-Projects are user-facing task lists/projects owned by Openza. Local tasks can have no project. The default Inbox workflow status means newly captured, not yet organized; project absence and workflow status are separate fields. Provider project/list names are source context, not primary Openza projects. Statuses remain the fixed set `none`, `inbox`, `next`, `waiting`, `someday`; custom statuses are not planned without concrete workflow evidence.
+Projects are task lists/projects owned by Openza; local tasks can have no project. The intended Inbox meaning is newly captured, not yet organized. Current Inbox view membership requires an open task with Inbox workflow status and no Openza project, while badges follow workflow status. That discrepancy needs a product decision; this cleanup changes neither policy. Provider project/list names are source context. Statuses remain fixed at `none`, `inbox`, `next`, `waiting`, `someday`.
 
 Planner-ready fields are present even when the UI only exposes part of them:
 
@@ -82,9 +82,9 @@ Openza treats dates, deadlines, scheduled blocks, and repeating work as facets o
 
 Smart lists such as Today, Overdue, and Calendar show all dated work together. The everyday UI does not expose a schema-shaped picker for Date versus Deadline versus scheduled blocks; users should not need to know the database fields to trust the list.
 
-- Today includes work dated for today, deadlines due today, and scheduled blocks today.
-- Calendar includes all dated work.
-- Overdue includes dated or deadline work before today.
+- Today includes open work with a Date, Deadline or scheduled start on today's local day.
+- Calendar includes open work with any Date, Deadline or scheduled start.
+- Overdue includes open work with any such day before today, including planned work and scheduled starts.
 
 Repeating work is an independent facet. Users can choose whether a smart list includes repeating tasks:
 

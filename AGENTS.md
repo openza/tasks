@@ -23,7 +23,8 @@ Also follow the shared Openza guidance in `../AGENTS.md`. Keep this file limited
 
 ## Coding Style & Naming Conventions
 - Follow existing C# naming and nullable annotations.
-- Prefer native WinUI controls in the Windows host and built-in Avalonia/Fluent controls in the desktop host.
+- Use Avalonia's built-in controls and `FluentTheme` for active Desktop work. Follow the official [themes](https://docs.avaloniaui.net/docs/styling/themes) and [styling guidance](https://docs.avaloniaui.net/docs/styling/style-best-practices), existing Avalonia bindings/commands and accessibility patterns. Do not copy WinUI-specific control/resource APIs into Avalonia or add another theme library without approval. See `docs/design-guidelines.md` for scope.
+- Keep WinUI work to necessary maintenance with native WinUI controls; it is not the default host for new UI development.
 - Keep sync provider code in `Openza.Tasks.Core`; keep UI code out of provider adapters and repositories.
 - Keep shared models, storage, sync, import/export, and backup behavior in Core; do not couple Core to either UI framework.
 - For syncable tasks, update only local-enhancement fields unless the sync engine explicitly owns the provider field.
@@ -34,9 +35,9 @@ Also follow the shared Openza guidance in `../AGENTS.md`. Keep this file limited
 - Do not add a separate methodology-specific page or signal when the same outcome can be achieved through transparent data, project selection, labels, filters, and custom views.
 - Treat Spaces as user-owned visibility scopes, not provider-specific concepts. Do not hardcode Work/Personal or any user's routing logic in app code; put one-off routing in explicit import/setup scripts or future user-configurable rules.
 - Lightweight documented behavior contracts are the source of truth; Avalonia is the implementation reference for ordinary desktop interactions. Follow `docs/behavior-contracts.md` and `docs/architecture.md`; resolve contract discrepancies before changing behavior. WinUI is a useful historical/transition reference, not a requirement to mirror every screen. Web is an online-first companion with shared product semantics, not identical desktop UI or offline guarantees.
-- Keep workflow statuses fixed (`none`, `inbox`, `next`, `waiting`, `someday`). Inbox means newly captured, not yet organized; it is neutral and does not require a methodology. Completion is separate from workflow status.
-- Follow `docs/windows-transition.md` for Windows continuity and retirement gates. A source build or Avalonia/Web round trip does not establish an in-place Store upgrade or credential continuity.
-- The Windows Store edition is a fresh-start product. Do not auto-migrate old local app stores unless the user explicitly changes that decision.
+- Keep workflow statuses fixed (`none`, `inbox`, `next`, `waiting`, `someday`). The intended Inbox meaning is neutral capture awaiting organization. Current Inbox view membership also excludes tasks with an Openza project, while badges follow workflow status; `docs/behavior-contracts.md` records this unresolved product decision. Do not change either policy during cleanup. Completion is separate from workflow status.
+- Windows transition execution is deferred. Follow `docs/windows-transition.md` for future continuity/retirement gates. Dev reconnect and sync-off behavior is provisional pending real package/vault evidence and user policy acceptance; source/C# compilation does not prove native build, package upgrade, Microsoft sign-in or pairing continuity.
+- The fresh-start rule excludes automatic import of legacy Flutter-era stores. A separately authorized, guarded WinUI-to-Avalonia package transition is a different scope; it does not authorize searching for or importing other old app stores. The preserved transition experiment is Dev-only and remains deferred.
 - Package-local SQLite copies are restore points, not durable backups. Durable backup means OneDrive app-folder backup or explicit user export.
 - Do not fight MSIX AppData virtualization to place automatic restore points under `%LOCALAPPDATA%\Openza`; use package `LocalState` for restore points.
 - Preserve channel identities and version lanes: Dev `Openza.OpenzaTasks.Dev` / `0.0.N.0`, Preview `Openza.OpenzaTasks.Preview` / `0.N.B.0`, Production `Openza.OpenzaTasks` / `1.N.P.0`.

@@ -1,49 +1,38 @@
-# Task behavior baseline
+# Task behavior contracts
 
-Adopted 2026-10-18; source inspection at Tasks `5637e3a`. These lightweight contracts define important product meanings. Avalonia is the implementation reference for ordinary desktop interactions. The online-first Web companion shares these meanings without identical UI or desktop offline guarantees. The detailed [Personal Cloud protocol](personal-cloud-protocol.md) retains wire-level authority; its staged history must be read alongside current source and [Windows evidence](windows-continuation.md).
+These contracts state the intended product meanings. Current behavior, exceptions and unresolved decisions are listed separately. Avalonia is the desktop interaction reference; the Web companion is online-first and shares semantics without identical screens or offline guarantees.
 
-## Capture and organization
+## Durable meanings
 
-A desktop must support durable local capture without a provider or Personal Cloud connection. Add a task, finish it: Spaces, projects, labels and planning are optional organization tools, not prerequisites. Inbox means **newly captured, not yet organized**. It is a neutral default, not a judgment or a required GTD process.
+- Capture and complete tasks locally without connecting a provider or Personal Cloud. Spaces, projects, labels and planning are optional.
+- Inbox means neutral capture awaiting organization. Workflow and completion are separate. Workflow statuses stay fixed: none, inbox, next, waiting and someday.
+- Spaces are user-owned visibility scopes. Provider identities and personal routing conventions do not define them.
+- Completing preserves the task and its recurrence definition; reopening makes it open again. Neither action silently chooses another workflow status.
+- Date means intended work; Deadline means the outcome's latest acceptable day/time. Scheduled work, recurrence and reminders need their own explicit meanings.
+- Personal Cloud is optional reconciliation. Provider credentials stay on desktop; cloud task data is access-controlled, not end-to-end encrypted.
+- Recovery preserves local work and pending intent. Package-local restore points are recovery aids; durable backup means OneDrive app-folder backup or explicit export. Restoring SQLite does not restore credentials or a cloud deployment.
 
-Current anchors: [`TaskApplicationService`](../src/Openza.Tasks.Application/Tasks/TaskApplicationService.cs) trims and requires a nonempty title, resolves a space, permits no project and writes local state; [`CreateTaskRequest`](../src/Openza.Tasks.Application/Tasks/TaskRequests.cs) defaults to Inbox. Cloud-connected authoring uses supported semantic intents and retains a compatibility path for older cloud capabilities. Hosts still contain direct store calls; this service is not yet the only entry point.
+## Current behavior and open decisions
 
-Completion and workflow are independent. The fixed workflow set is `none`, `inbox`, `next`, `waiting`, `someday`; completion is `open`, `completed`, `cancelled` ([models](../src/Openza.Tasks.Core/Models/TaskStatus.cs)). A task without a project is not necessarily in Inbox. Custom statuses require concrete workflow evidence and a deliberate product decision. Spaces are user-owned visibility scopes; provider identity and personal routing conventions must not define them.
-
-## Completion and provider ownership
-
-Completing records completion rather than deleting the task or its recurrence definition. Reopening makes the task open and clears its completion timestamp. Do not turn either action into an implicit workflow/status move. Local, provider and cloud paths must preserve their respective transactional intent rules.
-
-The [store](../src/Openza.Tasks.Core/Data/SqliteTaskStore.cs) supports atomic local completion plus pending provider write-back. Cloud paths persist semantic completion/reopen intents; retries reuse mutation identity rather than inventing another operation. [`ProviderWriteBackPlanner`](../src/Openza.Tasks.Core/Sync/ProviderWriteBackPlanner.cs) limits completion write-back to tasks with writable provider identity. A local acknowledgement is not proof that the provider accepted it.
-
-| Authority | Current boundary and exceptions |
+| Area | Current behavior or limit |
 | --- | --- |
-| Provider source | Source identity, snapshots, description and provider context remain owned by the adapter/provider. Adoption creates a linked local wrapper; it is not a free-form provider editor. |
-| Openza enhancements | Local notes, labels, local priority and project/workflow choices generally survive refresh. Do not overwrite them by copying a whole provider object. |
-| Completion | Refresh respects pending local completion/cloud/provider commands before accepting provider completion state. Track intent and delivered result separately. |
-| Dates and hierarchy | Refresh is intentionally conditional: source Date can update planned fields when enabled and no Date write is pending; recurring source deadlines refresh deadline fields. Adopted children can inherit parent space/project/workflow under the store's existing conditions. These are exceptions to blanket ownership claims. |
-| Provider writes | Completion/reopen plus bounded Todoist Date updates for non-recurring source tasks exist today. This does not authorize arbitrary title/notes/labels/deadline write-back. |
+| Inbox view | Includes only open tasks whose workflow status is inbox and which have no Openza project. Project absence and workflow status remain separate fields. |
+| Inbox badge | Follows workflow status, so a project-assigned task can show an Inbox badge outside the Inbox view. Whether view membership, assignment behavior or badge meaning should change is an unresolved product decision. This cleanup chooses no policy and changes no runtime behavior. |
+| Capture | A title is required and trimmed; ordinary local capture defaults to inbox and can omit a project. Hosts still have direct store call sites. |
+| Provider adoption | Creates a linked local wrapper. Provider identity, snapshots, description and source context remain provider-owned. |
+| Local enhancements | Notes, labels, local priority, project and workflow generally survive provider refresh. Refresh has explicit date/hierarchy exceptions below. |
+| Provider writes | Completion/reopen and bounded Todoist Date changes for non-recurring source tasks exist. Arbitrary provider title, notes, labels or deadline editing is not implied. |
+| Recurrence | Metadata is stored; local completion does not create another occurrence. A provider can advance and reopen the same wrapper. No universal recurrence engine or reminder service is established. |
+| Windows transition | Deferred. A separately authorized guarded WinUI-to-Avalonia transition is distinct from importing Flutter-era stores; Dev prototype policies are provisional. |
 
-The precise refresh anchor is `RefreshAdoptedTaskFromSourceAsync` in the store. Preserve its conditions during extraction/refactoring. Changes to authority require explicit contracts and tests, not just a UI edit.
+## Engineering evidence and preservation rules
 
-## Sync, conflicts and recovery
+[Application operations](../src/Openza.Tasks.Application/Tasks/TaskApplicationService.cs) and [requests](../src/Openza.Tasks.Application/Tasks/TaskRequests.cs) implement local capture and selective edits. [List-row state](../src/Openza.Tasks.Desktop/ViewModels/TaskListItemViewModel.cs) derives badges from workflow status; [SQLite queries](../src/Openza.Tasks.Core/Data/SqliteTaskStore.cs) implement Inbox membership. [Models](../src/Openza.Tasks.Core/Models/TaskStatus.cs) distinguish workflow from open/completed/cancelled completion state.
 
-Each desktop has a durable local copy. Personal Cloud is optional reconciliation, not a prerequisite for basic local operation. Core owns task persistence and protocol state; Application coordinates shared operations; hosts own platform presentation and services. Provider credentials stay on desktop, behind `ICredentialStore`. Cloud task data is access-controlled, **not end-to-end encrypted**.
+Provider refresh in SqliteTaskStore.RefreshAdoptedTaskFromSourceAsync may update local planning when enabled and no Date write is pending; recurring source deadlines can refresh local deadlines. Adopted children can inherit parent space/project/workflow under existing conditions. Preserve these conditions during refactoring rather than replacing a whole task with provider data.
 
-Current cloud anchors: [`PersonalCloudSyncClient`](../src/Openza.Tasks.Core/PersonalCloud/PersonalCloudSyncClient.cs), store partials and [protocol](personal-cloud-protocol.md). Preserve semantic mutations, durable outbox, idempotency receipts, explicit base versions, tombstones and persisted checkpoints. A stale base version can produce `version_conflict`; do not silently overwrite accepted data or describe conflicts as automatic last-writer-wins. Applying pulled state and its checkpoint must remain atomic. Initial upload completion must account for the frozen seed, catch-up and deferred changes; sending a batch alone is not completion.
+[Provider write-back planning](../src/Openza.Tasks.Core/Sync/ProviderWriteBackPlanner.cs) and the store retain atomic local completion plus pending provider intent. Pending local/cloud/provider completion intent protects against conflicting refresh. A local acknowledgement is not proof of external delivery.
 
-Recovery must preserve a consistent safety copy, local pending intent and connection state according to the selected recovery path. Local restore points are rollback aids inside app state; they are not durable backup. OneDrive app-folder backup or explicit export provides durable backup. Restore and reconnect are distinct actions: do not assume restoring SQLite also restores credentials, device identity or a cloud deployment. Use the existing [Personal Cloud plan](personal-cloud-plan.md), [initial-sync notes](personal-cloud-initial-sync.md) and [Windows continuation](windows-continuation.md) for the detailed recovery paths and evidence limits.
+[Cloud sync](../src/Openza.Tasks.Core/PersonalCloud/PersonalCloudSyncClient.cs) and the [protocol](personal-cloud-protocol.md) retain semantic mutations, durable outbox, idempotency, base versions, tombstones and checkpoints. Stale versions can conflict; do not silently overwrite accepted data. Pulled state and checkpoint persist atomically. Initial upload completion accounts for frozen seed, catch-up and deferred changes.
 
-Regression cases for subsequent behavior changes: offline capture/restart; completion/reopen with delayed provider acknowledgement; duplicate mutation replay; stale version rejection; crash between pull and checkpoint; tombstone replay; restore with pending mutations; missing/revoked pairing credentials. Use isolated stores and test deployments, never daily-driver data.
-
-## Planning meanings and unresolved choices
-
-| Term | Meaning/boundary |
-| --- | --- |
-| Date (`planned_on`, optional `planned_at`) | Intended day/time for doing or seeing a task. It is distinct from a deadline. |
-| Deadline (`deadline_on`, optional `deadline_at`) | Last acceptable day/time for the outcome. |
-| Scheduled session (`scheduled_start`, `scheduled_end`, `duration_minutes`) | Fields already exist. Stronger calendar/time-slot semantics, overlap rules and editor behavior still need a concrete design before wider use. |
-| Recurrence (`recurrence_rule`, source recurrence context) | Repeating-work metadata exists. Completing an occurrence and removing recurrence are different intentions. A universal local/cloud/provider rollover policy is not established by merely storing the rule. |
-| Reminder | No reminder domain model is established here. A definition and a notification delivery attempt must be separate concepts in a future design. |
-
-Freeze durable meanings before expanding Personal Cloud deployments, not speculative empty schema columns. Decide recurring completion/rollover and scheduled-session semantics with concrete workflows. Reminders, server-visible scheduling data, encryption and content-dependent automation remain open design work. Do not infer that today's cloud performs them or that end-to-end encryption can be added without revisiting server capabilities.
+Use the [initial-sync notes](personal-cloud-initial-sync.md) for recovery mechanics and the [deferred Windows plan](windows-transition.md) for package/vault acceptance. Test offline restart, delayed acknowledgement, duplicate/stale replay, crash recovery, tombstones, restore with pending intent and missing/revoked pairing in isolated stores. Tests and source compilation do not establish live-provider or packaged acceptance.
