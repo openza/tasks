@@ -35,4 +35,4 @@ This contract separates intended meanings from current behavior. It does not add
 
 ## Decisions before expansion
 
-A schedule editor needs timezone, partial/reversed interval, overlap and multi-session rules. A recurrence engine needs grammar, occurrence identity, missed/skip/completion behavior, ownership and multi-device idempotency. Reminder definitions and notification delivery attempts need separate models. None is selected merely because metadata columns exist. Windows execution remains deferred under the [transition plan](windows-transition.md).
+A schedule editor needs timezone, partial/reversed interval, overlap and multi-session rules. A recurrence engine needs grammar, occurrence identity, missed/skip/completion behavior, ownership and multi-device idempotency. Reminder definitions and notification delivery attempts need separate models. None is selected merely because metadata columns exist. Windows-compatible continuity work is active on Ubuntu under the [continuity plan](windows-transition.md); native build/validation, packaging/distribution, MSIX upgrade tests and Store replacement are not current priorities.

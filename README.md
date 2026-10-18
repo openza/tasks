@@ -2,7 +2,7 @@
 
 **A simple local-first task app that grows with you, with an optional cloud you control.**
 
-Openza Tasks supports fast local capture and completion without requiring projects or a planning method. Avalonia is the desktop implementation reference, with Windows as the major target and Linux supported. The current Windows Store edition uses WinUI 3 and receives necessary maintenance. Windows transition execution is deferred until its [acceptance gates](docs/windows-transition.md) and user decisions are satisfied. Both hosts use the shared SQLite core. macOS is deferred.
+Openza Tasks supports fast local capture and completion without requiring projects or a planning method. Avalonia is the desktop implementation reference, with Windows as the major target and Linux supported. All active code remains Windows-compatible. The current Windows Store edition uses WinUI 3 and receives necessary maintenance. [Windows continuity work](docs/windows-transition.md) is active; native builds, packaging and distribution are not current priorities. Both hosts use the shared SQLite core. macOS is deferred.
 
 Openza Tasks is maintained by Deependra Solanky as a personal open-source project. Microsoft sign-in may show the Openza app name with the `solanky.dev` publisher/contact identity.
 
@@ -42,7 +42,7 @@ Snap uses `--dangerous` for a local package installed without a Snap Store
 assertion. Openza Tasks remains strictly confined. The release page explains
 how to switch to Store-signed automatic updates when they become available.
 
-Legacy Flutter-era packages remain available in older GitHub releases. Store V1 starts with a clean workspace and does not automatically import those stores. A separately authorized, guarded WinUI-to-Avalonia upgrade is a different transition, currently deferred; it does not enable broad legacy imports.
+Legacy Flutter-era packages remain available in older GitHub releases. Store V1 starts with a clean workspace and does not automatically import those stores. Guarded WinUI-to-Avalonia continuity is separate active development behind a Dev gate; it does not enable broad legacy imports or authorize installed-package replacement.
 
 ## Building From Source
 
@@ -78,7 +78,7 @@ in [docs/avalonia-parity.md](docs/avalonia-parity.md).
 
 ### Current WinUI Windows host prerequisites
 
-Reference for necessary maintenance only. Windows transition, native validation and packaging work remain deferred.
+Reference for WinUI maintenance and later native validation. Active Windows continuity work uses Ubuntu-safe C# compilation, design and synthetic/integration tests. Native builds/validation, packaging/distribution, MSIX upgrade tests and Store replacement are not current priorities. OS-specific code stays behind platform services.
 
 - Windows 10 22H2 or Windows 11
 - .NET 10 SDK
