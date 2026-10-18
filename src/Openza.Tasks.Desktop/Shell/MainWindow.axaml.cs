@@ -769,7 +769,10 @@ public sealed partial class MainWindow : Window
 
     private async void OnListOptionsChanged(object? sender, SelectionChangedEventArgs e)
     {
-        if (!_initialized || _changingNavigation || _changingListFilters)
+        // Each filter has an explicit "all" option. A removed-only selection is
+        // control teardown/rebinding, not a user choice to save the current view.
+        if (e.AddedItems.Count == 0 || !_initialized || _changingNavigation || _changingListFilters ||
+            ViewModel.IsTaskViewPreferenceSaveSuppressed)
         {
             return;
         }

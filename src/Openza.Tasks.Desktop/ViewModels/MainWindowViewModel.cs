@@ -81,6 +81,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private LabelOptionViewModel? _selectedLabelFilter;
     private string? _restoredLabelFilterId;
     private string? _activeTaskViewSettingsKey;
+    private bool _suppressTaskViewPreferenceSave;
+    internal bool IsTaskViewPreferenceSaveSuppressed => _suppressTaskViewPreferenceSave;
     private RestorePointViewModel? _selectedRestorePoint;
     private string _gitHubToken = string.Empty;
     private string _gitHubConnectionText = "Not connected.";
@@ -2140,20 +2142,29 @@ public sealed partial class MainWindowViewModel : ObservableObject
             {
                 // Creation may choose a status/date outside the current smart list.
                 // Open the accepted task in its full list instead of silently losing it.
-                SelectedProject = null;
-                SelectedNavigation = NavigationItems.Single(item => item.Kind ==
-                    (task.IsCompleted ? TaskListKind.Completed : TaskListKind.Open));
-                PageTitle = SelectedNavigation.Title;
-                PageSubtitle = SubtitleFor(SelectedNavigation.Kind);
-                SearchText = string.Empty;
-                ApplyTaskViewPreferencesForCurrentContext();
-                PriorityFilterIndex = 0;
-                RepeatFilterIndex = 0;
-                SelectedLabelFilter = LabelFilterOptions.FirstOrDefault(item => item.LabelId is null);
-                _restoredLabelFilterId = null;
-                // Reveal this task temporarily without replacing the target view's saved filters.
-                await _preferencesStore.UpdateAsync(preferences => preferences with { LastView = SelectedNavigation.Kind.ToString() });
-                await RefreshAsyncCore(task.Id);
+                // Bound selection events must not queue a save of these temporary filters.
+                _suppressTaskViewPreferenceSave = true;
+                try
+                {
+                    SelectedProject = null;
+                    SelectedNavigation = NavigationItems.Single(item => item.Kind ==
+                        (task.IsCompleted ? TaskListKind.Completed : TaskListKind.Open));
+                    PageTitle = SelectedNavigation.Title;
+                    PageSubtitle = SubtitleFor(SelectedNavigation.Kind);
+                    SearchText = string.Empty;
+                    ApplyTaskViewPreferencesForCurrentContext();
+                    PriorityFilterIndex = 0;
+                    RepeatFilterIndex = 0;
+                    SelectedLabelFilter = LabelFilterOptions.FirstOrDefault(item => item.LabelId is null);
+                    _restoredLabelFilterId = null;
+                    // Remember navigation without replacing the target view's saved filters.
+                    await _preferencesStore.UpdateAsync(preferences => preferences with { LastView = SelectedNavigation.Kind.ToString() });
+                    await RefreshAsyncCore(task.Id);
+                }
+                finally
+                {
+                    _suppressTaskViewPreferenceSave = false;
+                }
             }
         });
     }
@@ -2682,6 +2693,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     private async Task SaveTaskViewPreferencesAsync()
     {
+        if (_suppressTaskViewPreferenceSave) return;
+
         var key = TaskViewSettingsKey();
         var viewPreferences = new DesktopTaskViewPreferences
         {

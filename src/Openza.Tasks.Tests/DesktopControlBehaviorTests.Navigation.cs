@@ -4,14 +4,102 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.VisualTree;
 using Openza.Tasks.Core.Data;
+using Openza.Tasks.Core.Credentials;
 using Openza.Tasks.Core.Models;
 using Openza.Tasks.Desktop.Dialogs;
+using Openza.Tasks.Desktop.Shell;
 using Openza.Tasks.Desktop.ViewModels;
 
 namespace Openza.Tasks.Tests;
 
 public sealed partial class DesktopControlBehaviorTests
 {
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public Task Create_and_open_preserves_saved_filters_through_shell_events_and_restart(bool completed, bool changeView) => Run(async context =>
+    {
+        await context.Vm.SelectNavigationAsync(context.Vm.NavigationItems.Single(item => item.Kind == TaskListKind.NextActions));
+        var key = $"{context.Vm.SelectedSpace?.SpaceId ?? "all"}|{(completed ? "completed" : "tasks")}|all";
+        var label = context.Vm.LabelFilterOptions.First(item => item.LabelId is not null);
+        await context.Preferences.UpdateAsync(preferences =>
+        {
+            preferences.TaskViewSettings[key] = new() { PriorityFilterIndex = 1, RepeatFilterIndex = 2, LabelFilterId = label.LabelId };
+            return preferences;
+        });
+        if (!changeView)
+        {
+            await context.Vm.SelectNavigationAsync(context.Vm.NavigationItems.Single(item =>
+                item.Kind == (completed ? TaskListKind.Completed : TaskListKind.Open)));
+        }
+        await Until(() => ListOptionsIdle(context.Window) && !context.Vm.IsBusy);
+        var trigger = context.Window.FindControl<WrapPanel>("TaskFilterCommands")!.Children.OfType<Button>().Last();
+        var flyout = (Flyout)trigger.Flyout!;
+        flyout.ShowAt(trigger);
+        context.Window.UpdateLayout();
+        var filters = ((StackPanel)flyout.Content!).Children.OfType<ComboBox>().ToArray();
+        var selectionEvents = 0;
+        foreach (var filter in filters) filter.SelectionChanged += (_, _) => selectionEvents++;
+
+        await context.Vm.CreateTaskAsync(new("Reveal outside current list", "", null, completed ? 4 : 0, 2, null, "", true));
+        await Until(() => ListOptionsIdle(context.Window) && !context.Vm.IsBusy);
+        Assert.True(selectionEvents >= 3, "Bound controls must exercise the coalesced shell event path.");
+        Assert.Equal("Reveal outside current list", context.Vm.SelectedTask!.Task.Title);
+        Assert.Equal(0, context.Vm.PriorityFilterIndex);
+        Assert.Equal(0, context.Vm.RepeatFilterIndex);
+        var saved = context.Preferences.Load().TaskViewSettings[key];
+        Assert.Equal(1, saved.PriorityFilterIndex);
+        Assert.Equal(2, saved.RepeatFilterIndex);
+        Assert.Equal(label.LabelId, saved.LabelFilterId);
+        flyout.Hide();
+        await Until(() => ListOptionsIdle(context.Window) && !context.Vm.IsBusy);
+        Assert.Equal(1, context.Preferences.Load().TaskViewSettings[key].PriorityFilterIndex);
+        context.Window.Close();
+        await Until(() => !context.Window.IsVisible);
+        Assert.Equal(1, context.Preferences.Load().TaskViewSettings[key].PriorityFilterIndex);
+
+        var restarted = new MainWindowViewModel(context.Store, new InMemoryCredentialStore(), preferencesStore: context.Preferences);
+        var window = new MainWindow(restarted) { Width = 1440, Height = 900 };
+        try
+        {
+            window.Show();
+            await Until(() => restarted.StatusMessage.StartsWith("Local data") && !restarted.IsBusy && ListOptionsIdle(window));
+            Assert.Equal(1, restarted.PriorityFilterIndex);
+            Assert.Equal(2, restarted.RepeatFilterIndex);
+            Assert.Equal(label.LabelId, restarted.SelectedLabelFilter?.LabelId);
+            var button = window.FindControl<WrapPanel>("TaskFilterCommands")!.Children.OfType<Button>().Last();
+            var picker = (Flyout)button.Flyout!;
+            picker.ShowAt(button);
+            window.UpdateLayout();
+            var choices = ((StackPanel)picker.Content!).Children.OfType<ComboBox>().ToArray();
+            // Ordinary rapid user selections still coalesce and persist after the reveal.
+            choices[0].SelectedIndex = 2;
+            choices[1].SelectedIndex = 1;
+            choices[2].SelectedItem = restarted.LabelFilterOptions.First(item => item.LabelId is null);
+            await Until(() => ListOptionsIdle(window) && !restarted.IsBusy);
+            var updated = context.Preferences.Load().TaskViewSettings[key];
+            Assert.Equal(2, updated.PriorityFilterIndex);
+            Assert.Equal(1, updated.RepeatFilterIndex);
+            Assert.Null(updated.LabelFilterId);
+            var nextRestart = new MainWindowViewModel(context.Store, new InMemoryCredentialStore(), preferencesStore: context.Preferences);
+            await nextRestart.InitializeAsync();
+            Assert.Equal(2, nextRestart.PriorityFilterIndex);
+            Assert.Equal(1, nextRestart.RepeatFilterIndex);
+            Assert.Null(nextRestart.SelectedLabelFilter?.LabelId);
+            picker.Hide();
+            await Until(() => ListOptionsIdle(window) && !restarted.IsBusy);
+            Assert.Equal(2, context.Preferences.Load().TaskViewSettings[key].PriorityFilterIndex);
+            Assert.Equal(1, context.Preferences.Load().TaskViewSettings[key].RepeatFilterIndex);
+        }
+        finally { window.Close(); }
+    });
+
+    private static bool ListOptionsIdle(MainWindow window) =>
+        new[] { "_applyingListOptions", "_changingNavigation" }.All(field =>
+            !(bool)typeof(MainWindow).GetField(field, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(window)!);
+
     [Fact]
     public Task Getting_started_commands_sync_feedback_and_narrow_project_toggle_are_reachable() => Run(async context =>
     {

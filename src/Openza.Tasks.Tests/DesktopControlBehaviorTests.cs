@@ -52,13 +52,15 @@ public sealed partial class DesktopControlBehaviorTests(EditorTestSession fixtur
         foreach (var item in menu.Items.OfType<MenuItem>())
         {
             var previous = context.Vm.ProjectSort;
-            item.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
-            await Task.Delay(35);
             var tag = (string)item.Tag!;
-            if (tag == "Ascending") Assert.False(context.Vm.ProjectSort.Descending);
-            else if (tag == "Descending") Assert.True(context.Vm.ProjectSort.Descending);
-            else if (tag == "Favorites") Assert.NotEqual(previous.FavoritesFirst, context.Vm.ProjectSort.FavoritesFirst);
-            else Assert.Equal(tag, context.Vm.ProjectSort.Mode.ToString());
+            item.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+            await Until(() => !context.Vm.IsBusy && (tag switch
+            {
+                "Ascending" => !context.Vm.ProjectSort.Descending,
+                "Descending" => context.Vm.ProjectSort.Descending,
+                "Favorites" => previous.FavoritesFirst != context.Vm.ProjectSort.FavoritesFirst,
+                _ => context.Vm.ProjectSort.Mode.ToString() == tag,
+            }));
         }
         var filter = context.Window.FindControl<Border>("ProjectsPane")!.GetVisualDescendants().OfType<ComboBox>().Single();
         for (var i = 0; i < filter.ItemCount; i++)
@@ -106,7 +108,7 @@ public sealed partial class DesktopControlBehaviorTests(EditorTestSession fixtur
         context.Vm.SelectedLabelFilter = context.Vm.LabelFilterOptions.Last();
         await context.Vm.ApplyListOptionsAsync();
         var chips = context.Window.FindControl<WrapPanel>("ActiveFiltersPanel")!.Children.OfType<Button>().ToArray();
-        foreach (var chip in chips.Take(3)) { chip.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); await Task.Delay(30); }
+        foreach (var chip in chips.Take(3)) chip.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         Assert.False(context.Vm.HasActiveOptionFilters);
         context.Vm.PriorityFilterIndex = 2;
         chips[3].RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
