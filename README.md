@@ -1,8 +1,8 @@
 # Openza Tasks
 
-**Linux First. Windows Native. Local First. Open Source.**
+**A simple local-first task app that grows with you, with an optional cloud you control.**
 
-Openza Tasks is a task manager for people who want fast local capture with optional provider sync. The Windows edition remains a native WinUI 3 app, while the new Avalonia desktop edition targets Linux first and keeps Windows and macOS compatibility. Both use the same local-first SQLite core.
+Openza Tasks supports fast local capture and completion without requiring projects or a planning method. Avalonia is the desktop implementation reference, with Windows as the major target and Linux supported. The current Windows Store edition still uses WinUI 3 and receives necessary maintenance during a deliberate transition. Both hosts use the shared SQLite core; replacing the Store host requires the [Windows transition gates](docs/windows-transition.md). macOS is deferred.
 
 Openza Tasks is maintained by Deependra Solanky as a personal open-source project. Microsoft sign-in may show the Openza app name with the `solanky.dev` publisher/contact identity.
 
@@ -10,10 +10,11 @@ User guide: [solanky.dev/openza/tasks](https://solanky.dev/openza/tasks/)
 
 ## Features
 
-- **Linux-first desktop app** - Avalonia with first-class keyboard and desktop workflows
-- **Native Windows app** - WinUI 3, MSIX packaging, Mica where available
+- **Avalonia desktop app** - active desktop development for Windows and Linux
+- **Current Windows Store app** - WinUI 3, MSIX packaging, Mica where available during transition
 - **Local-first storage** - tasks, projects, labels, backups, and imports live on your device
 - **Provider sync** - optional Todoist and Microsoft To Do reconnect/sync
+- **Optional Personal Cloud** - user-owned Cloudflare deployment for sync and an online-first web companion; task data is access-controlled, not end-to-end encrypted, and provider tokens stay on desktop
 - **Local restore points** - automatic and manual SQLite restore points support rollback inside the app package state
 - **Optional durable backup** - restorable backup snapshots can be uploaded to the app's OneDrive folder or exported by the user
 - **Focused task layout** - navigation, projects, task list, and details in one productive surface
@@ -75,7 +76,7 @@ documented in [docs/snap-release.md](docs/snap-release.md).
 Integration configuration and remaining native acceptance checks are documented
 in [docs/avalonia-parity.md](docs/avalonia-parity.md).
 
-### Windows prerequisites
+### Current WinUI Windows host prerequisites
 
 - Windows 10 22H2 or Windows 11
 - .NET 10 SDK
@@ -112,6 +113,7 @@ dotnet build src\Openza.Tasks\Openza.Tasks.csproj -c Release -p:Platform=x64 --n
 src/
   Openza.Tasks/        WinUI 3 packaged app
   Openza.Tasks.Desktop/ Avalonia desktop app
+  Openza.Tasks.Application/ UI-independent operations and runtime coordination
   Openza.Tasks.Core/   SQLite data, backups, import/export, provider sync
   Openza.Tasks.Tests/  Unit, repository, backup, and sync tests
 ```
@@ -120,9 +122,9 @@ The sync engine is C# in `Openza.Tasks.Core`. Historical Rust FFI work is preser
 
 ## Legacy Flutter App
 
-The last Flutter-era mainline is preserved on the [`legacy-flutter-app`](https://github.com/openza/tasks/tree/legacy-flutter-app) branch. Active development targets the Linux-first Avalonia host in `src/Openza.Tasks.Desktop/` and the Windows-native WinUI host in `src/Openza.Tasks/`, sharing `src/Openza.Tasks.Core/`.
+The last Flutter-era mainline is preserved on the [`legacy-flutter-app`](https://github.com/openza/tasks/tree/legacy-flutter-app) branch. Active desktop development targets Avalonia in `src/Openza.Tasks.Desktop/`; WinUI in `src/Openza.Tasks/` receives necessary maintenance until the transition is accepted.
 
-See [docs/architecture.md](docs/architecture.md) for the V3 task model, provider wrapper pattern, and future sync-route design.
+See [docs/architecture.md](docs/architecture.md) for architecture and the task model, [behavior contracts](docs/behavior-contracts.md) for product semantics, and [docs/TODO.md](docs/TODO.md) for the ordered follow-up work.
 See [docs/design-guidelines.md](docs/design-guidelines.md) for the Openza Calm Fluent production UI language.
 
 Microsoft To Do and OneDrive backup use Openza's built-in public Microsoft app registration. Developers can override the public client ID at build time for testing, but normal users do not need to configure Azure app registrations or client IDs.

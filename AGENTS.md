@@ -4,10 +4,11 @@ Also follow the shared Openza guidance in `../AGENTS.md`. Keep this file limited
 
 ## Project Structure & Module Organization
 - `src/Openza.Tasks/` holds the Windows-native WinUI 3 app. Keep `MainWindow` as a thin host; put app shell behavior under `Shell/`, reusable UI in `Controls/`, settings/pages in `Pages/`, and Windows-only helpers in `Services/`.
-- `src/Openza.Tasks.Desktop/` holds the Linux-first Avalonia app. Keep platform services under `Services/`, window composition under `Shell/`, and testable presentation state under `ViewModels/`.
+- `src/Openza.Tasks.Desktop/` holds the Avalonia desktop app, the implementation reference for active desktop development. Windows is the major target; Linux is supported. Keep platform services under `Services/`, window composition under `Shell/`, and testable presentation state under `ViewModels/`.
+- `src/Openza.Tasks.Application/` holds UI-independent application operations and runtime coordination over Core.
 - `src/Openza.Tasks.Core/` holds SQLite data access, migration, import/export, provider sync, credentials abstractions, and testable business logic.
 - `src/Openza.Tasks.Tests/` holds xUnit tests for Core and both application hosts.
-- The repository has two active hosts: WinUI is the Windows-native reference app, while Avalonia is the Linux-first cross-platform app. The legacy Flutter app remains on the `legacy-flutter-app` branch only.
+- Two hosts currently exist: Avalonia receives active desktop development; WinUI remains the current Windows Store host and receives necessary maintenance until deliberate retirement. Do not remove it or replace the Store package before the Windows transition gates are accepted. The legacy Flutter app remains on the `legacy-flutter-app` branch only.
 - Historical Rust sync work is preserved in git history and older releases. Do not add its binary to either active host.
 - `assets/` stores icons, images, and bundled resources used at runtime.
 - `docs/` and `scripts/` provide developer documentation and tooling. The user guide lives in the `solanky.dev` repository.
@@ -32,7 +33,9 @@ Also follow the shared Openza guidance in `../AGENTS.md`. Keep this file limited
 - Prefer user-defined labels, filters, and saved views over hardcoded concepts such as context, area, energy, person, or review ritual.
 - Do not add a separate methodology-specific page or signal when the same outcome can be achieved through transparent data, project selection, labels, filters, and custom views.
 - Treat Spaces as user-owned visibility scopes, not provider-specific concepts. Do not hardcode Work/Personal or any user's routing logic in app code; put one-off routing in explicit import/setup scripts or future user-configurable rules.
-- Until parity is explicitly accepted, WinUI is the source of truth for Avalonia behavior, navigation, fields, commands, and workflows. Do not add Avalonia-only features or simplify/reinterpret WinUI behavior without approval; keep only OS-required implementation differences.
+- Lightweight documented behavior contracts are the source of truth; Avalonia is the implementation reference for ordinary desktop interactions. Follow `docs/behavior-contracts.md` and `docs/architecture.md`; resolve contract discrepancies before changing behavior. WinUI is a useful historical/transition reference, not a requirement to mirror every screen. Web is an online-first companion with shared product semantics, not identical desktop UI or offline guarantees.
+- Keep workflow statuses fixed (`none`, `inbox`, `next`, `waiting`, `someday`). Inbox means newly captured, not yet organized; it is neutral and does not require a methodology. Completion is separate from workflow status.
+- Follow `docs/windows-transition.md` for Windows continuity and retirement gates. A source build or Avalonia/Web round trip does not establish an in-place Store upgrade or credential continuity.
 - The Windows Store edition is a fresh-start product. Do not auto-migrate old local app stores unless the user explicitly changes that decision.
 - Package-local SQLite copies are restore points, not durable backups. Durable backup means OneDrive app-folder backup or explicit user export.
 - Do not fight MSIX AppData virtualization to place automatic restore points under `%LOCALAPPDATA%\Openza`; use package `LocalState` for restore points.

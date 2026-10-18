@@ -1,6 +1,20 @@
 # Openza Tasks Architecture
 
-Openza Tasks V3 is designed around three capabilities:
+## Direction and contract authority
+
+The direction adopted on 2026-10-18 is a simple local-first task app that grows with the user, with an optional cloud they control. Avalonia is the one desktop UI receiving active development. Windows is the major target, Linux is supported, and macOS is deferred. WinUI receives necessary maintenance as the current Windows Store host until the [transition gates](windows-transition.md) are accepted; this decision does not establish that replacement is ready.
+
+Lightweight [behavior contracts](behavior-contracts.md) are the product source of truth. Avalonia is the practical reference for ordinary desktop interactions. Existing protocol documents retain their detailed wire contracts; historical staged checkpoints are not a complete description of today's UI. Resolve discrepancies explicitly rather than copying behavior between hosts blindly.
+
+| Layer | Responsibility |
+| --- | --- |
+| Desktop | Complete local task experience, provider connections, offline operation and OS integration |
+| Optional Personal Cloud | Sync, secure remote access and selected future background capabilities in the user's Cloudflare account |
+| Web companion | Online-first capture, viewing and useful task changes away from desktop; shared semantics without identical screens or assumed desktop offline guarantees |
+
+Keep .NET 10 Core and Application UI-independent. Preserve semantic operations, durable outbox, idempotency, field ownership, tombstones and checkpoints. Keep Cloudflare provisioning/infrastructure separate from task logic where practical, without a generic multi-cloud framework. Future reminders, automation and server visibility need separate designs; task data is currently access-controlled, not end-to-end encrypted, and provider tokens stay on desktop.
+
+Openza Tasks is designed around three capabilities:
 
 - local-first task management
 - connected task apps such as Todoist and Microsoft To Do
@@ -12,8 +26,9 @@ The SQLite schema is internal to the app. It is not a public plugin contract yet
 
 Openza Tasks has two application hosts over the same cross-platform Core:
 
-- `Openza.Tasks` is the Windows-native WinUI 3 app and remains the primary Windows distribution.
-- `Openza.Tasks.Desktop` is the Linux-first Avalonia app. It owns desktop presentation and platform integrations without introducing Avalonia dependencies into Core.
+- `Openza.Tasks` is the Windows-native WinUI 3 app and remains the current Windows Store distribution during maintenance/transition.
+- `Openza.Tasks.Desktop` is the Avalonia app and active desktop implementation reference. It owns desktop presentation and platform integrations without introducing Avalonia dependencies into Core or Application.
+- `Openza.Tasks.Application` owns shared application operations and runtime coordination over Core. Hosts still have direct store call sites; this is not a claim that presentation orchestration is already fully separated.
 
 The hosts do not share UI code. Data models, SQLite storage, provider synchronization, import/export, and backup behavior belong in `Openza.Tasks.Core` when they are platform-neutral. Credentials, notifications, launch behavior, packaging, and other OS integrations remain host-specific.
 
@@ -44,7 +59,7 @@ Tasks separate completion from workflow:
 - `completion_state`: whether the task is open, completed, or cancelled
 - `workflow_status`: whether an open task is in Inbox, Next, Waiting For, Someday, or no workflow list
 
-Projects are user-facing task lists/projects owned by Openza. Local tasks can have no project; in the UI that appears as Inbox. Provider project/list names are source context, not primary Openza projects.
+Projects are user-facing task lists/projects owned by Openza. Local tasks can have no project. The default Inbox workflow status means newly captured, not yet organized; project absence and workflow status are separate fields. Provider project/list names are source context, not primary Openza projects. Statuses remain the fixed set `none`, `inbox`, `next`, `waiting`, `someday`; custom statuses are not planned without concrete workflow evidence.
 
 Planner-ready fields are present even when the UI only exposes part of them:
 
@@ -115,13 +130,13 @@ Connected tasks use a wrapper pattern:
 - adding creates a local Openza task wrapper linked back to the source item
 - source items are shown only in their suggested/current space intake
 
-Provider-owned fields are refreshed from the connected app into the source snapshot and linked wrapper task:
+Provider-owned source fields are refreshed into source snapshots and the wrapper's source context. Do not treat this as permission to overwrite every similarly named local field:
 
 - source identity: `source_integration_id`, `source_connection_id`, `source_external_id`, `source_provider_task_id`
-- provider task content in V1: title, description, source project/list name, priority, source Date/Deadline, completion state
+- provider task content: title, description, source project/list name, source priority, source Date/Deadline and completion state (subject to pending local intent)
 - provider snapshot data in `provider_source_items.snapshot_json` and task `source_metadata`
 
-Openza-owned fields must survive provider refresh:
+Openza enhancements generally survive provider refresh, subject to the explicit date/hierarchy exceptions in the [behavior baseline](behavior-contracts.md):
 
 - `workflow_status`
 - local Openza `project_id`
@@ -130,7 +145,7 @@ Openza-owned fields must survive provider refresh:
 - local notes and local metadata
 - local labels
 
-This keeps Todoist and Microsoft To Do useful as sources while letting Openza become the planner and workflow layer. Completion/reopen is the only provider write-back supported by V1.
+This keeps Todoist and Microsoft To Do useful as sources while preserving Openza enhancements. Current write-back includes completion/reopen and a bounded Todoist Date update path for non-recurring source tasks; see `ProviderWriteBackPlanner` and the [behavior contracts](behavior-contracts.md). Do not generalize it into arbitrary provider field editing.
 
 ## Sync Routes
 
