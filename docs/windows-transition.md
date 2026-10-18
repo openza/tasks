@@ -1,6 +1,6 @@
-# Windows transition: deferred
+# Windows continuity: active development on Ubuntu
 
-Windows transition execution is deferred. WinUI remains the current Store host in necessary maintenance; Avalonia is the active desktop reference. Replacing the Store host requires explicit authorization, the evidence below and acceptance of unresolved user policies.
+Windows continuity work is active on Ubuntu through C# compilation, design and synthetic/integration tests. All active Avalonia code remains Windows-compatible; shared logic avoids Linux-only assumptions and puts OS specifics behind platform services. WinUI remains the current Store host in necessary maintenance. Native builds/validation, packaging/distribution, MSIX upgrade testing and Store replacement are not current priorities. Any later replacement still needs explicit authorization, evidence and acceptance of unresolved user policies.
 
 The fresh-start rule excludes automatic import of legacy Flutter-era stores. A separately authorized, guarded WinUI-to-Avalonia package transition is a different operation. It does not authorize discovering or importing other old stores.
 
@@ -17,18 +17,22 @@ The fresh-start rule excludes automatic import of legacy Flutter-era stores. A s
 
 Never compare hosts against the same writable live database. Preview and Production are daily apps; their disruption, installation, Store submission and release require separate authorization. WinUI retirement needs these gates, approved real-integration evidence and the user's replacement/rollout decision.
 
-## Preserved Dev experiment and provisional policies
+## Active Dev implementation and open policies
 
-The local deferred/windows-continuity branch preserves the earlier Dev experiment from dddbc5a and 04b2599; the original combined docs/avalonia-architecture-baseline branch at 2795eb7 remains a recovery reference. The docs-only and scheduling branches do not contain this continuity implementation. Paths below describe that deferred branch, not code present in every branch.
+The local feat/windows-continuity branch develops the Dev implementation preserved from dddbc5a and 04b2599. The original combined docs/avalonia-architecture-baseline branch at 2795eb7 remains a recovery reference. The docs-only and scheduling branches do not contain continuity code. Implementation names below refer to the Windows branch, not every branch.
 
 - An explicit OpenzaWindowsContinuity=Dev build checks package identity/name/publisher and uses ApplicationData.Current.LocalFolder. Preview/Production continuity is rejected. The old WinUI AppInstance key Openza.Tasks.Main is acquired before file/vault access and retained for the session; the shared runtime lease alone is not single-instance activation proof.
 - Before app initialization, WindowsContinuityCoordinator retains immutable originals, a SQLite online-backup copy, fingerprints and a versioned journal. Retry checks originals and destinations; changed/corrupt state stops without overwriting recovery evidence. Orphan staging remains evidence. Settings use settings.avalonia.json, leaving WinUI settings.json unchanged; unsupported settings and completion receipts are retained.
 - Scoped PasswordVault upsert uses supported Add replacement without remove-first. Unscoped legacy provider credentials lack channel ownership proof and are not automatically copied. The experiment asks for provider reconnection and initially disables automatic sync/OneDrive upload. These are **Dev-only provisional policies**, pending real package/vault evidence and a user decision, not the accepted production experience.
 - Microsoft cache handling uses package-local DPAPI CurrentUser and supported MSAL callbacks/account APIs for the configured client/account. It retains originals and reports unusable/missing caches. No startup token request is made. This does not prove silent sign-in, live renewal or broker continuity.
 - Personal Cloud transfer checks exact origin/instance/device, matching replica metadata and pending-device intent before reading the origin-specific legacy key and verifying destination storage. Completed preparation prevents legacy re-import after disconnect. Missing identity can stop preparation or pause sync with local tasks/Settings and pending intent retained; explicit repair still respects the pending-intent guard. These recovery/sync-off choices are provisional Dev behavior, not proof of accepted pairing continuity.
-- Existing synthetic/injected tests and earlier Ubuntu C# compilation cover source-level behavior only. The complete Windows build invokes Windows SDK tooling such as mt.exe. **C# compilation is not a successful native package build, installed-vault test, MSIX upgrade or user acceptance.** No new Windows build, launch, install or native validation is part of this documentation/split work.
+- Ubuntu C# compilation and synthetic/injected tests are active development checks. The complete native Windows build invokes Windows SDK tooling such as mt.exe and is not a current priority. **C# compilation is not a successful native package build, installed-vault test, MSIX upgrade or user acceptance.** No native build, package, installed-app launch or real vault access is part of the current Ubuntu work.
 
-The deferred branch contains the continuity Application contracts, Desktop Services/Continuity adapters/coordinator, WinUiSettingsConverter and WindowsContinuity tests. No new implementation is added by this separation.
+The Windows branch contains the continuity Application contracts, Desktop Services/Continuity adapters/coordinator, WinUiSettingsConverter and WindowsContinuity tests. Development keeps the existing Dev gate; it does not enable another channel or authorize installed-package replacement.
+
+## DateScope source evidence
+
+Current WinUI [TasksPage](../src/Openza.Tasks/Pages/TasksPage.xaml.cs) returns All for DateScopeFilter and its setter exposes no other mode. [AppShell](../src/Openza.Tasks/Shell/AppShell.xaml.cs) initializes/resets to All and persists that getter; the [Core enum](../src/Openza.Tasks.Core/Data/TaskQuery.cs) contains only All. The inspected repository history introduces these paths in 58e6a36 with the same restriction. This establishes the checked WinUI writer behavior, not every historical released or manually edited settings file. Unknown persisted values must not be silently reinterpreted; conversion retains the original and rejects unsupported DateScope values. No installed settings were inspected.
 
 ## Identity and version constraints
 
@@ -40,7 +44,7 @@ The deferred branch contains the continuity Application contracts, Desktop Servi
 
 These are checked-in manifest values, not installed/latest Store versions. The Dev manifest differs from its agreed lane; resolve increasing update eligibility during authorized packaging work without silently lowering a version. Preserve Store name/publisher association and supported architecture/OS constraints; do not publish private Store metadata.
 
-## Future Dev-first sequence
+## Later package acceptance: not a current priority
 
 1. Authorize an isolated Windows fixture and the provisional reconnect/sync-off/sign-in policies to test. Retain consistent originals; use synthetic data first and fresh human-controlled authentication where needed.
 2. Build/sign/install a Dev WinUI fixture, then perform a real Dev Avalonia package update. Record source SHA, package identities/versions, actual file/vault paths and before/after state.

@@ -2,7 +2,7 @@
 
 ## Direction and contract authority
 
-The direction adopted on 2026-10-18 is a simple local-first task app that grows with the user, with an optional cloud they control. Avalonia receives active desktop development using its built-in Fluent theme and controls. Windows is the major target, Linux is supported, and macOS is deferred. WinUI is the current Windows Store host and receives necessary maintenance. Windows transition execution remains deferred; the [acceptance gates](windows-transition.md) and unresolved user policies must be satisfied before replacement.
+The direction adopted on 2026-10-18 is a simple local-first task app that grows with the user, with an optional cloud they control. Avalonia receives active desktop development using its built-in Fluent theme and controls. Windows is the major target, Linux is supported, and macOS is deferred. All active code remains Windows-compatible; shared logic avoids Linux-only assumptions and delegates OS specifics to platform services. WinUI is the current Store host in necessary maintenance. Windows continuity is active on Ubuntu through C# compilation and synthetic/integration work; native build/validation, packaging/distribution, MSIX upgrade testing and Store replacement are not current priorities. The [acceptance gates](windows-transition.md) still apply before replacement.
 
 Lightweight [behavior contracts](behavior-contracts.md) are the product source of truth. Avalonia is the practical reference for ordinary desktop interactions. Existing protocol documents retain their detailed wire contracts; historical staged checkpoints are not a complete description of today's UI. Resolve discrepancies explicitly rather than copying behavior between hosts blindly.
 
@@ -50,7 +50,7 @@ Global search is available as a temporary navigation overlay. It starts in Curre
 
 For a clean new database, Openza creates one default space. If setup/import tooling creates spaces first, the app does not add an extra empty default space.
 
-The fresh-start Store rule excludes automatic import of legacy Flutter-era stores. A separately authorized, guarded WinUI-to-Avalonia package transition is distinct from legacy import and remains deferred. It is not permission to discover or migrate other app stores.
+The fresh-start Store rule excludes automatic import of legacy Flutter-era stores. Guarded WinUI-to-Avalonia continuity is distinct active development behind a Dev gate; native package replacement is not a current priority. It is not permission to discover or migrate other app stores.
 
 ## Task Model
 
@@ -59,7 +59,7 @@ Tasks separate completion from workflow:
 - `completion_state`: whether the task is open, completed, or cancelled
 - `workflow_status`: whether an open task is in Inbox, Next, Waiting For, Someday, or no workflow list
 
-Projects are task lists/projects owned by Openza; local tasks can have no project. The intended Inbox meaning is newly captured, not yet organized. Current Inbox view membership requires an open task with Inbox workflow status and no Openza project, while badges follow workflow status. That discrepancy needs a product decision; this cleanup changes neither policy. Provider project/list names are source context. Statuses remain fixed at `none`, `inbox`, `next`, `waiting`, `someday`.
+Projects are task lists/projects owned by Openza; local tasks can have no project. Project and workflow status are independent: assigning a project never changes status, and choosing status never changes project. Inbox is the default; None explicitly means no workflow status. The Inbox view requires an open Inbox-status task without a project. A project task can intentionally remain Inbox-status, unprocessed within that project, and its Inbox badge is correct. This is decided behavior, not a discrepancy to resolve. Provider project/list names are source context. Statuses remain fixed at `none`, `inbox`, `next`, `waiting`, `someday`.
 
 Planner-ready fields are present even when the UI only exposes part of them:
 
