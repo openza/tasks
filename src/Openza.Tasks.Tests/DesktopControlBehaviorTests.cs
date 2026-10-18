@@ -522,7 +522,7 @@ public sealed partial class DesktopControlBehaviorTests(EditorTestSession fixtur
         var remove = pane.GetVisualDescendants().OfType<Button>().Single(button => button.DataContext is string label && label == "new");
         remove.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         await UntilAsync(async () => !(await context.Store.GetTaskAsync("task-0"))!.Labels.Any(label => label.Name == "new"));
-        var copy = (MenuFlyout)FindButton(pane, "Copy").Flyout!;
+        var copy = (MenuFlyout)FindButton(pane, "Copy task").Flyout!;
         Assert.NotNull(context.Window.Clipboard);
         foreach (var item in copy.Items.OfType<MenuItem>().Where(item => item.IsVisible))
         {
@@ -722,7 +722,8 @@ public sealed partial class DesktopControlBehaviorTests(EditorTestSession fixtur
     }, CancellationToken.None);
 
     private sealed record Context(MainWindow Window, MainWindowViewModel Vm, SqliteTaskStore Store, DesktopPreferencesStore Preferences);
-    private static Button FindButton(Control root, string text) => root.GetVisualDescendants().OfType<Button>().Single(button => Equals(button.Content, text));
+    private static Button FindButton(Control root, string text) => root.GetVisualDescendants().OfType<Button>()
+        .Single(button => Equals(button.Content, text) || AutomationProperties.GetName(button) == text);
     private static void Click(Control root, string text) => FindButton(root, text).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
     private static async Task Until(Func<bool> condition)
     {

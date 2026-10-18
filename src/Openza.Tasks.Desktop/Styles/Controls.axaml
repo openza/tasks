@@ -48,15 +48,28 @@
         <Setter Property="MinHeight" Value="36" />
         <Setter Property="HorizontalAlignment" Value="Stretch" />
     </Style>
-    <Style Selector="TextBox, ComboBox">
+    <Style Selector="TextBox, ComboBox, CalendarDatePicker, AutoCompleteBox">
         <Setter Property="CornerRadius" Value="{StaticResource OpenzaControlCornerRadius}" />
     </Style>
-    <Style Selector="TextBox">
-        <Setter Property="VerticalContentAlignment" Value="Center" />
+    <Style Selector="TextBox, CalendarDatePicker, AutoCompleteBox">
         <Setter Property="Background" Value="{DynamicResource OpenzaElevatedSurfaceBrush}" />
         <Setter Property="BorderBrush" Value="{DynamicResource OpenzaBorderBrush}" />
         <Setter Property="Foreground" Value="{DynamicResource OpenzaTextPrimaryBrush}" />
+    </Style>
+    <Style Selector="TextBox">
+        <Setter Property="VerticalContentAlignment" Value="Center" />
         <Setter Property="PlaceholderForeground" Value="{DynamicResource OpenzaTextTertiaryBrush}" />
+    </Style>
+    <Style Selector="AutoCompleteBox">
+        <Setter Property="PlaceholderForeground" Value="{DynamicResource OpenzaTextTertiaryBrush}" />
+    </Style>
+    <Style Selector="CalendarDatePicker">
+        <Setter Property="PlaceholderForeground" Value="{DynamicResource OpenzaTextTertiaryBrush}" />
+        <Setter Property="Padding" Value="10,5" />
+        <Setter Property="BorderThickness" Value="1" />
+    </Style>
+    <Style Selector="CalendarDatePicker /template/ TextBox#PART_TextBox">
+        <Setter Property="MinHeight" Value="0" />
     </Style>
     <Style Selector="TextBox /template/ TextBlock#PART_Placeholder">
         <Setter Property="Opacity" Value="1" />
@@ -91,6 +104,21 @@
     <Style Selector="Button.menu-row">
         <Setter Property="HorizontalAlignment" Value="Stretch" />
         <Setter Property="HorizontalContentAlignment" Value="Left" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="MaxWidth" Value="360" />
+        <Setter Property="ContentTemplate">
+            <DataTemplate><TextBlock Text="{Binding}" TextWrapping="Wrap" /></DataTemplate>
+        </Setter>
+    </Style>
+    <Style Selector="Button.icon-command">
+        <Setter Property="Width" Value="36" />
+        <Setter Property="Height" Value="36" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="HorizontalContentAlignment" Value="Center" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
     </Style>
     <Style Selector="Expander">
         <Setter Property="HorizontalAlignment" Value="Stretch" />

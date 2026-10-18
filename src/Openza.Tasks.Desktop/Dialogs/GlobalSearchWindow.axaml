@@ -38,7 +38,7 @@
                             <DataTemplate>
                                 <StackPanel Margin="8" Spacing="4">
                                     <TextBlock FontWeight="SemiBold" Text="{Binding Title}" TextWrapping="Wrap" />
-                                    <TextBlock FontSize="12" Foreground="{DynamicResource OpenzaTextSecondaryBrush}" Text="{Binding Subtitle}" />
+                                    <TextBlock FontSize="12" Foreground="{DynamicResource OpenzaTextSecondaryBrush}" Text="{Binding Subtitle}" TextWrapping="Wrap" IsVisible="{Binding Subtitle, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                                     <TextBlock Foreground="{DynamicResource OpenzaTextSecondaryBrush}" IsVisible="{Binding Snippet, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" Text="{Binding Snippet}" TextWrapping="Wrap" />
                                 </StackPanel>
                             </DataTemplate>
@@ -55,7 +55,7 @@
                             <DataTemplate>
                                 <StackPanel Margin="8" Spacing="4">
                                     <TextBlock FontWeight="SemiBold" Text="{Binding Title}" TextWrapping="Wrap" />
-                                    <TextBlock FontSize="12" Foreground="{DynamicResource OpenzaTextSecondaryBrush}" Text="{Binding Subtitle}" />
+                                    <TextBlock FontSize="12" Foreground="{DynamicResource OpenzaTextSecondaryBrush}" Text="{Binding Subtitle}" TextWrapping="Wrap" IsVisible="{Binding Subtitle, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                                     <TextBlock Foreground="{DynamicResource OpenzaTextSecondaryBrush}" IsVisible="{Binding Snippet, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" Text="{Binding Snippet}" TextWrapping="Wrap" />
                                 </StackPanel>
                             </DataTemplate>

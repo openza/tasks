@@ -1,3 +1,4 @@
+using Avalonia;
 using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -84,6 +85,7 @@ public sealed partial class DesktopControlBehaviorTests
     [InlineData(true)]
     public Task Source_dates_copy_expander_and_subtask_controls_preserve_provider_metadata(bool useSource) => Run(async context =>
     {
+        context.Window.Width = 1200;
         await context.Store.UpsertProviderSourceItemAsync(new ProviderSourceItem
         {
             Id = "source", IntegrationId = IntegrationIds.GitHub, ProviderConnectionId = "github_default", ExternalId = "remote-task",
@@ -100,9 +102,18 @@ public sealed partial class DesktopControlBehaviorTests
         await Task.Delay(100); context.Window.UpdateLayout();
         var pane = context.Window.FindControl<Border>("DetailsPane")!;
         Assert.True(context.Vm.HasSourceDateMismatch);
+        var dateButton = FindButton(pane, context.Vm.UseSourceDatesText);
+        dateButton.BringIntoView();
+        context.Window.UpdateLayout();
+        foreach (var button in new[] { dateButton, FindButton(pane, "Keep Openza date") })
+        {
+            var left = button.TranslatePoint(default, pane)!.Value.X;
+            Assert.InRange(left, 0, pane.Bounds.Width - button.Bounds.Width);
+        }
+        SaveFrame(context.Window, $"source-date-actions-{useSource}");
         var source = pane.GetVisualDescendants().OfType<Expander>().Single();
         source.IsExpanded = false; source.IsExpanded = true; Assert.True(source.IsExpanded);
-        var copy = (MenuFlyout)FindButton(pane, "Copy").Flyout!;
+        var copy = (MenuFlyout)FindButton(pane, "Copy task").Flyout!;
         copy.Items.OfType<MenuItem>().Single(item => Equals(item.Header, "Copy source")).RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
         await UntilAsync(async () => (await context.Window.Clipboard!.TryGetTextAsync())!.Contains("Remote title"));
         Click(pane, useSource ? context.Vm.UseSourceDatesText : "Keep Openza date");
