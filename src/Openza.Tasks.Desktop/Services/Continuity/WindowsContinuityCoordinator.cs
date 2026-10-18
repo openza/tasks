@@ -63,8 +63,11 @@ public sealed class WindowsContinuityCoordinator
                 var currentProfile = await ValidateCloudStateAsync(data, cancellationToken).ConfigureAwait(false);
                 if (currentProfile is not null) await WindowsCredentialContinuity.ValidateCloudAsync(currentProfile, session.Credentials, cancellationToken).ConfigureAwait(false);
             }
-            catch (Exception exception) when (exception is WindowsContinuityException or PersonalCloudK0ContractException or System.Runtime.InteropServices.COMException or UnauthorizedAccessException)
+            catch (Exception exception) when (exception is WindowsContinuityException or PersonalCloudK0ContractException)
             { recoveryRequired = true; }
+            // A vault/COM or file-access failure is not evidence of an invalid
+            // identity. Let it stop this startup for retry before preferences are
+            // changed. Cancellation likewise propagates without durable recovery.
             var preferencesStore = new DesktopPreferencesStore(session.SettingsPath);
             var currentPreferences = preferencesStore.Load();
             if (recoveryRequired)

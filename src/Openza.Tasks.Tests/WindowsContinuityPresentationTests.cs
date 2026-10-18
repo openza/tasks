@@ -12,6 +12,30 @@ namespace Openza.Tasks.Tests;
 [Collection(nameof(EditorTestCollection))]
 public sealed class WindowsContinuityPresentationTests(EditorTestSession fixture)
 {
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task Access_failure_surfaces_retry_without_private_exception_or_repair_instruction(bool com, bool wrapped)
+    {
+        await fixture.Session.Dispatch(() =>
+        {
+            Exception error = com ? new System.Runtime.InteropServices.COMException("synthetic-private-vault-detail")
+                : new UnauthorizedAccessException("synthetic-private-file-detail");
+            if (wrapped) error = new TypeInitializationException("synthetic", error);
+            var window = WindowsContinuityHost.CreateFailureWindow(error);
+            window.Show();
+            var text = Assert.IsType<TextBlock>(window.Content).Text!;
+            Assert.Contains("Restore access and retry startup", text);
+            Assert.Contains("Original files and credentials were retained", text);
+            Assert.DoesNotContain("synthetic-private", text);
+            Assert.DoesNotContain("restore its safety copy", text);
+            window.Close();
+            return true;
+        }, CancellationToken.None);
+    }
+
     [Fact]
     public async Task Initial_failure_window_shows_safe_reason_without_raw_exception_or_alternate_profile()
     {

@@ -47,8 +47,13 @@ public static class WindowsContinuityHost
     {
         var failure = exception;
         while (failure is TypeInitializationException { InnerException: { } inner }) failure = inner;
-        var message = failure is WindowsContinuityException ? failure.Message
-            : "Windows preparation could not be verified. Original files and credentials were retained. Resolve the transition archive or restore its safety copy before retrying; no alternate profile was opened.";
+        var message = failure switch
+        {
+            System.Runtime.InteropServices.COMException or UnauthorizedAccessException =>
+                "Windows preparation could not access credentials or package files. Restore access and retry startup. Original files and credentials were retained; no alternate profile was opened.",
+            WindowsContinuityException => failure.Message,
+            _ => "Windows preparation could not be verified. Original files and credentials were retained. Resolve the transition archive or restore its safety copy before retrying; no alternate profile was opened.",
+        };
         return new Window
         {
             Title = "Openza Tasks — startup stopped", Width = 720, Height = 280,

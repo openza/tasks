@@ -199,24 +199,83 @@ public sealed class WindowsContinuityIntegrationTests : IDisposable
         Assert.Equal(writes, platform.Target.Writes);
     }
 
-    [Fact]
-    public async Task Completed_transition_with_missing_cloud_credential_keeps_local_settings_access_and_pauses_sync()
+    [Theory]
+    [InlineData("missing")]
+    [InlineData("corrupt")]
+    [InlineData("mismatch")]
+    public async Task Completed_transition_with_invalid_identity_still_requires_recovery_and_retains_intent(string state)
     {
         var platform = Platform;
         await SeedAsync();
-        var profile = await PairAsync(platform, pending: false);
+        var profile = await PairAsync(platform, pending: true);
         using var session = new WindowsContinuitySession(platform);
         await PrepareAsync(session, platform);
-        platform.Target.Values.Remove(CloudKey(profile));
+        await new DesktopPreferencesStore(session.SettingsPath).UpdateAsync(value => value with { AutomaticSyncEnabled = true });
+        if (state == "missing") platform.Target.Values.Remove(CloudKey(profile));
+        else platform.Target.Values[CloudKey(profile)] = state == "corrupt" ? "synthetic-invalid-json" : CloudCredential(profile, "other-device");
+        var credentials = platform.Target.Values.ToArray();
+        var writes = platform.Target.Writes;
         var reads = platform.LegacyReads;
+        var database = await File.ReadAllBytesAsync(session.Data.Runtime.DatabasePath);
         await PrepareAsync(session, platform);
         Assert.Equal(reads, platform.LegacyReads);
-        Assert.Empty(platform.Target.Values);
+        Assert.Equal(writes, platform.Target.Writes);
+        Assert.Equal(credentials, platform.Target.Values.ToArray());
         var preferences = new DesktopPreferencesStore(session.SettingsPath).Load();
         Assert.True(preferences.WindowsCloudRecoveryRequired);
         Assert.False(preferences.AutomaticSyncEnabled);
         Assert.Contains(preferences.WindowsContinuityNotices, value => value.Contains("Local tasks and pending operations remain", StringComparison.Ordinal));
-        Assert.True(File.Exists(session.Data.Runtime.DatabasePath));
+        Assert.Equal(database, await File.ReadAllBytesAsync(session.Data.Runtime.DatabasePath));
+    }
+
+    [Theory]
+    [InlineData("com", true)]
+    [InlineData("com", false)]
+    [InlineData("access", true)]
+    [InlineData("access", false)]
+    [InlineData("cancel", true)]
+    [InlineData("cancel", false)]
+    public async Task Repeated_access_failure_or_cancellation_does_not_persist_recovery_or_change_user_sync_choice(string kind, bool syncEnabled)
+    {
+        var platform = Platform;
+        await SeedAsync();
+        await PairAsync(platform, pending: true);
+        using var session = new WindowsContinuitySession(platform);
+        await PrepareAsync(session, platform);
+        var preferences = new DesktopPreferencesStore(session.SettingsPath);
+        await preferences.UpdateAsync(value => value with { AutomaticSyncEnabled = syncEnabled });
+        var savedSettings = await File.ReadAllBytesAsync(session.SettingsPath);
+        var savedConnection = await File.ReadAllBytesAsync(session.Data.ConnectionPath);
+        var savedDatabase = await File.ReadAllBytesAsync(session.Data.Runtime.DatabasePath);
+        var savedReceipt = await File.ReadAllBytesAsync(Path.Combine(Archive, "complete.json"));
+        var credentials = platform.Target.Values.ToArray();
+        var writes = platform.Target.Writes;
+        var legacyReads = platform.LegacyReads;
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            platform.Target.ReadFailure = kind switch
+            {
+                "com" => new System.Runtime.InteropServices.COMException("Synthetic vault unavailable", unchecked((int)0x800706BA)),
+                "access" => new UnauthorizedAccessException("Synthetic credential access unavailable"),
+                _ => new OperationCanceledException(new CancellationToken(true)),
+            };
+            var failure = await Record.ExceptionAsync(() => PrepareAsync(session, platform));
+            if (kind == "com") Assert.IsType<System.Runtime.InteropServices.COMException>(failure);
+            else if (kind == "access") Assert.IsType<UnauthorizedAccessException>(failure);
+            else Assert.IsAssignableFrom<OperationCanceledException>(failure);
+            Assert.Equal(savedSettings, await File.ReadAllBytesAsync(session.SettingsPath));
+            Assert.False(preferences.Load().WindowsCloudRecoveryRequired);
+            Assert.Equal(syncEnabled, preferences.Load().AutomaticSyncEnabled);
+        }
+        platform.Target.ReadFailure = null;
+        await PrepareAsync(session, platform);
+        Assert.Equal(savedSettings, await File.ReadAllBytesAsync(session.SettingsPath));
+        Assert.Equal(savedConnection, await File.ReadAllBytesAsync(session.Data.ConnectionPath));
+        Assert.Equal(savedDatabase, await File.ReadAllBytesAsync(session.Data.Runtime.DatabasePath));
+        Assert.Equal(savedReceipt, await File.ReadAllBytesAsync(Path.Combine(Archive, "complete.json")));
+        Assert.Equal(credentials, platform.Target.Values.ToArray());
+        Assert.Equal(writes, platform.Target.Writes);
+        Assert.Equal(legacyReads, platform.LegacyReads);
     }
 
     [Fact]
@@ -462,8 +521,14 @@ public sealed class WindowsContinuityIntegrationTests : IDisposable
         public Dictionary<string, string> Values { get; } = new(StringComparer.Ordinal);
         public List<string> Reads { get; } = [];
         public int Writes { get; private set; }
+        public Exception? ReadFailure { get; set; }
         public Task<string?> GetAsync(string key, CancellationToken cancellationToken = default)
-        { Reads.Add(key); return Task.FromResult(Values.GetValueOrDefault(key)); }
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Reads.Add(key);
+            if (ReadFailure is not null) throw ReadFailure;
+            return Task.FromResult(Values.GetValueOrDefault(key));
+        }
         public Task SaveAsync(string key, string value, CancellationToken cancellationToken = default)
         { Writes++; Values[key] = value; return Task.CompletedTask; }
         public Task RemoveAsync(string key, CancellationToken cancellationToken = default) => throw new InvalidOperationException("No source credential deletion is permitted.");
