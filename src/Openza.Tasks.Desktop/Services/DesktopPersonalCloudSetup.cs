@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Reflection;
 using Openza.Tasks.Core.PersonalCloud;
+using Openza.Tasks.Desktop.Services.Continuity;
 
 namespace Openza.Tasks.Desktop.Services;
 
@@ -25,7 +26,9 @@ public static class DesktopPersonalCloudSetup
             DesktopCredentialStore.Create(DesktopDataPaths.Runtime),
             taskStore,
             Environment.MachineName,
-            OpenBrowserAsync);
+            OpenBrowserAsync,
+            WindowsContinuityHost.Session is { } session && new DesktopPreferencesStore(session.SettingsPath).Load().WindowsCloudRecoveryRequired
+                ? new WindowsRecoveryConnectionStore(session.Data.ConnectionPath) : null);
     }
 
     private static Task OpenBrowserAsync(Uri uri, CancellationToken cancellationToken)

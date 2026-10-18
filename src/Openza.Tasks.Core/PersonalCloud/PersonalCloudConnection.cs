@@ -71,10 +71,11 @@ public sealed class JsonPersonalCloudConnectionStore(string path) : IPersonalClo
 
     private static void Validate(PersonalCloudConnectionProfile? value)
     {
-        if (value is null || !value.ServiceOrigin.IsAbsoluteUri ||
+        if (value is null || value.ServiceOrigin is null || !value.ServiceOrigin.IsAbsoluteUri ||
             (value.ServiceOrigin.Scheme != Uri.UriSchemeHttps && !(value.ServiceOrigin.Scheme == Uri.UriSchemeHttp && value.ServiceOrigin.IsLoopback)) ||
             !string.IsNullOrEmpty(value.ServiceOrigin.Query) || !string.IsNullOrEmpty(value.ServiceOrigin.Fragment) ||
-            value.ServiceOrigin.AbsolutePath != "/" || string.IsNullOrWhiteSpace(value.ArtifactVersion) ||
+            value.ServiceOrigin.AbsolutePath != "/" || value.InstanceId is null ||
+            value.DeviceId is null || string.IsNullOrWhiteSpace(value.ArtifactVersion) ||
             value.ArtifactVersion.Length > 128)
             throw new PersonalCloudK0ContractException("connection_invalid", "The saved Personal Cloud connection is invalid.");
         PersonalCloudK0Codec.ValidateIdentifier(value.InstanceId, nameof(value.InstanceId));

@@ -124,6 +124,8 @@ public sealed partial class MainWindow : Window
             ViewModel.ReportError(recoveryError);
             return;
         }
+        var continuityNotices = _preferencesStore.Load().WindowsContinuityNotices;
+        if (continuityNotices.Count > 0) ViewModel.ReportError(string.Join(" ", continuityNotices));
         if (ViewModel.StartupView == "Settings") OnSettingsClicked(this, new RoutedEventArgs());
         else if (ViewModel.StartupView == "Sync") OnSyncNavigationClicked(this, new RoutedEventArgs());
         if (ViewModel.AutomaticSyncEnabled) OnAutomaticSyncTick(this, EventArgs.Empty);
@@ -681,6 +683,11 @@ public sealed partial class MainWindow : Window
     private async void OnConnectPersonalCloudClicked(object? sender, RoutedEventArgs e)
     {
         if (!ViewModel.CanConnectPersonalCloud) return;
+        if (_preferencesStore.Load().WindowsCloudRecoveryRequired)
+        {
+            await new PersonalCloudSetupWindow(ViewModel, pairExisting: true).ShowDialog(this);
+            return;
+        }
         if (ViewModel.IsPersonalCloudConnected)
         {
             await new PersonalCloudManageWindow(ViewModel).ShowDialog<bool>(this);

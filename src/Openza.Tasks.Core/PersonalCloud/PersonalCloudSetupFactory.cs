@@ -13,7 +13,8 @@ public static class PersonalCloudSetupFactory
         ICredentialStore credentials,
         Openza.Tasks.Core.Data.SqliteTaskStore taskStore,
         string deviceName,
-        Func<Uri, CancellationToken, Task> openBrowser)
+        Func<Uri, CancellationToken, Task> openBrowser,
+        IPersonalCloudConnectionStore? connectionStoreOverride = null)
     {
         ArgumentNullException.ThrowIfNull(credentials);
         ArgumentNullException.ThrowIfNull(openBrowser);
@@ -45,7 +46,7 @@ public static class PersonalCloudSetupFactory
             coordinator,
             artifact.Deployment.Version,
             openBrowser,
-            new JsonPersonalCloudConnectionStore(connectionPath),
+            connectionStoreOverride ?? new JsonPersonalCloudConnectionStore(connectionPath),
             identity,
             new HttpClient(),
             taskStore,

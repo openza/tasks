@@ -1,4 +1,5 @@
 using Openza.Tasks.Core.PersonalCloud;
+using Openza.Tasks.Desktop.Services.Continuity;
 
 namespace Openza.Tasks.Desktop.ViewModels;
 
@@ -258,6 +259,12 @@ public sealed partial class MainWindowViewModel
                 providerBridge,
                 cancellationToken);
             pairedConnection = connection;
+            if (_preferencesStore.Load().WindowsCloudRecoveryRequired)
+                await _preferencesStore.UpdateAsync(value => value with
+                {
+                    WindowsCloudRecoveryRequired = false,
+                    WindowsContinuityNotices = value.WindowsContinuityNotices.Where(notice => notice != WindowsContinuityCoordinator.CloudRecoveryNotice).ToArray(),
+                });
             IsPairingInitialSync = true;
             PersonalCloudStatusText = "Initial sync";
             PersonalCloudSummaryText = "This desktop is paired. Your existing tasks are now syncing.";

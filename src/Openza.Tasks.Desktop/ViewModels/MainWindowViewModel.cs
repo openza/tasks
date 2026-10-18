@@ -9,6 +9,7 @@ using Openza.Tasks.Core.PersonalCloud;
 using Openza.Tasks.Core.Services;
 using Openza.Tasks.Core.Sync;
 using Openza.Tasks.Desktop.Services;
+using Openza.Tasks.Desktop.Services.Continuity;
 using FluentIcons.Common;
 
 namespace Openza.Tasks.Desktop.ViewModels;
@@ -171,7 +172,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         if (store is SqliteTaskStore sqliteStore &&
             Path.GetDirectoryName(sqliteStore.DatabasePath) is { } dataDirectory)
         {
-            return new DesktopPreferencesStore(Path.Combine(dataDirectory, "settings.json"));
+            return new DesktopPreferencesStore(Path.GetFullPath(sqliteStore.DatabasePath) == Path.GetFullPath(DesktopDataPaths.Runtime.DatabasePath)
+                ? DesktopDataPaths.SettingsPath : Path.Combine(dataDirectory, "settings.json"));
         }
 
         return new DesktopPreferencesStore();
@@ -1606,6 +1608,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     private async Task RunTodoistSyncAsync(bool showMissingConnection)
     {
+        if (_preferencesStore.Load().WindowsCloudRecoveryRequired)
+        {
+            ReportError("Personal Cloud sync is paused. Recover the saved pairing in Sync or restore/export a safety copy in Settings; local tasks and pending operations are retained.");
+            return;
+        }
         // Network work has its own gate and cannot queue navigation behind a provider.
         if (!await _syncGate.WaitAsync(0)) return;
         IsSyncing = true;
@@ -1669,6 +1676,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 catch (Exception exception)
                 {
                     await RefreshInitialSyncProgressAsync();
+                    if (WindowsContinuityHost.Session is not null && exception is PersonalCloudK0ContractException { Code: "unauthorized" })
+                    {
+                        await _preferencesStore.UpdateAsync(value => value with { WindowsCloudRecoveryRequired = true, AutomaticSyncEnabled = false });
+                        AutomaticSyncEnabled = false;
+                    }
                     personalCloudError = exception.Message;
                 }
             }
