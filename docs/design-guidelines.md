@@ -6,7 +6,7 @@ Openza Tasks aims for a calm, focused task interface. Its brand palette comes fr
 
 Use Avalonia's built-in controls and `FluentTheme`, following its official [theme](https://docs.avaloniaui.net/docs/styling/themes) and [styling guidance](https://docs.avaloniaui.net/docs/styling/style-best-practices). Keep the existing Avalonia resources, bindings and commands; use theme resources for light/dark variants, readable contrast and focus states. Preserve keyboard and accessibility behavior. Another theme library is not selected.
 
-The [behavior contracts](behavior-contracts.md) define task semantics. Avalonia is the active desktop interaction reference; visual cleanup must not choose a new workflow policy. Windows transition execution remains deferred.
+The [behavior contracts](behavior-contracts.md) define task semantics. Avalonia is the active desktop interaction reference; visual cleanup must not choose a new workflow policy. Keep all active code Windows-compatible and put OS specifics behind platform services. Windows continuity development is active on Ubuntu; native builds/validation, packaging and distribution are not current priorities.
 
 ## WinUI maintenance reference
 
