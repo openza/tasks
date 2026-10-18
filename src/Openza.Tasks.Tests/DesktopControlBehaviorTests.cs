@@ -124,8 +124,8 @@ public sealed partial class DesktopControlBehaviorTests(EditorTestSession fixtur
         context.Window.UpdateLayout();
         var toast = context.Window.FindControl<Border>("StatusOverlay")!;
         var dismiss = toast.GetVisualDescendants().OfType<Button>().Single();
-        var location = dismiss.TranslatePoint(default, toast)!.Value;
         SaveFrame(context.Window, $"persistent-toast-{dark}");
+        var location = dismiss.TranslatePoint(default, toast)!.Value;
         Assert.True(toast.IsVisible);
         Assert.True(location.X + dismiss.Bounds.Width <= toast.Bounds.Width - 1, "Toast dismissal overflows its surface.");
         Assert.True(location.Y + dismiss.Bounds.Height <= toast.Bounds.Height - 1);
@@ -733,12 +733,13 @@ public sealed partial class DesktopControlBehaviorTests(EditorTestSession fixtur
     }
     private static void SaveFrame(Window window, string name)
     {
-        var output = Environment.GetEnvironmentVariable("OPENZA_CONTROL_SCREENSHOTS");
-        if (string.IsNullOrWhiteSpace(output)) return;
-        Directory.CreateDirectory(output);
+        // Flush a real frame before geometry checks, even when image export is disabled.
         window.UpdateLayout();
         using var frame = window.CaptureRenderedFrame();
         Assert.NotNull(frame);
+        var output = Environment.GetEnvironmentVariable("OPENZA_CONTROL_SCREENSHOTS");
+        if (string.IsNullOrWhiteSpace(output)) return;
+        Directory.CreateDirectory(output);
         frame.Save(Path.Combine(output, name + ".png"), new Avalonia.Media.Imaging.PngBitmapEncoderOptions());
     }
 }

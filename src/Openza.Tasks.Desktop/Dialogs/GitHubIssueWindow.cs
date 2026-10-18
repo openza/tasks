@@ -31,12 +31,14 @@ public sealed class GitHubIssueWindow : Window
         {
             new TextBlock { Text = "Create GitHub issue", Classes = { "dialog-title" } }, repositorySearch, repositories,
             new TextBlock { Text = "Title" }, title, new TextBlock { Text = "Body" }, body,
-            new TextBlock { Text = "Label" }, labels, status,
+            new TextBlock { Text = "Label" }, labels,
         } } };
         var actions = new StackPanel { Margin = new Thickness(24, 12), HorizontalAlignment = HorizontalAlignment.Right,
             Orientation = Orientation.Horizontal, Spacing = 8, Children = { cancel, create } };
-        Grid.SetRow(actions, 1);
-        Content = new Grid { RowDefinitions = new RowDefinitions("*,Auto"), Children = { form, actions } };
+        var feedback = new ScrollViewer { MaxHeight = 96, Margin = new Thickness(24, 0), Content = status };
+        Grid.SetRow(feedback, 1);
+        Grid.SetRow(actions, 2);
+        Content = new Grid { RowDefinitions = new RowDefinitions("*,Auto,Auto"), Children = { form, feedback, actions } };
         var loadingVersion = 0; var submitting = false;
         Closing += (_, args) => { if (submitting) args.Cancel = true; };
         repositorySearch.TextChanged += (_, _) =>

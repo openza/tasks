@@ -13,6 +13,7 @@
     Opened="OnOpened">
     <Window.Styles>
         <Style Selector="Button.labelChip">
+            <Setter Property="MaxWidth" Value="280" />
             <Setter Property="Padding" Value="10,5" />
             <Setter Property="MinHeight" Value="30" />
             <Setter Property="CornerRadius" Value="15" />
@@ -39,7 +40,7 @@
             </StackPanel>
             <StackPanel Spacing="5"><TextBlock Text="Notes"/><TextBox x:Name="NotesBox" AutomationProperties.Name="Task notes" MinHeight="90" AcceptsReturn="True" VerticalContentAlignment="Top" TextWrapping="Wrap"/></StackPanel>
             <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto" ColumnSpacing="12" RowSpacing="12">
-                <StackPanel Spacing="5"><TextBlock Text="Project"/><ComboBox AutomationProperties.Name="Project" x:Name="ProjectPicker" ItemsSource="{Binding ProjectOptions}"><ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Title}"/></DataTemplate></ComboBox.ItemTemplate></ComboBox></StackPanel>
+                <StackPanel Spacing="5"><TextBlock Text="Project"/><ComboBox AutomationProperties.Name="Project" x:Name="ProjectPicker" ItemsSource="{Binding ProjectOptions}"><ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Title}"/></DataTemplate></ComboBox.ItemTemplate></ComboBox></StackPanel>
                 <StackPanel Grid.Column="1" Spacing="5"><TextBlock Text="Status"/><ComboBox AutomationProperties.Name="Status" x:Name="StatusPicker"><ComboBoxItem Content="Inbox" Tag="0"/><ComboBoxItem Content="Next" Tag="1"/><ComboBoxItem Content="Waiting For" Tag="2"/><ComboBoxItem Content="Someday" Tag="3"/><ComboBoxItem Content="None" Tag="5"/></ComboBox></StackPanel>
                 <StackPanel Grid.Row="1" Spacing="5"><TextBlock Text="Priority"/><ComboBox AutomationProperties.Name="Priority" x:Name="PriorityPicker"><ComboBoxItem Content="Urgent"/><ComboBoxItem Content="High"/><ComboBoxItem Content="Normal"/><ComboBoxItem Content="Low"/></ComboBox></StackPanel>
                 <StackPanel Grid.Row="1" Grid.Column="1" Spacing="5"><TextBlock Text="Date"/><CalendarDatePicker x:Name="DatePicker" AutomationProperties.Name="Task date" PlaceholderText="Choose a date"/></StackPanel>
@@ -65,13 +66,14 @@
                         <DataTemplate>
                             <Button
                                 Classes="labelChip"
+                                AutomationProperties.Name="{Binding StringFormat='Remove label {0}'}"
                                 Click="OnRemoveLabelClicked"
                                 Margin="0,3,6,0"
-                                ToolTip.Tip="Remove label">
-                                <StackPanel Orientation="Horizontal" Spacing="7">
-                                    <TextBlock Text="{Binding}" />
-                                    <TextBlock FontSize="14" Text="&#x00D7;" />
-                                </StackPanel>
+                                ToolTip.Tip="{Binding}">
+                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="7">
+                                    <TextBlock Text="{Binding}" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Grid.Column="1" FontSize="14" Text="&#x00D7;" />
+                                </Grid>
                             </Button>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>

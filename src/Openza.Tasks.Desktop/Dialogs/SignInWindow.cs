@@ -22,9 +22,12 @@ public sealed class SignInWindow : Window
         var cancel = new Button { Content = "Cancel", IsCancel = true };
         open.Classes.Add("accent");
         Avalonia.Automation.AutomationProperties.SetName(codeText, "Sign-in code");
-        Content = new StackPanel { Margin = new Thickness(24), Spacing = 14, Children =
-        { new TextBlock { Text = title, Classes = { "dialog-title" } }, message, codeText,
-          new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { open, copy, cancel } } } };
+        var form = new ScrollViewer { Content = new StackPanel { Margin = new Thickness(24), Spacing = 14, Children =
+            { new TextBlock { Text = title, Classes = { "dialog-title" } }, message, codeText } } };
+        var actions = new StackPanel { Margin = new Thickness(24, 12), HorizontalAlignment = HorizontalAlignment.Right,
+            Orientation = Orientation.Horizontal, Spacing = 8, Children = { open, copy, cancel } };
+        Grid.SetRow(actions, 1);
+        Content = new Grid { RowDefinitions = new RowDefinitions("*,Auto"), Children = { form, actions } };
         var cancellation = new CancellationTokenSource();
         SignInCode? currentCode = null;
         cancel.Click += (_, _) => Close(false);

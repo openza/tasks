@@ -224,7 +224,9 @@ public sealed partial class DesktopControlBehaviorTests
         await Until(() => !dialog.IsVisible);
         if (action == "Remove link") await UntilAsync(async () => (await context.Store.GetTaskExternalLinksAsync("task-0")).Count == 0);
         else Assert.Single(await context.Store.GetTaskExternalLinksAsync("task-0"));
-        if (action == "Replace link") await Until(() => context.Vm.StatusMessage == "Connect GitHub in Settings first.");
+        if (action == "Replace link") await UntilAsync(
+            () => Task.FromResult(context.Vm.StatusMessage == "Connect GitHub in Settings first."),
+            () => $"Replace link feedback: {context.Vm.StatusMessage}; selected task: {context.Vm.SelectedTask?.Task.Id}; busy: {context.Vm.IsBusy}");
         Assert.NotNull(await context.Store.GetTaskAsync("task-0"));
     });
 

@@ -17,11 +17,9 @@ public static class EditorTestAppBuilder
 {
     public static AppBuilder BuildAvaloniaApp()
     {
-        var render = !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("OPENZA_BRIDGE_UI_SCREENSHOT_PATH"))
-            || !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("OPENZA_CONTROL_SCREENSHOTS"));
-        var app = AppBuilder.Configure<Desktop.App>();
-        if (render) app = app.UseSkia();
-        return app.UseHeadless(new AvaloniaHeadlessPlatformOptions { UseHeadlessDrawing = !render });
+        // Layout assertions need the same font metrics whether or not screenshots are saved.
+        return AppBuilder.Configure<Desktop.App>().UseSkia()
+            .UseHeadless(new AvaloniaHeadlessPlatformOptions { UseHeadlessDrawing = false });
     }
 }
 

@@ -504,13 +504,15 @@
                                                         <Button
                                                             Margin="0,3,6,0"
                                                             MinHeight="30"
+                                                            MaxWidth="280"
+                                                            AutomationProperties.Name="{Binding StringFormat='Remove label {0}'}"
                                                             Padding="10,5"
                                                             Background="{DynamicResource OpenzaChipBackgroundBrush}"
                                                             BorderBrush="{DynamicResource OpenzaBorderBrush}"
                                                             Click="OnRemoveDetailLabelClicked"
                                                             CornerRadius="15"
-                                                            ToolTip.Tip="Remove label">
-                                                            <StackPanel Orientation="Horizontal" Spacing="7"><TextBlock Text="{Binding}"/><TextBlock FontSize="14" Text="&#x00D7;"/></StackPanel>
+                                                            ToolTip.Tip="{Binding}">
+                                                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="7"><TextBlock Text="{Binding}" TextTrimming="CharacterEllipsis"/><TextBlock Grid.Column="1" FontSize="14" Text="&#x00D7;"/></Grid>
                                                         </Button>
                                                     </DataTemplate>
                                                 </ItemsControl.ItemTemplate>

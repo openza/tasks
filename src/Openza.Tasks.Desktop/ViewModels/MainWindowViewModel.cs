@@ -2354,11 +2354,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
                     continue;
                 }
 
-                StatusMessage = "Changes saved";
                 if (!savedChanges)
                 {
                     return;
                 }
+                StatusMessage = "Changes saved";
                 var selectedId = SelectedTask?.Task.Id;
                 await RefreshAsyncCore(string.Equals(selectedId, original.Id, StringComparison.Ordinal)
                     ? updated?.Id ?? original.Id

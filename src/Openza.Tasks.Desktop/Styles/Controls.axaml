@@ -122,10 +122,22 @@
     </Style>
     <Style Selector="Expander">
         <Setter Property="HorizontalAlignment" Value="Stretch" />
+        <Setter Property="Background" Value="{DynamicResource OpenzaElevatedSurfaceBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource OpenzaBorderBrush}" />
     </Style>
     <Style Selector="Expander /template/ ToggleButton#ExpanderHeader">
         <Setter Property="HorizontalAlignment" Value="Stretch" />
         <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        <Setter Property="Background" Value="{DynamicResource OpenzaElevatedSurfaceBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource OpenzaBorderBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource OpenzaTextPrimaryBrush}" />
+    </Style>
+    <Style Selector="Expander /template/ ToggleButton#ExpanderHeader:pointerover /template/ Border#ToggleButtonBackground">
+        <Setter Property="Background" Value="{DynamicResource OpenzaRowHoverBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource OpenzaBorderBrush}" />
+    </Style>
+    <Style Selector="Expander /template/ ToggleButton#ExpanderHeader:pressed /template/ Border#ToggleButtonBackground">
+        <Setter Property="Background" Value="{DynamicResource OpenzaRowSelectedBrush}" />
     </Style>
     <Style Selector="Border.settings-card ToggleSwitch">
         <Setter Property="VerticalAlignment" Value="Center" />
