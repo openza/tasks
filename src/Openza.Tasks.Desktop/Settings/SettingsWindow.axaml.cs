@@ -13,7 +13,7 @@ namespace Openza.Tasks.Desktop.Settings;
 public sealed partial class SettingsWindow : Window
 {
     private readonly MainWindowViewModel _viewModel;
-    private readonly DesktopPreferencesStore _preferencesStore = new();
+    private readonly DesktopPreferencesStore _preferencesStore;
     private bool _initialized;
 
     public SettingsWindow()
@@ -23,8 +23,9 @@ public sealed partial class SettingsWindow : Window
 
     public SettingsWindow(MainWindowViewModel viewModel)
     {
+        _preferencesStore = viewModel?.PreferencesStore ?? new DesktopPreferencesStore();
         InitializeComponent();
-        _viewModel = viewModel;
+        _viewModel = viewModel!;
         DataContext = viewModel;
         var preferences = _preferencesStore.Load();
         ThemePicker.SelectedIndex = preferences.Theme switch
@@ -92,7 +93,7 @@ public sealed partial class SettingsWindow : Window
 
         var dialog = new ConfirmWindow(
             "Archive space?",
-            $"{item.Title} will be hidden from normal navigation. Its tasks and projects will remain in the database.");
+            $"{item.Title} will be hidden from normal navigation. Its tasks and projects will remain in the database.", "Archive", showCancel: true);
         if (await dialog.ShowDialog<bool>(this))
         {
             await _viewModel.ArchiveSpaceAsync(item);
@@ -124,7 +125,7 @@ public sealed partial class SettingsWindow : Window
     {
         var dialog = new ConfirmWindow(
             "Disconnect Todoist?",
-            "The secure token will be removed from this Linux installation. Existing local and connected-task data will remain.");
+            "The secure token will be removed from this device. Existing local and connected-task data will remain.", "Disconnect", showCancel: true);
         if (await dialog.ShowDialog<bool>(this))
         {
             await _viewModel.DisconnectTodoistAsync();
@@ -138,7 +139,7 @@ public sealed partial class SettingsWindow : Window
     {
         var dialog = new ConfirmWindow(
             "Disconnect GitHub?",
-            "The secure token will be removed from this Linux installation. Existing task-to-issue links will remain.");
+            "The secure token will be removed from this device. Existing task-to-issue links will remain.", "Disconnect", showCancel: true);
         if (await dialog.ShowDialog<bool>(this))
         {
             await _viewModel.DisconnectGitHubAsync();
@@ -180,7 +181,7 @@ public sealed partial class SettingsWindow : Window
 
         var dialog = new ConfirmWindow(
             "Restore this database?",
-            "The current database will be replaced after Openza creates a safety restore point.");
+            "The current database will be replaced after Openza creates a safety restore point.", "Restore", showCancel: true);
         if (await dialog.ShowDialog<bool>(this))
         {
             await _viewModel.RestoreDatabaseAsync(path);
@@ -196,7 +197,7 @@ public sealed partial class SettingsWindow : Window
 
         var dialog = new ConfirmWindow(
             "Restore selected point?",
-            "The current database will be replaced after Openza creates a new safety restore point.");
+            "The current database will be replaced after Openza creates a new safety restore point.", "Restore", showCancel: true);
         if (await dialog.ShowDialog<bool>(this))
         {
             await _viewModel.RestoreSelectedPointAsync();

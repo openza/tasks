@@ -1,0 +1,162 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!-- Keep Fluent templates, focus adorners and automation peers. These are
+         shared visual roles, not replacement control implementations. -->
+    <Style Selector="Window">
+        <Setter Property="FontFamily" Value="avares://Avalonia.Fonts.Inter/Assets#Inter" />
+        <Setter Property="FontSize" Value="{StaticResource OpenzaBodySize}" />
+        <Setter Property="Foreground" Value="{DynamicResource OpenzaTextPrimaryBrush}" />
+        <Setter Property="Background" Value="{DynamicResource OpenzaDetailPaneBackgroundBrush}" />
+        <Setter Property="UseLayoutRounding" Value="True" />
+    </Style>
+    <Style Selector="Button">
+        <Setter Property="MinHeight" Value="36" />
+        <Setter Property="Padding" Value="12,7" />
+        <Setter Property="CornerRadius" Value="{StaticResource OpenzaControlCornerRadius}" />
+        <Setter Property="Background" Value="{DynamicResource OpenzaElevatedSurfaceBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource OpenzaBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource OpenzaRowHoverBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource OpenzaBorderBrush}" />
+    </Style>
+    <Style Selector="Button:pressed /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource OpenzaRowSelectedBrush}" />
+    </Style>
+    <Style Selector="Button.accent /template/ ContentPresenter#PART_ContentPresenter, Button.primary-command /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource OpenzaAccentBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource OpenzaAccentBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource OpenzaOnAccentBrush}" />
+    </Style>
+    <Style Selector="Button.accent:pointerover /template/ ContentPresenter#PART_ContentPresenter, Button.primary-command:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource OpenzaAccentHoverBrush}" />
+    </Style>
+    <Style Selector="Button.accent:pressed /template/ ContentPresenter#PART_ContentPresenter, Button.primary-command:pressed /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource OpenzaAccentPressedBrush}" />
+    </Style>
+    <Style Selector="Button:disabled /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource OpenzaSurfaceAltBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource OpenzaSeparatorBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource OpenzaTextTertiaryBrush}" />
+    </Style>
+    <Style Selector="Button.danger">
+        <Setter Property="Foreground" Value="{DynamicResource OpenzaDangerBrush}" />
+    </Style>
+    <Style Selector="TextBox, ComboBox, CalendarDatePicker, DatePicker, AutoCompleteBox">
+        <Setter Property="MinHeight" Value="36" />
+        <Setter Property="HorizontalAlignment" Value="Stretch" />
+    </Style>
+    <Style Selector="TextBox, ComboBox, CalendarDatePicker, AutoCompleteBox">
+        <Setter Property="CornerRadius" Value="{StaticResource OpenzaControlCornerRadius}" />
+    </Style>
+    <Style Selector="TextBox, CalendarDatePicker, AutoCompleteBox">
+        <Setter Property="Background" Value="{DynamicResource OpenzaElevatedSurfaceBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource OpenzaBorderBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource OpenzaTextPrimaryBrush}" />
+    </Style>
+    <Style Selector="TextBox">
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+        <Setter Property="PlaceholderForeground" Value="{DynamicResource OpenzaTextTertiaryBrush}" />
+    </Style>
+    <Style Selector="AutoCompleteBox">
+        <Setter Property="PlaceholderForeground" Value="{DynamicResource OpenzaTextTertiaryBrush}" />
+    </Style>
+    <Style Selector="CalendarDatePicker">
+        <Setter Property="PlaceholderForeground" Value="{DynamicResource OpenzaTextTertiaryBrush}" />
+        <Setter Property="Padding" Value="10,5" />
+        <Setter Property="BorderThickness" Value="1" />
+    </Style>
+    <Style Selector="CalendarDatePicker /template/ TextBox#PART_TextBox">
+        <Setter Property="MinHeight" Value="0" />
+    </Style>
+    <Style Selector="TextBox /template/ TextBlock#PART_Placeholder">
+        <Setter Property="Opacity" Value="1" />
+    </Style>
+    <Style Selector="TextBox[AcceptsReturn=True]">
+        <Setter Property="VerticalContentAlignment" Value="Top" />
+    </Style>
+    <Style Selector="TextBox:focus /template/ Border#PART_BorderElement">
+        <Setter Property="Background" Value="{DynamicResource OpenzaElevatedSurfaceBrush}" />
+    </Style>
+    <Style Selector="ComboBox">
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+        <Setter Property="Background" Value="{DynamicResource OpenzaElevatedSurfaceBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource OpenzaBorderBrush}" />
+    </Style>
+    <Style Selector="ListBox">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="{DynamicResource OpenzaBorderBrush}" />
+    </Style>
+    <Style Selector="ListBoxItem:selected /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource OpenzaRowSelectedBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource OpenzaTextPrimaryBrush}" />
+    </Style>
+    <Style Selector="TextBlock.dialog-title">
+        <Setter Property="FontSize" Value="{StaticResource OpenzaDialogTitleSize}" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+    <Style Selector="Border.settings-card TextBlock">
+        <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+    <Style Selector="Button.menu-row">
+        <Setter Property="HorizontalAlignment" Value="Stretch" />
+        <Setter Property="HorizontalContentAlignment" Value="Left" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="MaxWidth" Value="360" />
+        <Setter Property="ContentTemplate">
+            <DataTemplate><TextBlock Text="{Binding}" TextWrapping="Wrap" /></DataTemplate>
+        </Setter>
+    </Style>
+    <Style Selector="Button.icon-command">
+        <Setter Property="Width" Value="36" />
+        <Setter Property="Height" Value="36" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="HorizontalContentAlignment" Value="Center" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+    </Style>
+    <Style Selector="Expander">
+        <Setter Property="HorizontalAlignment" Value="Stretch" />
+        <Setter Property="Background" Value="{DynamicResource OpenzaElevatedSurfaceBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource OpenzaBorderBrush}" />
+    </Style>
+    <Style Selector="Expander /template/ ToggleButton#ExpanderHeader">
+        <Setter Property="HorizontalAlignment" Value="Stretch" />
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        <Setter Property="Background" Value="{DynamicResource OpenzaElevatedSurfaceBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource OpenzaBorderBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource OpenzaTextPrimaryBrush}" />
+    </Style>
+    <Style Selector="Expander /template/ ToggleButton#ExpanderHeader:pointerover /template/ Border#ToggleButtonBackground">
+        <Setter Property="Background" Value="{DynamicResource OpenzaRowHoverBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource OpenzaBorderBrush}" />
+    </Style>
+    <Style Selector="Expander /template/ ToggleButton#ExpanderHeader:pressed /template/ Border#ToggleButtonBackground">
+        <Setter Property="Background" Value="{DynamicResource OpenzaRowSelectedBrush}" />
+    </Style>
+    <Style Selector="Border.settings-card ToggleSwitch">
+        <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Border.settings-card ListBoxItem">
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        <Setter Property="Padding" Value="10,8" />
+        <Setter Property="CornerRadius" Value="{StaticResource OpenzaControlCornerRadius}" />
+    </Style>
+    <Style Selector="Border.task-row, Border.navigation-row">
+        <Setter Property="Background" Value="Transparent" />
+    </Style>
+    <Style Selector="Border.task-row:pointerover, Border.navigation-row:pointerover">
+        <Setter Property="Background" Value="{DynamicResource OpenzaRowHoverBrush}" />
+    </Style>
+    <Style Selector="ListBox.navigation-inactive ListBoxItem:selected">
+        <Setter Property="Background" Value="Transparent" />
+    </Style>
+    <Style Selector="ListBox.navigation-inactive ListBoxItem:selected /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="Transparent" />
+    </Style>
+</Styles>

@@ -13,15 +13,21 @@ public sealed class SignInWindow : Window
 {
     public SignInWindow(string title, Func<Func<SignInCode, Task>, CancellationToken, Task> signIn)
     {
-        Title = title; Width = 520; Height = 360; WindowStartupLocation = WindowStartupLocation.CenterOwner;
+        Title = title; Width = 540; Height = 380; MinWidth = 480; MinHeight = 340;
+        ShowInTaskbar = false; WindowStartupLocation = WindowStartupLocation.CenterOwner;
         var message = new TextBlock { Text = "Preparing sign-in…", TextWrapping = TextWrapping.Wrap };
         var codeText = new TextBox { IsReadOnly = true, FontSize = 24 };
         var open = new Button { Content = "Open sign-in page", IsEnabled = false };
         var copy = new Button { Content = "Copy code", IsEnabled = false };
-        var cancel = new Button { Content = "Cancel" };
-        Content = new StackPanel { Margin = new Thickness(24), Spacing = 14, Children =
-        { new TextBlock { Text = title, FontSize = 22 }, message, codeText,
-          new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { open, copy, cancel } } } };
+        var cancel = new Button { Content = "Cancel", IsCancel = true };
+        open.Classes.Add("accent");
+        Avalonia.Automation.AutomationProperties.SetName(codeText, "Sign-in code");
+        var form = new ScrollViewer { Content = new StackPanel { Margin = new Thickness(24), Spacing = 14, Children =
+            { new TextBlock { Text = title, Classes = { "dialog-title" } }, message, codeText } } };
+        var actions = new StackPanel { Margin = new Thickness(24, 12), HorizontalAlignment = HorizontalAlignment.Right,
+            Orientation = Orientation.Horizontal, Spacing = 8, Children = { open, copy, cancel } };
+        Grid.SetRow(actions, 1);
+        Content = new Grid { RowDefinitions = new RowDefinitions("*,Auto"), Children = { form, actions } };
         var cancellation = new CancellationTokenSource();
         SignInCode? currentCode = null;
         cancel.Click += (_, _) => Close(false);

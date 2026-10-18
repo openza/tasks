@@ -3,16 +3,18 @@
     xmlns="https://github.com/avaloniaui"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     Width="620"
-    SizeToContent="Height"
-    CanResize="False"
+    Height="640"
+    MinHeight="420"
+    MinWidth="580"
     Closing="OnClosing"
     ShowInTaskbar="False"
     WindowStartupLocation="CenterOwner">
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
     <Grid Margin="28">
         <StackPanel x:Name="ReviewPanel" Spacing="18">
             <StackPanel Spacing="6">
-                <TextBlock FontSize="22" FontWeight="SemiBold" Text="Set up Personal Cloud" />
-                <TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="Keep your Openza tasks available on the Web through your own Cloudflare account." TextWrapping="Wrap" />
+                <TextBlock Classes="dialog-title" Text="Set up Personal Cloud" />
+                <TextBlock Foreground="{DynamicResource OpenzaTextSecondaryBrush}" Text="Keep your Openza tasks available on the Web through your own Cloudflare account." TextWrapping="Wrap" />
             </StackPanel>
 
             <Border Padding="18" Classes="settings-card">
@@ -29,7 +31,7 @@
                 <StackPanel Spacing="8">
                     <TextBlock FontWeight="SemiBold" Text="Cloudflare permissions" />
                     <TextBlock Text="Account Settings: Read  ·  D1: Write  ·  Workers Scripts: Write" TextWrapping="Wrap" />
-                    <TextBlock FontSize="12" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="The database and Web app may count toward your Cloudflare plan limits. Openza uses temporary authorization for setup and discards it afterward." TextWrapping="Wrap" />
+                    <TextBlock FontSize="12" Foreground="{DynamicResource OpenzaTextSecondaryBrush}" Text="The database and Web app may count toward your Cloudflare plan limits. Openza uses temporary authorization for setup and discards it afterward." TextWrapping="Wrap" />
                 </StackPanel>
             </Border>
 
@@ -42,23 +44,25 @@
 
         <StackPanel x:Name="PairPanel" IsVisible="False" Spacing="16">
             <StackPanel Spacing="6">
-                <TextBlock FontSize="22" FontWeight="SemiBold" Text="Pair this desktop" />
-                <TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="In your Personal Cloud, open Settings and choose Pair a desktop. Then enter the address and one-time code here." TextWrapping="Wrap" />
+                <TextBlock x:Name="PairingTitle" Classes="dialog-title" Text="{Binding PersonalCloudPairTitle}" />
+                <TextBlock Foreground="{DynamicResource OpenzaTextSecondaryBrush}" Text="In your Personal Cloud, open Settings and choose Pair a desktop. Then enter the address and one-time code here." TextWrapping="Wrap" />
             </StackPanel>
-            <TextBox x:Name="ExistingCloudAddress" PlaceholderText="https://your-personal-cloud.workers.dev/" />
-            <TextBox x:Name="ExistingPairingGrant" PlaceholderText="One-time pairing code" />
+            <TextBox AutomationProperties.Name="Personal Cloud address" x:Name="ExistingCloudAddress" PlaceholderText="https://your-personal-cloud.workers.dev/" />
+            <TextBox AutomationProperties.Name="One-time pairing code" x:Name="ExistingPairingGrant" PlaceholderText="One-time pairing code" />
             <CheckBox x:Name="ExistingProviderBridge" IsChecked="True" Content="Allow this desktop to refresh connected provider tasks" />
-            <TextBlock x:Name="PairingError" Foreground="{DynamicResource SystemFillColorCriticalBrush}" IsVisible="False" TextWrapping="Wrap" />
+            <TextBlock x:Name="PairingError" Foreground="{DynamicResource OpenzaDangerBrush}" IsVisible="False" TextWrapping="Wrap" />
+            <TextBlock x:Name="PairingProgressText" Text="{Binding PersonalCloudSummaryText}" IsVisible="{Binding IsPairingInitialSync}" TextWrapping="Wrap"/>
             <StackPanel HorizontalAlignment="Right" Orientation="Horizontal" Spacing="8">
                 <Button Click="OnPairBackClicked" Content="Back" />
-                <Button x:Name="PairExistingButton" Classes="accent" Click="OnConfirmPairExistingClicked" Content="Pair desktop" />
+                <Button x:Name="PairExistingButton" Classes="accent" Click="OnConfirmPairExistingClicked" Content="{Binding PersonalCloudPairActionText}" />
             </StackPanel>
         </StackPanel>
 
         <StackPanel x:Name="ProgressPanel" IsVisible="False" Spacing="16">
             <StackPanel Spacing="6">
-                <TextBlock x:Name="ProgressTitle" FontSize="22" FontWeight="SemiBold" Text="Setting up Personal Cloud" />
-                <TextBlock x:Name="ProgressSummary" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="Openza will resume safely if a step is interrupted." TextWrapping="Wrap" />
+                <TextBlock x:Name="ProgressTitle" Classes="dialog-title" Text="Setting up Personal Cloud" />
+                <TextBlock x:Name="ProgressSummary" Foreground="{DynamicResource OpenzaTextSecondaryBrush}" Text="Openza will resume safely if a step is interrupted." TextWrapping="Wrap" />
+                <TextBlock Text="{Binding InitialSyncSummary}" IsVisible="{Binding HasInitialSyncProgress}" TextWrapping="Wrap"/>
             </StackPanel>
             <ProgressBar x:Name="SetupProgressBar" Minimum="0" Maximum="9" Value="0" />
             <StackPanel Spacing="9">
@@ -80,4 +84,5 @@
             <Button x:Name="CloseButton" HorizontalAlignment="Right" Click="OnCloseClicked" Content="Cancel setup" IsVisible="False" />
         </StackPanel>
     </Grid>
+    </ScrollViewer>
 </Window>

@@ -91,7 +91,7 @@ public interface IPersonalCloudSetupService
     Task RemoveAsync(CancellationToken cancellationToken = default);
 }
 
-public sealed class PersonalCloudSetupService(
+public sealed partial class PersonalCloudSetupService(
     PersonalCloudProvisioningCoordinator coordinator,
     string artifactVersion,
     Func<Uri, CancellationToken, Task>? openOwnerBootstrap = null,
@@ -99,7 +99,7 @@ public sealed class PersonalCloudSetupService(
     PersonalCloudDeviceIdentityClient? deviceIdentity = null,
     HttpClient? syncHttp = null,
     Openza.Tasks.Core.Data.SqliteTaskStore? taskStore = null,
-    PersonalCloudManagementCoordinator? management = null) : IPersonalCloudSetupService, IPersonalCloudProviderBridgeService
+    PersonalCloudManagementCoordinator? management = null) : IPersonalCloudSetupService, IPersonalCloudProviderBridgeService, IPersonalCloudInitialSyncProgressService
 {
     private PersonalCloudProviderBridge CreateProviderBridge()
     {
@@ -151,6 +151,8 @@ public sealed class PersonalCloudSetupService(
                 ArtifactVersion = result.ArtifactVersion,
                 ConnectedAt = DateTimeOffset.UtcNow,
             };
+            if (taskStore is not null)
+                await taskStore.BeginPersonalCloudInitialSyncAsync(connection.InstanceId, connection.DeviceId, CancellationToken.None).ConfigureAwait(false);
             await connectionStore.SaveAsync(connection, cancellationToken).ConfigureAwait(false);
             CurrentConnection = connection;
             await coordinator.ConfirmConnectionSavedAsync(connection, cancellationToken).ConfigureAwait(false);
@@ -159,42 +161,6 @@ public sealed class PersonalCloudSetupService(
             await openOwnerBootstrap(result.OwnerBootstrapUri, cancellationToken).ConfigureAwait(false);
         progress?.Report(new PersonalCloudSetupProgress(PersonalCloudSetupStep.Complete));
         return result;
-    }
-
-    public async Task<PersonalCloudSyncResult> SyncAsync(CancellationToken cancellationToken = default)
-    {
-        using var connectionLease = taskStore is null ? null : PersonalCloudConnectionLease.AcquireAuthoring(taskStore.DatabasePath);
-        var current = CurrentConnection
-            ?? throw new PersonalCloudK0ContractException("not_connected", "Personal Cloud is not connected.");
-        if (deviceIdentity is null || syncHttp is null || taskStore is null)
-            throw new PersonalCloudK0ContractException("sync_unavailable", "Personal Cloud sync is not available in this build.");
-        var client = new PersonalCloudSyncClient(syncHttp, deviceIdentity, taskStore, current);
-        var firstPass = await client.SyncAsync(cancellationToken).ConfigureAwait(false);
-        if (firstPass.BlockedCode is not null) return firstPass;
-        var staged = await taskStore.StageUnpublishedTasksForPersonalCloudAsync(
-            current.InstanceId,
-            current.DeviceId,
-            cancellationToken).ConfigureAwait(false);
-        if (staged == 0) return firstPass;
-        var pushed = firstPass.PushedMutations;
-        var pulled = firstPass.PulledChanges;
-        var checkpoint = firstPass.Checkpoint;
-        while ((await taskStore.GetPendingPersonalCloudOutboxAsync(
-                   current.InstanceId,
-                   current.DeviceId,
-                   cancellationToken).ConfigureAwait(false)).Count > 0)
-        {
-            var pass = await client.SyncAsync(cancellationToken).ConfigureAwait(false);
-            pushed = checked(pushed + pass.PushedMutations);
-            pulled = checked(pulled + pass.PulledChanges);
-            checkpoint = pass.Checkpoint;
-            if (pass.BlockedCode is not null)
-                return new PersonalCloudSyncResult(pushed, pulled, checkpoint) { BlockedCode = pass.BlockedCode };
-        }
-        return new PersonalCloudSyncResult(
-            pushed,
-            pulled,
-            checkpoint);
     }
 
     public async Task<PersonalCloudConnectionProfile> PairExistingAsync(
@@ -224,6 +190,7 @@ public sealed class PersonalCloudSetupService(
         };
         try
         {
+            await taskStore.BeginPersonalCloudInitialSyncAsync(connection.InstanceId, connection.DeviceId, CancellationToken.None).ConfigureAwait(false);
             await connectionStore.SaveAsync(connection, cancellationToken).ConfigureAwait(false);
         }
         catch

@@ -20,7 +20,7 @@ namespace Openza.Tasks.Desktop.Shell;
 
 public sealed partial class MainWindow : Window
 {
-    private const double ExpandedNavigationWidth = 220;
+    private const double ExpandedNavigationWidth = 208;
     private const double CompactNavigationWidth = 64;
     private bool _initialized;
     private bool _changingNavigation;
@@ -39,7 +39,7 @@ public sealed partial class MainWindow : Window
     private bool _pendingListOptionsApply;
     private bool _closingAfterSave;
     private Size _normalWindowSize;
-    private readonly DesktopPreferencesStore _preferencesStore = new();
+    private readonly DesktopPreferencesStore _preferencesStore;
     private readonly DispatcherTimer _automaticSyncTimer = new()
     {
         Interval = TimeSpan.FromMinutes(5),
@@ -52,11 +52,6 @@ public sealed partial class MainWindow : Window
     {
         Interval = TimeSpan.FromMilliseconds(250),
     };
-    private static readonly IBrush LightHoverBrush = new SolidColorBrush(Color.Parse("#F0F3F6"));
-    private static readonly IBrush LightPressedBrush = new SolidColorBrush(Color.Parse("#DDE3EA"));
-    private static readonly IBrush DarkHoverBrush = new SolidColorBrush(Color.Parse("#263447"));
-    private static readonly IBrush DarkPressedBrush = new SolidColorBrush(Color.Parse("#334155"));
-
     public MainWindow()
         : this(new MainWindowViewModel(new SqliteTaskStore(DesktopDataPaths.DatabasePath)))
     {
@@ -64,6 +59,7 @@ public sealed partial class MainWindow : Window
 
     public MainWindow(MainWindowViewModel viewModel)
     {
+        _preferencesStore = viewModel.PreferencesStore;
         InitializeComponent();
         ViewModel = viewModel;
         DataContext = viewModel;
@@ -221,33 +217,6 @@ public sealed partial class MainWindow : Window
         UpdateWorkbenchLayout();
     }
 
-    private void OnInteractiveSurfacePointerEntered(object? sender, PointerEventArgs e) =>
-        SetInteractiveSurface(sender, IsDarkTheme ? DarkHoverBrush : LightHoverBrush);
-
-    private void OnInteractiveSurfacePointerExited(object? sender, PointerEventArgs e) =>
-        SetInteractiveSurface(sender, Brushes.Transparent);
-
-    private void OnInteractiveSurfacePointerPressed(object? sender, PointerPressedEventArgs e) =>
-        SetInteractiveSurface(sender, IsDarkTheme ? DarkPressedBrush : LightPressedBrush);
-
-    private void OnInteractiveSurfacePointerReleased(object? sender, PointerReleasedEventArgs e) =>
-        SetInteractiveSurface(sender, IsDarkTheme ? DarkHoverBrush : LightHoverBrush);
-
-    private bool IsDarkTheme => ActualThemeVariant == ThemeVariant.Dark;
-
-    private static void SetInteractiveSurface(object? sender, IBrush brush)
-    {
-        switch (sender)
-        {
-            case Border border:
-                border.Background = brush;
-                break;
-            case Button button:
-                button.Background = brush;
-                break;
-        }
-    }
-
     private void OnNavigationCollapseClicked(object? sender, RoutedEventArgs e)
     {
         _navigationCollapsed = !_navigationCollapsed;
@@ -257,6 +226,8 @@ public sealed partial class MainWindow : Window
         ToolTip.SetTip(
             NavigationCollapseButton,
             _navigationCollapsed ? "Expand navigation" : "Collapse navigation");
+        Avalonia.Automation.AutomationProperties.SetName(
+            NavigationCollapseButton, _navigationCollapsed ? "Expand navigation" : "Collapse navigation");
         UpdateWorkbenchLayout();
     }
 
@@ -310,8 +281,12 @@ public sealed partial class MainWindow : Window
             (ViewModel.SelectedProject is not null || ViewModel.SelectedNavigation?.Kind == TaskListKind.Open);
         var showDetails = TaskWorkspace.IsVisible && ViewModel.HasSelectedTask && !_connectedPaneOpen;
         var narrow = width < 900;
-        TaskList.Classes.Set("hide-row-actions", showDetails);
-        UpdateTaskFilterLayout(width < 1120 || (width < 1360 && (showDetails || _connectedPaneOpen)));
+        var secondaryWidth = showDetails || _connectedPaneOpen ? Math.Clamp(width * 0.4, 420, 520) : 0;
+        // Three panes must leave enough room for readable task titles and commands.
+        var projectWidth = showProjects && (secondaryWidth == 0 || width >= 1240) ? 280 : 0;
+        var listWidth = narrow ? width : width - secondaryWidth - projectWidth;
+        TaskList.Classes.Set("hide-row-actions", showDetails || listWidth < 640);
+        UpdateTaskFilterLayout(listWidth < 1000);
 
         ProjectsCommand.IsVisible = narrow && showProjects && !showDetails && !_connectedPaneOpen;
 
@@ -349,17 +324,15 @@ public sealed partial class MainWindow : Window
 
         _narrowProjectsOpen = false;
 
-        WorkbenchGrid.ColumnDefinitions[0].Width = showProjects
-            ? new GridLength(width < 1250 ? 300 : 360)
-            : new GridLength(0);
+        WorkbenchGrid.ColumnDefinitions[0].Width = new GridLength(projectWidth);
         WorkbenchGrid.ColumnDefinitions[1].Width = new GridLength(1, GridUnitType.Star);
         WorkbenchGrid.ColumnDefinitions[2].Width = showDetails
-            ? new GridLength(Math.Clamp(width * 0.42, 460, 620))
+            ? new GridLength(secondaryWidth)
             : new GridLength(0);
         WorkbenchGrid.ColumnDefinitions[3].Width = _connectedPaneOpen
-            ? new GridLength(width < 1250 ? 420 : 520)
+            ? new GridLength(secondaryWidth)
             : new GridLength(0);
-        ProjectsPane.IsVisible = showProjects;
+        ProjectsPane.IsVisible = projectWidth > 0;
         TaskListPane.IsVisible = true;
         DetailsPane.IsVisible = showDetails;
         ConnectedPane.IsVisible = _connectedPaneOpen;
@@ -417,7 +390,7 @@ public sealed partial class MainWindow : Window
 
     private async void OnNavigationSelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
-        if (NavigationList.SelectedItem is not NavigationItemViewModel item)
+        if (!_initialized || NavigationList.SelectedItem is not NavigationItemViewModel item)
         {
             return;
         }
@@ -690,6 +663,7 @@ public sealed partial class MainWindow : Window
         TaskWorkspace.IsVisible = false;
         SyncWorkspace.IsVisible = false;
         SettingsWorkspace.IsVisible = true;
+        UpdateWorkspaceNavigation();
         _connectedPaneOpen = false;
         ViewModel.LoadRestorePoints();
         var preferences = _preferencesStore.Load();
@@ -728,6 +702,7 @@ public sealed partial class MainWindow : Window
         TaskWorkspace.IsVisible = false;
         SettingsWorkspace.IsVisible = false;
         SyncWorkspace.IsVisible = true;
+        UpdateWorkspaceNavigation();
         _connectedPaneOpen = false;
     }
 
@@ -794,7 +769,10 @@ public sealed partial class MainWindow : Window
 
     private async void OnListOptionsChanged(object? sender, SelectionChangedEventArgs e)
     {
-        if (!_initialized || _changingNavigation || _changingListFilters)
+        // Each filter has an explicit "all" option. A removed-only selection is
+        // control teardown/rebinding, not a user choice to save the current view.
+        if (e.AddedItems.Count == 0 || !_initialized || _changingNavigation || _changingListFilters ||
+            ViewModel.IsTaskViewPreferenceSaveSuppressed)
         {
             return;
         }
@@ -1007,6 +985,15 @@ public sealed partial class MainWindow : Window
         await SelectTaskAfterSavingAsync(task);
     }
 
+    private void OnRowDateFlyoutOpened(object? sender, EventArgs e)
+    {
+        if (sender is Flyout { Content: Control content, Target.DataContext: TaskListEntryViewModel entry })
+        {
+            // Keep the selected task stable while saving a date refreshes/recycles its row.
+            content.DataContext = entry;
+        }
+    }
+
     private async void OnRowDateChanged(object? sender, SelectionChangedEventArgs e)
     {
         if (sender is CalendarDatePicker { DataContext: TaskListEntryViewModel { Task: { } item }, SelectedDate: { } selectedDate })
@@ -1161,13 +1148,13 @@ public sealed partial class MainWindow : Window
 
     private static bool IsInteractiveElement(object? source)
     {
-        if (source is Button or CheckBox or ComboBox or TextBox or SelectableTextBlock or CalendarDatePicker)
+        if (source is Button or CheckBox or ComboBox or TextBox or CalendarDatePicker)
         {
             return true;
         }
 
         return source is Visual visual && visual.GetVisualAncestors().Any(ancestor =>
-            ancestor is Button or CheckBox or ComboBox or TextBox or SelectableTextBlock or CalendarDatePicker);
+            ancestor is Button or CheckBox or ComboBox or TextBox or CalendarDatePicker);
     }
 
     private async Task<bool> SelectTaskAfterSavingAsync(TaskListItemViewModel task)
@@ -1273,21 +1260,24 @@ public sealed partial class MainWindow : Window
     private async void OnToggleCompletionClicked(object? sender, RoutedEventArgs e)
     {
         e.Handled = true;
-        if (_taskCompletionInProgress || sender is not CheckBox checkbox)
+        if (_taskCompletionInProgress || sender is not Button control)
         {
             return;
         }
 
         _taskCompletionInProgress = true;
-        checkbox.IsEnabled = false;
+        control.IsEnabled = false;
         try
         {
             await ViewModel.ToggleSelectedCompletionAsync();
         }
         finally
         {
-            checkbox.IsChecked = ViewModel.SelectedTask?.Task.IsCompleted;
-            checkbox.IsEnabled = true;
+            if (control is CheckBox checkbox)
+            {
+                checkbox.IsChecked = ViewModel.SelectedTask?.Task.IsCompleted;
+            }
+            control.IsEnabled = true;
             _taskCompletionInProgress = false;
         }
     }
@@ -1375,8 +1365,12 @@ public sealed partial class MainWindow : Window
 
     private async void OnDetailDateChanged(object? sender, SelectionChangedEventArgs e)
     {
-        if (_initialized && ViewModel.HasSelectedTask && !ViewModel.IsUpdatingDetails)
+        if (_initialized && ViewModel.HasSelectedTask && !ViewModel.IsUpdatingDetails && sender is CalendarDatePicker picker)
         {
+            // CalendarDatePicker can raise this event before its two-way binding.
+            // Capture the actual control value, including a cleared date, first.
+            if (ReferenceEquals(picker, DetailDatePicker)) ViewModel.DetailCalendarDate = picker.SelectedDate;
+            else if (ReferenceEquals(picker, DetailDeadlinePicker)) ViewModel.DetailCalendarDeadline = picker.SelectedDate;
             await ViewModel.SaveSelectedAsync();
         }
     }
@@ -1493,7 +1487,15 @@ public sealed partial class MainWindow : Window
         TaskWorkspace.IsVisible = true;
         SyncWorkspace.IsVisible = false;
         SettingsWorkspace.IsVisible = false;
+        UpdateWorkspaceNavigation();
         UpdateWorkbenchLayout();
+    }
+
+    private void UpdateWorkspaceNavigation()
+    {
+        NavigationList.Classes.Set("navigation-inactive", !TaskWorkspace.IsVisible);
+        SettingsNavigationButton.Classes.Set("active", SettingsWorkspace.IsVisible);
+        SyncNavigationButton.Classes.Set("active", SyncWorkspace.IsVisible);
     }
 
     private async void OnSearchCommandClicked(object? sender, RoutedEventArgs e) => await OpenGlobalSearchAsync();
@@ -1543,8 +1545,9 @@ public sealed partial class MainWindow : Window
 
     private void OnShowSkippedChanged(object? sender, RoutedEventArgs e)
     {
-        if (_initialized)
+        if (_initialized && sender is ToggleSwitch toggle)
         {
+            ViewModel.ShowSkippedConnectedTasks = toggle.IsChecked == true;
             ViewModel.ApplyConnectedFilters();
         }
     }
@@ -1639,7 +1642,8 @@ public sealed partial class MainWindow : Window
 
         var dialog = new ConfirmWindow(
             "Restore this database?",
-            "The current database will be replaced after Openza creates a safety restore point.");
+            "The current database will be replaced after Openza creates a safety restore point.",
+            "Restore", showCancel: true);
         if (await dialog.ShowDialog<bool>(this))
         {
             await ViewModel.RestoreDatabaseAsync(path);
@@ -1654,7 +1658,8 @@ public sealed partial class MainWindow : Window
         }
         var dialog = new ConfirmWindow(
             "Restore selected point?",
-            "The current database will be replaced after Openza creates a new safety restore point.");
+            "The current database will be replaced after Openza creates a new safety restore point.",
+            "Restore", showCancel: true);
         if (await dialog.ShowDialog<bool>(this))
         {
             await ViewModel.RestoreSelectedPointAsync();
@@ -1683,7 +1688,7 @@ public sealed partial class MainWindow : Window
     {
         var dialog = new ConfirmWindow(
             "Disconnect Todoist?",
-            "The secure token will be removed from this Linux installation. Existing local tasks remain available.");
+            "The secure token will be removed from this device. Existing local tasks remain available.", "Disconnect", showCancel: true);
         if (await dialog.ShowDialog<bool>(this))
         {
             await ViewModel.DisconnectTodoistAsync();
@@ -1738,7 +1743,7 @@ public sealed partial class MainWindow : Window
     {
         var dialog = new ConfirmWindow(
             "Disconnect GitHub?",
-            "The secure token will be removed from this Linux installation. Existing task-to-issue links remain.");
+            "The secure token will be removed from this device. Existing task-to-issue links remain.", "Disconnect", showCancel: true);
         if (await dialog.ShowDialog<bool>(this))
         {
             await ViewModel.DisconnectGitHubAsync();
@@ -1778,7 +1783,7 @@ public sealed partial class MainWindow : Window
 
         var dialog = new ConfirmWindow(
             "Archive space?",
-            $"{item.Title} will be hidden from normal navigation. Its tasks and projects remain in the database.");
+            $"{item.Title} will be hidden from normal navigation. Its tasks and projects remain in the database.", "Archive", showCancel: true);
         if (await dialog.ShowDialog<bool>(this))
         {
             await ViewModel.ArchiveSpaceAsync(item);

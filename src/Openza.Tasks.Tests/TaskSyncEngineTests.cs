@@ -850,7 +850,8 @@ public sealed class TaskSyncEngineTests : IDisposable
         Assert.Null(refreshed.CompletedAt);
         Assert.Equal(new DateOnly(2026, 7, 6), refreshed.PlannedOn);
         Assert.Equal(new DateOnly(2026, 7, 6), refreshed.SourcePlannedOn);
-        Assert.Equal("every 6th", refreshed.RecurrenceRule);
+        Assert.Equal("every 6th", refreshed.SourceRecurrenceRule);
+        Assert.Null(refreshed.RecurrenceRule);
     }
 
     [Fact]
@@ -880,7 +881,8 @@ public sealed class TaskSyncEngineTests : IDisposable
         Assert.Equal(TaskCompletionState.Open, refreshed.CompletionState);
         Assert.Equal(new DateOnly(2026, 7, 6), refreshed.PlannedOn);
         Assert.Equal(new DateOnly(2026, 7, 6), refreshed.SourcePlannedOn);
-        Assert.Equal("every 6th", refreshed.RecurrenceRule);
+        Assert.Equal("every 6th", refreshed.SourceRecurrenceRule);
+        Assert.Null(refreshed.RecurrenceRule);
     }
 
     private SqliteTaskStore CreateStore()

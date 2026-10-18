@@ -12,7 +12,7 @@ public sealed partial class MainWindow
     private void OnOrganizeSizeChanged(object? sender, SizeChangedEventArgs e)
     {
         if (sender is not Grid grid) return;
-        var narrow = e.NewSize.Width < 560;
+        var narrow = e.NewSize.Width < 400;
         if (_organizeIsNarrow == narrow) return;
         _organizeIsNarrow = narrow;
         grid.ColumnDefinitions = new ColumnDefinitions(narrow ? "*" : "*,*");
@@ -39,6 +39,7 @@ public sealed partial class MainWindow
             Title = "Export selected restore point",
             SuggestedFileName = "openza-restore-point.db",
             DefaultExtension = "db",
+            FileTypeChoices = [new FilePickerFileType("SQLite database") { Patterns = ["*.db"] }],
         });
         if (file?.TryGetLocalPath() is { } path) await ViewModel.ExportSelectedRestorePointAsync(path);
     }

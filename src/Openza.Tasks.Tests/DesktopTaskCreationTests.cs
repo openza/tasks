@@ -8,6 +8,35 @@ namespace Openza.Tasks.Tests;
 
 public sealed class DesktopTaskCreationTests : IDisposable
 {
+    [Fact]
+    public void Row_preserves_both_exact_planned_date_and_deadline()
+    {
+        var row = new TaskListItemViewModel(new TaskItem
+        {
+            PlannedAt = new DateTimeOffset(2026, 10, 17, 12, 30, 0, TimeSpan.Zero),
+            DeadlineOn = new DateOnly(2026, 10, 20),
+        }, null);
+        Assert.Contains(" · Due ", row.DateText);
+        Assert.Contains("20 Oct", row.DateText);
+    }
+
+    [Fact]
+    public async Task All_spaces_selection_survives_restart()
+    {
+        Directory.CreateDirectory(_directory);
+        var store = new SqliteTaskStore(Path.Combine(_directory, "space-restart.db"));
+        var preferences = new DesktopPreferencesStore(Path.Combine(_directory, "space-restart.json"));
+        await preferences.SaveAsync(new() { ShowGetStarted = false, AutomaticSyncEnabled = false });
+        var vm = new MainWindowViewModel(store, new InMemoryCredentialStore(), preferencesStore: preferences);
+        await vm.InitializeAsync();
+        await vm.SelectSpaceAsync(vm.SpaceItems.Single(item => item.SpaceId is null));
+        await vm.SelectNavigationAsync(vm.NavigationItems.Single(item => item.Kind == TaskListKind.Open));
+        var restarted = new MainWindowViewModel(store, new InMemoryCredentialStore(), preferencesStore: preferences);
+        await restarted.InitializeAsync();
+        Assert.Same(restarted.SpaceItems[0], restarted.SelectedSpace);
+        Assert.Equal(TaskListKind.Open, restarted.SelectedNavigation!.Kind);
+    }
+
     private readonly string _directory = Path.Combine(
         Path.GetTempPath(),
         "openza-tasks-desktop-tests",
@@ -64,6 +93,32 @@ public sealed class DesktopTaskCreationTests : IDisposable
         var task = Assert.Single(await store.GetTasksAsync(new TaskQuery { Kind = TaskListKind.Completed }));
         Assert.True(task.IsCompleted);
         Assert.NotNull(task.CompletedAt);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Create_and_open_reveals_task_without_replacing_target_view_saved_filters(bool completed)
+    {
+        var store = await CreateStoreAsync();
+        var preferences = new DesktopPreferencesStore(Path.Combine(_directory, "create-open-filters.json"));
+        var target = completed ? "completed" : "tasks";
+        var key = $"{SpaceIds.Default}|{target}|all";
+        await preferences.SaveAsync(new() { HasSelectedSpace = true, SelectedSpaceId = SpaceIds.Default,
+            ShowGetStarted = false, AutomaticSyncEnabled = false, AutomaticRestorePointsEnabled = false,
+            TaskViewSettings = new() { [key] = new() { PriorityFilterIndex = 1, RepeatFilterIndex = 2 } } });
+        var vm = new MainWindowViewModel(store, new InMemoryCredentialStore(), preferencesStore: preferences);
+        await vm.InitializeAsync();
+        await vm.SelectNavigationAsync(vm.NavigationItems.Single(item => item.Kind == TaskListKind.NextActions));
+        await vm.CreateTaskAsync(new("Reveal created task", "", null, completed ? 4 : 0, 2, null, "", true));
+        Assert.Equal("Reveal created task", vm.SelectedTask!.Task.Title);
+        Assert.Equal(completed ? TaskListKind.Completed : TaskListKind.Open, vm.SelectedNavigation!.Kind);
+        Assert.Equal(0, vm.PriorityFilterIndex); Assert.Equal(0, vm.RepeatFilterIndex);
+        Assert.Equal(1, preferences.Load().TaskViewSettings[key].PriorityFilterIndex);
+        Assert.Equal(2, preferences.Load().TaskViewSettings[key].RepeatFilterIndex);
+        var restarted = new MainWindowViewModel(store, new InMemoryCredentialStore(), preferencesStore: preferences);
+        await restarted.InitializeAsync();
+        Assert.Equal(1, restarted.PriorityFilterIndex); Assert.Equal(2, restarted.RepeatFilterIndex);
     }
 
     [Fact]
@@ -320,7 +375,8 @@ public sealed class DesktopTaskCreationTests : IDisposable
             SourceProjectName = "Work Tasks",
             SourcePriority = 1,
             SourcePlannedOn = new DateOnly(2026, 8, 17),
-            RecurrenceRule = "every weekday",
+            SourceMetadataJson = "{\"recurrenceRule\":\"every weekday\"}",
+            RecurrenceRule = "monthly",
         });
         var viewModel = new MainWindowViewModel(store, new InMemoryCredentialStore());
 
@@ -334,6 +390,7 @@ public sealed class DesktopTaskCreationTests : IDisposable
         Assert.Equal("Work Tasks", viewModel.SourceTaskProject);
         Assert.Equal("Urgent", viewModel.SourceTaskPriority);
         Assert.Equal("every weekday", viewModel.SourceTaskRecurrence);
+        Assert.Equal("monthly", viewModel.SelectedTask!.Task.RecurrenceRule);
     }
 
     [Fact]

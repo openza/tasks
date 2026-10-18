@@ -176,7 +176,7 @@ public static class PersonalCloudK0Mapper
             PlannedAt=task.SourcePlannedAt is null?null:FormatTimestamp(task.SourcePlannedAt.Value),
             DeadlineOn=task.SourceDeadlineOn?.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),
             DeadlineAt=task.SourceDeadlineAt is null?null:FormatTimestamp(task.SourceDeadlineAt.Value),
-            RecurrenceRule=task.RecurrenceRule, RefreshedAt=FormatTimestamp(task.UpdatedAt ?? task.CreatedAt),
+            RecurrenceRule=task.SourceRecurrenceRule, RefreshedAt=FormatTimestamp(task.UpdatedAt ?? task.CreatedAt),
         };
     }
 

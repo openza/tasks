@@ -19,7 +19,8 @@ public sealed partial class MainWindow
             if (!await ViewModel.SaveSelectedAsync()) return;
             if (ViewModel.SelectedGitHubLink is { } link)
             {
-                var dialog = new Window { Title = "GitHub issue", Width = 560, Height = 300, WindowStartupLocation = WindowStartupLocation.CenterOwner };
+                var dialog = new Window { Title = "GitHub issue", Width = 560, SizeToContent = SizeToContent.Height,
+                    ShowInTaskbar = false, CanResize = false, WindowStartupLocation = WindowStartupLocation.CenterOwner };
                 var statusText = "This task is linked to a GitHub issue.";
                 try
                 {
@@ -28,9 +29,12 @@ public sealed partial class MainWindow
                 }
                 catch (Exception exception) { statusText = $"Issue status unavailable: {exception.Message}"; }
                 var open = new Button { Content = "Open issue" }; var replace = new Button { Content = "Replace link" };
-                var remove = new Button { Content = "Remove link" }; var done = new Button { Content = "Done" };
+                var remove = new Button { Content = "Remove link" }; var done = new Button { Content = "Done", IsCancel = true };
+                open.Classes.Add("accent");
+                foreach (var button in new[] { open, replace, remove, done }) button.Margin = new Thickness(0, 0, 8, 0);
                 dialog.Content = new StackPanel { Margin = new Thickness(24), Spacing = 14, Children =
-                { new TextBlock { Text = statusText, TextWrapping = TextWrapping.Wrap }, new TextBlock { Text = link.DisplayName },
+                { new TextBlock { Text = "GitHub issue", Classes = { "dialog-title" } },
+                  new TextBlock { Text = statusText, TextWrapping = TextWrapping.Wrap }, new TextBlock { Text = link.DisplayName, TextWrapping = TextWrapping.Wrap },
                   new TextBlock { Text = link.Url, TextWrapping = TextWrapping.Wrap },
                   new WrapPanel { Orientation = Orientation.Horizontal, Children = { open, replace, remove, done } } } };
                 open.Click += (_, _) => dialog.Close("open"); replace.Click += (_, _) => dialog.Close("replace");

@@ -13,7 +13,7 @@
             <SolidColorBrush x:Key="OpenzaSeparatorBrush" Color="#E5EAF0" />
             <SolidColorBrush x:Key="OpenzaTextPrimaryBrush" Color="#111827" />
             <SolidColorBrush x:Key="OpenzaTextSecondaryBrush" Color="#475569" />
-            <SolidColorBrush x:Key="OpenzaTextTertiaryBrush" Color="#64748B" />
+            <SolidColorBrush x:Key="OpenzaTextTertiaryBrush" Color="#526177" />
             <SolidColorBrush x:Key="OpenzaRowBackgroundBrush" Color="#00FFFFFF" />
             <SolidColorBrush x:Key="OpenzaRowHoverBrush" Color="#F0F3F6" />
             <SolidColorBrush x:Key="OpenzaRowSelectedBrush" Color="#E9EDF2" />
@@ -39,7 +39,7 @@
             <SolidColorBrush x:Key="OpenzaSeparatorBrush" Color="#253044" />
             <SolidColorBrush x:Key="OpenzaTextPrimaryBrush" Color="#E5E7EB" />
             <SolidColorBrush x:Key="OpenzaTextSecondaryBrush" Color="#94A3B8" />
-            <SolidColorBrush x:Key="OpenzaTextTertiaryBrush" Color="#64748B" />
+            <SolidColorBrush x:Key="OpenzaTextTertiaryBrush" Color="#94A3B8" />
             <SolidColorBrush x:Key="OpenzaRowBackgroundBrush" Color="#00FFFFFF" />
             <SolidColorBrush x:Key="OpenzaRowHoverBrush" Color="#172033" />
             <SolidColorBrush x:Key="OpenzaRowSelectedBrush" Color="#223044" />
@@ -58,11 +58,14 @@
     </ResourceDictionary.ThemeDictionaries>
 
     <Thickness x:Key="OpenzaPagePadding">28</Thickness>
+    <!-- Fluent applies this resource directly inside its TextBox template. -->
+    <x:Double x:Key="TextControlPlaceholderOpacity">1</x:Double>
     <Thickness x:Key="OpenzaPanePadding">24</Thickness>
-    <CornerRadius x:Key="OpenzaControlCornerRadius">4</CornerRadius>
+    <CornerRadius x:Key="OpenzaControlCornerRadius">6</CornerRadius>
     <CornerRadius x:Key="OpenzaRowCornerRadius">6</CornerRadius>
     <CornerRadius x:Key="OpenzaCardCornerRadius">7</CornerRadius>
-    <x:Double x:Key="OpenzaPageTitleSize">28</x:Double>
+    <x:Double x:Key="OpenzaPageTitleSize">26</x:Double>
+    <x:Double x:Key="OpenzaDialogTitleSize">22</x:Double>
     <x:Double x:Key="OpenzaSectionTitleSize">16</x:Double>
     <x:Double x:Key="OpenzaBodySize">14</x:Double>
     <x:Double x:Key="OpenzaMetadataSize">12</x:Double>

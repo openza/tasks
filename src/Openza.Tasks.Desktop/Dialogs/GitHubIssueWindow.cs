@@ -11,7 +11,8 @@ public sealed class GitHubIssueWindow : Window
 {
     public GitHubIssueWindow(MainWindowViewModel viewModel, GitHubIssueDraft draft)
     {
-        Title = "Create GitHub issue"; Width = 660; Height = 700; WindowStartupLocation = WindowStartupLocation.CenterOwner;
+        Title = "Create GitHub issue"; Width = 660; Height = 700; MinWidth = 520; MinHeight = 480;
+        ShowInTaskbar = false; WindowStartupLocation = WindowStartupLocation.CenterOwner;
         var repositorySearch = new TextBox { PlaceholderText = "Find repository" };
         var repositories = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch };
         var title = new TextBox { Text = draft.Title };
@@ -19,13 +20,25 @@ public sealed class GitHubIssueWindow : Window
         var labels = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch, ItemsSource = new[] { "No label" }, SelectedIndex = 0 };
         var status = new TextBlock { TextWrapping = TextWrapping.Wrap };
         var create = new Button { Content = "Create issue" }; var cancel = new Button { Content = "Cancel" };
-        Content = new ScrollViewer { Content = new StackPanel { Margin = new Thickness(24), Spacing = 10, Children =
+        create.Classes.Add("accent");
+        cancel.IsCancel = true;
+        Avalonia.Automation.AutomationProperties.SetName(repositorySearch, "Find repository");
+        Avalonia.Automation.AutomationProperties.SetName(repositories, "Repository");
+        Avalonia.Automation.AutomationProperties.SetName(title, "Issue title");
+        Avalonia.Automation.AutomationProperties.SetName(body, "Issue body");
+        Avalonia.Automation.AutomationProperties.SetName(labels, "Issue label");
+        var form = new ScrollViewer { Content = new StackPanel { Margin = new Thickness(24), Spacing = 12, Children =
         {
-            new TextBlock { Text = "Create GitHub issue", FontSize = 24 }, repositorySearch, repositories,
+            new TextBlock { Text = "Create GitHub issue", Classes = { "dialog-title" } }, repositorySearch, repositories,
             new TextBlock { Text = "Title" }, title, new TextBlock { Text = "Body" }, body,
-            new TextBlock { Text = "Label" }, labels, status,
-            new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { create, cancel } },
+            new TextBlock { Text = "Label" }, labels,
         } } };
+        var actions = new StackPanel { Margin = new Thickness(24, 12), HorizontalAlignment = HorizontalAlignment.Right,
+            Orientation = Orientation.Horizontal, Spacing = 8, Children = { cancel, create } };
+        var feedback = new ScrollViewer { MaxHeight = 96, Margin = new Thickness(24, 0), Content = status };
+        Grid.SetRow(feedback, 1);
+        Grid.SetRow(actions, 2);
+        Content = new Grid { RowDefinitions = new RowDefinitions("*,Auto,Auto"), Children = { form, feedback, actions } };
         var loadingVersion = 0; var submitting = false;
         Closing += (_, args) => { if (submitting) args.Cancel = true; };
         repositorySearch.TextChanged += (_, _) =>
