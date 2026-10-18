@@ -124,7 +124,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             };
         _taskService = new TaskApplicationService(store, () => _personalCloudSetup?.CurrentConnection);
         _credentials = credentials;
-        _microsoftAuth = microsoftAuth ?? new DesktopMicrosoftAuthService(credentials);
+        _microsoftAuth = microsoftAuth ?? new DesktopMicrosoftAuthService(_credentials);
         _microsoftSyncProviderFactory = microsoftSyncProviderFactory ?? (token => new MicrosoftToDoProvider(_httpClient, token));
         _cloudService = cloudService;
         _gitHubIssueService = gitHubIssueService ?? new GitHubIssueService(_httpClient);
@@ -139,7 +139,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         _todoistMoveProviderFactory = todoistMoveProviderFactory ??
             ((token, connectionId) => new TodoistProvider(_httpClient, token, connectionId));
         _connectedSync = new ConnectedSyncApplicationService(store,
-            new DesktopSyncProviderResolver(credentials, _preferencesStore, _microsoftAuth,
+            new DesktopSyncProviderResolver(_credentials, _preferencesStore, _microsoftAuth,
                 _todoistSyncProviderFactory, _microsoftSyncProviderFactory),
             DesktopDataPaths.Runtime, _personalCloudSetup);
         _backupService = new Lazy<BackupService?>(() => backupService ?? (store is SqliteTaskStore sqliteStore

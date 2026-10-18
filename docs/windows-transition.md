@@ -31,6 +31,17 @@ The local feat/windows-continuity branch develops the Dev implementation preserv
 
 The Windows branch contains the continuity Application contracts, Desktop Services/Continuity adapters/coordinator, WinUiSettingsConverter and WindowsContinuity tests. Development keeps the existing Dev gate; it does not enable another channel or authorize installed-package replacement.
 
+## Cleanup composition readiness for later integration
+
+The cleanup branch composes its sync resolver and default Microsoft auth from the view model's resolved `_credentials`, and passes resolved `_microsoftAuth` and `_personalCloudSetup` onward. [Guarded dependency tests](../src/Openza.Tasks.Tests/GuardedDependencyCompositionTests.cs) check compiled wiring, runtime identity, synthetic inhibited manual/automatic sync, local edits/pending intent and unchanged preferences/pairing, plus a healthy control. Raw and resolved credentials are identical on the cleanup branch today; the compiled-wiring check prevents a future guard from being bypassed by a retained raw constructor argument. This is dependency-contract coverage, not an actual Windows session integration test.
+
+After separately approved source integration:
+
+- Retain the Windows branch's early `EnsureCloudAccess` and recovery-required checks before save/provider resolution in the shared manual/automatic sync path.
+- Resolve session credentials first; construct default Microsoft auth and the resolver from `_credentials`. Retain resolved `_microsoftAuth` and the guarded `_personalCloudSetup` for sync, task operations and progress subscription. Do not substitute the raw constructor dependencies.
+- Run actual `WindowsContinuitySession` composition regressions: inhibited startup/manual/automatic sync must reach no underlying vault, provider or cloud operation while preserving local reads/edits, pending intent, preferences and pairing. Verify a healthy new session separately.
+- Keep Windows native packaging, vault/sign-in, installed-app and real-provider acceptance behind their later explicit gates. Synthetic contract tests and C# compilation do not close those gates.
+
 ## DateScope source evidence
 
 Current WinUI [TasksPage](../src/Openza.Tasks/Pages/TasksPage.xaml.cs) returns All for DateScopeFilter and its setter exposes no other mode. [AppShell](../src/Openza.Tasks/Shell/AppShell.xaml.cs) initializes/resets to All and persists that getter; the [Core enum](../src/Openza.Tasks.Core/Data/TaskQuery.cs) contains only All. The inspected repository history introduces these paths in 58e6a36 with the same restriction. This establishes the checked WinUI writer behavior, not every historical released or manually edited settings file. Unknown persisted values must not be silently reinterpreted; conversion retains the original and rejects unsupported DateScope values. No installed settings were inspected.
