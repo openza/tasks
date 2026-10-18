@@ -702,7 +702,9 @@ public sealed partial class DesktopControlBehaviorTests(EditorTestSession fixtur
         var preferences = new DesktopPreferencesStore(Path.Combine(directory, "settings.json"));
         await preferences.SaveAsync(new() { AutomaticSyncEnabled = false, AutomaticRestorePointsEnabled = false, ShowGetStarted = false });
         var vm = new MainWindowViewModel(store, new InMemoryCredentialStore(), preferencesStore: preferences);
-        var window = new MainWindow(vm) { Width = 1440, Height = 900, WindowState = WindowState.Normal };
+        // Headless has no OS theme; resolve theme brushes before rendering/hit testing.
+        var window = new MainWindow(vm) { Width = 1440, Height = 900, WindowState = WindowState.Normal,
+            RequestedThemeVariant = Avalonia.Styling.ThemeVariant.Light };
         try
         {
             window.Show(); await Until(() => vm.StatusMessage.StartsWith("Local data") && !vm.IsBusy);

@@ -88,10 +88,14 @@
     <Style Selector="Border.settings-card TextBlock">
         <Setter Property="TextWrapping" Value="Wrap" />
     </Style>
-    <Style Selector="Border.settings-card Expander">
+    <Style Selector="Button.menu-row">
+        <Setter Property="HorizontalAlignment" Value="Stretch" />
+        <Setter Property="HorizontalContentAlignment" Value="Left" />
+    </Style>
+    <Style Selector="Expander">
         <Setter Property="HorizontalAlignment" Value="Stretch" />
     </Style>
-    <Style Selector="Border.settings-card Expander /template/ ToggleButton#ExpanderHeader">
+    <Style Selector="Expander /template/ ToggleButton#ExpanderHeader">
         <Setter Property="HorizontalAlignment" Value="Stretch" />
         <Setter Property="HorizontalContentAlignment" Value="Stretch" />
     </Style>

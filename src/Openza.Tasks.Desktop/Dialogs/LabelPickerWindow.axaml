@@ -18,9 +18,17 @@
         </StackPanel>
         <TextBox x:Name="SearchBox" Grid.Row="1" Margin="24,0,24,12" AutomationProperties.Name="Find labels" PlaceholderText="Find labels" TextChanged="OnSearchChanged" />
         <ListBox x:Name="LabelsList" Grid.Row="2" Margin="18,0" AutomationProperties.Name="Available labels">
+            <ListBox.Styles>
+                <Style Selector="ListBoxItem">
+                    <Setter Property="Padding" Value="0" />
+                    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                </Style>
+            </ListBox.Styles>
             <ListBox.ItemTemplate>
                 <DataTemplate>
-                    <CheckBox Margin="8,6" Content="{Binding Name}" IsChecked="{Binding IsSelected, Mode=TwoWay}" />
+                    <CheckBox Padding="16,10" HorizontalAlignment="Stretch" Background="Transparent" IsChecked="{Binding IsSelected, Mode=TwoWay}">
+                        <TextBlock Text="{Binding Name}" TextWrapping="Wrap" />
+                    </CheckBox>
                 </DataTemplate>
             </ListBox.ItemTemplate>
         </ListBox>

@@ -135,6 +135,7 @@
                                     <DataTemplate>
                                         <Button
                                             MinWidth="180"
+                                            Classes="menu-row"
                                             Padding="12,8"
                                             HorizontalContentAlignment="Left"
                                             Click="OnCompactSpaceSelected">
@@ -269,7 +270,7 @@
                                 <Button Width="42" Height="40" Padding="0" Classes="command" AutomationProperties.Name="More actions" ToolTip.Tip="More actions">
                                     <ic:FluentIcon Icon="MoreHorizontal" FontSize="20" />
                                     <Button.Flyout>
-                                        <Flyout><StackPanel MinWidth="150"><Button HorizontalContentAlignment="Left" Click="OnImportClicked" Content="Import Markdown"/><Button HorizontalContentAlignment="Left" Click="OnExportClicked" Content="Export Markdown"/></StackPanel></Flyout>
+                                        <Flyout><StackPanel MinWidth="150"><Button Classes="menu-row" Click="OnImportClicked" Content="Import Markdown"/><Button Classes="menu-row" Click="OnExportClicked" Content="Export Markdown"/></StackPanel></Flyout>
                                     </Button.Flyout>
                                 </Button>
                             </StackPanel>
@@ -383,7 +384,7 @@
                                 <ListBox.ItemTemplate>
                                     <DataTemplate>
                                         <Grid>
-                                            <Button Margin="0,14,0,7" Padding="10,6" HorizontalContentAlignment="Stretch" Background="{DynamicResource OpenzaChipBackgroundBrush}" BorderBrush="{DynamicResource OpenzaSeparatorBrush}" BorderThickness="1" CornerRadius="{DynamicResource OpenzaControlCornerRadius}" IsVisible="{Binding IsHeader}" AutomationProperties.Name="{Binding GroupTitle}" Click="OnTaskGroupHeaderClicked">
+                                            <Button Margin="0,14,0,7" Padding="10,6" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Background="{DynamicResource OpenzaChipBackgroundBrush}" BorderBrush="{DynamicResource OpenzaSeparatorBrush}" BorderThickness="1" CornerRadius="{DynamicResource OpenzaControlCornerRadius}" IsVisible="{Binding IsHeader}" AutomationProperties.Name="{Binding GroupTitle}" Click="OnTaskGroupHeaderClicked">
                                                 <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
                                                     <TextBlock VerticalAlignment="Center" FontSize="13" Foreground="{DynamicResource OpenzaTextSecondaryBrush}" Text="{Binding GroupExpandGlyph}" />
                                                     <TextBlock Grid.Column="1" FontSize="14" FontWeight="SemiBold" Text="{Binding GroupTitle}" />
@@ -607,7 +608,7 @@
                             <Border Grid.Row="2" Padding="18,14" BorderBrush="{DynamicResource OpenzaSeparatorBrush}" BorderThickness="0,1,0,0">
                                 <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="10">
                                     <Button Grid.Column="1" Content="Move to space">
-                                        <Button.Flyout><Flyout><ItemsControl ItemsSource="{Binding EditableSpaceItems}"><ItemsControl.ItemTemplate><DataTemplate><Button MinWidth="160" HorizontalContentAlignment="Left" Click="OnMoveTaskToSpaceClicked" Content="{Binding Title}"/></DataTemplate></ItemsControl.ItemTemplate></ItemsControl></Flyout></Button.Flyout>
+                                        <Button.Flyout><Flyout><ItemsControl ItemsSource="{Binding EditableSpaceItems}"><ItemsControl.ItemTemplate><DataTemplate><Button MinWidth="160" Classes="menu-row" Click="OnMoveTaskToSpaceClicked" Content="{Binding Title}"/></DataTemplate></ItemsControl.ItemTemplate></ItemsControl></Flyout></Button.Flyout>
                                     </Button>
                                     <Button Grid.Column="2" Click="OnDeleteTaskClicked" Content="Delete"/>
                                     <Button Grid.Column="3" Click="OnToggleCompletionClicked" Content="{Binding CompletionActionText}"/>
@@ -621,7 +622,7 @@
                         <Grid RowDefinitions="Auto,Auto,Auto,* ,Auto">
                             <Grid Margin="28,30,20,10" ColumnDefinitions="*,Auto"><StackPanel Spacing="8"><TextBlock FontSize="24" FontWeight="SemiBold" Text="Connected app tasks"/><TextBlock MaxWidth="420" Foreground="{DynamicResource OpenzaTextSecondaryBrush}" Text="{Binding ConnectedTasksSummary}" TextWrapping="Wrap"/></StackPanel><Button Grid.Column="1" Width="44" Height="44" Padding="0" AutomationProperties.Name="Close connected app tasks" Click="OnCloseConnectedTasksClicked" ToolTip.Tip="Close"><ic:FluentIcon Icon="DismissCircle" FontSize="20"/></Button></Grid>
                             <TextBox AutomationProperties.Name="Search connected tasks" x:Name="ConnectedSearchBox" Grid.Row="1" Height="36" Margin="28,4,28,10" PlaceholderText="Search" TextChanged="OnConnectedSearchChanged"/>
-                            <StackPanel Grid.Row="2" Margin="28,0,28,10" Orientation="Horizontal" Spacing="12"><ComboBox AutomationProperties.Name="Connected task source" Width="145" ItemsSource="{Binding ConnectedSourceOptions}" SelectedIndex="{Binding ConnectedSourceFilterIndex, Mode=TwoWay}" SelectionChanged="OnConnectedFilterChanged"/><ComboBox AutomationProperties.Name="Connected task list" Width="145" ItemsSource="{Binding ConnectedProjectOptions}" SelectedIndex="{Binding ConnectedProjectFilterIndex, Mode=TwoWay}" SelectionChanged="OnConnectedFilterChanged"/><ToggleSwitch AutomationProperties.Name="Show skipped connected tasks" VerticalAlignment="Center" OnContent="Skipped shown" OffContent="Skipped hidden" IsChecked="{Binding ShowSkippedConnectedTasks, Mode=TwoWay}" IsCheckedChanged="OnShowSkippedChanged"/></StackPanel>
+                            <WrapPanel Grid.Row="2" Margin="28,0,28,2" Orientation="Horizontal"><ComboBox Margin="0,0,12,8" AutomationProperties.Name="Connected task source" Width="145" ItemsSource="{Binding ConnectedSourceOptions}" SelectedIndex="{Binding ConnectedSourceFilterIndex, Mode=TwoWay}" SelectionChanged="OnConnectedFilterChanged"/><ComboBox Margin="0,0,12,8" AutomationProperties.Name="Connected task list" Width="145" ItemsSource="{Binding ConnectedProjectOptions}" SelectedIndex="{Binding ConnectedProjectFilterIndex, Mode=TwoWay}" SelectionChanged="OnConnectedFilterChanged"/><ToggleSwitch Margin="0,0,0,8" AutomationProperties.Name="Show skipped connected tasks" VerticalAlignment="Center" OnContent="Skipped shown" OffContent="Skipped hidden" IsChecked="{Binding ShowSkippedConnectedTasks, Mode=TwoWay}" IsCheckedChanged="OnShowSkippedChanged"/></WrapPanel>
                             <ListBox AutomationProperties.Name="Connected tasks" Grid.Row="3" Margin="18,0" Background="Transparent" BorderThickness="0" ItemsSource="{Binding FilteredConnectedTasks}"><ListBox.ItemTemplate><DataTemplate><Border Padding="12,16" BorderBrush="{DynamicResource OpenzaSeparatorBrush}" BorderThickness="0,0,0,1"><Grid ColumnDefinitions="*,Auto" ColumnSpacing="12"><StackPanel Spacing="5"><TextBlock FontWeight="SemiBold" MaxLines="3" Text="{Binding Title}" TextTrimming="CharacterEllipsis" TextWrapping="Wrap"/><StackPanel Orientation="Horizontal" Spacing="6"><Border Padding="7,1" Background="{DynamicResource OpenzaChipBackgroundBrush}" CornerRadius="8"><TextBlock FontSize="12" Text="{Binding SourceName}"/></Border><TextBlock VerticalAlignment="Center" FontSize="13" Foreground="{DynamicResource OpenzaTextSecondaryBrush}" MaxLines="1" Text="{Binding MetadataText}" TextTrimming="CharacterEllipsis"/></StackPanel><TextBlock FontSize="13" Foreground="{DynamicResource OpenzaTextSecondaryBrush}" MaxLines="2" Text="{Binding Description}" TextTrimming="CharacterEllipsis" TextWrapping="Wrap"/></StackPanel><StackPanel Grid.Column="1" VerticalAlignment="Center" Orientation="Horizontal" Spacing="8"><Button Click="OnConnectedPrimaryClicked" Content="{Binding PrimaryActionText}"/><Button IsEnabled="{Binding CanSkip}" Click="OnConnectedSkipClicked" Content="{Binding SecondaryActionText}" ToolTip.Tip="Hide from Inbox intake"/></StackPanel></Grid></Border></DataTemplate></ListBox.ItemTemplate></ListBox>
                             <Border Grid.Row="4" Padding="18,14" BorderBrush="{DynamicResource OpenzaSeparatorBrush}" BorderThickness="0,1,0,0"><Button HorizontalAlignment="Right" Classes="primary-command" IsEnabled="{Binding CanAddAllConnectedTasks}" Click="OnAddAllConnectedClicked" Content="Add all to Inbox"/></Border>
                         </Grid>
@@ -804,12 +805,12 @@
             </ScrollViewer>
 
             <Border x:Name="StatusOverlay" Grid.ColumnSpan="2" MinWidth="320" MaxWidth="560" Margin="20,16" Padding="12,8" HorizontalAlignment="Right" VerticalAlignment="Bottom" Background="{DynamicResource OpenzaElevatedSurfaceBrush}" BorderBrush="{DynamicResource OpenzaBorderBrush}" BorderThickness="1" CornerRadius="6" IsVisible="False">
-                <StackPanel Orientation="Horizontal" Spacing="10">
+                <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="10">
                     <ProgressBar Width="72" Height="4" VerticalAlignment="Center" IsIndeterminate="True" IsVisible="{Binding IsBusy}"/>
-                    <ic:FluentIcon Icon="Warning" FontSize="17" IsVisible="{Binding IsStatusMessagePersistent}" />
-                    <TextBlock MaxWidth="460" VerticalAlignment="Center" FontSize="12" Text="{Binding StatusMessage}" TextWrapping="Wrap"/>
-                    <Button Width="28" Height="28" Padding="0" Classes="quiet" Click="OnDismissStatusClicked" IsVisible="{Binding IsStatusMessagePersistent}" ToolTip.Tip="Dismiss"><ic:FluentIcon Icon="DismissCircle" FontSize="15" /></Button>
-                </StackPanel>
+                    <ic:FluentIcon Grid.Column="1" Icon="Warning" FontSize="17" VerticalAlignment="Center" IsVisible="{Binding IsStatusMessagePersistent}" />
+                    <TextBlock Grid.Column="2" VerticalAlignment="Center" FontSize="12" Text="{Binding StatusMessage}" TextWrapping="Wrap"/>
+                    <Button Grid.Column="3" Width="36" Height="36" Padding="0" Classes="quiet" AutomationProperties.Name="Dismiss notification" Click="OnDismissStatusClicked" IsVisible="{Binding IsStatusMessagePersistent}" ToolTip.Tip="Dismiss"><ic:FluentIcon Icon="DismissCircle" FontSize="15" /></Button>
+                </Grid>
             </Border>
         </Grid>
     </Grid>
