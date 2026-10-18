@@ -17,7 +17,7 @@ public static class DesktopPersonalCloudSetup
         var artifactDirectory = Path.Combine(AppContext.BaseDirectory, "PersonalCloudArtifact");
         if (string.IsNullOrWhiteSpace(clientId) || scopes.Length == 0 || !Uri.TryCreate(redirect, UriKind.Absolute, out var redirectUri) ||
             !File.Exists(Path.Combine(artifactDirectory, "artifact-manifest.json"))) return null;
-        return PersonalCloudSetupFactory.Create(
+        var service = PersonalCloudSetupFactory.Create(
             clientId,
             scopes,
             redirectUri,
@@ -29,6 +29,7 @@ public static class DesktopPersonalCloudSetup
             OpenBrowserAsync,
             WindowsContinuityHost.Session is { } session && new DesktopPreferencesStore(session.SettingsPath).Load().WindowsCloudRecoveryRequired
                 ? new WindowsRecoveryConnectionStore(session.Data.ConnectionPath) : null);
+        return WindowsContinuityHost.Session is { } active ? active.GuardCloudService(service) : service;
     }
 
     private static Task OpenBrowserAsync(Uri uri, CancellationToken cancellationToken)

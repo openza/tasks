@@ -61,13 +61,20 @@ public sealed class WindowsContinuityCoordinator
             try
             {
                 var currentProfile = await ValidateCloudStateAsync(data, cancellationToken).ConfigureAwait(false);
-                if (currentProfile is not null) await WindowsCredentialContinuity.ValidateCloudAsync(currentProfile, session.Credentials, cancellationToken).ConfigureAwait(false);
+                if (currentProfile is not null)
+                {
+                    try { await WindowsCredentialContinuity.ValidateCloudAsync(currentProfile, session.Credentials, cancellationToken).ConfigureAwait(false); }
+                    catch (Exception exception) when (exception is System.Runtime.InteropServices.COMException or UnauthorizedAccessException)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        session.InhibitCloudAccess();
+                        return;
+                    }
+                }
             }
             catch (Exception exception) when (exception is WindowsContinuityException or PersonalCloudK0ContractException)
             { recoveryRequired = true; }
-            // A vault/COM or file-access failure is not evidence of an invalid
-            // identity. Let it stop this startup for retry before preferences are
-            // changed. Cancellation likewise propagates without durable recovery.
+            // Metadata/file failures and cancellation are not credential outages.
             var preferencesStore = new DesktopPreferencesStore(session.SettingsPath);
             var currentPreferences = preferencesStore.Load();
             if (recoveryRequired)
@@ -84,6 +91,7 @@ public sealed class WindowsContinuityCoordinator
                     WindowsCloudRecoveryRequired = false,
                     WindowsContinuityNotices = value.WindowsContinuityNotices.Where(notice => notice != CloudRecoveryNotice).ToArray(),
                 }).ConfigureAwait(false);
+            session.CompletePreparation();
             return;
         }
         var profile = await ValidateCloudStateAsync(data, cancellationToken).ConfigureAwait(false);
@@ -113,6 +121,7 @@ public sealed class WindowsContinuityCoordinator
         checkpoint?.Invoke("settings-applied");
         await WriteImmutableAsync(completed, JsonSerializer.SerializeToUtf8Bytes(new Completion(1, Hash(converted)), Json), cancellationToken).ConfigureAwait(false);
         checkpoint?.Invoke("complete");
+        session.CompletePreparation();
     }
 
     private static async Task CreateArchiveAsync(WindowsContinuitySession session, string archive, CancellationToken cancellationToken)

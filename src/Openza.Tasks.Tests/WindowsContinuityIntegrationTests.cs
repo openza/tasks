@@ -10,7 +10,8 @@ using Openza.Tasks.Desktop.Services.Continuity;
 
 namespace Openza.Tasks.Tests;
 
-public sealed class WindowsContinuityIntegrationTests : IDisposable
+[Collection(nameof(EditorTestCollection))]
+public sealed partial class WindowsContinuityIntegrationTests(EditorTestSession fixture) : IDisposable
 {
     private const string ClientId = "11111111-1111-4111-8111-111111111111";
     private readonly string _root = Path.Combine(Path.GetTempPath(), $"openza-windows-transition-{Guid.NewGuid():N}");
@@ -260,9 +261,8 @@ public sealed class WindowsContinuityIntegrationTests : IDisposable
                 _ => new OperationCanceledException(new CancellationToken(true)),
             };
             var failure = await Record.ExceptionAsync(() => PrepareAsync(session, platform));
-            if (kind == "com") Assert.IsType<System.Runtime.InteropServices.COMException>(failure);
-            else if (kind == "access") Assert.IsType<UnauthorizedAccessException>(failure);
-            else Assert.IsAssignableFrom<OperationCanceledException>(failure);
+            if (kind == "cancel") Assert.IsAssignableFrom<OperationCanceledException>(failure);
+            else { Assert.Null(failure); Assert.True(session.CloudAccessInhibited); }
             Assert.Equal(savedSettings, await File.ReadAllBytesAsync(session.SettingsPath));
             Assert.False(preferences.Load().WindowsCloudRecoveryRequired);
             Assert.Equal(syncEnabled, preferences.Load().AutomaticSyncEnabled);

@@ -53,6 +53,12 @@ public sealed partial class MainWindowViewModel
 
     private async Task RefreshInitialSyncProgressAsync()
     {
+        if (SessionCloudNotice is { } notice)
+        {
+            PersonalCloudStatusText = "Paused";
+            PersonalCloudSummaryText = notice;
+            return;
+        }
         if (_personalCloudSetup is IPersonalCloudInitialSyncProgressService service)
         {
             if (await service.GetInitialSyncProgressAsync() is { } progress) ApplyInitialSyncProgress(progress);
@@ -325,6 +331,7 @@ public sealed partial class MainWindowViewModel
 
     public Task OpenPersonalCloudSettingsAsync(CancellationToken cancellationToken = default)
     {
+        _continuitySession?.EnsureCloudAccess();
         var current = _personalCloudSetup?.CurrentConnection
             ?? throw new PersonalCloudK0ContractException("not_connected", "Personal Cloud is not connected.");
         return OpenUriAsync(new Uri(current.ServiceOrigin, "/settings"), cancellationToken);

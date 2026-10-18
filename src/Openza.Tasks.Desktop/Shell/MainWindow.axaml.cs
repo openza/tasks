@@ -126,6 +126,7 @@ public sealed partial class MainWindow : Window
         }
         var continuityNotices = _preferencesStore.Load().WindowsContinuityNotices;
         if (continuityNotices.Count > 0) ViewModel.ReportError(string.Join(" ", continuityNotices));
+        if (ViewModel.SessionCloudNotice is { } sessionNotice) ViewModel.ReportError(sessionNotice);
         if (ViewModel.StartupView == "Settings") OnSettingsClicked(this, new RoutedEventArgs());
         else if (ViewModel.StartupView == "Sync") OnSyncNavigationClicked(this, new RoutedEventArgs());
         if (ViewModel.AutomaticSyncEnabled) OnAutomaticSyncTick(this, EventArgs.Empty);

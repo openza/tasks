@@ -49,7 +49,7 @@ public sealed class NativeWindowsContinuityPlatform : IWindowsContinuityPlatform
 
     private sealed class VaultStore(string resource, bool legacyCloudOnly) : ICredentialStore
     {
-        private readonly PasswordVault _vault = new();
+        private readonly Lazy<PasswordVault> _vault = new(() => new PasswordVault());
         private static bool Missing(COMException exception) => exception.HResult == unchecked((int)0x80070490);
         public Task<string?> GetAsync(string key, CancellationToken cancellationToken = default)
         {
@@ -59,7 +59,7 @@ public sealed class NativeWindowsContinuityPlatform : IWindowsContinuityPlatform
                 throw new WindowsContinuityException("Legacy credentials without channel ownership cannot be imported. Reconnect the provider.");
             try
             {
-                var credential = _vault.Retrieve(resource, key);
+                var credential = _vault.Value.Retrieve(resource, key);
                 credential.RetrievePassword();
                 return Task.FromResult<string?>(credential.Password);
             }
@@ -71,14 +71,14 @@ public sealed class NativeWindowsContinuityPlatform : IWindowsContinuityPlatform
             if (legacyCloudOnly) throw new InvalidOperationException("The legacy credential reader is read-only.");
             // PasswordVault.Add replaces the same resource/userName entry. Never
             // remove first: a failed replacement must leave the old entry intact.
-            _vault.Add(new PasswordCredential(resource, key, value));
+            _vault.Value.Add(new PasswordCredential(resource, key, value));
             return Task.CompletedTask;
         }
         public Task RemoveAsync(string key, CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (legacyCloudOnly) throw new InvalidOperationException("The legacy credential reader is read-only.");
-            try { _vault.Remove(_vault.Retrieve(resource, key)); }
+            try { _vault.Value.Remove(_vault.Value.Retrieve(resource, key)); }
             catch (COMException exception) when (Missing(exception)) { }
             return Task.CompletedTask;
         }

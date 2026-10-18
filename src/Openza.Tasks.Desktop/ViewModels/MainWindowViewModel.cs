@@ -38,6 +38,15 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private readonly GitHubIssueService _gitHubIssueService;
     private readonly DesktopPreferencesStore _preferencesStore;
     private readonly IPersonalCloudSetupService? _personalCloudSetup;
+    private readonly Openza.Tasks.Desktop.Services.Continuity.WindowsContinuitySession? _continuitySession;
+    public string? SessionCloudNotice => _continuitySession?.CloudAccessInhibited == true
+        ? Openza.Tasks.Desktop.Services.Continuity.WindowsContinuitySession.CloudAccessNotice : null;
+    private bool AllowSessionCloudAccess()
+    {
+        if (SessionCloudNotice is not { } notice) return true;
+        ReportError(notice);
+        return false;
+    }
     private readonly Lazy<BackupService?> _backupService;
     private readonly List<ProjectItem> _projects = [];
     private readonly List<LabelItem> _labels = [];
@@ -112,19 +121,21 @@ public sealed partial class MainWindowViewModel : ObservableObject
         CloudBackupService? cloudService = null,
         BackupService? backupService = null,
         GitHubIssueService? gitHubIssueService = null,
-        IPersonalCloudSetupService? personalCloudSetup = null)
+        IPersonalCloudSetupService? personalCloudSetup = null,
+        Openza.Tasks.Desktop.Services.Continuity.WindowsContinuitySession? continuitySession = null)
     {
         _store = store;
-        _personalCloudSetup = personalCloudSetup;
-        if (personalCloudSetup is IPersonalCloudInitialSyncProgressService progressService)
+        _continuitySession = continuitySession ?? Openza.Tasks.Desktop.Services.Continuity.WindowsContinuityHost.Session;
+        _personalCloudSetup = personalCloudSetup is not null && _continuitySession is not null ? _continuitySession.GuardCloudService(personalCloudSetup) : personalCloudSetup;
+        if (_personalCloudSetup is IPersonalCloudInitialSyncProgressService progressService)
             progressService.InitialSyncProgressChanged += progress =>
             {
                 if (Avalonia.Threading.Dispatcher.UIThread.CheckAccess()) ApplyInitialSyncProgress(progress);
                 else Avalonia.Threading.Dispatcher.UIThread.Post(() => ApplyInitialSyncProgress(progress));
             };
         _taskService = new TaskApplicationService(store, () => _personalCloudSetup?.CurrentConnection);
-        _credentials = credentials;
-        _microsoftAuth = microsoftAuth ?? new DesktopMicrosoftAuthService(credentials);
+        _credentials = _continuitySession?.AppCredentials ?? credentials;
+        _microsoftAuth = microsoftAuth ?? new DesktopMicrosoftAuthService(_credentials);
         _microsoftSyncProviderFactory = microsoftSyncProviderFactory ?? (token => new MicrosoftToDoProvider(_httpClient, token));
         _cloudService = cloudService;
         _gitHubIssueService = gitHubIssueService ?? new GitHubIssueService(_httpClient);
@@ -865,7 +876,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
             await RefreshProviderRequestStatusAsync();
             await LoadConnectedTasksCoreAsync();
             await RefreshTodoistConnectionAsync();
-            StatusMessage = $"Local data · {_store.GetType().Name.Replace("TaskStore", string.Empty, StringComparison.Ordinal)}";
+            StatusMessage = _continuitySession?.CloudAccessInhibited == true ? Openza.Tasks.Desktop.Services.Continuity.WindowsContinuitySession.CloudAccessNotice
+                : $"Local data · {_store.GetType().Name.Replace("TaskStore", string.Empty, StringComparison.Ordinal)}";
         });
     }
 
@@ -1461,6 +1473,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     public async Task ConnectGitHubAsync()
     {
+        if (!AllowSessionCloudAccess()) return;
         var token = GitHubToken.Trim();
         if (token.Length == 0)
         {
@@ -1495,6 +1508,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     public async Task DisconnectGitHubAsync()
     {
+        if (!AllowSessionCloudAccess()) return;
         await RunBusyAsync(async () =>
         {
             await _credentials.RemoveAsync(GitHubIssueService.TokenKey);
@@ -1545,6 +1559,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     public async Task ConnectTodoistAsync()
     {
+        if (!AllowSessionCloudAccess()) return;
         if (IsSyncing) { StatusMessage = "Wait for the current sync before changing the Todoist connection."; return; }
         var token = TodoistToken.Trim();
         if (token.Length == 0)
@@ -1578,6 +1593,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     public async Task DisconnectTodoistAsync()
     {
+        if (!AllowSessionCloudAccess()) return;
         if (IsSyncing) { StatusMessage = "Wait for Todoist sync to finish before disconnecting."; return; }
         await RunBusyAsync(async () =>
         {
@@ -1608,6 +1624,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     private async Task RunTodoistSyncAsync(bool showMissingConnection)
     {
+        if (_continuitySession is not null)
+        {
+            try { _continuitySession.EnsureCloudAccess(); }
+            catch (InvalidOperationException exception) { ReportError(exception.Message); return; }
+        }
         if (_preferencesStore.Load().WindowsCloudRecoveryRequired)
         {
             ReportError("Personal Cloud sync is paused. Recover the saved pairing in Sync or restore/export a safety copy in Settings; local tasks and pending operations are retained.");

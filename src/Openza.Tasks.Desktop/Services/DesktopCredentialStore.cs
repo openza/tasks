@@ -7,7 +7,7 @@ namespace Openza.Tasks.Desktop.Services;
 public static class DesktopCredentialStore
 {
     public static ICredentialStore Create(OpenzaRuntimeContext runtime) => WindowsContinuityHost.Session is { } session && session.Data.Runtime == runtime
-        ? session.Credentials : OperatingSystem.IsWindows()
+        ? session.AppCredentials : OperatingSystem.IsWindows()
         ? new WindowsCredentialStore(runtime.CredentialNamespace)
         : new SecretToolCredentialStore(runtime.CredentialNamespace, runtime.DisplayName);
 }

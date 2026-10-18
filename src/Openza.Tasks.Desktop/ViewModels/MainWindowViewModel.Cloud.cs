@@ -21,6 +21,7 @@ public sealed partial class MainWindowViewModel
 
     public async Task ConnectMicrosoftAsync(string feature, Func<SignInCode, Task> showCode, CancellationToken cancellationToken)
     {
+        if (!AllowSessionCloudAccess()) return;
         if (IsSyncing) throw new InvalidOperationException("Wait for sync to finish before changing accounts.");
         if (!await _cloudGate.WaitAsync(0, cancellationToken)) throw new InvalidOperationException("Wait for cloud backup to finish before changing accounts.");
         try
@@ -39,6 +40,7 @@ public sealed partial class MainWindowViewModel
 
     public async Task DisconnectMicrosoftAsync()
     {
+        if (!AllowSessionCloudAccess()) return;
         if (IsSyncing) { ReportError("Wait for sync to finish before disconnecting."); return; }
         await RunBusyAsync(async () =>
         {
@@ -83,6 +85,7 @@ public sealed partial class MainWindowViewModel
 
     public async Task UploadCloudBackupsAsync(bool createNew)
     {
+        if (!AllowSessionCloudAccess()) return;
         if (!OneDriveEnabled || _backupService.Value is not { } backup || !await _cloudGate.WaitAsync(0)) return;
         try
         {
@@ -104,6 +107,7 @@ public sealed partial class MainWindowViewModel
 
     public async Task RefreshCloudBackupsAsync()
     {
+        if (!AllowSessionCloudAccess()) return;
         if (!await _cloudGate.WaitAsync(0)) return;
         try
         {
@@ -120,6 +124,7 @@ public sealed partial class MainWindowViewModel
 
     public async Task RestoreCloudBackupAsync(CloudBackupInfo backup, string? passphrase)
     {
+        if (!AllowSessionCloudAccess()) return;
         if (IsSyncing) { ReportError("Wait for sync to finish before restoring."); return; }
         if (!await _cloudGate.WaitAsync(0)) return;
         var directory = Path.Combine(Path.GetTempPath(), "openza-cloud-restore", Guid.NewGuid().ToString("N"));
