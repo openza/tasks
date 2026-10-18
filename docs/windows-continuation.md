@@ -6,8 +6,9 @@ product boundary. Web shares task workflows and styling; third-party accounts,
 intake and routing belong to Desktop. The companion repository's
 `docs/local-parity-validation.md` describes a disposable Worker/SQLite round-trip
 fixture, including the opt-in `PersonalCloudSharedWorkerAcceptanceTests`.
-The earlier handoff below records the pre-validation snapshot. Release artifact
-pinning and production deployment are separate from local candidate validation.
+Release artifact pinning and production deployment are separate from candidate
+validation. The original Ubuntu evidence and Windows setup instructions below
+remain as historical context; the current handoff is recorded separately.
 
 Continue Tasks on `feat/personal-cloud-initial-sync-progress` and
 [Personal Cloud](https://github.com/openza/personal-cloud) on
@@ -17,7 +18,40 @@ Read both repositories' current agent instructions. Record `git rev-parse HEAD`
 and `git status --short --branch` in each worktree before continuing; branch
 names alone do not identify a reproducible snapshot.
 
-## What is ready, and what needs Windows validation
+## Current Windows Avalonia handoff — 2026-10-18
+
+[Tasks PR #107](https://github.com/openza/tasks/pull/107) records the Windows
+handoff at `6729ff477f5a08f3984aea5ba52c2fb4c7964056`, paired with
+[Personal Cloud PR #2](https://github.com/openza/personal-cloud/pull/2) at
+`8ae82a83d8041aad6a36f09d02f252c18fc464a1`. These identify the validation
+snapshot before this documentation correction; fetch the current branch heads
+before further work.
+
+The PR records 703 passing desktop/shared tests with nine opt-in skips, 361
+passing cloud/backup tests with nine skips, 54 passing update/preflight
+regressions, and successful opt-in verification of the copied 25-migration
+artifact including its historical Linux checksum. The latest UI follow-up
+records 171 passing UI/editor/task-save tests with no skips and a direct
+Avalonia Dev build with zero warnings/errors. These selections overlap and
+were run on Windows; they have not been rerun on Ubuntu for this docs update.
+
+Recorded Computer Use and Chrome checks cover task creation/editing, Spaces,
+restart, real pairing, backup export, local restore/safety copies and
+post-restore sync. The existing testing Worker was updated from schema 24 to
+25 through Desktop. Web-to-Desktop and Desktop-to-Web edits survived sync and
+reload. The real SQL export restored into isolated D1 with valid integrity
+and no foreign-key violations. Owner rotation and permanent removal have
+automated coverage; the active cloud was retained.
+
+This is Windows **Avalonia/Web** evidence. Native WinUI compilation, runtime
+and feature parity remain unverified, as do live external-provider/OneDrive
+acceptance and interactive Ubuntu font rendering, scaling, keyboard,
+accessibility and small-window behavior. Continue Ubuntu UI checks with
+`./dev.sh` and disposable Dev data, preserving the installed app, existing
+pairing and real data. Cloud implementation/deployment remains paused at the
+user's request; this note does not authorize resuming it.
+
+## Historical Ubuntu handoff and WinUI scope
 
 Core and Application changes cover initial-sync progress, immutable mutation
 replay/batching, workspace metadata and rich tasks, provider catalogs/scopes,
@@ -33,11 +67,12 @@ have not been verified.** The Avalonia initial-upload UI and newer workflows
 must not be assumed to exist in WinUI merely because both use Core. Inspect and
 validate them on Windows before implementing any remaining native UI work.
 
-The reviewed Linux source snapshot passed 688 tests, with seven explicit
-Worker/browser opt-in skips, plus a direct Avalonia Release build. Additional
-local synthetic paging and UI checks passed. These results do not establish a
+Before the Windows continuation, the reviewed Linux source snapshot passed
+688 tests, with seven explicit Worker/browser opt-in skips, plus a direct
+Avalonia Release build. Additional local synthetic paging and UI checks passed. These results do not establish a
 Windows build, packaged acceptance, real-provider acceptance, or end-to-end
-parity between WinUI, Avalonia and Web.
+parity between WinUI, Avalonia and Web. Use the dated section above for the
+subsequent Windows Avalonia evidence.
 
 ## Windows prerequisites and isolated Dev identity
 
@@ -96,9 +131,10 @@ Its builder invokes Wrangler `deploy --dry-run`, writes a complete versioned
 directory under `dist/`, and generates `artifact-manifest.json` with path, size
 and SHA-256 entries. This is local artifact generation, not a Cloud deployment.
 Use a new validation version: the builder replaces an existing output with the
-same name. Artifact generation has been validated on Linux and Windows. If a bundle is prepared on another approved build
-host, transfer only the verified public-safe artifact, never its local data or
-credentials. Do not create a credential workaround or an unreviewed builder.
+same name. Artifact generation has been validated on Linux and Windows. If a
+bundle is prepared on another approved build host, transfer only the verified
+public-safe artifact, never its local data or credentials. Do not create a
+credential workaround or an unreviewed builder.
 
 Before injecting a selected bundle, independently confirm the source commit,
 version, manifest SHA-256 and all 25 migration hashes against its reviewed
@@ -143,9 +179,10 @@ Open `Openza.Tasks.slnx` in Visual Studio launched from that environment so the
 artifact property is available to its build/deployment. Select **Openza Tasks
 Dev**, **Debug**, **x64**, enable Build/Deploy only for that Dev target, then
 F5. Verify the package identity and copied manifest before connecting it.
-These are continuation instructions, not Windows commands already tested by
-the Linux agent. A missing workload or signing prerequisite is a blocker to
-report, not a reason to change package identities or bypass certificate checks.
+These WinUI commands remain unverified; the later Windows Avalonia checks do
+not establish WinUI build or startup acceptance. A missing workload or signing
+prerequisite is a blocker to report, not a reason to change package identities
+or bypass certificate checks.
 
 For the Avalonia Windows reference, use a separate disposable Dev store:
 
@@ -166,18 +203,22 @@ pairing profiles, OAuth tokens or private fixtures between machines.
 - Verify native WinUI build and Dev startup; compare navigation, three/four-pane
   layout, task editor, dates, source/local recurrence, initial-sync feedback,
   settings, keyboard and provider-request states against the shared contract.
-- Verify Windows browser/loopback OAuth and package credential-store behavior
-  with fresh isolated Dev setup; a successful build is not that acceptance.
-- Exercise shared sync/workspace flows with synthetic data and exact-version
-  Cloud code. Cloud migrations 21–24 and local Core migrations 10/11 are different
-  stores. No live migration or deployment is authorized by this note.
+- Verify native WinUI browser/loopback OAuth and package credential-store
+  behavior with fresh isolated Dev setup; a successful build is not that
+  acceptance.
+- Further shared sync/workspace checks must use exact-version Cloud code and
+  isolated Dev data. Cloud migrations 21–25 and local Core migrations 10/11 are
+  different stores. The Windows checks above do not authorize another live
+  migration or deployment.
 - Real-provider behavior remains a separate scoped acceptance step. Empty
   provider journals do not prove a Sync button will avoid configured accounts.
-- The destructive lifecycle restore/removal drill remains deferred. Do not
-  erase/re-pair stores to hide a sync error or treat a local SQLite restore as
-  proof of remote D1 recovery.
+- Live owner rotation and permanent removal remain unexercised; their automated
+  coverage and the isolated D1 restore above do not establish live destructive
+  lifecycle acceptance. Do not erase/re-pair stores to hide a sync error or
+  treat a local SQLite restore as proof of remote D1 recovery.
 - Linux databases, credentials, local fixture states, screenshots and ignored
   operational notes are intentionally not pushed. Do not depend on a previous
   maintainer's local paths or stale artifact directories.
-- Production, Preview daily apps, merge, release, deployment and installation
-  remain excluded. Snap packaging/installation was skipped, not accepted.
+- Production, Preview daily apps, merge, release, further deployment and
+  installation remain excluded from continuation. Snap packaging/installation
+  was skipped, not accepted.
