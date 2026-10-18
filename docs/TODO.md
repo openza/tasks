@@ -12,6 +12,8 @@
 
 The latter two branches are siblings. Original docs/avalonia-architecture-baseline at 2795eb7 preserves the combined four-commit history and recovery reference. Local branch preparation authorizes no PR, push, merge, installation or rollout.
 
+This scheduling branch contains the [current scheduling contract](scheduling-and-recurrence.md), exact-time preservation/display fixes, DST-safe SQL count bounds and the first list/editor policy extraction. It contains no Windows continuity implementation. Broader persistence, sync/setup and navigation separation remain future bounded work.
+
 ## Bounded follow-ups
 
 - Resolve the Inbox view/status-badge discrepancy explicitly before changing its policy. Current view membership is open + inbox + no Openza project; badges follow workflow status.

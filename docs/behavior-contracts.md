@@ -27,6 +27,8 @@ These contracts state the intended product meanings. Current behavior, exception
 
 ## Engineering evidence and preservation rules
 
+The [scheduling contract](scheduling-and-recurrence.md) details current day/instant, scheduled-start, recurrence and completion behavior on this branch.
+
 [Application operations](../src/Openza.Tasks.Application/Tasks/TaskApplicationService.cs) and [requests](../src/Openza.Tasks.Application/Tasks/TaskRequests.cs) implement local capture and selective edits. [List-row state](../src/Openza.Tasks.Desktop/ViewModels/TaskListItemViewModel.cs) derives badges from workflow status; [SQLite queries](../src/Openza.Tasks.Core/Data/SqliteTaskStore.cs) implement Inbox membership. [Models](../src/Openza.Tasks.Core/Models/TaskStatus.cs) distinguish workflow from open/completed/cancelled completion state.
 
 Provider refresh in SqliteTaskStore.RefreshAdoptedTaskFromSourceAsync may update local planning when enabled and no Date write is pending; recurring source deadlines can refresh local deadlines. Adopted children can inherit parent space/project/workflow under existing conditions. Preserve these conditions during refactoring rather than replacing a whole task with provider data.

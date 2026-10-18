@@ -32,6 +32,8 @@ Openza Tasks has two application hosts over the same cross-platform Core:
 
 The hosts do not share UI code. Data models, SQLite storage, provider synchronization, import/export, and backup behavior belong in `Openza.Tasks.Core` when they are platform-neutral. Credentials, notifications, launch behavior, packaging, and other OS integrations remain host-specific.
 
+[TaskListProjection](../src/Openza.Tasks.Core/Data/TaskListProjection.cs) owns SQL-free list membership, ordering, hierarchy and snapshot counts; SQLite keeps hydration, direct SQL counts and write transactions. Desktop [TaskDetailEditPlanner](../src/Openza.Tasks.Desktop/ViewModels/Editing/TaskDetailEditPlanner.cs) and [TaskSourceDateChoice](../src/Openza.Tasks.Desktop/ViewModels/Editing/TaskSourceDateChoice.cs) own draft comparison, selective requests/rebase and acknowledgement metadata. The view model retains async save/version/selection behavior. This is a bounded separation, not a full storage or presentation rewrite.
+
 On Linux, `Openza.Tasks.Desktop` stores application data below the platform local-data directory, uses the freedesktop Secret Service through `secret-tool` for provider credentials, and creates daily SQLite restore points. The public Linux distribution is one strict `openza-tasks` Snap containing the Avalonia host and CLI. Inside the Snap, both hosts share `$SNAP_USER_COMMON/tasks`, which survives automatic refreshes, while credentials remain in the desktop Secret Portal. Snap packaging is validated independently from the Windows Store lane.
 
 ## Spaces
@@ -72,6 +74,8 @@ Planner-ready fields are present even when the UI only exposes part of them:
 ## Dated Work Facets
 
 Openza treats dates, deadlines, scheduled blocks, and repeating work as facets on the same task model. They are not separate task stores and they are not copied from any one external workflow implementation.
+
+The [scheduling contract](scheduling-and-recurrence.md) separates intended meanings, current behavior and decisions before expansion. Stored metadata does not imply a recurrence engine or reminders.
 
 - `planned_on` is the user-facing **Date**: the day the user intends to work on or see the task.
 - `planned_at` is the optional exact time for that Date, when the user adds one.

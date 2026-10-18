@@ -1,6 +1,4 @@
 using System.Collections.ObjectModel;
-using System.Text.Json;
-using System.Text.Json.Nodes;
 using Openza.Tasks.Application.Tasks;
 using Openza.Tasks.Core.Data;
 using Openza.Tasks.Core.Credentials;
@@ -9,6 +7,7 @@ using Openza.Tasks.Core.PersonalCloud;
 using Openza.Tasks.Core.Services;
 using Openza.Tasks.Core.Sync;
 using Openza.Tasks.Desktop.Services;
+using Openza.Tasks.Desktop.ViewModels.Editing;
 using FluentIcons.Common;
 
 namespace Openza.Tasks.Desktop.ViewModels;
@@ -2319,26 +2318,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
                     return;
                 }
 
-                var completed = draft.Status == TaskItemStatus.Completed;
-                var localMetadataJson = WithSourceDateMismatchAcknowledgement(original.LocalMetadataJson, draft.SourceDateMismatchAcknowledgementKey);
                 TaskItem? updated = null;
-                if (HasDetailChanges(baseline, draft, completed, WithSourceDateMismatchAcknowledgement(baseline.LocalMetadataJson, draft.SourceDateMismatchAcknowledgementKey)))
+                var request = TaskDetailEditPlanner.CreateRequest(baseline, original, draft);
+                if (request is not null)
                 {
-                    updated = await _taskService.UpdateTaskAsync(new UpdateTaskRequest
-                    {
-                        TaskId = original.Id,
-                        ExpectedRevision = original.Revision,
-                        Title = draft.Title == baseline.Title ? default : OptionalValue<string?>.Set(draft.Title),
-                        Notes = NullIfEmpty(draft.Notes) == NullIfEmpty(baseline.Notes) ? default : OptionalValue<string?>.Set(NullIfEmpty(draft.Notes)),
-                        Status = completed || draft.Status == baseline.Status ? default : OptionalValue<TaskWorkflowStatus>.Set(draft.Status.ToWorkflowStatus()),
-                        Completed = completed == baseline.IsCompleted ? default : OptionalValue<bool>.Set(completed),
-                        Priority = draft.Priority == baseline.Priority ? default : OptionalValue<int>.Set(draft.Priority),
-                        Project = draft.ProjectId == baseline.ProjectId ? default : OptionalValue<string?>.Set(draft.ProjectId),
-                        PlannedOn = draft.PlannedOn == baseline.PlannedOn ? default : OptionalValue<DateOnly?>.Set(draft.PlannedOn),
-                        DeadlineOn = draft.DeadlineOn == baseline.DeadlineOn ? default : OptionalValue<DateOnly?>.Set(draft.DeadlineOn),
-                        Labels = draft.Labels.Select(x => x.Name).Order().SequenceEqual(baseline.Labels.Select(x => x.Name).Order()) ? default : OptionalValue<IReadOnlyList<string>>.Set(draft.Labels.Select(label => label.Name).ToArray()),
-                        LocalMetadataJson = draft.SourceDateMismatchAcknowledgementKey == ReadSourceDateMismatchAcknowledgementKey(baseline.LocalMetadataJson) ? default : OptionalValue<string?>.Set(localMetadataJson),
-                    });
+                    updated = await _taskService.UpdateTaskAsync(request);
                     savedChanges = true;
                 }
 
@@ -2353,14 +2337,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
                     // The next edit is relative to the editor values just saved,
                     // not to provider fields that may have changed meanwhile.
-                    baseline = baseline with
-                    {
-                        Title = draft.Title, Notes = draft.Notes, Status = draft.Status,
-                        Priority = draft.Priority, ProjectId = draft.ProjectId,
-                        PlannedOn = draft.PlannedOn, DeadlineOn = draft.DeadlineOn,
-                        Labels = draft.Labels,
-                        LocalMetadataJson = WithSourceDateMismatchAcknowledgement(baseline.LocalMetadataJson, draft.SourceDateMismatchAcknowledgementKey),
-                    };
+                    baseline = TaskDetailEditPlanner.Rebase(baseline, draft);
                     draft = CaptureDetailSaveDraft(draft.TaskId);
                     continue;
                 }
@@ -2380,7 +2357,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         return succeeded && valid;
     }
 
-    private DetailSaveDraft CaptureDetailSaveDraft(string taskId) => new(
+    private TaskDetailDraft CaptureDetailSaveDraft(string taskId) => new(
         taskId,
         DetailTitle.Trim(),
         DetailNotes,
@@ -2601,8 +2578,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         if (editorTask is not null && editorDraft is not null)
         {
             // Keep an edited task open even when a changed filter removes its row.
-            var edited = HasDetailChanges(editorTask.Task, editorDraft, editorDraft.Status == TaskItemStatus.Completed,
-                WithSourceDateMismatchAcknowledgement(editorTask.Task.LocalMetadataJson, editorDraft.SourceDateMismatchAcknowledgementKey));
+            var edited = TaskDetailEditPlanner.HasChanges(editorTask.Task, editorDraft);
             if (SelectedTask is null && edited) SelectedTask = editorTask;
             if (SelectedTask?.Task.Id == editorTask.Task.Id)
                 RestoreEditedFields(editorTask.Task, editorDraft, editorTitle);
@@ -2612,14 +2588,14 @@ public sealed partial class MainWindowViewModel : ObservableObject
         OnPropertyChanged(nameof(HasNoSelectedTask));
     }
 
-    private void RestoreEditedFields(TaskItem before, DetailSaveDraft draft, string rawTitle)
+    private void RestoreEditedFields(TaskItem before, TaskDetailDraft draft, string rawTitle)
     {
         if (draft.Title != before.Title) DetailTitle = rawTitle;
         if (NullIfEmpty(draft.Notes) != NullIfEmpty(before.Notes)) DetailNotes = draft.Notes;
         if (draft.Status != before.Status) DetailStatusIndex = StatusIndex(draft.Status);
         if (draft.Priority != before.Priority) DetailPriorityIndex = draft.Priority - 1;
-        if (draft.PlannedOn != before.PlannedOn) DetailDate = draft.PlannedOn is { } date ? ToLocalDateTimeOffset(date) : null;
-        if (draft.DeadlineOn != before.DeadlineOn) DetailDeadline = draft.DeadlineOn is { } deadline ? ToLocalDateTimeOffset(deadline) : null;
+        if (draft.PlannedOn != TaskDetailEditPlanner.DisplayPlannedOn(before)) DetailDate = draft.PlannedOn is { } date ? ToLocalDateTimeOffset(date) : null;
+        if (draft.DeadlineOn != TaskDetailEditPlanner.DisplayDeadlineOn(before)) DetailDeadline = draft.DeadlineOn is { } deadline ? ToLocalDateTimeOffset(deadline) : null;
         if (draft.ProjectId != before.ProjectId) DetailProject = ProjectOptions.FirstOrDefault(option => option.ProjectId == draft.ProjectId);
         if (!draft.Labels.Select(x => x.Name).Order().SequenceEqual(before.Labels.Select(x => x.Name).Order()))
         {
@@ -2627,7 +2603,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             foreach (var label in draft.Labels) DetailLabelItems.Add(label.Name);
             SyncDetailLabels();
         }
-        if (draft.SourceDateMismatchAcknowledgementKey != ReadSourceDateMismatchAcknowledgementKey(before.LocalMetadataJson))
+        if (draft.SourceDateMismatchAcknowledgementKey != TaskSourceDateChoice.ReadAcknowledgement(before.LocalMetadataJson))
             _sourceDateMismatchAcknowledgementKey = draft.SourceDateMismatchAcknowledgementKey;
     }
 
@@ -3069,15 +3045,15 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     private void LoadDetails(TaskItem? task)
     {
-        _sourceDateMismatchAcknowledgementKey = ReadSourceDateMismatchAcknowledgementKey(task?.LocalMetadataJson);
+        _sourceDateMismatchAcknowledgementKey = TaskSourceDateChoice.ReadAcknowledgement(task?.LocalMetadataJson);
         DetailTitle = task?.Title ?? string.Empty;
         DetailNotes = task?.Notes ?? string.Empty;
         DetailStatusIndex = StatusIndex(task?.Status ?? TaskItemStatus.Inbox);
         DetailPriorityIndex = Math.Clamp((task?.Priority ?? 2) - 1, 0, 3);
-        DetailDate = task?.PlannedOn is { } date
+        DetailDate = TaskDetailEditPlanner.DisplayPlannedOn(task) is { } date
             ? ToLocalDateTimeOffset(date)
             : null;
-        DetailDeadline = task?.DeadlineOn is { } deadline
+        DetailDeadline = TaskDetailEditPlanner.DisplayDeadlineOn(task) is { } deadline
             ? ToLocalDateTimeOffset(deadline)
             : null;
         DetailLabelItems.Clear();
@@ -3164,51 +3140,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
         OnPropertyChanged(nameof(UseSourceDatesText));
     }
 
-    private SourceDateMismatchPresentation? BuildSourceDateMismatch(bool ignoreAcknowledgement = false)
-    {
-        if (SelectedTask?.Task is not { } task ||
-            !task.HasProviderSource ||
-            IsTodoistNonRecurringSourceTask(task) ||
-            !string.IsNullOrWhiteSpace(task.SourceRecurrenceRule))
-        {
-            return null;
-        }
-
-        DateOnly? localDate = DetailDate is null ? null : DateOnly.FromDateTime(DetailDate.Value.LocalDateTime);
-        DateOnly? localDeadline = DetailDeadline is null ? null : DateOnly.FromDateTime(DetailDeadline.Value.LocalDateTime);
-        var sourceDate = TaskDateValues.FromDateTimeOffset(task.SourcePlannedMoment);
-        var sourceDeadline = TaskDateValues.FromDateTimeOffset(task.SourceDeadlineMoment);
-        var dateMismatch = localDate != sourceDate;
-        var deadlineMismatch = localDeadline != sourceDeadline;
-        if (!dateMismatch && !deadlineMismatch)
-        {
-            return null;
-        }
-
-        var key = BuildSourceDateMismatchKey(task.Id, localDate, sourceDate, localDeadline, sourceDeadline);
-        if (!ignoreAcknowledgement && string.Equals(_sourceDateMismatchAcknowledgementKey, key, StringComparison.Ordinal))
-        {
-            return null;
-        }
-
-        var sourceName = SourceTaskName;
-        var title = dateMismatch && deadlineMismatch
-            ? $"{sourceName} dates changed"
-            : dateMismatch
-                ? $"{sourceName} date changed"
-                : $"{sourceName} deadline changed";
-        var message = dateMismatch && deadlineMismatch
-            ? $"{sourceName} date is {FormatDateOnly(sourceDate)} and deadline is {FormatDateOnly(sourceDeadline)}. Openza keeps {FormatDateOnly(localDate)} and {FormatDateOnly(localDeadline)} until you choose otherwise."
-            : dateMismatch
-                ? $"{sourceName} date is {FormatDateOnly(sourceDate)}. Openza date is {FormatDateOnly(localDate)}."
-                : $"{sourceName} deadline is {FormatDateOnly(sourceDeadline)}. Openza deadline is {FormatDateOnly(localDeadline)}.";
-        var useSourceText = dateMismatch && deadlineMismatch
-            ? $"Use {sourceName} dates"
-            : dateMismatch
-                ? $"Use {sourceName} date"
-                : $"Use {sourceName} deadline";
-        return new SourceDateMismatchPresentation(title, message, useSourceText);
-    }
+    private TaskSourceDateChoice.Presentation? BuildSourceDateMismatch(bool ignoreAcknowledgement = false) =>
+        TaskSourceDateChoice.Describe(SelectedTask?.Task,
+            DetailDate is null ? null : DateOnly.FromDateTime(DetailDate.Value.LocalDateTime),
+            DetailDeadline is null ? null : DateOnly.FromDateTime(DetailDeadline.Value.LocalDateTime),
+            SourceTaskName, _sourceDateMismatchAcknowledgementKey, ignoreAcknowledgement);
 
     private string BuildSourceDateMismatchKey()
     {
@@ -3217,94 +3153,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         DateOnly? localDeadline = DetailDeadline is null ? null : DateOnly.FromDateTime(DetailDeadline.Value.LocalDateTime);
         var sourceDate = TaskDateValues.FromDateTimeOffset(task?.SourcePlannedMoment);
         var sourceDeadline = TaskDateValues.FromDateTimeOffset(task?.SourceDeadlineMoment);
-        return BuildSourceDateMismatchKey(task?.Id ?? string.Empty, localDate, sourceDate, localDeadline, sourceDeadline);
+        return TaskSourceDateChoice.CreateKey(task?.Id ?? string.Empty, localDate, sourceDate, localDeadline, sourceDeadline);
     }
-
-    private static string BuildSourceDateMismatchKey(string taskId, DateOnly? localDate, DateOnly? sourceDate, DateOnly? localDeadline, DateOnly? sourceDeadline) =>
-        $"{taskId}|{string.Join('|', localDate?.ToString("O") ?? "", sourceDate?.ToString("O") ?? "", localDeadline?.ToString("O") ?? "", sourceDeadline?.ToString("O") ?? "")}";
-
-    private static string FormatDateOnly(DateOnly? date) =>
-        date?.ToString("MMM d, yyyy", System.Globalization.CultureInfo.CurrentCulture) ?? "no date";
-
-    private static bool IsTodoistNonRecurringSourceTask(TaskItem task) =>
-        string.Equals(task.SourceIntegrationId ?? task.IntegrationId, IntegrationIds.Todoist, StringComparison.Ordinal) &&
-        string.IsNullOrWhiteSpace(task.SourceRecurrenceRule);
-
-    private static string? ReadSourceDateMismatchAcknowledgementKey(string? localMetadataJson)
-    {
-        if (string.IsNullOrWhiteSpace(localMetadataJson))
-        {
-            return null;
-        }
-
-        try
-        {
-            using var document = JsonDocument.Parse(localMetadataJson);
-            return document.RootElement.ValueKind == JsonValueKind.Object &&
-                document.RootElement.TryGetProperty("openza", out var openza) &&
-                openza.ValueKind == JsonValueKind.Object &&
-                openza.TryGetProperty("sourceDateMismatchAcknowledgementKey", out var value) &&
-                value.ValueKind == JsonValueKind.String
-                    ? value.GetString()
-                    : null;
-        }
-        catch (JsonException)
-        {
-            return null;
-        }
-    }
-
-    private static string? WithSourceDateMismatchAcknowledgement(string? localMetadataJson, string? acknowledgementKey)
-    {
-        var currentKey = ReadSourceDateMismatchAcknowledgementKey(localMetadataJson);
-        if (string.Equals(currentKey, acknowledgementKey, StringComparison.Ordinal) ||
-            (string.IsNullOrWhiteSpace(currentKey) && string.IsNullOrWhiteSpace(acknowledgementKey)))
-        {
-            return localMetadataJson;
-        }
-
-        JsonObject root;
-        try
-        {
-            root = string.IsNullOrWhiteSpace(localMetadataJson)
-                ? new JsonObject()
-                : JsonNode.Parse(localMetadataJson) as JsonObject ?? throw new JsonException("Task metadata must be a JSON object.");
-        }
-        catch (JsonException exception)
-        {
-            throw new InvalidOperationException("The task's existing metadata is not a JSON object, so its date choice could not be recorded safely.", exception);
-        }
-
-        var openza = root["openza"] as JsonObject;
-        if (openza is null)
-        {
-            if (root["openza"] is not null)
-            {
-                throw new InvalidOperationException("The task's existing Openza metadata is incompatible, so its date choice could not be recorded safely.");
-            }
-
-            openza = new JsonObject();
-            root["openza"] = openza;
-        }
-
-        if (string.IsNullOrWhiteSpace(acknowledgementKey))
-        {
-            openza.Remove("sourceDateMismatchAcknowledgementKey");
-        }
-        else
-        {
-            openza["sourceDateMismatchAcknowledgementKey"] = acknowledgementKey;
-        }
-
-        if (openza.Count == 0)
-        {
-            root.Remove("openza");
-        }
-
-        return root.Count == 0 ? null : root.ToJsonString();
-    }
-
-    private sealed record SourceDateMismatchPresentation(string Title, string Message, string UseSourceText);
 
     private IDisposable BeginDetailUpdate()
     {
@@ -3393,44 +3243,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 })
             .ToList();
     }
-
-    private static bool HasDetailChanges(
-        TaskItem original,
-        DetailSaveDraft draft,
-        bool completed,
-        string? localMetadataJson)
-    {
-        var originalLabels = original.Labels
-            .Select(label => label.Name)
-            .OrderBy(name => name, StringComparer.CurrentCultureIgnoreCase);
-        var editedLabels = draft.Labels
-            .Select(label => label.Name)
-            .OrderBy(name => name, StringComparer.CurrentCultureIgnoreCase);
-
-        return !string.Equals(original.Title, draft.Title, StringComparison.Ordinal)
-            || !string.Equals(NullIfEmpty(original.Notes), NullIfEmpty(draft.Notes), StringComparison.Ordinal)
-            || original.Status != draft.Status
-            || original.IsCompleted != completed
-            || original.Priority != draft.Priority
-            || !string.Equals(original.ProjectId, draft.ProjectId, StringComparison.Ordinal)
-            || original.PlannedOn != draft.PlannedOn
-            || original.DeadlineOn != draft.DeadlineOn
-            || !string.Equals(original.LocalMetadataJson, localMetadataJson, StringComparison.Ordinal)
-            || !originalLabels.SequenceEqual(editedLabels, StringComparer.CurrentCultureIgnoreCase);
-    }
-
-    private sealed record DetailSaveDraft(
-        string TaskId,
-        string Title,
-        string Notes,
-        TaskItemStatus Status,
-        int Priority,
-        string? ProjectId,
-        DateOnly? PlannedOn,
-        DateOnly? DeadlineOn,
-        IReadOnlyList<LabelItem> Labels,
-        string? SourceDateMismatchAcknowledgementKey,
-        long Version);
 
     private static TaskSortMode SortModeFromIndex(int index) => index switch
     {
