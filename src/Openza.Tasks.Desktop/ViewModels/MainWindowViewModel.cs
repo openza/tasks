@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using Openza.Tasks.Application.Tasks;
+using Openza.Tasks.Application.Sync;
 using Openza.Tasks.Core.Data;
 using Openza.Tasks.Core.Credentials;
 using Openza.Tasks.Core.Models;
@@ -8,6 +9,7 @@ using Openza.Tasks.Core.Services;
 using Openza.Tasks.Core.Sync;
 using Openza.Tasks.Desktop.Services;
 using Openza.Tasks.Desktop.ViewModels.Editing;
+using Openza.Tasks.Desktop.ViewModels.Navigation;
 using FluentIcons.Common;
 
 namespace Openza.Tasks.Desktop.ViewModels;
@@ -20,7 +22,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private readonly TaskApplicationService _taskService;
     private readonly ICredentialStore _credentials;
     private readonly HttpClient _httpClient = new();
-    private readonly TaskSyncEngine _syncEngine;
+    private readonly ConnectedSyncApplicationService _connectedSync;
     private readonly IDesktopMicrosoftAuthService _microsoftAuth;
     private readonly Func<string, ISyncProvider> _microsoftSyncProviderFactory;
     private readonly CloudBackupService? _cloudService;
@@ -133,10 +135,13 @@ public sealed partial class MainWindowViewModel : ObservableObject
             _personalCloudActionText = "Manage Personal Cloud";
         }
         _preferencesStore = preferencesStore ?? CreatePreferencesStore(store);
-        _syncEngine = new TaskSyncEngine(store);
         _todoistSyncProviderFactory = todoistSyncProviderFactory ?? (token => new TodoistProvider(_httpClient, token));
         _todoistMoveProviderFactory = todoistMoveProviderFactory ??
             ((token, connectionId) => new TodoistProvider(_httpClient, token, connectionId));
+        _connectedSync = new ConnectedSyncApplicationService(store,
+            new DesktopSyncProviderResolver(credentials, _preferencesStore, _microsoftAuth,
+                _todoistSyncProviderFactory, _microsoftSyncProviderFactory),
+            DesktopDataPaths.Runtime, _personalCloudSetup);
         _backupService = new Lazy<BackupService?>(() => backupService ?? (store is SqliteTaskStore sqliteStore
             ? new BackupService(
                 sqliteStore.DatabasePath,
@@ -271,8 +276,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         get => _selectedTask;
         set
         {
-            if (value is not null && _displayedSelectionContext is { } context)
-                _taskSelections[context] = value.Task.Id;
+            _taskSelectionState.RememberDisplayed(value?.Task.Id);
             if (SetProperty(ref _selectedTask, value))
             {
                 using var detailUpdate = BeginDetailUpdate();
@@ -1603,6 +1607,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     public void SetAutomaticSyncEnabled(bool enabled) => AutomaticSyncEnabled = enabled;
 
+    private sealed class SyncProgressReporter(MainWindowViewModel owner) : IProgress<PersonalCloudInitialSyncProgress>
+    {
+        public void Report(PersonalCloudInitialSyncProgress value) => owner.ApplyInitialSyncProgress(value);
+    }
+
     private async Task RunTodoistSyncAsync(bool showMissingConnection)
     {
         // Network work has its own gate and cannot queue navigation behind a provider.
@@ -1613,62 +1622,25 @@ public sealed partial class MainWindowViewModel : ObservableObject
             if (!await SaveSelectedAsync()) return;
             LastSyncResult = "Syncing connected apps…";
             StatusMessage = LastSyncResult;
-            var bridgeProviders = new List<PersonalCloudConfiguredProvider>();
-            var summaries = await Task.Run(async () =>
+            var result = await _connectedSync.RunAsync(new SyncProgressReporter(this));
+            var summaries = result.Providers;
+            var personalCloud = result.PersonalCloud;
+            var bridgeResult = result.ProviderBridge;
+            var personalCloudError = result.PersonalCloudError;
+            if (result.CloudAttempted)
             {
-                using var databaseLease = Openza.Tasks.Application.Runtime.ChannelRuntimeLease.AcquireDatabaseRead(DesktopDataPaths.Runtime);
-                var results = new List<SyncSummary>();
-                async Task SyncProvider(string integrationId, Func<Task<PersonalCloudConfiguredProvider?>> factory)
-                {
-                    try
-                    {
-                        using var lease = Openza.Tasks.Application.Runtime.ChannelRuntimeLease.AcquireProviderSync(DesktopDataPaths.Runtime, integrationId);
-                        var configuration = await factory().ConfigureAwait(false);
-                        if (configuration is not null)
-                        {
-                            var summary = await _syncEngine.SyncAsync(configuration.Provider).ConfigureAwait(false);
-                            results.Add(summary);
-                            if (summary.Success) bridgeProviders.Add(configuration);
-                        }
-                    }
-                    catch (Exception exception) { results.Add(new SyncSummary(integrationId, false, 0, 0, 0, 0, 0, 0, exception.Message)); }
-                }
-                await SyncProvider(IntegrationIds.Todoist, async () =>
-                {
-                    var token = await _credentials.GetAsync(TodoistTokenKey).ConfigureAwait(false);
-                    return string.IsNullOrWhiteSpace(token) ? null : new PersonalCloudConfiguredProvider(_todoistSyncProviderFactory(token),
-                        Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(token))).ToLowerInvariant());
-                });
-                await SyncProvider(IntegrationIds.MicrosoftToDo, async () =>
-                {
-                    var account = _preferencesStore.Load().MicrosoftToDoAccount;
-                    var token = await _microsoftAuth.GetTokenAsync("todo", account).ConfigureAwait(false);
-                    return string.IsNullOrWhiteSpace(token) || account is null ? null :
-                        new PersonalCloudConfiguredProvider(_microsoftSyncProviderFactory(token), account.HomeAccountId);
-                });
-                return results;
-            });
-            PersonalCloudSyncResult? personalCloud = null;
-            PersonalCloudProviderBridgeResult? bridgeResult = null;
-            string? personalCloudError = null;
-            if (_personalCloudSetup?.CurrentConnection is not null)
-            {
-                try
-                {
-                    personalCloud = await SyncPersonalCloudWithProgressAsync().ConfigureAwait(true);
-                    if (personalCloud.BlockedCode is null && _personalCloudSetup is IPersonalCloudProviderBridgeService bridge)
-                    {
-                        bridgeResult = await Task.Run(() => bridge.RunProviderBridgeAsync(bridgeProviders)).ConfigureAwait(true);
-                        var resultPass = await SyncPersonalCloudWithProgressAsync().ConfigureAwait(true);
-                        personalCloud = new PersonalCloudSyncResult(personalCloud.PushedMutations + resultPass.PushedMutations,
-                            personalCloud.PulledChanges + resultPass.PulledChanges, resultPass.Checkpoint) { BlockedCode = resultPass.BlockedCode, InitialSyncProgress = resultPass.InitialSyncProgress };
-                    }
-                    await RefreshProviderRequestStatusAsync().ConfigureAwait(true);
-                }
-                catch (Exception exception)
+                if (personalCloudError is not null)
                 {
                     await RefreshInitialSyncProgressAsync();
-                    personalCloudError = exception.Message;
+                }
+                else
+                {
+                    try { await RefreshProviderRequestStatusAsync(); }
+                    catch (Exception exception)
+                    {
+                        await RefreshInitialSyncProgressAsync();
+                        personalCloudError = exception.Message;
+                    }
                 }
             }
             if (summaries.Count == 0 && personalCloud is null && personalCloudError is null)
@@ -2487,7 +2459,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     private async Task RefreshAsyncCore(string? selectTaskId = null, bool preserveEditor = false)
     {
-        _displayedSelectionContext = SelectionContext;
+        _taskSelectionState.DisplayedContext = CurrentTaskViewContext;
         ApplyTaskViewPreferencesForCurrentContext();
         var labels = await _store.GetLabelsAsync();
         await ClearStaleLabelFilterAsync(labels);
@@ -2708,42 +2680,13 @@ public sealed partial class MainWindowViewModel : ObservableObject
         await SaveTaskViewPreferencesAsync();
     }
 
-    private bool IsTasksView() => SelectedProject is not null || SelectedNavigation?.Kind == TaskListKind.Open;
+    private bool IsTasksView() => CurrentTaskViewContext.IsTasksView;
 
-    private string SharedTasksSettingsKey() => $"{_currentSpaceId ?? "all"}|tasks|all";
+    private string SharedTasksSettingsKey() => CurrentTaskViewContext.SharedTasksSettingsKey;
 
-    private string TaskViewSettingsKey()
-    {
-        var view = SelectedProject is not null ? "tasks" : ViewKey(SelectedNavigation?.Kind ?? TaskListKind.Inbox);
-        var project = string.Equals(view, "tasks", StringComparison.Ordinal)
-            ? SelectedProject?.Project.Id ?? "all"
-            : "all";
-        return $"{_currentSpaceId ?? "all"}|{view}|{project}";
-    }
+    private string TaskViewSettingsKey() => CurrentTaskViewContext.PreferencesKey;
 
-    private int DefaultGroupIndexForCurrentView() => SelectedProject is not null
-        ? 2
-        : SelectedNavigation?.Kind switch
-        {
-            TaskListKind.Overdue or TaskListKind.Calendar => 1,
-            TaskListKind.Completed => 9,
-            TaskListKind.Open => 2,
-            _ => 0,
-        };
-
-    private static string ViewKey(TaskListKind kind) => kind switch
-    {
-        TaskListKind.Inbox => "inbox",
-        TaskListKind.NextActions => "next",
-        TaskListKind.Today => "today",
-        TaskListKind.Calendar => "calendar",
-        TaskListKind.Overdue => "overdue",
-        TaskListKind.Waiting => "waiting",
-        TaskListKind.Someday => "someday",
-        TaskListKind.Open => "tasks",
-        TaskListKind.Completed => "completed",
-        _ => "inbox",
-    };
+    private int DefaultGroupIndexForCurrentView() => CurrentTaskViewContext.DefaultGroupIndex;
 
     private async Task LoadSubtasksAsync()
     {
