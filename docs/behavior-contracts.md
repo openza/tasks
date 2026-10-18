@@ -5,6 +5,7 @@ These contracts state the intended product meanings. Current behavior, exception
 ## Durable meanings
 
 - Capture and complete tasks locally without connecting a provider or Personal Cloud. Spaces, projects, labels and planning are optional.
+- Task-editor label edits that are equivalent under the editor's case-insensitive, order-independent comparison are a no-op: change detection and save requests use the same comparison. The editor never renames shared labels. Deliberate renaming belongs to a future dedicated label list screen, which is not implemented. See [label editing](label-rename.md).
 - Project and workflow status are independent. Assigning a project never changes status; choosing a status never changes project. Inbox is the default capture status; None explicitly means no workflow status. Workflow and completion are separate. Workflow statuses stay fixed: none, inbox, next, waiting and someday.
 - Spaces are user-owned visibility scopes. Provider identities and personal routing conventions do not define them.
 - Completing preserves the task and its recurrence definition; reopening makes it open again. Neither action silently chooses another workflow status.

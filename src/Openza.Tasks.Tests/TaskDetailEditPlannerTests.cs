@@ -40,6 +40,45 @@ public sealed class TaskDetailEditPlannerTests
         Assert.False(request.Project.IsSpecified);
     }
 
+    [Theory]
+    [InlineData("EXAMPLE", "Other", false)]
+    [InlineData("example", "OTHER", true)]
+    [InlineData("Example", "Other", true)]
+    public void Equivalent_labels_are_a_no_op_for_both_change_check_and_save_request(
+        string firstName, string secondName, bool reverse)
+    {
+        var baseline = Task() with
+        {
+            Labels = [new() { Id = "label-test", Name = "Example" }, new() { Id = "label-other", Name = "Other" }],
+        };
+        LabelItem[] labels = [baseline.Labels[0] with { Name = firstName }, baseline.Labels[1] with { Name = secondName }];
+        var draft = Draft(baseline) with { Labels = reverse ? labels.Reverse().ToArray() : labels };
+        var current = baseline with { Revision = 5 };
+
+        Assert.False(TaskDetailEditPlanner.HasChanges(baseline, draft));
+        Assert.Null(TaskDetailEditPlanner.CreateRequest(baseline, current, draft));
+
+        // A real field edit must not smuggle an equivalent label change into the save.
+        var titleEdit = draft with { Title = "Edited" };
+        Assert.True(TaskDetailEditPlanner.HasChanges(baseline, titleEdit));
+        var request = Assert.IsType<Openza.Tasks.Application.Tasks.UpdateTaskRequest>(
+            TaskDetailEditPlanner.CreateRequest(baseline, current, titleEdit));
+        Assert.Equal(5, request.ExpectedRevision);
+        Assert.Equal("Edited", request.Title.Value);
+        Assert.False(request.Labels.IsSpecified);
+    }
+
+    [Fact]
+    public void Adding_a_distinct_label_remains_an_explicit_save()
+    {
+        var baseline = Task();
+        var draft = Draft(baseline) with { Labels = [.. baseline.Labels, new() { Id = "label-new", Name = "New" }] };
+        Assert.True(TaskDetailEditPlanner.HasChanges(baseline, draft));
+        var request = TaskDetailEditPlanner.CreateRequest(baseline, baseline, draft)!;
+        Assert.True(request.Labels.IsSpecified);
+        Assert.Equal(new[] { "Example", "New" }, request.Labels.Value);
+    }
+
     [Fact]
     public void Explicit_clearing_and_completion_are_distinct_from_omission_and_workflow_replacement()
     {

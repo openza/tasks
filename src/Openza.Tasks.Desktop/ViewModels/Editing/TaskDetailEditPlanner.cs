@@ -31,7 +31,7 @@ public static class TaskDetailEditPlanner
             Project = draft.ProjectId == baseline.ProjectId ? default : OptionalValue<string?>.Set(draft.ProjectId),
             PlannedOn = draft.PlannedOn == DisplayPlannedOn(baseline) ? default : OptionalValue<DateOnly?>.Set(draft.PlannedOn),
             DeadlineOn = draft.DeadlineOn == DisplayDeadlineOn(baseline) ? default : OptionalValue<DateOnly?>.Set(draft.DeadlineOn),
-            Labels = draft.Labels.Select(x => x.Name).Order().SequenceEqual(baseline.Labels.Select(x => x.Name).Order()) ? default : OptionalValue<IReadOnlyList<string>>.Set(draft.Labels.Select(label => label.Name).ToArray()),
+            Labels = SameLabels(baseline.Labels, draft.Labels) ? default : OptionalValue<IReadOnlyList<string>>.Set(draft.Labels.Select(label => label.Name).ToArray()),
             LocalMetadataJson = draft.SourceDateMismatchAcknowledgementKey == TaskSourceDateChoice.ReadAcknowledgement(baseline.LocalMetadataJson) ? default : OptionalValue<string?>.Set(localMetadataJson),
         };
     }
@@ -40,8 +40,6 @@ public static class TaskDetailEditPlanner
     {
         var completed = draft.Status == TaskItemStatus.Completed;
         var localMetadataJson = TaskSourceDateChoice.WithAcknowledgement(original.LocalMetadataJson, draft.SourceDateMismatchAcknowledgementKey);
-        var originalLabels = original.Labels.Select(label => label.Name).OrderBy(name => name, StringComparer.CurrentCultureIgnoreCase);
-        var editedLabels = draft.Labels.Select(label => label.Name).OrderBy(name => name, StringComparer.CurrentCultureIgnoreCase);
         return !string.Equals(original.Title, draft.Title, StringComparison.Ordinal)
             || !string.Equals(NullIfEmpty(original.Notes), NullIfEmpty(draft.Notes), StringComparison.Ordinal)
             || original.Status != draft.Status
@@ -51,7 +49,14 @@ public static class TaskDetailEditPlanner
             || DisplayPlannedOn(original) != draft.PlannedOn
             || DisplayDeadlineOn(original) != draft.DeadlineOn
             || !string.Equals(original.LocalMetadataJson, localMetadataJson, StringComparison.Ordinal)
-            || !originalLabels.SequenceEqual(editedLabels, StringComparer.CurrentCultureIgnoreCase);
+            || !SameLabels(original.Labels, draft.Labels);
+    }
+
+    private static bool SameLabels(IReadOnlyList<LabelItem> left, IReadOnlyList<LabelItem> right)
+    {
+        var comparer = StringComparer.CurrentCultureIgnoreCase;
+        return left.Select(label => label.Name).Order(comparer)
+            .SequenceEqual(right.Select(label => label.Name).Order(comparer), comparer);
     }
 
     // Rebase on what the editor just submitted, never on a provider refresh that
