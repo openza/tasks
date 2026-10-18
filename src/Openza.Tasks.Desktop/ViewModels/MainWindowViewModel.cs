@@ -1486,6 +1486,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     private async Task SaveGitHubTokenAsync(string token, CancellationToken cancellationToken)
     {
+        _continuitySession?.EnsureCloudAccess();
         var validation = await _gitHubIssueService.ValidateTokenAsync(token, cancellationToken);
         if (!validation.Success) throw new InvalidOperationException(validation.Error ?? "GitHub rejected the token.");
         await _credentials.SaveAsync(GitHubIssueService.TokenKey, token);

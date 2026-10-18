@@ -2,6 +2,7 @@ using Avalonia.Controls;
 using Openza.Tasks.Core.Data;
 using Openza.Tasks.Core.Models;
 using Openza.Tasks.Core.PersonalCloud;
+using Openza.Tasks.Core.Services;
 using Openza.Tasks.Desktop.Services;
 using Openza.Tasks.Desktop.Services.Continuity;
 using Openza.Tasks.Desktop.ViewModels;
@@ -48,7 +49,10 @@ public sealed partial class WindowsContinuityIntegrationTests
                 for (var i = 0; i < paths.Length; i++) Assert.Equal(before[i], await File.ReadAllBytesAsync(paths[i]));
                 var service = blocked.GuardCloudService(raw);
                 Assert.Equal(profile, service.CurrentConnection);
-                var vm = new MainWindowViewModel(store, blocked.AppCredentials, preferencesStore: preferences, personalCloudSetup: service, continuitySession: blocked);
+                var githubHttp = new CountingGitHubHttp();
+                using var http = new HttpClient(githubHttp);
+                var vm = new MainWindowViewModel(store, blocked.AppCredentials, preferencesStore: preferences, personalCloudSetup: service,
+                    continuitySession: blocked, gitHubIssueService: new GitHubIssueService(http));
                 var window = new Openza.Tasks.Desktop.Shell.MainWindow(vm);
                 try
                 {
@@ -59,6 +63,22 @@ public sealed partial class WindowsContinuityIntegrationTests
                     Assert.Equal("Paused", vm.PersonalCloudStatusText);
                     Assert.Contains("restart Openza", vm.PersonalCloudSummaryText);
                     Assert.NotNull(await store.GetTaskAsync("retained"));
+                    var githubClient = Environment.GetEnvironmentVariable("OPENZA_TASKS_GITHUB_CLIENT_ID");
+                    var signInCallbacks = 0;
+                    var beforeSignIn = await File.ReadAllBytesAsync(blocked.SettingsPath);
+                    try
+                    {
+                        Environment.SetEnvironmentVariable("OPENZA_TASKS_GITHUB_CLIENT_ID", "synthetic-client");
+                        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => vm.SignInGitHubAsync(_ =>
+                        { signInCallbacks++; return Task.CompletedTask; }, CancellationToken.None));
+                        Assert.Equal(WindowsContinuitySession.CloudAccessNotice, error.Message);
+                    }
+                    finally { Environment.SetEnvironmentVariable("OPENZA_TASKS_GITHUB_CLIENT_ID", githubClient); }
+                    vm.GitHubToken = "synthetic-token";
+                    await vm.ConnectGitHubAsync();
+                    Assert.Equal(0, githubHttp.Calls);
+                    Assert.Equal(0, signInCallbacks);
+                    Assert.Equal(beforeSignIn, await File.ReadAllBytesAsync(blocked.SettingsPath));
                     await vm.RunAutomaticTodoistSyncAsync();
                     vm.SetAutomaticSyncEnabled(true);
                     await vm.RunAutomaticTodoistSyncAsync();
@@ -125,6 +145,13 @@ public sealed partial class WindowsContinuityIntegrationTests
         Assert.False(session.CloudAccessInhibited);
         Assert.False(File.Exists(session.SettingsPath));
         Assert.False(File.Exists(Path.Combine(Archive, "complete.json")));
+    }
+
+    private sealed class CountingGitHubHttp : HttpMessageHandler
+    {
+        public int Calls { get; private set; }
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        { Calls++; throw new InvalidOperationException("Unexpected synthetic GitHub request during inhibited session"); }
     }
 
     private sealed class CountingCloud(PersonalCloudConnectionProfile profile) : IPersonalCloudSetupService, IPersonalCloudProviderBridgeService
