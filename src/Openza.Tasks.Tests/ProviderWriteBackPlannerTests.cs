@@ -5,6 +5,19 @@ namespace Openza.Tasks.Tests;
 
 public sealed class ProviderWriteBackPlannerTests
 {
+    [Theory]
+    [InlineData("[]")] [InlineData("null")] [InlineData("{\"source\":\"legacy\"}")] [InlineData("invalid")]
+    public void Invalid_or_non_object_source_metadata_preserves_local_recurrence_without_throwing(string metadata)
+    {
+        var task = new TaskItem { SourceIntegrationId = IntegrationIds.Todoist, SourceMetadataJson = metadata, RecurrenceRule = "weekly" };
+        Assert.Null(task.SourceRecurrenceRule); Assert.Equal("weekly", task.EffectiveRecurrenceRule);
+    }
+    [Fact]
+    public void Explicit_source_recurrence_clear_does_not_restore_older_nested_value()
+    {
+        var task = new TaskItem { SourceIntegrationId = IntegrationIds.Todoist, SourceMetadataJson = "{\"recurrenceRule\":null,\"source\":{\"recurrenceRule\":\"daily\"}}" };
+        Assert.Null(task.SourceRecurrenceRule); Assert.Null(task.EffectiveRecurrenceRule);
+    }
     private static readonly DateTimeOffset Now = new(2026, 8, 14, 10, 0, 0, TimeSpan.Zero);
 
     [Fact]
@@ -171,9 +184,19 @@ public sealed class ProviderWriteBackPlannerTests
 
         Assert.Null(ProviderWriteBackPlanner.CreateTodoistDateUpdate(original, original, Now));
         Assert.Null(ProviderWriteBackPlanner.CreateTodoistDateUpdate(
-            original with { RecurrenceRule = "every day" },
-            original with { RecurrenceRule = "every day", PlannedOn = new DateOnly(2026, 8, 15) },
+            original with { SourceMetadataJson = "{\"recurrenceRule\":\"every day\"}" },
+            original with { SourceMetadataJson = "{\"recurrenceRule\":\"every day\"}", PlannedOn = new DateOnly(2026, 8, 15) },
             Now));
+    }
+    [Fact]
+    public void Local_recurrence_overlay_does_not_change_provider_date_writeback_ownership()
+    {
+        var original = new TaskItem { Id = "local_test", SourceIntegrationId = IntegrationIds.Todoist, SourceProviderTaskId = "synthetic-provider-id", RecurrenceRule = "weekly", PlannedOn = new DateOnly(2026, 10, 14) };
+        Assert.NotNull(ProviderWriteBackPlanner.CreateTodoistDateUpdate(original, original with { PlannedOn = new DateOnly(2026, 10, 15) }, Now));
+        var recurringSource = original with { SourceMetadataJson = "{\"recurrenceRule\":\"daily\"}", RecurrenceRule = null };
+        Assert.Null(ProviderWriteBackPlanner.CreateTodoistDateUpdate(recurringSource, recurringSource with { PlannedOn = new DateOnly(2026, 10, 15) }, Now));
+        var native = new TaskItem { IntegrationId = IntegrationIds.Todoist, ExternalId = "synthetic-provider-id", RecurrenceRule = "daily", PlannedOn = original.PlannedOn };
+        Assert.Equal("daily", native.SourceRecurrenceRule); Assert.Null(ProviderWriteBackPlanner.CreateTodoistDateUpdate(native, native with { PlannedOn = new DateOnly(2026, 10, 15) }, Now));
     }
 
     [Fact]

@@ -91,7 +91,7 @@ public static class TaskGroupBuilder
 
     private static TaskGroupAssignment RepeatingGroup(TaskItem task)
     {
-        return string.IsNullOrWhiteSpace(task.RecurrenceRule)
+        return string.IsNullOrWhiteSpace(task.EffectiveRecurrenceRule)
             ? new TaskGroupAssignment("repeating:no", "One-time", "1")
             : new TaskGroupAssignment("repeating:yes", "Repeating", "2");
     }

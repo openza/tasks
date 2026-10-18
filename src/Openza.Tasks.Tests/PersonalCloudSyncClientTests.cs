@@ -148,7 +148,7 @@ public sealed class PersonalCloudSyncClientTests : IDisposable
         Assert.Equal(0, stored.Revision);
         Assert.Equal(1, await store.GetPersonalCloudCheckpointAsync(InstanceId, DeviceId));
         Assert.Equal(
-            ["/auth/pair", "/auth/device/token", "/v1/tasks/mutations", "/sync/changes", "/sync/checkpoints"],
+            ["/auth/pair", "/auth/device/token", "/health", "/v1/tasks/mutations", "/sync/changes", "/sync/checkpoints"],
             handler.Paths);
         Assert.All(handler.AuthorizationSchemes, scheme => Assert.Equal("Bearer", scheme));
         Assert.Equal(1, handler.AcknowledgedCheckpoint);
@@ -205,10 +205,11 @@ public sealed class PersonalCloudSyncClientTests : IDisposable
             CancellationToken cancellationToken)
         {
             Paths.Add(request.RequestUri!.AbsolutePath);
-            if (request.RequestUri.AbsolutePath is not "/auth/pair" and not "/auth/device/token")
+            if (request.RequestUri.AbsolutePath is not "/auth/pair" and not "/auth/device/token" and not "/health")
                 AuthorizationSchemes.Add(request.Headers.Authorization?.Scheme);
             return request.RequestUri.AbsolutePath switch
             {
+                "/health" => Json(HttpStatusCode.OK, """{"status":"ok","protocolVersion":1,"product":"tasks","artifactVersion":"test","schemaVersion":20}"""),
                 "/auth/pair" => Json(HttpStatusCode.Created, $$"""
                     {"protocolVersion":1,"instanceId":"{{InstanceId}}","deviceId":"{{DeviceId}}","refreshCredential":"refresh-secret-value-1234567890","capabilities":["desktop_sync"],"refreshExpiresAt":"2099-01-01T00:00:00Z"}
                     """),

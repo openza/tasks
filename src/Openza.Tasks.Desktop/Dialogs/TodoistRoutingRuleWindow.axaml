@@ -11,9 +11,9 @@
     Opened="OnOpened">
     <Grid RowDefinitions="*,Auto">
         <StackPanel Margin="26,24,26,28" Spacing="14">
-            <TextBlock x:Name="HeadingText" FontSize="24" FontWeight="SemiBold" Text="Add Todoist rule" />
+            <TextBlock x:Name="HeadingText" Classes="dialog-title" Text="Add Todoist rule" />
             <TextBlock
-                Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                Foreground="{DynamicResource OpenzaTextSecondaryBrush}"
                 Text="Choose a Todoist label, or match tasks that have no Todoist labels. Todoist labels stay hidden from normal Openza task labels."
                 TextWrapping="Wrap" />
 
@@ -25,17 +25,17 @@
             <StackPanel x:Name="LabelSection" Spacing="6">
                 <TextBlock FontWeight="SemiBold" Text="Todoist label" />
                 <TextBox
-                    x:Name="LabelBox"
+                    AutomationProperties.Name="Todoist label" x:Name="LabelBox"
                     PlaceholderText="Choose a Todoist label"
                     TextChanged="OnLabelTextChanged" />
                 <Border
                     x:Name="LabelSuggestionsBorder"
                     MaxHeight="128"
-                    BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}"
+                    BorderBrush="{DynamicResource OpenzaBorderBrush}"
                     BorderThickness="1"
                     CornerRadius="4"
                     IsVisible="False">
-                    <ListBox
+                    <ListBox AutomationProperties.Name="Todoist label suggestions"
                         x:Name="LabelSuggestionsList"
                         BorderThickness="0"
                         SelectionChanged="OnLabelSuggestionSelected">
@@ -52,12 +52,12 @@
                 <StackPanel Spacing="6">
                     <TextBlock FontWeight="SemiBold" Text="Send to Space" />
                     <ComboBox
-                        x:Name="SpaceBox"
+                        AutomationProperties.Name="Destination space" x:Name="SpaceBox"
                         HorizontalAlignment="Stretch"
                         ItemsSource="{Binding SpaceChoices}">
                         <ComboBox.ItemTemplate>
                             <DataTemplate>
-                                <TextBlock Text="{Binding Name}" />
+                                <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Name}" />
                             </DataTemplate>
                         </ComboBox.ItemTemplate>
                     </ComboBox>
@@ -65,12 +65,12 @@
                 <StackPanel Grid.Column="1" Spacing="6">
                     <TextBlock FontWeight="SemiBold" Text="After adding to Openza" />
                     <ComboBox
-                        x:Name="MoveProjectBox"
+                        AutomationProperties.Name="Todoist destination project" x:Name="MoveProjectBox"
                         HorizontalAlignment="Stretch"
                         ItemsSource="{Binding MoveProjectChoices}">
                         <ComboBox.ItemTemplate>
                             <DataTemplate>
-                                <TextBlock Text="{Binding Name}" />
+                                <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Name}" />
                             </DataTemplate>
                         </ComboBox.ItemTemplate>
                     </ComboBox>
@@ -79,7 +79,7 @@
 
             <TextBlock
                 x:Name="ValidationText"
-                Foreground="{DynamicResource SystemFillColorCriticalBrush}"
+                Foreground="{DynamicResource OpenzaDangerBrush}"
                 IsVisible="False"
                 TextWrapping="Wrap" />
         </StackPanel>
@@ -87,11 +87,11 @@
         <Border
             Grid.Row="1"
             Padding="20,14"
-            Background="{DynamicResource SolidBackgroundFillColorSecondaryBrush}"
-            BorderBrush="{DynamicResource DividerStrokeColorDefaultBrush}"
+            Background="{DynamicResource OpenzaSurfaceAltBrush}"
+            BorderBrush="{DynamicResource OpenzaSeparatorBrush}"
             BorderThickness="0,1,0,0">
             <StackPanel HorizontalAlignment="Right" Orientation="Horizontal" Spacing="8">
-                <Button MinWidth="108" Click="OnCancelClicked" Content="Cancel" />
+                <Button MinWidth="108" Click="OnCancelClicked" Content="Cancel" IsCancel="True" />
                 <Button MinWidth="108" Classes="accent" Click="OnSaveClicked" Content="Save" />
             </StackPanel>
         </Border>

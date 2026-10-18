@@ -62,6 +62,8 @@ public sealed class PersonalCloudProviderBridgeWorkerAcceptanceTests
             var immutable = Assert.Single(await a.Store.GetPendingPersonalCloudOutboxAsync(Instance, DeviceA), item => item.Operation == "externalCommand.confirm");
             transportA.LoseNextResultResponse = true;
             await Assert.ThrowsAsync<HttpRequestException>(() => a.Sync.SyncAsync());
+            // HTTP200 can be a stopped batch prefix. Prove the confirmation committed before retrying it.
+            Assert.Equal("confirmed", (await ReadTaskAsync(web, taskId)).GetProperty("externalCommand").GetProperty("state").GetString());
             Assert.Equal(immutable.CanonicalJson, Assert.Single(await a.Store.GetPendingPersonalCloudOutboxAsync(Instance, DeviceA), item => item.Operation == "externalCommand.confirm").CanonicalJson);
             Assert.Null((await a.Sync.SyncAsync()).BlockedCode);
             await a.Bridge.RunAsync([new(provider, "synthetic-account")]); Assert.Equal(1, provider.Actions);
@@ -112,7 +114,10 @@ public sealed class PersonalCloudProviderBridgeWorkerAcceptanceTests
             await a.Sync.SyncAsync(); await b.Sync.SyncAsync();
             var deletedDescriptor = Assert.Single(await a.Store.GetPersonalCloudProviderSourcesAsync(Instance), item => item.TaskId == deletedId).Source;
             await a.Store.EnqueuePersonalCloudSourceSnapshotAsync(Instance, DeviceA, deletedId,
-                deletedDescriptor with { RefreshedAt = PersonalCloudK0Mapper.FormatTimestamp(DateTimeOffset.UtcNow.AddMinutes(1)) });
+                deletedDescriptor with { Title = "Changed provider fact before deletion",
+                    RefreshedAt = PersonalCloudK0Mapper.FormatTimestamp(DateTimeOffset.UtcNow.AddMinutes(1)) });
+            Assert.Single(await a.Store.GetPendingPersonalCloudOutboxAsync(Instance, DeviceA),
+                item => item.EntityId == deletedId && item.Operation == "source.refreshSnapshot");
             await PostAsync(web, PersonalCloudK0Codec.Serialize(PersonalCloudDeleteCodec.CreateMutation(Instance, actor,
                 MutationId(), ++sequence, deletedId, 1, Now(), Now())));
             await a.Store.UpdateTaskNotesWithPersonalCloudIntentAsync(taskId, "Later edit survives deleted-source refresh",
@@ -135,6 +140,9 @@ public sealed class PersonalCloudProviderBridgeWorkerAcceptanceTests
             Assert.Equal(actions, provider.Actions);
             Assert.Equal("started", (await ReadTaskAsync(web, uncertainId)).GetProperty("externalCommand").GetProperty("deliveryState").GetString());
             Assert.False(Assert.Single(await a.Store.GetPersonalCloudProviderRequestStatusAsync(Instance), item => item.TaskId == uncertainId).CanRetry);
+            Assert.True(transportA.BatchRequests > 0 && transportB.BatchRequests > 0,
+                "Schema22 acceptance must exercise actual ordered batch HTTP delivery on both replicas.");
+            Assert.Equal(1, transportA.LostResultResponses);
         }
         finally { Directory.Delete(directory, true); }
     }
@@ -183,15 +191,19 @@ public sealed class PersonalCloudProviderBridgeWorkerAcceptanceTests
     {
         public bool LoseNextResultResponse { get; set; }
         public bool LoseNextRetryResponse { get; set; }
+        public int BatchRequests { get; private set; }
+        public int LostResultResponses { get; private set; }
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             request.Headers.Add("x-openza-test-device", device);
-            var result = LoseNextResultResponse && request.RequestUri!.AbsolutePath == "/v1/tasks/mutations" &&
+            if (request.RequestUri!.AbsolutePath == "/v1/tasks/mutations/batch") BatchRequests++;
+            var result = LoseNextResultResponse && request.RequestUri.AbsolutePath is "/v1/tasks/mutations" or "/v1/tasks/mutations/batch" &&
                 (await request.Content!.ReadAsStringAsync(cancellationToken)).Contains("externalCommand.", StringComparison.Ordinal);
             var retry = LoseNextRetryResponse && request.RequestUri!.AbsolutePath == "/v1/provider/commands/retry";
             var response = await base.SendAsync(request, cancellationToken);
             if ((result || retry) && response.IsSuccessStatusCode)
             {
+                if (result) LostResultResponses++;
                 LoseNextResultResponse = false; LoseNextRetryResponse = false; response.Dispose();
                 throw new HttpRequestException("Synthetic local acceptance response lost after the Worker accepted it.");
             }

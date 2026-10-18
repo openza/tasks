@@ -295,7 +295,7 @@ public sealed class TaskListItemViewModel : ObservableObject
 
     private string BuildDateText()
     {
-        var isRoutine = !string.IsNullOrWhiteSpace(Task.RecurrenceRule);
+        var isRoutine = !string.IsNullOrWhiteSpace(Task.EffectiveRecurrenceRule);
         if (isRoutine)
         {
             if (Task.PlannedMoment is { } routineDate)

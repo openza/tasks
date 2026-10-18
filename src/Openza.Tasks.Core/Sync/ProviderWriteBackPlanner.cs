@@ -28,7 +28,7 @@ public static class ProviderWriteBackPlanner
         var provider = original.SourceIntegrationId ?? original.IntegrationId;
         if (!string.Equals(provider, IntegrationIds.Todoist, StringComparison.Ordinal) ||
             !HasWritableProviderIdentity(original) ||
-            !string.IsNullOrWhiteSpace(original.RecurrenceRule) ||
+            !string.IsNullOrWhiteSpace(original.SourceRecurrenceRule) ||
             (original.PlannedOn == updated.PlannedOn && NullableDateTimesEqual(original.PlannedAt, updated.PlannedAt)))
         {
             return null;

@@ -51,6 +51,23 @@ public sealed class CloudflareProvisioningGateway(
     public Task<CloudflareProvisioningApplication> DeployApplicationAsync(string accessToken, string accountId, string databaseId, string attemptId, string artifactVersion, CancellationToken cancellationToken = default) =>
         deployment.DeployAsync(accessToken, accountId, databaseId, ResourceName(attemptId), attemptId, artifactVersion, cancellationToken);
 
+    public async Task VerifyMigrationHistoryAsync(string accessToken, string accountId, string databaseId, string artifactVersion, CancellationToken cancellationToken = default)
+    {
+        if (!string.Equals(migrations.ArtifactVersion, artifactVersion, StringComparison.Ordinal) || migrations.Migrations.Count == 0)
+            throw new PersonalCloudK0ContractException("artifact_mismatch", "The Personal Cloud migration bundle does not match the deployment artifact.");
+        foreach (var migration in migrations.Migrations) ValidateMigration(migration);
+        var journal = await management.QueryD1Async(accessToken, accountId, databaseId,
+            "SELECT name AS sha256 FROM sqlite_master WHERE type='table' AND name='openza_schema_migrations'", cancellationToken: cancellationToken).ConfigureAwait(false);
+        if (ReadChecksum(journal) is null) return;
+        foreach (var migration in migrations.Migrations)
+        {
+            var result = await management.QueryD1Async(accessToken, accountId, databaseId,
+                "SELECT sha256 FROM openza_schema_migrations WHERE name=?1", [migration.Name], cancellationToken).ConfigureAwait(false);
+            if (ReadChecksum(result) is { } existing && !string.Equals(existing, migration.Sha256, StringComparison.Ordinal))
+                throw new PersonalCloudK0ContractException("migration_mismatch", "The deployed Personal Cloud migration history does not match the artifact.");
+        }
+    }
+
     public async Task ApplyMigrationsAsync(string accessToken, string accountId, string databaseId, string artifactVersion, CancellationToken cancellationToken = default)
     {
         if (!string.Equals(migrations.ArtifactVersion, artifactVersion, StringComparison.Ordinal) || migrations.Migrations.Count == 0)

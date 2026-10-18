@@ -52,6 +52,11 @@ public sealed class TaskApplicationService(
         };
         if (PersonalCloudTarget() is { } target && Store is SqliteTaskStore sqliteStore)
         {
+            if (await sqliteStore.SupportsPersonalCloudWorkspaceAsync(target.InstanceId, cancellationToken).ConfigureAwait(false))
+            {
+                await sqliteStore.CreateRichTaskWithPersonalCloudIntentAsync(task, target.InstanceId, target.DeviceId, cancellationToken: cancellationToken).ConfigureAwait(false);
+                return await RequireTaskAsync(task.Id, cancellationToken).ConfigureAwait(false);
+            }
             var cloudBaseTask = task with
             {
                 SpaceId = SpaceIds.Default,
@@ -448,6 +453,8 @@ public sealed class TaskApplicationService(
         long rootVersion,
         CancellationToken cancellationToken)
     {
+        if (await store.SupportsPersonalCloudWorkspaceAsync(target.InstanceId, cancellationToken).ConfigureAwait(false))
+            return new Dictionary<string, long>(StringComparer.Ordinal) { [root.Id] = rootVersion };
         var tasks = await Store.GetTasksAsync(new TaskQuery
         {
             SpaceId = root.SpaceId,

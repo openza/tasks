@@ -13,6 +13,149 @@ namespace Openza.Tasks.Tests;
 
 public sealed class PersonalCloudProviderBridgeTests : IDisposable
 {
+    [Fact]
+    public async Task Openza_completion_does_not_create_provider_delivery_and_legacy_phantoms_are_hidden()
+    {
+        var store = await StoreAsync("local-completion.db");
+        await using (var connection = new SqliteConnection($"Data Source={store.DatabasePath};Pooling=False"))
+        {
+            await connection.OpenAsync();
+            var command = connection.CreateCommand();
+            command.CommandText = "DELETE FROM personal_cloud_provider_sources; UPDATE tasks SET completion_state='open', completed_at=NULL";
+            await command.ExecuteNonQueryAsync();
+        }
+        // The bootstrap above deliberately leaves a historical phantom command behind.
+        Assert.Empty(await store.GetPersonalCloudProviderRequestStatusAsync(Instance));
+        await store.ApplyPersonalCloudChangePageAsync(Instance, Device, PersonalCloudK0Codec.Serialize(new
+        {
+            protocolVersion = 1, product = "tasks", nextCheckpoint = 43,
+            changes = new[] { new PersonalCloudTaskCompletedChange
+            {
+                ProtocolVersion = 1, Product = "tasks", ChangeSeq = 43, MutationId = "local_complete",
+                Operation = "task.completed", EntityKind = "task", EntityId = TaskId, EntityVersion = 3,
+                ServerAcceptedAt = "2026-10-11T07:00:00.000Z",
+                Payload = new() { Task = new() { Id = TaskId, CompletionState = "completed", CompletedAt = "2026-10-11T07:00:00.000Z" } },
+            } },
+        }));
+        Assert.Empty(await store.GetPersonalCloudProviderRequestStatusAsync(Instance));
+        await using var verify = new SqliteConnection($"Data Source={store.DatabasePath};Pooling=False");
+        await verify.OpenAsync();
+        var read = verify.CreateCommand();
+        read.CommandText = "SELECT requested_seq FROM personal_cloud_provider_commands";
+        Assert.Equal(42L, Convert.ToInt64(await read.ExecuteScalarAsync()));
+    }
+
+    [Fact]
+    public async Task Unchanged_newer_observations_do_not_churn_and_fence_delayed_fields_across_restart()
+    {
+        var store = await StoreAsync("dedup-observation.db");
+        var current = Assert.Single(await store.GetPersonalCloudProviderSourcesAsync(Instance)).Source;
+        var time = DateTimeOffset.Parse(current.RefreshedAt);
+        for (var index = 1; index <= 12; index++)
+            await store.EnqueuePersonalCloudSourceSnapshotAsync(Instance, Device, TaskId,
+                current with { RefreshedAt = PersonalCloudK0Mapper.FormatTimestamp(time.AddMinutes(index * 5)) });
+        Assert.Empty(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device));
+        var restarted = new SqliteTaskStore(store.DatabasePath);
+        await restarted.InitializeAsync();
+        await restarted.EnqueuePersonalCloudSourceSnapshotAsync(Instance, Device, TaskId,
+            current with { Title = "Delayed changed title", RefreshedAt = PersonalCloudK0Mapper.FormatTimestamp(time.AddMinutes(30)) });
+        Assert.Empty(await restarted.GetPendingPersonalCloudOutboxAsync(Instance, Device));
+        await restarted.EnqueuePersonalCloudSourceSnapshotAsync(Instance, Device, TaskId,
+            current with { Title = "Current changed title", RefreshedAt = PersonalCloudK0Mapper.FormatTimestamp(time.AddMinutes(61)) });
+        Assert.Equal(1, Assert.Single(await restarted.GetPendingPersonalCloudOutboxAsync(Instance, Device)).DeviceSequence);
+        Assert.Equal(current.RefreshedAt, Assert.Single(await restarted.GetPersonalCloudProviderSourcesAsync(Instance)).Source.RefreshedAt);
+    }
+
+    [Fact]
+    public async Task Pending_inflight_and_acknowledged_without_echo_snapshots_are_deduplicated_without_rewriting_intents()
+    {
+        var store = await StoreAsync("dedup-pending.db");
+        var current = Assert.Single(await store.GetPersonalCloudProviderSourcesAsync(Instance)).Source;
+        var time = DateTimeOffset.Parse(current.RefreshedAt);
+        var desired = current with { Description = "Changed description", RefreshedAt = PersonalCloudK0Mapper.FormatTimestamp(time.AddMinutes(1)) };
+        await store.EnqueuePersonalCloudSourceSnapshotAsync(Instance, Device, TaskId, desired);
+        var inFlight = Assert.Single(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device));
+        await store.EnqueuePersonalCloudSourceSnapshotAsync(Instance, Device, TaskId,
+            desired with { RefreshedAt = PersonalCloudK0Mapper.FormatTimestamp(time.AddMinutes(2)) });
+        Assert.Equal(inFlight, Assert.Single(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device)));
+        await store.AcknowledgePersonalCloudMutationAsync(Instance, Device, Receipt(inFlight.MutationId));
+        var restarted = new SqliteTaskStore(store.DatabasePath);
+        await restarted.InitializeAsync();
+        await restarted.EnqueuePersonalCloudSourceSnapshotAsync(Instance, Device, TaskId,
+            desired with { RefreshedAt = PersonalCloudK0Mapper.FormatTimestamp(time.AddMinutes(3)) });
+        Assert.Empty(await restarted.GetPendingPersonalCloudOutboxAsync(Instance, Device));
+        await restarted.EnqueuePersonalCloudSourceSnapshotAsync(Instance, Device, TaskId,
+            current with { RefreshedAt = PersonalCloudK0Mapper.FormatTimestamp(time.AddMinutes(4)) });
+        // A real reversion must follow the pending/accepted newer state even when it matches the confirmed older state.
+        Assert.Equal(2, Assert.Single(await restarted.GetPendingPersonalCloudOutboxAsync(Instance, Device)).DeviceSequence);
+    }
+
+    [Theory]
+    [InlineData("title")] [InlineData("description")] [InlineData("url")] [InlineData("project")]
+    [InlineData("priority")] [InlineData("plannedOn")] [InlineData("plannedAt")]
+    [InlineData("deadlineOn")] [InlineData("deadlineAt")] [InlineData("recurrence")]
+    public async Task Every_source_fact_change_is_published_without_allocating_sequences_for_duplicate_observations(string field)
+    {
+        var store = await StoreAsync($"dedup-{field}.db");
+        var current = Assert.Single(await store.GetPersonalCloudProviderSourcesAsync(Instance)).Source;
+        var time = DateTimeOffset.Parse(current.RefreshedAt);
+        var changed = field switch
+        {
+            "title" => current with { Title = "Changed" }, "description" => current with { Description = "Changed" },
+            "url" => current with { SourceUrl = "https://example.test/item" }, "project" => current with { ProjectName = "Changed" },
+            "priority" => current with { Priority = 4 }, "plannedOn" => current with { PlannedOn = "2030-01-01" },
+            "plannedAt" => current with { PlannedAt = "2030-01-01T00:00:00.000Z" },
+            "deadlineOn" => current with { DeadlineOn = "2030-01-02" }, "deadlineAt" => current with { DeadlineAt = "2030-01-02T00:00:00.000Z" },
+            _ => current with { RecurrenceRule = "every day" },
+        };
+        await store.EnqueuePersonalCloudSourceSnapshotAsync(Instance, Device, TaskId,
+            changed with { RefreshedAt = PersonalCloudK0Mapper.FormatTimestamp(time.AddMinutes(1)) });
+        await store.EnqueuePersonalCloudSourceSnapshotAsync(Instance, Device, TaskId,
+            changed with { RefreshedAt = PersonalCloudK0Mapper.FormatTimestamp(time.AddMinutes(2)) });
+        Assert.Equal(1, Assert.Single(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device)).DeviceSequence);
+    }
+
+    [Fact]
+    public async Task Unchanged_freshness_heartbeat_is_bounded_and_carries_actual_observation_time()
+    {
+        var store = await StoreAsync("dedup-heartbeat.db");
+        var current = Assert.Single(await store.GetPersonalCloudProviderSourcesAsync(Instance)).Source;
+        var time = DateTimeOffset.Parse(current.RefreshedAt);
+        for (var minutes = 5; minutes <= 720; minutes += 5)
+            await store.EnqueuePersonalCloudSourceSnapshotAsync(Instance, Device, TaskId,
+                current with { RefreshedAt = PersonalCloudK0Mapper.FormatTimestamp(time.AddMinutes(minutes)) });
+        var pending = await store.GetPendingPersonalCloudOutboxAsync(Instance, Device);
+        Assert.Equal(2, pending.Count); // Two six-hour heartbeats, rather than144 full snapshots.
+        using var document = JsonDocument.Parse(pending[^1].CanonicalJson);
+        Assert.Equal(PersonalCloudK0Mapper.FormatTimestamp(time.AddHours(12)),
+            document.RootElement.GetProperty("payload").GetProperty("source").GetProperty("refreshedAt").GetString());
+    }
+
+    [Fact]
+    public async Task Wrong_source_identity_and_deletion_cannot_enqueue_refresh_or_consume_a_sequence()
+    {
+        var store = await StoreAsync("dedup-identity-delete.db");
+        var current = Assert.Single(await store.GetPersonalCloudProviderSourcesAsync(Instance)).Source;
+        var newer = current with { RefreshedAt = "2030-01-01T00:00:00.000Z" };
+        var error = await Assert.ThrowsAsync<PersonalCloudK0ContractException>(() => store.EnqueuePersonalCloudSourceSnapshotAsync(
+            Instance, Device, TaskId, newer with { ExternalIdHash = new string('a', 64) }));
+        Assert.Equal("source_identity_conflict", error.Code);
+        Assert.Empty(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device));
+        await store.ApplyPersonalCloudChangePageAsync(Instance, Device, PersonalCloudK0Codec.Serialize(new
+        {
+            protocolVersion = 1, product = "tasks", nextCheckpoint = 43,
+            changes = new[] { new PersonalCloudTaskDeletedChange
+            {
+                ProtocolVersion = 1, Product = "tasks", ChangeSeq = 43, MutationId = "mutation_dedup_deleted",
+                Operation = "task.deleted", EntityKind = "task", EntityId = TaskId, EntityVersion = 3,
+                Payload = new() { Task = new() { Id = TaskId, DeletedAt = "2026-10-13T00:00:00.000Z" } },
+                ServerAcceptedAt = "2026-10-13T00:00:01.000Z",
+            } },
+        }));
+        await store.EnqueuePersonalCloudSourceSnapshotAsync(Instance, Device, TaskId, newer);
+        Assert.Empty(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device));
+    }
+
     private const string Instance = "instance_bridge_tests";
     private const string Device = "device_bridge_tests_a";
     private const string TaskId = "local_bridge_task";
@@ -220,6 +363,8 @@ public sealed class PersonalCloudProviderBridgeTests : IDisposable
     public async Task Source_facts_and_own_echo_do_not_defer_or_overwrite_pending_user_fields(bool ownEcho)
     {
         var store = await StoreAsync("source-independent.db");
+        var original = (await store.GetTaskAsync(TaskId))!;
+        await store.UpsertTaskAsync(original with { RecurrenceRule = "every week" });
         var notes = await store.UpdateTaskNotesWithPersonalCloudIntentAsync(TaskId, "Keep local notes", 2, Instance, Device);
         var optimisticVersion = await store.GetPersonalCloudEntityVersionAsync(Instance, TaskId);
         var fresh = Source with { Description = "Fresh source description", RecurrenceRule = "every day",
@@ -242,7 +387,8 @@ public sealed class PersonalCloudProviderBridgeTests : IDisposable
         { protocolVersion = 1, product = "tasks", changes = new[] { refresh }, nextCheckpoint = 43 }));
         var task = (await store.GetTaskAsync(TaskId))!;
         Assert.Equal("Keep local notes", task.Notes); Assert.Equal("Fresh source description", task.SourceDescription);
-        Assert.Equal("every day", task.RecurrenceRule); Assert.True(task.IsCompleted);
+        Assert.Equal("every day", task.SourceRecurrenceRule);
+        Assert.Equal("every week", task.RecurrenceRule); Assert.True(task.IsCompleted);
         Assert.Equal(fresh, Assert.Single(await store.GetPersonalCloudProviderSourcesAsync(Instance)).Source);
         Assert.Equal(0, await store.GetDeferredPersonalCloudChangeCountAsync(Instance));
         Assert.Equal(optimisticVersion, await store.GetPersonalCloudEntityVersionAsync(Instance, TaskId));
@@ -253,6 +399,10 @@ public sealed class PersonalCloudProviderBridgeTests : IDisposable
         Assert.Equal(0, await store.GetDeferredPersonalCloudChangeCountAsync(Instance));
         Assert.Empty(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device));
         await store.EnsureNoPendingPersonalCloudIntentsAsync();
+        await store.EnqueuePersonalCloudSourceSnapshotAsync(Instance, Device, TaskId,
+            fresh with { RefreshedAt = "2030-01-01T00:05:00.000Z" });
+        Assert.Empty(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device));
+        Assert.Equal(fresh.RefreshedAt, Assert.Single(await store.GetPersonalCloudProviderSourcesAsync(Instance)).Source.RefreshedAt);
     }
 
     [Fact]
@@ -287,6 +437,9 @@ public sealed class PersonalCloudProviderBridgeTests : IDisposable
         Assert.Equal(0, await store.GetDeferredPersonalCloudChangeCountAsync(Instance));
         Assert.Empty(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device));
         Assert.Equal(3, await store.GetPersonalCloudEntityVersionAsync(Instance, TaskId));
+        await store.EnqueuePersonalCloudSourceSnapshotAsync(Instance, Device, TaskId,
+            fresh with { RefreshedAt = "2030-01-01T00:05:00.000Z" });
+        Assert.Empty(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device));
     }
 
     [Theory]
@@ -439,5 +592,5 @@ public sealed class PersonalCloudProviderBridgeTests : IDisposable
         private static HttpResponseMessage Json(object body) => new(HttpStatusCode.OK) { Content = new StringContent(PersonalCloudK0Codec.Serialize(body), Encoding.UTF8, "application/json") };
     }
 
-    public void Dispose() { if (Directory.Exists(_directory)) Directory.Delete(_directory, true); }
+    public void Dispose() { SqliteConnection.ClearAllPools(); if (Directory.Exists(_directory)) Directory.Delete(_directory, true); }
 }

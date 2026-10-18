@@ -33,6 +33,7 @@ public sealed partial class PersonalCloudSetupWindow : Window
     public PersonalCloudSetupWindow(MainWindowViewModel viewModel) : this()
     {
         _viewModel = viewModel;
+        DataContext = viewModel;
         Title = "Set up Personal Cloud";
     }
 
@@ -59,7 +60,6 @@ public sealed partial class PersonalCloudSetupWindow : Window
         _setupStarted = true;
         _setupCancellation = new CancellationTokenSource();
         PairExistingButton.IsEnabled = false;
-        PairExistingButton.Content = "Pairing…";
         PairingError.IsVisible = false;
         var result = await _viewModel.PairExistingPersonalCloudAsync(
             ExistingCloudAddress.Text ?? string.Empty,
@@ -76,7 +76,6 @@ public sealed partial class PersonalCloudSetupWindow : Window
         _setupCancellation.Dispose();
         _setupCancellation = null;
         PairExistingButton.IsEnabled = true;
-        PairExistingButton.Content = "Pair desktop";
         PairingError.Text = _viewModel.PersonalCloudSummaryText;
         PairingError.IsVisible = true;
     }
@@ -102,13 +101,23 @@ public sealed partial class PersonalCloudSetupWindow : Window
             }
             if (result is null)
             {
+                if (_viewModel.IsPersonalCloudConnected)
+                {
+                    _setupFinished = true;
+                    ProgressTitle.Text = "Your cloud is ready";
+                    ProgressSummary.Text = _viewModel.PersonalCloudSummaryText;
+                    CloseButton.Content = "Close";
+                    return;
+                }
                 ShowFailure(_viewModel.PersonalCloudSummaryText);
                 return;
             }
 
             UpdateProgress(new PersonalCloudSetupProgress(PersonalCloudSetupStep.Complete));
             ProgressTitle.Text = "Personal Cloud is ready";
-            ProgressSummary.Text = "This desktop is paired. Finish passkey security in the browser window Openza opened.";
+            ProgressSummary.Text = _viewModel.InitialSyncProgress is { IsComplete: true }
+                ? "Your cloud is ready. Initial sync is complete. Finish passkey security in the browser window Openza opened."
+                : "Your cloud is ready. Upload progress remains available in Tasks and Settings. Finish passkey security in the browser window Openza opened.";
             AddressText.Text = result.ServiceOrigin.AbsoluteUri;
             AddressPanel.IsVisible = true;
             _setupFinished = true;

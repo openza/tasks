@@ -34,7 +34,7 @@ public sealed partial class AddTaskWindow : Window
         PriorityPicker.SelectedIndex = 2;
         if (viewModel.SelectedNavigation?.Kind == Openza.Tasks.Core.Data.TaskListKind.Today)
         {
-            DatePicker.SelectedDate = DateTimeOffset.Now;
+            DatePicker.SelectedDate = DateTime.Today;
         }
     }
 
@@ -102,7 +102,7 @@ public sealed partial class AddTaskWindow : Window
             ProjectPicker.SelectedItem as ProjectOptionViewModel,
             int.TryParse((StatusPicker.SelectedItem as ComboBoxItem)?.Tag?.ToString(), out var statusIndex) ? statusIndex : 0,
             Math.Max(0, PriorityPicker.SelectedIndex),
-            DatePicker.SelectedDate,
+            DatePicker.SelectedDate is { } date ? new DateTimeOffset(date) : null,
             string.Join(", ", _selectedLabels),
             openAfterCreate));
     }

@@ -12,8 +12,8 @@
     Opened="OnOpened">
     <Grid RowDefinitions="Auto,Auto,*,Auto,Auto">
         <StackPanel Margin="24,22,24,14" Spacing="4">
-            <TextBlock FontSize="22" FontWeight="SemiBold" Text="Change project" />
-            <TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="Choose where this task belongs." TextWrapping="Wrap" />
+            <TextBlock Classes="dialog-title" Text="Change project" />
+            <TextBlock Foreground="{DynamicResource OpenzaTextSecondaryBrush}" Text="Choose where this task belongs." TextWrapping="Wrap" />
         </StackPanel>
         <TextBox
             x:Name="SearchBox"
@@ -32,8 +32,8 @@
             <ListBox.ItemTemplate>
                 <DataTemplate>
                     <StackPanel Margin="8,7" Spacing="3">
-                        <TextBlock FontWeight="SemiBold" Text="{Binding Title}" />
-                        <TextBlock FontSize="12" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{Binding Subtitle}" TextWrapping="Wrap" />
+                        <TextBlock FontWeight="SemiBold" Text="{Binding Title}" TextWrapping="Wrap" />
+                        <TextBlock FontSize="12" Foreground="{DynamicResource OpenzaTextSecondaryBrush}" Text="{Binding Subtitle}" TextWrapping="Wrap" IsVisible="{Binding Subtitle, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                     </StackPanel>
                 </DataTemplate>
             </ListBox.ItemTemplate>
@@ -46,10 +46,10 @@
             HorizontalContentAlignment="Left"
             IsVisible="False"
             Click="OnCreateProjectClicked" />
-        <Border Grid.Row="4" Margin="0,14,0,0" Padding="24,14" BorderBrush="{DynamicResource DividerStrokeColorDefaultBrush}" BorderThickness="0,1,0,0">
+        <Border Grid.Row="4" Margin="0,14,0,0" Padding="24,14" BorderBrush="{DynamicResource OpenzaSeparatorBrush}" BorderThickness="0,1,0,0">
             <StackPanel HorizontalAlignment="Right" Orientation="Horizontal" Spacing="10">
                 <Button MinWidth="100" Click="OnCancelClicked" Content="Cancel" IsCancel="True" />
-                <Button MinWidth="100" Classes="accent" Click="OnChooseClicked" Content="Choose" IsDefault="True" />
+                <Button MinWidth="100" Classes="accent" Click="OnChooseClicked" Content="Choose" IsDefault="True" IsEnabled="{Binding #ProjectsList.SelectedItem, Converter={x:Static ObjectConverters.IsNotNull}}" />
             </StackPanel>
         </Border>
     </Grid>

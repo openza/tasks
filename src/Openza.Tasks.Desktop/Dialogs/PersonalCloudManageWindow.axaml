@@ -2,12 +2,12 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="Openza.Tasks.Desktop.Dialogs.PersonalCloudManageWindow"
         Title="Manage Personal Cloud" Width="720" Height="660"
-        CanResize="False" WindowStartupLocation="CenterOwner">
+        MinWidth="620" MinHeight="440" ShowInTaskbar="False" WindowStartupLocation="CenterOwner">
   <ScrollViewer VerticalScrollBarVisibility="Auto">
     <StackPanel Margin="28" Spacing="18">
       <StackPanel Spacing="5">
-        <TextBlock FontSize="27" FontWeight="SemiBold" Text="Manage Personal Cloud"/>
-        <TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+        <TextBlock Classes="dialog-title" Text="Manage Personal Cloud"/>
+        <TextBlock Foreground="{DynamicResource OpenzaTextSecondaryBrush}"
                    Text="Your local Openza database remains on this computer unless you delete it separately."
                    TextWrapping="Wrap"/>
       </StackPanel>
@@ -16,7 +16,7 @@
         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="18">
           <StackPanel Spacing="4">
             <TextBlock FontWeight="SemiBold" Text="Open Personal Cloud"/>
-            <TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="Open the Web task workspace or its security settings." TextWrapping="Wrap"/>
+            <TextBlock Foreground="{DynamicResource OpenzaTextSecondaryBrush}" Text="Open the Web task workspace or its security settings." TextWrapping="Wrap"/>
           </StackPanel>
           <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
             <Button Click="OnOpenTasksClicked" Content="Open tasks"/>
@@ -29,7 +29,7 @@
         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="18">
           <StackPanel Spacing="4">
             <TextBlock FontWeight="SemiBold" Text="Download backup"/>
-            <TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="Authorize Cloudflare temporarily and download a complete D1 SQL backup." TextWrapping="Wrap"/>
+            <TextBlock Foreground="{DynamicResource OpenzaTextSecondaryBrush}" Text="Authorize Cloudflare temporarily and download a complete D1 SQL backup." TextWrapping="Wrap"/>
           </StackPanel>
           <Button x:Name="ExportButton" Grid.Column="1" Classes="accent" Click="OnExportClicked" Content="Download backup"/>
         </Grid>
@@ -39,7 +39,7 @@
         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="18">
           <StackPanel Spacing="4">
             <TextBlock FontWeight="SemiBold" Text="Update Personal Cloud"/>
-            <TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="Deploy the Personal Cloud version bundled with this Openza build. Existing tasks remain in D1." TextWrapping="Wrap"/>
+            <TextBlock Foreground="{DynamicResource OpenzaTextSecondaryBrush}" Text="Deploy the Personal Cloud version bundled with this Openza build. Existing tasks remain in D1." TextWrapping="Wrap"/>
           </StackPanel>
           <Button x:Name="UpdateButton" Grid.Column="1" Classes="accent" Click="OnUpdateClicked" Content="Update"/>
         </Grid>
@@ -50,7 +50,7 @@
           <Grid ColumnDefinitions="*,Auto" ColumnSpacing="18">
             <StackPanel Spacing="4">
               <TextBlock FontWeight="SemiBold" Text="Disconnect this computer"/>
-              <TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="Revoke this computer only. Local tasks and the Personal Cloud remain available." TextWrapping="Wrap"/>
+              <TextBlock Foreground="{DynamicResource OpenzaTextSecondaryBrush}" Text="Revoke this computer only. Local tasks and the Personal Cloud remain available." TextWrapping="Wrap"/>
             </StackPanel>
             <Button Grid.Column="1" Click="OnDisconnectClicked" Content="Disconnect"/>
           </Grid>
@@ -62,18 +62,18 @@
         </StackPanel>
       </Border>
 
-      <Border Padding="18" BorderBrush="#C42B1C" BorderThickness="1" CornerRadius="8">
+      <Border Padding="18" BorderBrush="{DynamicResource OpenzaDangerBrush}" BorderThickness="1" CornerRadius="8">
         <StackPanel Spacing="10">
-          <TextBlock FontWeight="SemiBold" Foreground="#C42B1C" Text="Remove Personal Cloud permanently"/>
+          <TextBlock FontWeight="SemiBold" Foreground="{DynamicResource OpenzaDangerBrush}" Text="Remove Personal Cloud permanently"/>
           <TextBlock Text="This deletes the Openza Worker and D1 database from Cloudflare. Your local tasks remain on this computer. Download a backup first." TextWrapping="Wrap"/>
           <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
-            <TextBox x:Name="RemoveConfirmationText" PlaceholderText="Type REMOVE" TextChanged="OnRemoveConfirmationChanged"/>
+            <TextBox AutomationProperties.Name="Removal confirmation" x:Name="RemoveConfirmationText" PlaceholderText="Type REMOVE" TextChanged="OnRemoveConfirmationChanged"/>
             <Button x:Name="RemoveButton" Grid.Column="1" IsEnabled="False" Click="OnRemoveClicked" Content="Remove permanently"/>
           </Grid>
         </StackPanel>
       </Border>
 
-      <TextBlock x:Name="ResultText" Text="{ReflectionBinding PersonalCloudSummaryText}" Foreground="{DynamicResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
+      <TextBlock x:Name="ResultText" Text="{ReflectionBinding PersonalCloudSummaryText}" Foreground="{DynamicResource OpenzaTextSecondaryBrush}" TextWrapping="Wrap"/>
       <Button x:Name="CancelBackupButton" IsVisible="False" HorizontalAlignment="Right" Click="OnCancelBackupClicked" Content="Cancel backup"/>
       <Button HorizontalAlignment="Right" Click="OnCloseClicked" Content="Close"/>
     </StackPanel>

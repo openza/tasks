@@ -10,7 +10,7 @@ namespace Openza.Tasks.Core.Data;
 
 public sealed partial class SqliteTaskStore(string databasePath, bool readOnly = false) : ITaskStore
 {
-    public const int CurrentSchemaVersion = 9;
+    public const int CurrentSchemaVersion = 11;
     public const int MinimumReadOnlySchemaVersion = 5;
 
     private sealed record ParentTaskContext(string Id, string SpaceId, string? ProjectId, TaskWorkflowStatus WorkflowStatus);
@@ -325,7 +325,7 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
 
     private static bool MatchesRepeatScope(TaskItem task, TaskRepeatScope scope)
     {
-        var isRepeating = !string.IsNullOrWhiteSpace(task.RecurrenceRule);
+        var isRepeating = !string.IsNullOrWhiteSpace(task.EffectiveRecurrenceRule);
         return scope switch
         {
             TaskRepeatScope.Exclude => !isRepeating,
@@ -504,6 +504,11 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
     public async Task UpsertSpaceAsync(SpaceItem space, CancellationToken cancellationToken = default)
     {
         await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await UpsertSpaceCoreAsync(connection, space, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task UpsertSpaceCoreAsync(SqliteConnection connection, SpaceItem space, CancellationToken cancellationToken)
+    {
         var command = connection.CreateCommand();
         command.CommandText = """
             INSERT INTO spaces (id, name, color, icon, sort_order, is_archived, created_at, updated_at)
@@ -541,6 +546,9 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
             """;
         command.Parameters.AddWithValue("@space_id", ToDbValue(spaceId));
         command.Parameters.AddWithValue("@include_archived", includeArchived ? 1 : 0);
+
+        if (await TableExistsAsync(connection, "personal_cloud_workspace_records", cancellationToken).ConfigureAwait(false))
+            command.CommandText = command.CommandText.Replace("ORDER BY is_favorite", "AND NOT EXISTS(SELECT 1 FROM personal_cloud_workspace_records w WHERE w.kind='projects' AND w.entity_id=projects.id AND json_extract(w.canonical_json,'$.deletedAt') IS NOT NULL) ORDER BY is_favorite", StringComparison.Ordinal);
 
         var projects = new List<ProjectItem>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
@@ -1026,7 +1034,7 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
             PlannedAt = plannedAt,
             DeadlineOn = deadlineOn,
             DeadlineAt = deadlineAt,
-            RecurrenceRule = source.RecurrenceRule,
+            RecurrenceRule = null,
             SourceIntegrationId = source.IntegrationId,
             SourceConnectionId = source.ProviderConnectionId,
             SourceExternalId = source.ExternalId,
@@ -1169,6 +1177,11 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
     public async Task<IReadOnlyList<SyncRouteInfo>> GetSyncRoutesAsync(CancellationToken cancellationToken = default)
     {
         await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        return await ReadSyncRoutesCoreAsync(connection, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task<IReadOnlyList<SyncRouteInfo>> ReadSyncRoutesCoreAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    {
         var command = connection.CreateCommand();
         command.CommandText = """
             SELECT id, workspace_id, name, source_connection_id, target_connection_id, mode, visibility,
@@ -1204,6 +1217,11 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
     public async Task UpsertSyncRouteAsync(SyncRouteInfo route, CancellationToken cancellationToken = default)
     {
         await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await UpsertSyncRouteCoreAsync(connection, route, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task UpsertSyncRouteCoreAsync(SqliteConnection connection, SyncRouteInfo route, CancellationToken cancellationToken)
+    {
         var command = connection.CreateCommand();
         command.CommandText = """
             INSERT INTO sync_routes (id, workspace_id, name, source_connection_id, target_connection_id, mode, visibility,
@@ -1473,7 +1491,7 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
         await StageUnpublishedTasksForPersonalCloudAsync(instanceId, deviceId, cancellationToken).ConfigureAwait(false);
         var pending = await GetPendingPersonalCloudOutboxAsync(instanceId, deviceId, cancellationToken).ConfigureAwait(false);
         return pending.FirstOrDefault(item => item.EntityId == taskId &&
-                   item.Operation == PersonalCloudK0Protocol.CreateTaskOperation)
+                   item.Operation is PersonalCloudK0Protocol.CreateTaskOperation or "task.createRich")
             ?? throw new PersonalCloudK0ContractException("entity_exists", "The Openza task is already published to this Personal Cloud instance.");
     }
 
@@ -1489,9 +1507,11 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
         if (!await TableExistsAsync(connection, "personal_cloud_outbox", cancellationToken).ConfigureAwait(false)) return;
         var hasDeferredTable = await TableExistsAsync(connection, "personal_cloud_deferred_changes", cancellationToken).ConfigureAwait(false);
         var hasBridgeTable = await TableExistsAsync(connection, "personal_cloud_provider_attempts", cancellationToken).ConfigureAwait(false);
+        var hasCatalogActions = await TableExistsAsync(connection, "personal_cloud_provider_intent_actions", cancellationToken).ConfigureAwait(false);
         var hasLegacyCompletions = await TableExistsAsync(connection, "pending_completions", cancellationToken).ConfigureAwait(false);
         var command = connection.CreateCommand();
         command.CommandText = "SELECT (SELECT COUNT(*) FROM personal_cloud_outbox WHERE product='tasks' AND acknowledged_at IS NULL)" +
+            (hasCatalogActions ? " + (SELECT COUNT(*) FROM personal_cloud_provider_intent_actions WHERE phase!='settled')" : "") +
             (hasDeferredTable ? " + (SELECT COUNT(*) FROM personal_cloud_deferred_changes)" : "") +
             (hasBridgeTable ? " + (SELECT COUNT(*) FROM personal_cloud_provider_attempts WHERE state NOT IN ('settled','cancelled'))" : "") +
             (hasLegacyCompletions ? " + (SELECT COUNT(*) FROM pending_completions p WHERE EXISTS(SELECT 1 FROM personal_cloud_outbox o WHERE o.entity_id=p.task_id AND o.operation IN ('task.complete','task.reopen'))" +
@@ -1515,6 +1535,8 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
         string deviceId,
         CancellationToken cancellationToken = default)
     {
+        if (await SupportsPersonalCloudWorkspaceAsync(instanceId, cancellationToken).ConfigureAwait(false))
+            return await StagePersonalCloudWorkspaceSeedAsync(instanceId, deviceId, cancellationToken).ConfigureAwait(false);
         await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         var tasks = (await ReadTasksAsync(connection, cancellationToken).ConfigureAwait(false))
@@ -1538,6 +1560,7 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
         tasks = tasks.Where(task => !alreadyPublished.Contains(task.Id)).ToList();
         if (tasks.Count == 0)
         {
+            await SealInitialSyncSeedAsync(connection, instanceId, deviceId, cancellationToken).ConfigureAwait(false);
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
             return 0;
         }
@@ -1733,6 +1756,7 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
         advance.Parameters.AddWithValue("@d", deviceId);
         if (await advance.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
             throw new InvalidOperationException("The Personal Cloud device sequence could not be advanced.");
+        await SealInitialSyncSeedAsync(connection, instanceId, deviceId, cancellationToken).ConfigureAwait(false);
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return staged;
     }
@@ -2800,6 +2824,7 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
             .GroupBy(task => task.ParentId!, StringComparer.Ordinal)
             .ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.Ordinal);
         var movedTasks = new List<TaskItem>();
+        var workspaceMove = await WorkspaceEnabledAsync(connection, instanceId, cancellationToken).ConfigureAwait(false);
         var pending = new Queue<TaskItem>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
         pending.Enqueue(root);
@@ -2810,7 +2835,7 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
                 throw new PersonalCloudK0ContractException("invalid_request", "The task hierarchy contains a cycle.");
             if (task.IntegrationId != IntegrationIds.Local)
                 throw new PersonalCloudK0ContractException("invalid_request", "Only Openza tasks can move with this task.");
-            if (!baseEntityVersions.TryGetValue(task.Id, out var version) || version <= 0)
+            if ((!workspaceMove || task.Id == root.Id) && (!baseEntityVersions.TryGetValue(task.Id, out var version) || version <= 0))
                 throw new PersonalCloudK0ContractException("invalid_request", "A cloud version is required for every moved task.");
             movedTasks.Add(task);
             if (children.TryGetValue(task.Id, out var childTasks))
@@ -2818,6 +2843,27 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
                 foreach (var child in childTasks.OrderBy(item => item.CreatedAt).ThenBy(item => item.Id, StringComparer.Ordinal))
                     pending.Enqueue(child);
             }
+        }
+
+        if (workspaceMove)
+        {
+            var indirectVersions = new List<(string Id, long Version)>();
+            foreach (var task in movedTasks.Where(t => t.Id != root.Id))
+                if (await ReadPersonalCloudEntityVersionAsync(connection, instanceId, task.Id, cancellationToken).ConfigureAwait(false) is { } taskVersion)
+                    indirectVersions.Add((task.Id, taskVersion));
+            var entry = await AppendWorkspaceMutationAsync(connection, instanceId, deviceId, "task.moveTree", root.Id,
+                baseEntityVersions[root.Id], new { spaceId = targetSpaceId, fields = new { } }, cancellationToken).ConfigureAwait(false);
+            foreach (var item in indirectVersions)
+                await SaveIndirectWorkspaceVersionAsync(connection, instanceId, "tasks", item.Id, entry.MutationId, item.Version, cancellationToken).ConfigureAwait(false);
+            foreach (var task in movedTasks)
+                await UpsertTaskCoreAsync(connection, task with { SpaceId = targetSpaceId, ProjectId = null,
+                    ParentId = task.Id == root.Id ? null : task.ParentId, UpdatedAt = DateTimeOffset.UtcNow, Revision = task.Revision + 1 }, cancellationToken).ConfigureAwait(false);
+            await WorkspaceExecuteAsync(connection, """
+                WITH RECURSIVE moved(id) AS(SELECT @id UNION ALL SELECT t.id FROM tasks t JOIN moved m ON t.parent_id=m.id)
+                UPDATE provider_source_items SET suggested_space_id=@s WHERE adopted_task_id IN(SELECT id FROM moved)
+                """, cancellationToken, ("@id", root.Id), ("@s", targetSpaceId)).ConfigureAwait(false);
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            return [entry];
         }
 
         var initializeDevice = connection.CreateCommand();
@@ -3037,6 +3083,11 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
         CancellationToken cancellationToken = default)
     {
         await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        return await ReadPersonalCloudEntityVersionAsync(connection, instanceId, entityId, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task<long?> ReadPersonalCloudEntityVersionAsync(SqliteConnection connection, string instanceId, string entityId, CancellationToken cancellationToken)
+    {
         var versionCommand = connection.CreateCommand();
         versionCommand.CommandText = """
             SELECT entity_version
@@ -3066,13 +3117,13 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
             var outboxVersion = PersonalCloudMutationEntityVersion(reader.GetString(0), reader.GetString(1), instanceId);
             version = version is null ? outboxVersion : Math.Max(version.Value, outboxVersion);
         }
-        return version;
+        return await WithIndirectWorkspaceVersionAsync(connection, instanceId, "tasks", entityId, version, cancellationToken).ConfigureAwait(false);
     }
 
     private static long PersonalCloudMutationEntityVersion(string operation, string canonicalJson, string instanceId) =>
         operation switch
         {
-            PersonalCloudK0Protocol.CreateTaskOperation => 1L,
+            PersonalCloudK0Protocol.CreateTaskOperation or "task.createRich" => 1L,
             PersonalCloudK0Protocol.UpdateOpenzaFieldsOperation =>
                 checked(PersonalCloudOpenzaFieldsUpdateCodec.ParseMutation(canonicalJson, instanceId).BaseEntityVersion + 1),
             PersonalCloudK0Protocol.CompleteTaskOperation =>
@@ -3084,6 +3135,9 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
             "task.setProject" or "task.move" or "task.addLabel" or "task.removeLabel" or "task.setParent" =>
                 checked(JsonDocument.Parse(canonicalJson).RootElement.GetProperty("baseEntityVersion").GetInt64() + 1),
             "source.refreshSnapshot" or "externalCommand.confirm" or "externalCommand.reject" => 0L,
+            "space.put" or "project.put" or "project.delete" or "task.patch" or "task.moveTree" or
+            "provider.scope.put" or "provider.catalog.put" or "provider.intent.request" or "provider.intent.start" or "provider.intent.resolve" =>
+                WorkspaceMutationVersion(canonicalJson),
             _ => throw new PersonalCloudK0ContractException("invalid_request", "The local outbox operation is unsupported."),
         };
 
@@ -3216,9 +3270,9 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
         var hasPendingUserIntent = Convert.ToInt64(await pendingEntity.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)) > 0;
         // Source descriptors and command receipts cannot overwrite optimistic Openza fields.
         // They remain useful while a user edit is pending, including our own source echoes.
-        var isAuxiliaryChange = change is PersonalCloudSourceRefreshedChange or PersonalCloudExternalCommandChangedChange;
+        var isAuxiliaryChange = change is PersonalCloudSourceRefreshedChange or PersonalCloudExternalCommandChangedChange or PersonalCloudWorkspaceChange;
         var skipAuxiliaryTaskWrite = false;
-        if (isAuxiliaryChange)
+        if (isAuxiliaryChange && change is not PersonalCloudWorkspaceChange)
         {
             var deleted = connection.CreateCommand();
             deleted.CommandText = """
@@ -3248,6 +3302,9 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
         {
         switch (change)
         {
+            case PersonalCloudWorkspaceChange workspace:
+                await ApplyWorkspacePayloadAsync(connection, instanceId, workspace.Payload, cancellationToken).ConfigureAwait(false);
+                break;
             case K0TaskCreatedChange created:
             {
                 var existingTaskCommand = connection.CreateCommand();
@@ -3443,7 +3500,6 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
                     SET source_integration_id = @integration_id,
                         source_url = @source_url,
                         source_description = @source_description,
-                        recurrence_rule = @recurrence_rule,
                         source_metadata = @source_metadata,
                         updated_at = @updated_at
                     WHERE id = @id
@@ -3452,7 +3508,6 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
                 updateSourceCommand.Parameters.AddWithValue("@integration_id", source.IntegrationKind);
                 updateSourceCommand.Parameters.AddWithValue("@source_url", (object?)source.SourceUrl ?? DBNull.Value);
                 updateSourceCommand.Parameters.AddWithValue("@source_description", (object?)source.Description ?? DBNull.Value);
-                updateSourceCommand.Parameters.AddWithValue("@recurrence_rule", (object?)source.RecurrenceRule ?? DBNull.Value);
                 updateSourceCommand.Parameters.AddWithValue("@source_metadata", PersonalCloudK0Codec.Serialize(source));
                 updateSourceCommand.Parameters.AddWithValue(
                     "@updated_at", ParseProtocolTimestamp(refreshed.ServerAcceptedAt).ToUnixTimeMilliseconds());
@@ -3559,7 +3614,7 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
             }
             case PersonalCloudTaskRelationshipChange relationship:
             {
-                await ApplyPersonalCloudRelationshipChangeAsync(connection, relationship, cancellationToken).ConfigureAwait(false);
+                await ApplyPersonalCloudRelationshipChangeAsync(connection, instanceId, relationship, cancellationToken).ConfigureAwait(false);
                 break;
             }
             default:
@@ -3658,18 +3713,21 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
     }
 
     private static async Task ApplyPersonalCloudRelationshipChangeAsync(
-        SqliteConnection connection, PersonalCloudTaskRelationshipChange change, CancellationToken cancellationToken)
+        SqliteConnection connection, string instanceId, PersonalCloudTaskRelationshipChange change, CancellationToken cancellationToken)
     {
         var task = change.Payload.Task;
         var now = ParseProtocolTimestamp(change.ServerAcceptedAt).ToUnixTimeMilliseconds();
         if (change.Operation == "task.projectSet")
         {
             var project = task.GetProperty("project");
+            if (project.ValueKind != JsonValueKind.Null &&
+                await ReadWorkspaceRecordAsync(connection, instanceId, "projects", project.GetProperty("id").GetString()!, cancellationToken).ConfigureAwait(false) is { } known && WText(known, "deletedAt") is not null)
+                throw new PersonalCloudK0ContractException("invalid_transition", "A stale relationship cannot restore a deleted project.");
             var command=connection.CreateCommand();
             if(project.ValueKind!=JsonValueKind.Null){command.CommandText="""
               INSERT INTO projects(id,space_id,integration_id,name,created_at)
               SELECT @project_id,space_id,'openza_tasks',@name,@now FROM tasks WHERE id=@task_id
-              ON CONFLICT(id) DO UPDATE SET name=excluded.name
+              ON CONFLICT(id) DO NOTHING
               """;
             command.Parameters.AddWithValue("@project_id",project.GetProperty("id").GetString()!); command.Parameters.AddWithValue("@name",project.GetProperty("name").GetString()!);
             command.Parameters.AddWithValue("@now",now); command.Parameters.AddWithValue("@task_id",change.EntityId); await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);}
@@ -3679,7 +3737,7 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
         }
         else if(change.Operation=="task.moved")
         {
-            var space=task.GetProperty("space"); var command=connection.CreateCommand(); command.CommandText="INSERT INTO spaces(id,name,created_at) VALUES(@id,@name,@now) ON CONFLICT(id) DO UPDATE SET name=excluded.name";
+            var space=task.GetProperty("space"); var command=connection.CreateCommand(); command.CommandText="INSERT INTO spaces(id,name,created_at) VALUES(@id,@name,@now) ON CONFLICT(id) DO NOTHING";
             command.Parameters.AddWithValue("@id",space.GetProperty("id").GetString()!);command.Parameters.AddWithValue("@name",space.GetProperty("name").GetString()!);command.Parameters.AddWithValue("@now",now);await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
             command=connection.CreateCommand();command.CommandText="UPDATE tasks SET space_id=@space,project_id=NULL,parent_id=NULL,updated_at=@now,revision=revision+1 WHERE id=@id";
             command.Parameters.AddWithValue("@space",task.GetProperty("spaceId").GetString()!);command.Parameters.AddWithValue("@now",now);command.Parameters.AddWithValue("@id",change.EntityId);await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
@@ -3862,6 +3920,11 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
     public async Task UpsertProjectAsync(ProjectItem project, CancellationToken cancellationToken = default)
     {
         await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await UpsertProjectCoreAsync(connection, project, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task UpsertProjectCoreAsync(SqliteConnection connection, ProjectItem project, CancellationToken cancellationToken)
+    {
         var command = connection.CreateCommand();
         command.CommandText = """
             INSERT INTO projects (id, external_id, space_id, integration_id, provider_connection_id, name, description, color, icon, parent_id,
@@ -4469,10 +4532,6 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
                     WHEN @recurrence_rule IS NOT NULL AND TRIM(@recurrence_rule) != '' THEN @deadline_at
                     ELSE deadline_at
                 END,
-                recurrence_rule = CASE
-                    WHEN @recurrence_rule IS NOT NULL AND TRIM(@recurrence_rule) != '' THEN @recurrence_rule
-                    ELSE recurrence_rule
-                END,
                 updated_at = @updated_at,
                 revision = revision + 1,
                 completed_at = CASE
@@ -4819,11 +4878,11 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
         command.Parameters.AddWithValue("@completion_state", task.CompletionState.ToStorageValue());
         command.Parameters.AddWithValue("@workflow_status", task.WorkflowStatus.ToStorageValue());
         command.Parameters.AddWithValue("@planned_on", ToDbValue(plannedOn));
-        command.Parameters.AddWithValue("@planned_at", ToDbValue(plannedAt));
+        command.Parameters.AddWithValue("@planned_at", task.IntegrationId == IntegrationIds.Local ? ToDbTaskInstant(plannedAt) : ToDbValue(plannedAt));
         command.Parameters.AddWithValue("@deadline_on", ToDbValue(deadlineOn));
-        command.Parameters.AddWithValue("@deadline_at", ToDbValue(deadlineAt));
-        command.Parameters.AddWithValue("@scheduled_start", ToDbValue(task.ScheduledStart));
-        command.Parameters.AddWithValue("@scheduled_end", ToDbValue(task.ScheduledEnd));
+        command.Parameters.AddWithValue("@deadline_at", task.IntegrationId == IntegrationIds.Local ? ToDbTaskInstant(deadlineAt) : ToDbValue(deadlineAt));
+        command.Parameters.AddWithValue("@scheduled_start", task.IntegrationId == IntegrationIds.Local ? ToDbTaskInstant(task.ScheduledStart) : ToDbValue(task.ScheduledStart));
+        command.Parameters.AddWithValue("@scheduled_end", task.IntegrationId == IntegrationIds.Local ? ToDbTaskInstant(task.ScheduledEnd) : ToDbValue(task.ScheduledEnd));
         command.Parameters.AddWithValue("@duration_minutes", task.DurationMinutes is null ? DBNull.Value : task.DurationMinutes.Value);
         command.Parameters.AddWithValue("@recurrence_rule", ToDbValue(task.RecurrenceRule));
         command.Parameters.AddWithValue("@notes", ToDbValue(task.Notes));
@@ -5028,9 +5087,23 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
         var command = connection.CreateCommand();
         command.CommandText = SchemaSql;
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        using (var source = typeof(SqliteTaskStore).Assembly.GetManifestResourceStream("Openza.Tasks.Core.Data.Migrations.0010_personal_cloud_initial_sync.sql")
+            ?? throw new InvalidOperationException("The initial sync migration script is missing."))
+        using (var reader = new StreamReader(source))
+        {
+            command.CommandText = await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
+            await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
         await EnsureTaskExternalLinksTableAsync(connection, cancellationToken).ConfigureAwait(false);
         await EnsurePendingCompletionsTableAsync(connection, cancellationToken).ConfigureAwait(false);
         await EnsurePendingTaskDateUpdatesTableAsync(connection, cancellationToken).ConfigureAwait(false);
+        using (var source = typeof(SqliteTaskStore).Assembly.GetManifestResourceStream("Openza.Tasks.Core.Data.Migrations.0011_personal_cloud_workspace.sql")
+            ?? throw new InvalidOperationException("The workspace migration script is missing."))
+        using (var reader = new StreamReader(source))
+        {
+            command.CommandText = await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
+            await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
         await ExecutePragmaAsync(connection, $"PRAGMA user_version = {CurrentSchemaVersion}", cancellationToken).ConfigureAwait(false);
     }
 
@@ -5890,6 +5963,15 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
 
     private static long ToDbDate(DateTimeOffset value) => value.ToUnixTimeSeconds();
 
+    // Editable Openza task instants keep protocol millisecond precision without
+    // rewriting existing INTEGER epochs or changing other tables' storage units.
+    private static object ToDbTaskInstant(DateTimeOffset? value)
+    {
+        if (value is null) return DBNull.Value;
+        var milliseconds = value.Value.ToUnixTimeMilliseconds();
+        return milliseconds % 1000 == 0 ? (object)(milliseconds / 1000) : milliseconds / 1000d;
+    }
+
     private static (DateOnly? Date, DateTimeOffset? ExactTime) NormalizeDatePair(DateOnly? date, DateTimeOffset? exactTime)
     {
         if (exactTime is null)
@@ -5913,6 +5995,8 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
             return null;
         }
 
+        if (reader.GetValue(ordinal) is double precise)
+            return DateTimeOffset.FromUnixTimeMilliseconds(checked((long)Math.Round(precise * 1000, MidpointRounding.AwayFromZero)));
         var value = reader.GetInt64(ordinal);
         return value > 100_000_000_000
             ? DateTimeOffset.FromUnixTimeMilliseconds(value)

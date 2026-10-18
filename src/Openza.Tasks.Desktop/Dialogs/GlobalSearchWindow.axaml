@@ -12,15 +12,15 @@
     Opened="OnOpened">
     <Grid Margin="24" RowDefinitions="Auto,Auto,Auto,*,Auto" RowSpacing="14">
         <StackPanel Spacing="4">
-            <TextBlock FontSize="24" FontWeight="SemiBold" Text="Search" />
-            <TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="Find tasks and projects across every space." />
+            <TextBlock Classes="dialog-title" Text="Search" />
+            <TextBlock Foreground="{DynamicResource OpenzaTextSecondaryBrush}" Text="Find tasks and projects across every space." />
         </StackPanel>
         <Grid Grid.Row="1" ColumnDefinitions="*,Auto" ColumnSpacing="8">
             <TextBox x:Name="SearchBox" AutomationProperties.Name="Search tasks and projects" PlaceholderText="Search tasks and projects" KeyDown="OnSearchKeyDown" TextChanged="OnSearchTextChanged" />
             <Button Grid.Column="1" Classes="accent" Click="OnSearchClicked" Content="Search" />
         </Grid>
         <Grid Grid.Row="2" ColumnDefinitions="Auto,Auto,*" ColumnSpacing="16">
-            <ComboBox x:Name="ScopeSelector" MinWidth="150" SelectionChanged="OnSearchOptionsChanged">
+            <ComboBox AutomationProperties.Name="Search scope" x:Name="ScopeSelector" MinWidth="150" SelectionChanged="OnSearchOptionsChanged">
                 <ComboBoxItem Content="Current space" />
                 <ComboBoxItem Content="All spaces" />
             </ComboBox>
@@ -38,8 +38,8 @@
                             <DataTemplate>
                                 <StackPanel Margin="8" Spacing="4">
                                     <TextBlock FontWeight="SemiBold" Text="{Binding Title}" TextWrapping="Wrap" />
-                                    <TextBlock FontSize="12" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{Binding Subtitle}" />
-                                    <TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}" IsVisible="{Binding Snippet, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" Text="{Binding Snippet}" TextWrapping="Wrap" />
+                                    <TextBlock FontSize="12" Foreground="{DynamicResource OpenzaTextSecondaryBrush}" Text="{Binding Subtitle}" TextWrapping="Wrap" IsVisible="{Binding Subtitle, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                    <TextBlock Foreground="{DynamicResource OpenzaTextSecondaryBrush}" IsVisible="{Binding Snippet, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" Text="{Binding Snippet}" TextWrapping="Wrap" />
                                 </StackPanel>
                             </DataTemplate>
                         </ListBox.ItemTemplate>
@@ -55,8 +55,8 @@
                             <DataTemplate>
                                 <StackPanel Margin="8" Spacing="4">
                                     <TextBlock FontWeight="SemiBold" Text="{Binding Title}" TextWrapping="Wrap" />
-                                    <TextBlock FontSize="12" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{Binding Subtitle}" />
-                                    <TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}" IsVisible="{Binding Snippet, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" Text="{Binding Snippet}" TextWrapping="Wrap" />
+                                    <TextBlock FontSize="12" Foreground="{DynamicResource OpenzaTextSecondaryBrush}" Text="{Binding Subtitle}" TextWrapping="Wrap" IsVisible="{Binding Subtitle, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                    <TextBlock Foreground="{DynamicResource OpenzaTextSecondaryBrush}" IsVisible="{Binding Snippet, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" Text="{Binding Snippet}" TextWrapping="Wrap" />
                                 </StackPanel>
                             </DataTemplate>
                         </ListBox.ItemTemplate>
@@ -65,9 +65,9 @@
             </StackPanel>
         </ScrollViewer>
         <Grid Grid.Row="4" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
-            <TextBlock x:Name="ResultStatus" VerticalAlignment="Center" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="Enter a search term." />
-            <Button Grid.Column="1" Click="OnCancelClicked" Content="Cancel" />
-            <Button Grid.Column="2" Classes="accent" Click="OnOpenClicked" Content="Open selected" />
+            <TextBlock x:Name="ResultStatus" TextWrapping="Wrap" VerticalAlignment="Center" Foreground="{DynamicResource OpenzaTextSecondaryBrush}" Text="Enter a search term." />
+            <Button Grid.Column="1" Click="OnCancelClicked" Content="Cancel" IsCancel="True" />
+            <Button x:Name="OpenResultButton" Grid.Column="2" Classes="accent" IsEnabled="False" Click="OnOpenClicked" Content="Open selected" />
         </Grid>
     </Grid>
 </Window>
