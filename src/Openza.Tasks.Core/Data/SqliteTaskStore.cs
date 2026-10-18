@@ -52,24 +52,26 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
 
     public async Task<IReadOnlyList<TaskItem>> GetTasksAsync(TaskQuery query, CancellationToken cancellationToken = default)
     {
+        var localToday = DateOnly.FromDateTime(_timeProvider.GetUtcNow().LocalDateTime);
         await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         var tasks = await ReadTasksAsync(connection, cancellationToken).ConfigureAwait(false);
-        return TaskListProjection.Build(tasks, query);
+        return TaskListProjection.Build(tasks, query, localToday);
     }
 
     public async Task<TaskListRefreshSnapshot> GetTaskListRefreshSnapshotAsync(TaskQuery query, CancellationToken cancellationToken = default)
     {
+        var localToday = DateOnly.FromDateTime(_timeProvider.GetUtcNow().LocalDateTime);
         await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         var tasks = await ReadTasksAsync(connection, cancellationToken).ConfigureAwait(false);
         return new TaskListRefreshSnapshot(
-            TaskListProjection.Build(tasks, query),
+            TaskListProjection.Build(tasks, query, localToday),
             TaskListProjection.Build(tasks, new TaskQuery
             {
                 SpaceId = query.SpaceId,
                 Kind = TaskListKind.All,
                 IncludeSubtasks = true,
-            }),
-            TaskListProjection.Counts(tasks, query.SpaceId));
+            }, localToday),
+            TaskListProjection.Counts(tasks, query.SpaceId, localToday));
     }
 
     public async Task<IReadOnlyList<GlobalSearchResult>> SearchAsync(GlobalSearchQuery query, CancellationToken cancellationToken = default)
@@ -145,8 +147,8 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
 
     public async Task<TaskCountSummary> GetTaskCountsAsync(string? spaceId = null, CancellationToken cancellationToken = default)
     {
-        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         var todayDate = DateOnly.FromDateTime(_timeProvider.GetUtcNow().LocalDateTime);
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         var bounds = TaskDateValues.LocalDayBounds(todayDate, TimeZoneInfo.Local);
         var todayStart = bounds.Start.ToUnixTimeSeconds();
         var tomorrowStart = bounds.End.ToUnixTimeSeconds();
