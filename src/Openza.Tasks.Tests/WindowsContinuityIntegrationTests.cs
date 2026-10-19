@@ -398,15 +398,34 @@ public sealed partial class WindowsContinuityIntegrationTests(EditorTestSession 
         Assert.Empty(target.Values);
     }
 
-    [Fact]
-    public async Task Cache_roundtrip_uses_msal_serialization_and_matches_application_account_offline()
+    [Theory]
+    [InlineData("todo")]
+    [InlineData("backup")]
+    public async Task Cache_roundtrip_uses_feature_isolated_msal_destinations_and_matches_application_account_offline(string feature)
     {
         var target = new RecordingStore();
         var cache = SyntheticMsalCache();
-        var preferences = new DesktopPreferences { MicrosoftToDoAccount = new("uid.utid", "test@example.invalid") };
+        var original = cache.ToArray();
+        var account = new MicrosoftAccount("uid.utid", "test@example.invalid");
+        var preferences = feature == "todo" ? new DesktopPreferences { MicrosoftToDoAccount = account }
+            : new DesktopPreferences { OneDriveAccount = account };
+        var key = $"microsoft-{feature}-msal-cache";
+        var otherKey = feature == "todo" ? "microsoft-backup-msal-cache" : "microsoft-todo-msal-cache";
+        target.Values[otherKey] = "synthetic-retained-other-feature-cache";
         var notices = await WindowsCredentialContinuity.TransferMicrosoftAsync(cache, preferences, ClientId, "common", bytes => bytes.ToArray(), target, default);
         Assert.Empty(notices);
-        Assert.True(target.Values.ContainsKey("microsoft-todo-msal-cache"));
+        Assert.True(target.Values.ContainsKey(key));
+        var transferred = target.Values[key];
+        Assert.Equal(2, target.Values.Count);
+        Assert.DoesNotContain("microsoft-onedrive-msal-cache", target.Values.Keys);
+        Assert.Equal(original, cache);
+
+        // An already valid destination is preserved, and the other feature is never touched.
+        Assert.Empty(await WindowsCredentialContinuity.TransferMicrosoftAsync(cache, preferences, ClientId, "common", bytes => bytes.ToArray(), target, default));
+        Assert.Equal(transferred, target.Values[key]);
+        Assert.Equal(1, target.Writes);
+        Assert.Equal("synthetic-retained-other-feature-cache", target.Values[otherKey]);
+        Assert.DoesNotContain(otherKey, target.Reads);
         var wrongClient = new RecordingStore();
         var mismatch = await WindowsCredentialContinuity.TransferMicrosoftAsync(cache, preferences, "11111111-2222-3333-4444-555555555555", "common", bytes => bytes.ToArray(), wrongClient, default);
         Assert.Single(mismatch);

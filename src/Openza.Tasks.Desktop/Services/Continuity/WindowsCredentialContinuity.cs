@@ -53,7 +53,7 @@ public static class WindowsCredentialContinuity
                 try { cache = unprotect(protectedCache); }
                 catch (CryptographicException) { /* Explicit reconnect below; never delete the protected source. */ }
             }
-            foreach (var (feature, account) in new[] { ("todo", preferences.MicrosoftToDoAccount), ("onedrive", preferences.OneDriveAccount) })
+            foreach (var (feature, account) in new[] { ("todo", preferences.MicrosoftToDoAccount), ("backup", preferences.OneDriveAccount) })
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 if (account is null) continue;
