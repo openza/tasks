@@ -2,18 +2,19 @@
 
 [Behavior contracts](behavior-contracts.md) state intended meanings and separate current behavior/open decisions. [Architecture](architecture.md) defines ownership. Avalonia uses its built-in Fluent baseline; WinUI remains the Store host in necessary maintenance.
 
-## Local review slices
+## Local source branches and integration
 
-| Branch | Base | Scope |
+| Branch | Source head/base | Scope |
 | --- | --- | --- |
-| docs/task-contract-baseline | Original main 5637e3a + docs-only commit 5562e7a; append-only policy corrections | Direction, contracts and instructions only; feature implementations are not implied. |
-| fix/task-scheduling-policies | Shared ancestor 5c6bae9; equivalent policy corrections appended | Scheduling fixes and SQL-free list/editor policy extraction; independent of continuity code. |
-| refactor/desktop-responsibility-boundaries | Scheduling baseline 8124c6d | Connection-scoped reads/search, connected-sync application orchestration and pure navigation context/selection state; behavior preserved. |
-| feat/windows-continuity | Shared ancestor 5c6bae9; equivalent policy corrections appended | Active Windows-compatible continuity development on Ubuntu, behind the Dev gate. |
+| docs/task-contract-baseline | 725849b | Direction, contracts and instructions; no continuity implementation in this source slice. |
+| fix/task-scheduling-policies | 8124c6d | Scheduling/exact-date/clock fixes, list/editor extraction and equivalent label no-op. |
+| refactor/desktop-responsibility-boundaries | 8c1b96e, descended from scheduling | Connection-scoped reads/search, connected-sync orchestration, navigation state and resolved-credential composition. |
+| feat/windows-continuity | 86dc3cd | Windows-compatible continuity on Ubuntu, behind the Dev gate. |
+| integration/architecture-continuity | Starts at 8c1b96e; merges 725849b and 86dc3cd | Combines all four source slices through ancestry-preserving local merges; scheduling is already an ancestor. |
 
-The original docs, scheduling and Windows slices remain independent siblings at 5c6bae9; the new desktop refactor descends from scheduling baseline 8124c6d. Shared instruction corrections were replayed append-only, without merge/rebase; their equivalent patches do not make the latest docs head a new shared ancestor. Original docs/avalonia-architecture-baseline at 2795eb7 preserves the combined four-commit history and recovery reference. Local branch preparation authorizes no PR, push, merge, installation or rollout.
+The original source refs and main at 5637e3a remain unchanged. Earlier sibling-replayed instruction corrections are reconciled against the accepted current contracts in the integration branch. Original docs/avalonia-architecture-baseline at 2795eb7 remains a recovery reference. Local integration is separate from publishing, merging main, package installation or rollout.
 
-The scheduling baseline contains the [current scheduling contract](scheduling-and-recurrence.md), exact-time preservation/display fixes, DST-safe SQL count bounds and the first list/editor policy extraction. The desktop refactor is its local descendant; it separates read/search ownership, the connected-sync sequence and navigation context/selection memory. It retains SQL write transactions and async editor/navigation sequencing, and contains no Windows continuity implementation. Label rename remains parked for a future dedicated label list; equivalent task-editor label changes remain a no-op.
+The combined source retains the [scheduling contract](scheduling-and-recurrence.md), exact-time/clock fixes, read/search/sync/navigation ownership and SQL transaction/editor sequencing. It also contains the Dev-gated Windows session implementation and fake-platform composition regressions, including local operation during transient vault failure. Label rename remains parked for a future dedicated label list; equivalent task-editor label changes remain a no-op. Native Windows packaging, live vault/sign-in/provider acceptance and the provisional policy decisions remain separate later work.
 
 ## Bounded follow-ups
 

@@ -13,7 +13,7 @@ public sealed class DesktopPreferencesStore
 
     public DesktopPreferencesStore(string? path = null)
     {
-        _path = Path.GetFullPath(path ?? Path.Combine(DesktopDataPaths.DataDirectory, "settings.json"));
+        _path = Path.GetFullPath(path ?? DesktopDataPaths.SettingsPath);
         _state = PathStates.GetOrAdd(_path, static _ => new PathState());
     }
 
@@ -59,6 +59,7 @@ public sealed class DesktopPreferencesStore
         TaskViewSettings = new Dictionary<string, DesktopTaskViewPreferences>(
             preferences.TaskViewSettings ?? new Dictionary<string, DesktopTaskViewPreferences>(),
             StringComparer.Ordinal),
+        WindowsContinuityNotices = (preferences.WindowsContinuityNotices ?? []).ToArray(),
     };
 
     private DesktopPreferences LoadCore()
@@ -125,6 +126,8 @@ public sealed record DesktopPreferences
     public bool OneDriveEnabled { get; init; }
     public bool OneDriveEncrypted { get; init; }
     public Dictionary<string, DesktopTaskViewPreferences> TaskViewSettings { get; init; } = new(StringComparer.Ordinal);
+    public IReadOnlyList<string> WindowsContinuityNotices { get; init; } = [];
+    public bool WindowsCloudRecoveryRequired { get; init; }
 }
 
 public sealed record DesktopTaskViewPreferences

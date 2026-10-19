@@ -86,6 +86,22 @@ public sealed class ConnectedSyncApplicationServiceTests : IDisposable
         Assert.Equal(1, cloud.SyncCalls);
     }
 
+    [Theory]
+    [InlineData("unauthorized")]
+    [InlineData("health_mismatch")]
+    public async Task Cloud_contract_error_code_survives_the_extracted_result_without_dispatching_bridge(string code)
+    {
+        var cloud = new Cloud(_trace) { ContractErrorCode = code };
+        var service = await CreateAsync(new(_trace), cloud);
+        var result = await service.RunAsync();
+        Assert.Equal(code, result.PersonalCloudErrorCode);
+        Assert.Equal("Synthetic contract rejection", result.PersonalCloudError);
+        Assert.Null(result.PersonalCloud);
+        Assert.Null(result.ProviderBridge);
+        Assert.DoesNotContain("bridge", _trace);
+        Assert.All(result.Providers, value => Assert.True(value.Success));
+    }
+
     [Fact]
     public async Task Missing_providers_and_unpaired_cloud_remain_a_quiet_empty_result()
     {
@@ -189,6 +205,7 @@ public sealed class ConnectedSyncApplicationServiceTests : IDisposable
         public bool Blocked { get; init; }
         public bool Cancel { get; init; }
         public int FailureStage { get; init; }
+        public string? ContractErrorCode { get; init; }
         public int SyncCalls { get; private set; }
         public CancellationToken LastToken { get; private set; }
         private readonly PersonalCloudConnectionProfile _connection = new()
@@ -200,6 +217,7 @@ public sealed class ConnectedSyncApplicationServiceTests : IDisposable
             trace.Add("cloud:" + ++SyncCalls);
             LastToken = cancellationToken;
             if (Cancel) throw new OperationCanceledException("Synthetic cancellation", cancellationToken);
+            if (ContractErrorCode is { } code) throw new PersonalCloudK0ContractException(code, "Synthetic contract rejection");
             if (FailureStage == 1 || (FailureStage == 3 && SyncCalls == 2)) throw new InvalidOperationException("Synthetic cloud failure");
             return Task.FromResult(new PersonalCloudSyncResult(SyncCalls, SyncCalls + 1, SyncCalls * 10)
             { BlockedCode = Blocked ? "synthetic_block" : null,

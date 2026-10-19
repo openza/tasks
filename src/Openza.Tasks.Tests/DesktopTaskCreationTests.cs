@@ -11,13 +11,17 @@ public sealed class DesktopTaskCreationTests : IDisposable
     [Fact]
     public void Row_preserves_both_exact_planned_date_and_deadline()
     {
+        // Stay away from relative Today/Tomorrow captions, regardless of the run date.
+        var planned = new DateTimeOffset(DateTime.Now.Date.AddDays(15).AddHours(12.5));
+        var deadline = DateOnly.FromDateTime(planned.LocalDateTime).AddDays(15);
         var row = new TaskListItemViewModel(new TaskItem
         {
-            PlannedAt = new DateTimeOffset(2026, 10, 17, 12, 30, 0, TimeSpan.Zero),
-            DeadlineOn = new DateOnly(2026, 10, 20),
+            PlannedAt = planned,
+            DeadlineOn = deadline,
         }, null);
         Assert.Contains(" · Due ", row.DateText);
-        Assert.Contains("20 Oct", row.DateText);
+        Assert.Contains(planned.ToString("d MMM"), row.DateText);
+        Assert.Contains(deadline.ToString("d MMM"), row.DateText);
     }
 
     [Fact]

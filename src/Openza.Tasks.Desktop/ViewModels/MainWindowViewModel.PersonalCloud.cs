@@ -1,4 +1,5 @@
 using Openza.Tasks.Core.PersonalCloud;
+using Openza.Tasks.Desktop.Services.Continuity;
 
 namespace Openza.Tasks.Desktop.ViewModels;
 
@@ -52,6 +53,12 @@ public sealed partial class MainWindowViewModel
 
     private async Task RefreshInitialSyncProgressAsync()
     {
+        if (SessionCloudNotice is { } notice)
+        {
+            PersonalCloudStatusText = "Paused";
+            PersonalCloudSummaryText = notice;
+            return;
+        }
         if (_personalCloudSetup is IPersonalCloudInitialSyncProgressService service)
         {
             if (await service.GetInitialSyncProgressAsync() is { } progress) ApplyInitialSyncProgress(progress);
@@ -258,6 +265,12 @@ public sealed partial class MainWindowViewModel
                 providerBridge,
                 cancellationToken);
             pairedConnection = connection;
+            if (_preferencesStore.Load().WindowsCloudRecoveryRequired)
+                await _preferencesStore.UpdateAsync(value => value with
+                {
+                    WindowsCloudRecoveryRequired = false,
+                    WindowsContinuityNotices = value.WindowsContinuityNotices.Where(notice => notice != WindowsContinuityCoordinator.CloudRecoveryNotice).ToArray(),
+                });
             IsPairingInitialSync = true;
             PersonalCloudStatusText = "Initial sync";
             PersonalCloudSummaryText = "This desktop is paired. Your existing tasks are now syncing.";
@@ -318,6 +331,7 @@ public sealed partial class MainWindowViewModel
 
     public Task OpenPersonalCloudSettingsAsync(CancellationToken cancellationToken = default)
     {
+        _continuitySession?.EnsureCloudAccess();
         var current = _personalCloudSetup?.CurrentConnection
             ?? throw new PersonalCloudK0ContractException("not_connected", "Personal Cloud is not connected.");
         return OpenUriAsync(new Uri(current.ServiceOrigin, "/settings"), cancellationToken);

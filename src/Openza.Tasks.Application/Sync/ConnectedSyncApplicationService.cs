@@ -16,7 +16,10 @@ public sealed record ConnectedSyncResult(
     bool CloudAttempted,
     PersonalCloudSyncResult? PersonalCloud,
     PersonalCloudProviderBridgeResult? ProviderBridge,
-    string? PersonalCloudError);
+    string? PersonalCloudError)
+{
+    public string? PersonalCloudErrorCode { get; init; }
+}
 
 /// <summary>Runs connected providers followed by cloud/bridge reconciliation, without presentation state.</summary>
 public sealed class ConnectedSyncApplicationService(
@@ -64,6 +67,7 @@ public sealed class ConnectedSyncApplicationService(
         PersonalCloudSyncResult? cloudResult = null;
         PersonalCloudProviderBridgeResult? bridgeResult = null;
         string? cloudError = null;
+        string? cloudErrorCode = null;
         var cloudAttempted = personalCloud?.CurrentConnection is not null;
         if (cloudAttempted)
         {
@@ -79,9 +83,14 @@ public sealed class ConnectedSyncApplicationService(
                     { BlockedCode = resultPass.BlockedCode, InitialSyncProgress = resultPass.InitialSyncProgress };
                 }
             }
-            catch (Exception exception) { cloudError = exception.Message; }
+            catch (Exception exception)
+            {
+                cloudError = exception.Message;
+                cloudErrorCode = (exception as PersonalCloudK0ContractException)?.Code;
+            }
         }
-        return new(summaries, cloudAttempted, cloudResult, bridgeResult, cloudError);
+        return new(summaries, cloudAttempted, cloudResult, bridgeResult, cloudError)
+        { PersonalCloudErrorCode = cloudErrorCode };
 
         async Task<PersonalCloudSyncResult> SyncCloudAsync()
         {

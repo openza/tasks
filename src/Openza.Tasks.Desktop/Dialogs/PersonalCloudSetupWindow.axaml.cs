@@ -30,11 +30,12 @@ public sealed partial class PersonalCloudSetupWindow : Window
         _viewModel = null!;
     }
 
-    public PersonalCloudSetupWindow(MainWindowViewModel viewModel) : this()
+    public PersonalCloudSetupWindow(MainWindowViewModel viewModel, bool pairExisting = false) : this()
     {
         _viewModel = viewModel;
         DataContext = viewModel;
         Title = "Set up Personal Cloud";
+        if (pairExisting) OnPairExistingClicked(this, new RoutedEventArgs());
     }
 
     private void OnCancelClicked(object? sender, RoutedEventArgs e) => Close();

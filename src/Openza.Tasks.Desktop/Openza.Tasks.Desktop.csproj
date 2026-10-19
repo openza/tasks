@@ -2,6 +2,13 @@
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
+    <TargetFramework Condition="'$(OpenzaWindowsContinuity)' == 'Dev'">net10.0-windows10.0.19041.0</TargetFramework>
+    <EnableWindowsTargeting Condition="'$(OpenzaWindowsContinuity)' == 'Dev'">true</EnableWindowsTargeting>
+    <DefineConstants Condition="'$(OpenzaWindowsContinuity)' == 'Dev'">$(DefineConstants);OPENZA_WINDOWS_CONTINUITY_DEV</DefineConstants>
+    <WindowsAppSDKSelfContained Condition="'$(OpenzaWindowsContinuity)' == 'Dev'">true</WindowsAppSDKSelfContained>
+    <RuntimeIdentifier Condition="'$(OpenzaWindowsContinuity)' == 'Dev'">win-x64</RuntimeIdentifier>
+    <PlatformTarget Condition="'$(OpenzaWindowsContinuity)' == 'Dev'">x64</PlatformTarget>
+    <EnableMsixTooling Condition="'$(OpenzaWindowsContinuity)' == 'Dev'">false</EnableMsixTooling>
     <AvaloniaUseCompiledBindingsByDefault>false</AvaloniaUseCompiledBindingsByDefault>
     <RootNamespace>Openza.Tasks.Desktop</RootNamespace>
     <AssemblyName>Openza.Tasks.Desktop</AssemblyName>
@@ -50,6 +57,17 @@
     <PackageReference Include="FluentIcons.Avalonia" Version="2.1.335" />
     <PackageReference Include="Microsoft.Identity.Client" Version="4.84.0" />
   </ItemGroup>
+
+  <ItemGroup Condition="'$(OpenzaWindowsContinuity)' == 'Dev'">
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.0.1" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.7" />
+  </ItemGroup>
+
+  <Target Name="ValidateWindowsContinuityGate" BeforeTargets="PrepareForBuild"
+          Condition="'$(OpenzaWindowsContinuity)' != ''">
+    <Error Condition="'$(OpenzaWindowsContinuity)' != 'Dev' or '$(OpenzaChannel)' != 'Dev'"
+           Text="Windows continuity is restricted to the explicit Dev build gate; Preview and Production remain disabled." />
+  </Target>
 
   <ItemGroup>
     <ProjectReference Include="..\Openza.Tasks.Application\Openza.Tasks.Application.csproj" />
