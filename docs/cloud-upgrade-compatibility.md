@@ -5,6 +5,60 @@ successful health response and capabilities. It adds no migration or artifact pi
 change. Desktop staging still verifies the exact pinned manifest and every file;
 the runtime loader also validates the ordered migration bundle and SQL hashes.
 
+## Desktop sources, schemas and evidence
+
+Recorded 19 October 2026. Exact source and artifact identity matter: a marketing
+version or channel alone does not identify the Personal Cloud client. These are
+source gates and local validation results, not an installed/deployed version map.
+The matching Cloud-side schema history and Web boundaries are documented in the
+`personal-cloud` repository's `docs/compatibility-matrix.md` and
+`docs/architecture.md`.
+
+| Desktop identity | Health support in source | Interpretation |
+| --- | --- | --- |
+| Tag `v1.1.0`, `f45fbe1314f9e6c767cbc3aefe8b64711e4525e4` | Current Personal Cloud client and artifact lock absent | Predates this implementation. An installed version string alone cannot establish compatibility. |
+| First Personal Cloud integration, `3e2a3f923452d461f4228bb3ee65fc8ae1f79796` | Explicit schemas 17–20 | Historical health DTO rejects unknown members and lacks capabilities; sync lacks current per-pass negotiation. Its allowlist does not prove safe forward compatibility for an already-paired client. |
+| Main, `5637e3adc7ea6a57b2a7fdfa44bf2b9de93c5201` | Explicit schemas 17–25, protocol 1, product tasks | Capability validation exists; predates the reviewed fail-closed discovery and complete migration/resource preflight fixes. |
+| Integration baseline, `83d60890dd24ead67d08d8d45cd246bc3d3e3610` | Explicit schemas 17–25, protocol 1, product tasks | Same declared range and pin; the reviewed safety changes are on a branch atop this baseline. |
+| Reviewed runtime, `e7378d7060ed8812eb3608890e25d53633a94f1e` | Explicit schemas 17–25; rejects 16/26 and wrong protocol/product | Per-pass readiness, capability retention, ordered checksum-prefix/resource preflight and upgrade lifecycle guards described below. |
+
+The inspected Personal Cloud-era sources retain the checked-in artifact pin
+`0.1.0-preview.9`, cloud revision `be1691402129d7a571f9bd881a91d93bafe28ef1`,
+manifest SHA-256 `5eb0d68377c12f9f5a1f12f82f7f2330ff61d1c58689dae625f4c7fdbf02153d`.
+That Worker advertises schema 20. Accepting schema 25 does not change this packaging
+input or establish a deployed cloud's state. Artifact version labels are opaque;
+they do not imply numeric upgrade ordering.
+
+| Schema/feature at reviewed Desktop source | Code contract | Positive local evidence and limit |
+| --- | --- | --- |
+| 17–20 base protocol | Explicit health acceptance; legacy path when optional capabilities are absent | Mock HTTP health acceptance for each schema. Fake HTTP/cloud pairing and upgrade theory covers 17–23; this is not a historical deployed Worker matrix. |
+| 21 initial-upload status | Optional monitoring; absence cannot block core sync | Status/parser fixtures; no new hosted-schema acceptance claim. |
+| 22 mutation batch | Negotiate mutationBatch protocol 1 | Mock HTTP batch, fallback and pending-outbox tests. |
+| 23 workspace/catalog | Workspace protocol 1 on 23–25; catalog 1/2 requires workspace | Workspace/catalog and downgrade fixtures; fake lifecycle theory includes 23. |
+| 24 paging | Paging protocol 1 only on 24/25 | Mock HTTP paging/bootstrap/bounds tests. Named lifecycle theory does not include 24/25. |
+| 25 updatedAt/current Worker | Health and capability relationship checks; current payload/store semantics | Parser/store regressions and actual schema-25 artifact-loader acceptance. Loader acceptance is not a persisted Desktop-to-Worker sync round trip. |
+
+Health parser tests cover all nine accepted schemas; feature availability still
+requires explicit capability negotiation. No complete Desktop-binary × historical
+Worker/schema end-to-end matrix was run. In particular, the current schema-25
+Worker requires its complete D1 footprint: its rejection of incomplete
+empty/17/20/22/24 fixtures is negative readiness evidence, not successful backward
+compatibility with older databases.
+
+The reviewed local pair is Desktop `e7378d7` and Cloud runtime
+`853551f8d31f30535ba40fbc490240e8243b6620`. Desktop's unique full shared scope
+passed 1,071 tests with nine explicit external opt-in skips; Cloud passed 179 Worker
+and 170 Web tests, with synthetic Chrome checks and independent review. Desktop
+Release and Windows Dev managed compilation passed; native Windows/package,
+real-provider and live-cloud acceptance remain separate.
+
+Actual artifact-loader verification used local artifact
+`0.0.0-local-upgrade-v1`, manifest format 1/protocol 1/schema 25, manifest SHA-256
+`c97990d0e5a1ac224e5748ca214f6be341905356db761ce72f4857a6d7cf3eb3`.
+This frozen local artifact is separate from the checked-in preview.9 pin and is not
+a release or deployment. A later docs-only commit retains runtime evidence without
+rebuilding this artifact; any rebuilt artifact needs its own verified digest.
+
 ## Health and sync
 
 The Worker returns health 200 only after bounded, read-only checks of required

@@ -42,6 +42,27 @@ Desktop [TaskDetailEditPlanner](../src/Openza.Tasks.Desktop/ViewModels/Editing/T
 
 On Linux, `Openza.Tasks.Desktop` stores application data below the platform local-data directory, uses the freedesktop Secret Service through `secret-tool` for provider credentials, and creates daily SQLite restore points. The public Linux distribution is one strict `openza-tasks` Snap containing the Avalonia host and CLI. Inside the Snap, both hosts share `$SNAP_USER_COMMON/tasks`, which survives automatic refreshes, while credentials remain in the desktop Secret Portal. Snap packaging is validated independently from the Windows Store lane.
 
+## Personal Cloud infrastructure boundary
+
+Task semantics and account provisioning have separate owners. Inspection of
+Application task operations and Core Models/Data/Sync found no Cloudflare
+management or provisioning calls; no additional runtime split is justified.
+
+| Responsibility | Owner and extension rule |
+| --- | --- |
+| Task operations and persistence | Application task requests and Core store/projections own task fields, transactions and semantic outbox intents. Add task behavior here and in the versioned protocol. |
+| Replica and transport | Personal Cloud sync/protocol adapters own connection identity, health/capabilities, receipts and checkpoints. Connection metadata is a sync contract, not account provisioning. |
+| Cloudflare infrastructure | Core `Cloudflare*` adapters own OAuth/control-plane HTTP, Worker/D1 resources, artifact deployment and migrations. Keep resource lifecycle out of task operations, queries and projections. |
+| Host composition and setup UI | Desktop setup factories/services compose browser, credential, artifact and gateway dependencies. Personal Cloud setup/status/export callbacks belong to this lifecycle UI. |
+
+New screens and features use these existing boundaries; account management does
+not belong in a task mutation, and a task mutation does not acquire a separate
+deployment path. The optional setup facade can coordinate infrastructure and sync
+without a generic multi-cloud framework. The [compatibility matrix and upgrade
+contract](cloud-upgrade-compatibility.md) distinguish runtime negotiation from
+artifact provenance. The companion repository's `docs/architecture.md` records Web
+module/state/API owners and its new-screen extension rule.
+
 ## Spaces
 
 Spaces are Openza-owned scopes for separating a person's work contexts, such as Work and Personal. A space is not a provider account, not a workspace account, and not a Todoist/Microsoft list. It is the boundary for what the app shows.
