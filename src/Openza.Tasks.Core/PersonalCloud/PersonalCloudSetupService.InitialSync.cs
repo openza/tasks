@@ -27,6 +27,7 @@ public sealed partial class PersonalCloudSetupService
         await _syncProgressGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         using var heartbeatCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         Task? heartbeat = null;
+        PersonalCloudSyncClient? client = null;
         try
         {
             using var connectionLease = taskStore is null ? null : PersonalCloudConnectionLease.AcquireAuthoring(taskStore.DatabasePath);
@@ -37,6 +38,9 @@ public sealed partial class PersonalCloudSetupService
             var initial = await taskStore.GetPersonalCloudInitialSyncProgressAsync(current.InstanceId, current.DeviceId, cancellationToken).ConfigureAwait(false);
             // Legacy journals do not identify their initial seed. Pending ordinary edits are not evidence of first sync.
             var tracking = initial is { IsComplete: false };
+            client = new PersonalCloudSyncClient(syncHttp, deviceIdentity, taskStore, current,
+                tracking ? (phase, token) => PublishInitialProgressAsync(current, phase, cancellationToken: token) : null);
+            await client.DiscoverCapabilitiesAsync(cancellationToken).ConfigureAwait(false);
             if (initial is { IsComplete: true })
                 await ReportInitialProgressAsync(current, initial, true, cancellationToken).ConfigureAwait(false);
             if (tracking)
@@ -44,10 +48,8 @@ public sealed partial class PersonalCloudSetupService
                 _lastReportedPhase = null;
                 await PublishInitialProgressAsync(current, initial!.Total is null ? PersonalCloudInitialSyncPhase.Preparing : PersonalCloudInitialSyncPhase.Uploading,
                     cancellationToken: cancellationToken).ConfigureAwait(false);
-                heartbeat = HeartbeatAsync(current, heartbeatCancellation.Token);
+                heartbeat = HeartbeatAsync(current, client, heartbeatCancellation.Token);
             }
-            var client = new PersonalCloudSyncClient(syncHttp, deviceIdentity, taskStore, current,
-                tracking ? (phase, token) => PublishInitialProgressAsync(current, phase, cancellationToken: token) : null);
             var firstPass = await client.SyncAsync(cancellationToken).ConfigureAwait(false);
             if (firstPass.BlockedCode is not null)
                 return await FinishPassAsync(current, firstPass, tracking, cancellationToken).ConfigureAwait(false);
@@ -73,13 +75,15 @@ public sealed partial class PersonalCloudSetupService
         }
         catch (Exception exception)
         {
+            await heartbeatCancellation.CancelAsync().ConfigureAwait(false);
             if (CurrentConnection is { } current && taskStore is not null)
             {
                 var code = exception is PersonalCloudK0ContractException contract ? contract.Code : null;
                 var phase = code is not null ? PersonalCloudInitialSyncPhase.Blocked : PersonalCloudInitialSyncPhase.Interrupted;
                 var error = code == "unauthorized" ? "unauthorized" : code is "version_conflict" or "entity_exists" or "pending_changes" ? "conflict"
                     : exception is OperationCanceledException ? "interrupted" : exception is HttpRequestException ? "offline" : "cloud_unavailable";
-                await PublishInitialProgressAsync(current, phase, error, CancellationToken.None).ConfigureAwait(false);
+                await PublishInitialProgressAsync(current, phase, error, CancellationToken.None,
+                    reportToCloud: client?.HasCurrentCapabilities == true).ConfigureAwait(false);
             }
             throw;
         }
@@ -113,7 +117,7 @@ public sealed partial class PersonalCloudSetupService
     }
 
     private async Task PublishInitialProgressAsync(PersonalCloudConnectionProfile current, PersonalCloudInitialSyncPhase phase,
-        string? errorCode = null, CancellationToken cancellationToken = default)
+        string? errorCode = null, CancellationToken cancellationToken = default, bool reportToCloud = true)
     {
         if (taskStore is null) return;
         var before = await taskStore.GetPersonalCloudInitialSyncProgressAsync(current.InstanceId, current.DeviceId, cancellationToken).ConfigureAwait(false);
@@ -125,15 +129,16 @@ public sealed partial class PersonalCloudSetupService
             await taskStore.SetPersonalCloudInitialSyncPhaseAsync(current.InstanceId, current.DeviceId, phase, errorCode, cancellationToken).ConfigureAwait(false);
         var progress = before with { Phase = phase, ErrorCode = errorCode };
         InitialSyncProgressChanged?.Invoke(progress);
-        await ReportInitialProgressAsync(current, progress, false, cancellationToken).ConfigureAwait(false);
+        if (reportToCloud) await ReportInitialProgressAsync(current, progress, false, cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task HeartbeatAsync(PersonalCloudConnectionProfile current, CancellationToken cancellationToken)
+    private async Task HeartbeatAsync(PersonalCloudConnectionProfile current, PersonalCloudSyncClient client, CancellationToken cancellationToken)
     {
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(30));
         while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
         {
             if (taskStore is null) return;
+            if (!client.HasCurrentCapabilities) continue;
             var progress = await taskStore.GetPersonalCloudInitialSyncProgressAsync(current.InstanceId, current.DeviceId, cancellationToken).ConfigureAwait(false);
             if (progress is null || progress.IsComplete) return;
             await ReportInitialProgressAsync(current, progress, true, cancellationToken).ConfigureAwait(false);

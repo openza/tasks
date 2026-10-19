@@ -6,7 +6,8 @@ namespace Openza.Tasks.Core.PersonalCloud;
 
 public sealed partial class PersonalCloudSyncClient
 {
-    private bool _batchCapabilityKnown;
+    private volatile bool _batchCapabilityKnown;
+    internal bool HasCurrentCapabilities => _batchCapabilityKnown;
     private PersonalCloudMutationBatchCapability? _batchCapability;
     private bool _supportsWorkspace;
     private bool _supportsProviderScopes;
@@ -69,18 +70,23 @@ public sealed partial class PersonalCloudSyncClient
     {
         if (_batchCapabilityKnown) return;
         _supportsWorkspace = await store.SupportsPersonalCloudWorkspaceAsync(connection.InstanceId, cancellationToken).ConfigureAwait(false);
-        _supportsProviderScopes = await store.SupportsPersonalCloudProviderScopesAsync(connection.InstanceId, cancellationToken).ConfigureAwait(false);
+        var catalogProtocol = await store.GetPersonalCloudProviderCatalogProtocolVersionAsync(connection.InstanceId, cancellationToken).ConfigureAwait(false);
+        _supportsProviderScopes = catalogProtocol == 2;
+        _batchCapability = null;
+        _supportsWorkspacePaging = false;
         try
         {
             var health = await new PersonalCloudHealthClient(http).InspectAsync(connection.ServiceOrigin, cancellationToken).ConfigureAwait(false);
+            if (_supportsWorkspace && !health.SupportsWorkspace || catalogProtocol > health.ProviderCatalogProtocolVersion)
+                throw new PersonalCloudK0ContractException("health_mismatch", "Personal Cloud no longer supports the previously negotiated workspace capabilities. Pending edits are preserved.");
             _batchCapability = health.MutationBatch;
             _supportsWorkspace = health.SupportsWorkspace;
             _supportsProviderScopes = health.ProviderCatalogProtocolVersion == 2;
             _supportsWorkspacePaging = health.SupportsWorkspacePaging;
             await store.SavePersonalCloudWorkspaceCapabilitiesAsync(connection.InstanceId, health.SupportsWorkspace, health.SupportsProviderCatalog, cancellationToken, health.ProviderCatalogProtocolVersion).ConfigureAwait(false);
         }
-        catch (HttpRequestException) { /* Keep durable negotiation during temporary discovery failure. */ }
-        catch (PersonalCloudK0ContractException) { /* Old servers without health retain old delivery. */ }
+        catch (PersonalCloudK0ContractException exception) when (exception.Code == "health_unsupported" && !_supportsWorkspace && catalogProtocol == 0)
+        { /* Only an unnegotiated legacy connection may use exact single-envelope delivery. */ }
         _batchCapabilityKnown = true;
     }
 

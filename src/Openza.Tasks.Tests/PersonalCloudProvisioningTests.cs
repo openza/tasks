@@ -358,8 +358,9 @@ public sealed class PersonalCloudProvisioningTests
             Json(HttpStatusCode.OK, """{"success":true,"result":[{"id":"account_one","name":"One"}],"result_info":{"total_pages":1}}"""),
             Json(HttpStatusCode.OK, """{"success":true,"result":[],"result_info":{"total_pages":1}}"""),
             Json(HttpStatusCode.OK, """{"success":true,"result":{"uuid":"database_one","name":"openza-personal-attempt12345"}}"""),
-            Json(HttpStatusCode.OK, """{"success":true,"result":[]}"""),
             Json(HttpStatusCode.OK, """{"success":true,"result":[{"results":[]}]}"""),
+            Json(HttpStatusCode.OK, """{"success":true,"result":[{"results":[]}]}"""),
+            Json(HttpStatusCode.OK, """{"success":true,"result":[]}"""),
             Json(HttpStatusCode.OK, """{"success":true,"result":[]}"""),
             Json(HttpStatusCode.OK, """{"success":true,"result":[]}"""),
             Json(HttpStatusCode.OK, """{"success":true,"result":[]}"""));
@@ -369,7 +370,7 @@ public sealed class PersonalCloudProvisioningTests
             deployment,
             new MigrationBundle("1.2.3", [new PersonalCloudMigration(
                 "0001_test.sql",
-                new string('a', 64),
+                Sha256(Encoding.UTF8.GetBytes("CREATE TABLE provisioning_test(id TEXT PRIMARY KEY);")),
                 "CREATE TABLE provisioning_test(id TEXT PRIMARY KEY);")]),
             new PersonalCloudHealthClient(new HttpClient(new RecordingHandler(Json(HttpStatusCode.OK, """
                 {"status":"ok","protocolVersion":1,"product":"tasks","artifactVersion":"1.2.3","schemaVersion":17}
@@ -497,13 +498,13 @@ public sealed class PersonalCloudProvisioningTests
     [Fact]
     public async Task Migration_journal_skips_an_already_applied_matching_artifact_on_resume()
     {
-        var checksum = new string('a', 64);
+        var checksum = Sha256(Encoding.UTF8.GetBytes("CREATE TABLE provisioning_test(id TEXT PRIMARY KEY);"));
         var handler = new RecordingHandler(
-            Json(HttpStatusCode.OK, """{"success":true,"result":[]}"""),
             Json(HttpStatusCode.OK, """{"success":true,"result":[{"results":[]}]}"""),
             Json(HttpStatusCode.OK, """{"success":true,"result":[]}"""),
             Json(HttpStatusCode.OK, """{"success":true,"result":[]}"""),
-            Json(HttpStatusCode.OK, $"{{\"success\":true,\"result\":[{{\"results\":[{{\"sha256\":\"{checksum}\"}}]}}]}}"));
+            Json(HttpStatusCode.OK, """{"success":true,"result":[{"results":[{"name":"openza_schema_migrations"},{"name":"provisioning_test"}]}]}"""),
+            Json(HttpStatusCode.OK, $"{{\"success\":true,\"result\":[{{\"results\":[{{\"name\":\"0001_test.sql\",\"sha256\":\"{checksum}\"}}]}}]}}"));
         var gateway = new CloudflareProvisioningGateway(
             new CloudflareManagementClient(new HttpClient(handler)),
             new RecordingDeploymentClient(),
@@ -518,7 +519,7 @@ public sealed class PersonalCloudProvisioningTests
 
         Assert.Equal(5, handler.Requests.Count);
         Assert.Single(handler.Bodies, body => body.Contains("CREATE TABLE provisioning_test", StringComparison.Ordinal));
-        Assert.Equal(2, handler.Bodies.Count(body => body.Contains("SELECT sha256", StringComparison.Ordinal)));
+        Assert.Single(handler.Bodies, body => body.Contains("SELECT name,sha256", StringComparison.Ordinal));
     }
 
     private static Uri CallbackFor(Uri authorization, Uri redirect)

@@ -212,12 +212,14 @@ public sealed partial class PersonalCloudSetupService(
 
     public async Task<PersonalCloudUpgradeResult> UpgradeAsync(CancellationToken cancellationToken = default)
     {
+        using var connectionLease = taskStore is null ? null : PersonalCloudConnectionLease.AcquireAuthoring(taskStore.DatabasePath);
         var current = RequireConnection();
         if (management is null || connectionStore is null)
             throw new PersonalCloudK0ContractException("management_unavailable", "Personal Cloud management is not available in this build.");
         var result = await management.UpgradeAsync(current, cancellationToken).ConfigureAwait(false);
-        CurrentConnection = current with { ArtifactVersion = result.ArtifactVersion };
-        await connectionStore.SaveAsync(CurrentConnection, cancellationToken).ConfigureAwait(false);
+        var updated = current with { ArtifactVersion = result.ArtifactVersion };
+        await connectionStore.SaveAsync(updated, cancellationToken).ConfigureAwait(false);
+        CurrentConnection = updated;
         return result;
     }
 

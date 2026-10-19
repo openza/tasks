@@ -9,7 +9,7 @@ using Openza.Tasks.Core.PersonalCloud;
 
 namespace Openza.Tasks.Tests;
 
-public sealed class PersonalCloudBatchSyncTests : IDisposable
+public sealed partial class PersonalCloudBatchSyncTests : IDisposable
 {
     private const string Instance = "instance_batch_synthetic";
     private const string Device = "device_batch_synthetic";
@@ -53,7 +53,7 @@ public sealed class PersonalCloudBatchSyncTests : IDisposable
         Assert.Equal(3, (await store.GetPendingPersonalCloudOutboxAsync(Instance, Device)).Count);
         Assert.Equal(3, (await client.SyncAsync()).PushedMutations);
         Assert.Equal(52, handler.BatchPosts);
-        Assert.Equal(1, handler.HealthRequests);
+        Assert.Equal(2, handler.HealthRequests);
         Assert.Empty(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device));
         Assert.All(handler.BatchSizes, size => Assert.InRange(size, 1, 2));
         Assert.All(handler.BatchBytes, bytes => Assert.InRange(bytes, 1, 16384));
@@ -90,7 +90,8 @@ public sealed class PersonalCloudBatchSyncTests : IDisposable
         var original = Assert.Single(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device));
         handler.SchemaVersion = 23;
         handler.CapabilityOverride = """{"workspace":{"protocolVersion":1,"path":"/v1/tasks/mutations","schemaVersion":23},"providerCatalog":{"protocolVersion":1,"path":"/v1/provider/catalog","intentsPath":"/v1/provider/intents"}}""";
-        Assert.Equal("upgrade_required", (await client.SyncAsync()).BlockedCode);
+        Assert.Equal("health_mismatch", (await Assert.ThrowsAsync<PersonalCloudK0ContractException>(() => client.SyncAsync())).Code);
+        Assert.True(await store.SupportsPersonalCloudProviderScopesAsync(Instance));
         Assert.Equal(original, Assert.Single(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device))); Assert.Equal(0, handler.SinglePosts); Assert.Equal(0, handler.BatchPosts);
     }
 
@@ -263,6 +264,9 @@ public sealed class PersonalCloudBatchSyncTests : IDisposable
         public int BatchPosts { get; private set; }
         public int SinglePosts { get; private set; }
         public int HealthRequests { get; private set; }
+        public HttpStatusCode HealthStatus { get; set; } = HttpStatusCode.OK;
+        public string? HealthBody { get; set; }
+        public bool HealthOffline { get; set; }
         public int DuplicateReceipts { get; private set; }
         public List<int> BatchSizes { get; } = [];
         public List<int> BatchBytes { get; } = [];
@@ -275,8 +279,9 @@ public sealed class PersonalCloudBatchSyncTests : IDisposable
             if (path == "/health")
             {
                 HealthRequests++;
+                if (HealthOffline) throw new HttpRequestException("Synthetic health transport failure");
                 var capabilities = CapabilityOverride ?? (AdvertiseBatch ? $$$"""{"mutationBatch":{"protocolVersion":1,"path":"/v1/tasks/mutations/batch","maxMutations":2,"maxRequestUtf8Bytes":{{{MaxBytes}}}}}""" : "{}");
-                return Json(HttpStatusCode.OK, $$"""{"status":"ok","protocolVersion":1,"product":"tasks","artifactVersion":"test","schemaVersion":{{SchemaVersion}},"capabilities":{{capabilities}}}""");
+                return Json(HealthStatus, HealthBody ?? $$"""{"status":"ok","protocolVersion":1,"product":"tasks","artifactVersion":"test","schemaVersion":{{SchemaVersion}},"capabilities":{{capabilities}}}""");
             }
             if (path == "/auth/pair") return Json(HttpStatusCode.Created, $$"""{"protocolVersion":1,"instanceId":"{{Instance}}","deviceId":"{{Device}}","refreshCredential":"synthetic-refresh-123456789012345","capabilities":["desktop_sync"],"refreshExpiresAt":"2099-01-01T00:00:00Z"}""");
             if (path == "/auth/device/token") return Json(HttpStatusCode.OK, """{"protocolVersion":1,"accessToken":"synthetic-access-123456789012345","expiresAt":"2099-01-01T00:00:00Z","capabilities":["desktop_sync"]}""");

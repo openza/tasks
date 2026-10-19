@@ -27,6 +27,9 @@ public sealed partial class PersonalCloudSyncClient(
 
     public async Task<PersonalCloudSyncResult> SyncAsync(CancellationToken cancellationToken = default)
     {
+        // Negotiation is scoped to this pass, including retries on the same client.
+        _batchCapabilityKnown = false;
+        await DiscoverCapabilitiesAsync(cancellationToken).ConfigureAwait(false);
         var access = await identity.IssueAccessTokenAsync(connection.ServiceOrigin, cancellationToken).ConfigureAwait(false);
         if (!string.Equals(access.InstanceId, connection.InstanceId, StringComparison.Ordinal) ||
             !string.Equals(access.DeviceId, connection.DeviceId, StringComparison.Ordinal))
@@ -36,7 +39,6 @@ public sealed partial class PersonalCloudSyncClient(
                 "The paired desktop identity does not match the saved Personal Cloud connection.");
         }
 
-        await DiscoverCapabilitiesAsync(cancellationToken).ConfigureAwait(false);
         var bootstrapAttempts = 0;
         bool ReserveBootstrapAttempt() => ++bootstrapAttempts <= 3;
         if (progress is not null) await progress(PersonalCloudInitialSyncPhase.Uploading, cancellationToken).ConfigureAwait(false);

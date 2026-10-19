@@ -29,6 +29,8 @@ public sealed class PersonalCloudHealthClient(HttpClient http)
             !string.IsNullOrEmpty(serviceOrigin.Query) || !string.IsNullOrEmpty(serviceOrigin.Fragment))
             throw new PersonalCloudK0ContractException("invalid_request", "A secure Personal Cloud origin is required for health verification.");
         using var response = await http.GetAsync(new Uri(serviceOrigin, "/health"), cancellationToken).ConfigureAwait(false);
+        if (response.StatusCode is System.Net.HttpStatusCode.NotFound or System.Net.HttpStatusCode.MethodNotAllowed or System.Net.HttpStatusCode.NotImplemented)
+            throw new PersonalCloudK0ContractException("health_unsupported", "This Personal Cloud does not expose a supported health endpoint.");
         if (!response.IsSuccessStatusCode)
             throw new PersonalCloudK0ContractException("health_failed", "The deployed Personal Cloud did not pass its health check.");
         try
