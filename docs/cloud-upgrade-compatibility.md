@@ -5,6 +5,9 @@ successful health response and capabilities. It adds no migration or artifact pi
 change. Desktop staging still verifies the exact pinned manifest and every file;
 the runtime loader also validates the ordered migration bundle and SQL hashes.
 
+The [quota pause and dispatch budget](personal-cloud-quota.md) defines client-side
+daily exhaustion handling, durable reservations and change-only catalog publication.
+
 ## Desktop sources, schemas and evidence
 
 Recorded 19 October 2026. Exact source and artifact identity matter: a marketing

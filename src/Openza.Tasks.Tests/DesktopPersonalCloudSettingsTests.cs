@@ -13,6 +13,53 @@ namespace Openza.Tasks.Tests;
 [Collection(nameof(EditorTestCollection))]
 public sealed class DesktopPersonalCloudSettingsTests(EditorTestSession fixture)
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Quota_pause_shows_reset_and_backlog_then_resumes_respecting_automatic_sync(bool automaticSync)
+    {
+        await fixture.Session.Dispatch(async () =>
+        {
+            var directory = Path.Combine(Path.GetTempPath(), "openza-quota-ui", Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(directory);
+            try
+            {
+                var origin = new Uri("https://quota-ui.example.test/");
+                var connection = new PersonalCloudConnectionProfile { ServiceOrigin = origin, InstanceId = "instance_quota_ui", DeviceId = "device_quota_ui",
+                    ArtifactVersion = "synthetic", ConnectedAt = DateTimeOffset.UtcNow };
+                var pause = new PersonalCloudDispatchStatus("daily_quota_exceeded", "d1_rows_read", DateTimeOffset.Parse("2026-10-19T12:00:00Z"),
+                    DateTimeOffset.Parse("2026-10-20T00:00:00Z"), true, 10, 25, 3000, 10000) { PendingEnvelopes = 8823 };
+                var service = new StubSetupService(new(origin, "worker", "database", "synthetic", origin), connection) { DispatchStatus = pause };
+                service.SyncAction = _ => Task.FromException<PersonalCloudSyncResult>(pause.ToException());
+                var preferences = new Openza.Tasks.Desktop.Services.DesktopPreferencesStore(Path.Combine(directory, "settings.json"));
+                await preferences.SaveAsync(new() { AutomaticSyncEnabled = automaticSync, AutomaticRestorePointsEnabled = false });
+                var vm = new MainWindowViewModel(new SqliteTaskStore(Path.Combine(directory, "tasks.db")), new InMemoryCredentialStore(),
+                    preferencesStore: preferences, personalCloudSetup: service);
+                await vm.InitializeAsync();
+                Assert.Equal("Paused", vm.PersonalCloudStatusText);
+                Assert.True(vm.IsPersonalCloudPaused);
+                Assert.Contains("2026-10-20 00:00:00 UTC", vm.PersonalCloudSummaryText);
+                Assert.Contains("8823 changes remain pending", vm.PersonalCloudSummaryText);
+                Assert.False(vm.CanRetryInitialSync);
+                await vm.RunAutomaticTodoistSyncAsync();
+                Assert.Equal(automaticSync ? 1 : 0, service.SyncCalls);
+                Assert.Equal(automaticSync, preferences.Load().AutomaticSyncEnabled);
+                service.DispatchStatus = null;
+                service.SyncAction = null;
+                if (automaticSync) await vm.RunAutomaticTodoistSyncAsync();
+                else await vm.RunTodoistSyncAsync();
+                Assert.False(vm.IsPersonalCloudPaused);
+                Assert.Equal("Connected", vm.PersonalCloudStatusText);
+                Assert.DoesNotContain("daily cloud quota", vm.PersonalCloudSummaryText);
+                Assert.Equal(automaticSync, vm.AutomaticSyncEnabled);
+                Assert.Equal(automaticSync, preferences.Load().AutomaticSyncEnabled);
+                Assert.Equal(automaticSync ? 2 : 1, service.SyncCalls);
+            }
+            finally { TestDirectory.Delete(directory); }
+            return true;
+        }, CancellationToken.None);
+    }
+
     [Fact]
     public async Task Native_sync_provider_retry_dispatches_the_selected_request_and_disables_while_busy()
     {
@@ -384,10 +431,12 @@ public sealed class DesktopPersonalCloudSettingsTests(EditorTestSession fixture)
     private class StubSetupService(
         PersonalCloudProvisioningResult result,
         PersonalCloudConnectionProfile? connection = null,
-        PersonalCloudSyncResult? syncResult = null) : IPersonalCloudSetupService
+        PersonalCloudSyncResult? syncResult = null) : IPersonalCloudSetupService, IPersonalCloudDispatchStatusService
     {
         private PersonalCloudConnectionProfile? _connection = connection;
         public bool IsConfigured => true;
+        public PersonalCloudDispatchStatus? DispatchStatus { get; set; }
+        public Task<PersonalCloudDispatchStatus?> GetDispatchStatusAsync(CancellationToken cancellationToken = default) => Task.FromResult(DispatchStatus);
         public PersonalCloudConnectionProfile? CurrentConnection => _connection;
         public Task OpenAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
         public int SyncCalls { get; private set; }

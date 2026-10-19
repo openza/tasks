@@ -34,6 +34,9 @@ public sealed partial class WindowsContinuityIntegrationTests
                 platform.Target.ReadFailure = com ? new System.Runtime.InteropServices.COMException("Synthetic vault outage") : new UnauthorizedAccessException("Synthetic vault outage");
                 await PrepareAsync(inhibited, platform);
                 Assert.True(inhibited.CloudAccessInhibited);
+                var inhibitedDispatch = Assert.IsAssignableFrom<IPersonalCloudDispatchStatusService>(inhibited.GuardCloudService(cloud));
+                Assert.Null(await inhibitedDispatch.GetDispatchStatusAsync());
+                Assert.Equal(0, probe.DispatchReads);
                 for (var i = 0; i < paths.Length; i++) Assert.Equal(originals[i], await File.ReadAllBytesAsync(paths[i]));
                 var reads = platform.Target.Reads.Count;
                 var writes = platform.Target.Writes;
@@ -103,6 +106,9 @@ public sealed partial class WindowsContinuityIntegrationTests
             Assert.False(preferences.Load().WindowsCloudRecoveryRequired);
             var healthyProbe = new CompositionProbe();
             var healthyCloud = new CompositionCloud(profile, healthyProbe);
+            var dispatch = Assert.IsAssignableFrom<IPersonalCloudDispatchStatusService>(healthy.GuardCloudService(healthyCloud));
+            Assert.Null(await dispatch.GetDispatchStatusAsync());
+            Assert.Equal(1, healthyProbe.DispatchReads);
             var ready = CreateCompositionViewModel(store, preferences, platform, healthy, healthyCloud, healthyProbe, defaultAuth: false);
             await ready.InitializeAsync();
             var retained = (await store.GetTaskAsync("retained-composed"))!;
@@ -202,7 +208,7 @@ public sealed partial class WindowsContinuityIntegrationTests
 
     private sealed class CompositionProbe
     {
-        public int AuthRequests, ProviderFactories, ProviderRequests, CloudRequests, BridgeRequests, ProgressReads;
+        public int AuthRequests, ProviderFactories, ProviderRequests, CloudRequests, BridgeRequests, ProgressReads, DispatchReads;
     }
     private sealed class CompositionAuth(CompositionProbe probe) : IDesktopMicrosoftAuthService
     {
@@ -219,7 +225,7 @@ public sealed partial class WindowsContinuityIntegrationTests
         public Task CompleteTaskAsync(PendingCompletion completion, CancellationToken cancellationToken = default) => throw new InvalidOperationException("Unexpected provider write");
     }
     private sealed class CompositionCloud(PersonalCloudConnectionProfile profile, CompositionProbe probe)
-        : IPersonalCloudSetupService, IPersonalCloudProviderBridgeService, IPersonalCloudInitialSyncProgressService
+        : IPersonalCloudSetupService, IPersonalCloudProviderBridgeService, IPersonalCloudInitialSyncProgressService, IPersonalCloudDispatchStatusService
     {
         public string? ErrorCode { get; init; }
         public bool IsConfigured => true;
@@ -227,6 +233,8 @@ public sealed partial class WindowsContinuityIntegrationTests
         public event Action<PersonalCloudInitialSyncProgress>? InitialSyncProgressChanged { add { } remove { } }
         public Task<PersonalCloudInitialSyncProgress?> GetInitialSyncProgressAsync(CancellationToken cancellationToken = default)
         { probe.ProgressReads++; return Task.FromResult<PersonalCloudInitialSyncProgress?>(null); }
+        public Task<PersonalCloudDispatchStatus?> GetDispatchStatusAsync(CancellationToken cancellationToken = default)
+        { probe.DispatchReads++; return Task.FromResult<PersonalCloudDispatchStatus?>(null); }
         public Task<PersonalCloudSyncResult> SyncAsync(CancellationToken cancellationToken = default)
         {
             probe.CloudRequests++;

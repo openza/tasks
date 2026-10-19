@@ -89,6 +89,9 @@ public sealed class ConnectedSyncApplicationServiceTests : IDisposable
     [Theory]
     [InlineData("unauthorized")]
     [InlineData("health_mismatch")]
+    [InlineData("daily_quota_exceeded")]
+    [InlineData("local_budget_exceeded")]
+    [InlineData("cloud_retry_backoff")]
     public async Task Cloud_contract_error_code_survives_the_extracted_result_without_dispatching_bridge(string code)
     {
         var cloud = new Cloud(_trace) { ContractErrorCode = code };

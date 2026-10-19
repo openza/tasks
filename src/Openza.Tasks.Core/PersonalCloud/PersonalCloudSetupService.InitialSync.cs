@@ -16,6 +16,9 @@ public sealed partial class PersonalCloudSetupService
     {
         if (taskStore is null || CurrentConnection is not { } current) return null;
         var progress = await taskStore.GetPersonalCloudInitialSyncProgressAsync(current.InstanceId, current.DeviceId, cancellationToken).ConfigureAwait(false);
+        if (progress is { Phase: PersonalCloudInitialSyncPhase.Blocked, ErrorCode: "daily_quota_exceeded" or "local_budget_exceeded" or "local_operation_budget_exceeded" or "cloud_retry_backoff" } &&
+            await GetDispatchStatusAsync(cancellationToken).ConfigureAwait(false) is not { IsPaused: true })
+            return progress with { Phase = PersonalCloudInitialSyncPhase.Interrupted, ErrorCode = "interrupted" };
         // An active phase on disk after a restart describes unfinished work, not a running upload.
         return progress is { Phase: PersonalCloudInitialSyncPhase.Preparing or PersonalCloudInitialSyncPhase.Uploading or PersonalCloudInitialSyncPhase.Downloading }
             && _syncProgressGate.CurrentCount != 0
@@ -34,6 +37,7 @@ public sealed partial class PersonalCloudSetupService
             var current = CurrentConnection ?? throw new PersonalCloudK0ContractException("not_connected", "Personal Cloud is not connected.");
             if (deviceIdentity is null || syncHttp is null || taskStore is null)
                 throw new PersonalCloudK0ContractException("sync_unavailable", "Personal Cloud sync is not available in this build.");
+            await EnsureDispatchAvailableAsync(cancellationToken).ConfigureAwait(false);
 
             var initial = await taskStore.GetPersonalCloudInitialSyncProgressAsync(current.InstanceId, current.DeviceId, cancellationToken).ConfigureAwait(false);
             // Legacy journals do not identify their initial seed. Pending ordinary edits are not evidence of first sync.
@@ -76,15 +80,24 @@ public sealed partial class PersonalCloudSetupService
         catch (Exception exception)
         {
             await heartbeatCancellation.CancelAsync().ConfigureAwait(false);
+            PersonalCloudK0ContractException? backedOff = null;
+            if (exception is PersonalCloudK0ContractException { DispatchStatus: null, Code: "invalid_response" or "sync_failed" or "health_mismatch" or "health_unavailable" } failure &&
+                syncHttp is not null && PersonalCloudDispatchHttp.PolicyFor(syncHttp) is { } dispatch && CurrentConnection is { } failedConnection)
+            {
+                var status = await dispatch.RecordFailureAsync(failedConnection.ServiceOrigin, CancellationToken.None).ConfigureAwait(false);
+                backedOff = new(failure.Code, failure.Message, failure) { DispatchStatus = status };
+            }
             if (CurrentConnection is { } current && taskStore is not null)
             {
                 var code = exception is PersonalCloudK0ContractException contract ? contract.Code : null;
                 var phase = code is not null ? PersonalCloudInitialSyncPhase.Blocked : PersonalCloudInitialSyncPhase.Interrupted;
-                var error = code == "unauthorized" ? "unauthorized" : code is "version_conflict" or "entity_exists" or "pending_changes" ? "conflict"
-                    : exception is OperationCanceledException ? "interrupted" : exception is HttpRequestException ? "offline" : "cloud_unavailable";
+                var error = backedOff?.DispatchStatus?.Code ?? (exception is PersonalCloudK0ContractException { DispatchStatus: not null } ? code
+                    : code == "unauthorized" ? "unauthorized" : code is "version_conflict" or "entity_exists" or "pending_changes" ? "conflict"
+                    : exception is OperationCanceledException ? "interrupted" : exception is HttpRequestException ? "offline" : "cloud_unavailable");
                 await PublishInitialProgressAsync(current, phase, error, CancellationToken.None,
                     reportToCloud: client?.HasCurrentCapabilities == true).ConfigureAwait(false);
             }
+            if (backedOff is not null) throw backedOff;
             throw;
         }
         finally
@@ -152,6 +165,8 @@ public sealed partial class PersonalCloudSetupService
         await _reportGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            // The local brake also stops optional token/report activity and sequence churn.
+            if (await GetDispatchStatusAsync(cancellationToken).ConfigureAwait(false) is { IsPaused: true }) return;
             if (!heartbeat && _lastReportedPhase == progress.Phase && DateTimeOffset.UtcNow - _lastReportAt < TimeSpan.FromSeconds(30)) return;
             _lastReportAt = DateTimeOffset.UtcNow;
             _lastReportedPhase = progress.Phase;

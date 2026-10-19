@@ -99,7 +99,7 @@ public sealed partial class PersonalCloudSetupService(
     PersonalCloudDeviceIdentityClient? deviceIdentity = null,
     HttpClient? syncHttp = null,
     Openza.Tasks.Core.Data.SqliteTaskStore? taskStore = null,
-    PersonalCloudManagementCoordinator? management = null) : IPersonalCloudSetupService, IPersonalCloudProviderBridgeService, IPersonalCloudInitialSyncProgressService
+    PersonalCloudManagementCoordinator? management = null) : IPersonalCloudSetupService, IPersonalCloudProviderBridgeService, IPersonalCloudInitialSyncProgressService, IPersonalCloudDispatchStatusService
 {
     private PersonalCloudProviderBridge CreateProviderBridge()
     {
@@ -113,12 +113,14 @@ public sealed partial class PersonalCloudSetupService(
         CancellationToken cancellationToken = default)
     {
         using var lease = taskStore is null ? null : PersonalCloudConnectionLease.AcquireAuthoring(taskStore.DatabasePath);
+        await EnsureDispatchAvailableAsync(cancellationToken).ConfigureAwait(false);
         return await CreateProviderBridge().RunAsync(providers, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task RetryProviderCommandAsync(string taskId, CancellationToken cancellationToken = default)
     {
         using var lease = taskStore is null ? null : PersonalCloudConnectionLease.AcquireAuthoring(taskStore.DatabasePath);
+        await EnsureDispatchAvailableAsync(cancellationToken).ConfigureAwait(false);
         await CreateProviderBridge().RetryAsync(taskId, cancellationToken).ConfigureAwait(false);
     }
     public bool IsConfigured => !string.IsNullOrWhiteSpace(artifactVersion);

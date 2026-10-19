@@ -272,9 +272,14 @@ public sealed class DesktopEditorNavigationTests(EditorTestSession fixture)
             Assert.True(editor.Focus());
             await Task.Delay(50);
             if (edited) editor.Text += " edited";
-            var target = window.GetVisualDescendants().OfType<ListBoxItem>().Single(item => projectClick
+            bool IsDestination(ListBoxItem item) => projectClick
                 ? item.DataContext is ProjectNavigationItemViewModel { Project.Id: "b" }
-                : item.DataContext is TaskListEntryViewModel { Task.Task.Id: "second" });
+                : item.DataContext is TaskListEntryViewModel { Task.Task.Id: "second" };
+            // View-model readiness does not imply the virtualized destination row
+            // has been realized and laid out for an actual pointer click yet.
+            await WaitForAsync(() => window.GetVisualDescendants().OfType<ListBoxItem>()
+                .Any(item => IsDestination(item) && item.Bounds.Width > 0 && item.Bounds.Height > 0));
+            var target = window.GetVisualDescendants().OfType<ListBoxItem>().Single(IsDestination);
             var point = target.TranslatePoint(new Point(100, target.Bounds.Height / 2), window)!.Value;
             window.MouseDown(point, MouseButton.Left);
             await Task.Delay(40);

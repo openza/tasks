@@ -4,7 +4,7 @@ namespace Openza.Tasks.Desktop.Services.Continuity;
 
 // The composed service is the barrier, so callers outside the window also stay offline.
 internal sealed class WindowsSessionCloudService(WindowsContinuitySession session, IPersonalCloudSetupService inner)
-    : IPersonalCloudSetupService, IPersonalCloudProviderBridgeService, IPersonalCloudInitialSyncProgressService
+    : IPersonalCloudSetupService, IPersonalCloudProviderBridgeService, IPersonalCloudInitialSyncProgressService, IPersonalCloudDispatchStatusService
 {
     internal WindowsContinuitySession Session => session;
     public bool IsConfigured => inner.IsConfigured;
@@ -34,5 +34,13 @@ internal sealed class WindowsSessionCloudService(WindowsContinuitySession sessio
         session.EnsureActive();
         if (session.CloudAccessInhibited) return Task.FromResult<PersonalCloudInitialSyncProgress?>(null);
         return Run(() => inner is IPersonalCloudInitialSyncProgressService progress ? progress.GetInitialSyncProgressAsync(cancellationToken) : Task.FromResult<PersonalCloudInitialSyncProgress?>(null));
+    }
+    public Task<PersonalCloudDispatchStatus?> GetDispatchStatusAsync(CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        session.EnsureActive();
+        if (session.CloudAccessInhibited) return Task.FromResult<PersonalCloudDispatchStatus?>(null);
+        return Run(() => inner is IPersonalCloudDispatchStatusService dispatch ? dispatch.GetDispatchStatusAsync(cancellationToken)
+            : Task.FromResult<PersonalCloudDispatchStatus?>(null));
     }
 }

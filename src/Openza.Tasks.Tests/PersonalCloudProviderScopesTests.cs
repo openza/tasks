@@ -34,6 +34,25 @@ public sealed class PersonalCloudProviderScopesTests : IDisposable
         }
     }
     [Fact]
+    public async Task Unchanged_scope_stays_quiet_and_availability_changes_preserve_pending_FIFO()
+    {
+        var store = await StoreAsync();
+        var id = SqliteTaskStore.PersonalCloudOpaqueId("scope_", $"{Device}:{IntegrationIds.Todoist}:todoist_default");
+        await store.ApplyPersonalCloudChangePageAsync(Instance, Device, PersonalCloudWorkspaceTests.Page(1, scopes: [Scope(id)]));
+        await store.EnqueuePersonalCloudProviderScopeAsync(Instance, Device, IntegrationIds.Todoist, "todoist_default", true, ["Example"], []);
+        Assert.Empty(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device));
+        await store.EnqueuePersonalCloudProviderScopeAsync(Instance, Device, IntegrationIds.Todoist, "todoist_default", false, ["Example"], []);
+        var queued = Assert.Single(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device));
+        Assert.Contains("\"available\":false", queued.CanonicalJson);
+        await store.EnqueuePersonalCloudProviderScopeAsync(Instance, Device, IntegrationIds.Todoist, "todoist_default", true, ["Example"], []);
+        Assert.Equal(queued, Assert.Single(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device)));
+        await AckAsync(store);
+        await store.ApplyPersonalCloudChangePageAsync(Instance, Device, PersonalCloudWorkspaceTests.Page(2, scopes: [Scope(id, available: false, version: 2)]));
+        await store.EnqueuePersonalCloudProviderScopeAsync(Instance, Device, IntegrationIds.Todoist, "todoist_default", true, ["Example"], []);
+        Assert.Contains("\"available\":true", Assert.Single(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device)).CanonicalJson);
+    }
+
+    [Fact]
     public async Task Empty_connection_publishes_safe_scope_once_and_legacy_cloud_publishes_no_new_keys()
     {
         var store = await StoreAsync(1);

@@ -1,0 +1,259 @@
+{
+  "formatVersion": 1,
+  "provenance": "Synthetic representative Cloudflare edge fixtures. No live quota was triggered or observed.",
+  "observedAt": "2026-10-19T12:00:00.000Z",
+  "resetAt": "2026-10-20T00:00:00.000Z",
+  "edgeCases": [
+    {
+      "name":"data-class-is-not-class","status":503,
+      "headers":{"server":"cloudflare","content-type":"text/html"},
+      "body":"<title>Cloudflare Error</title><span data-class='cf-error-code'>1027</span>","daily":false
+    },
+    {
+      "name":"quoted-class-looking-attribute-is-not-class","status":503,
+      "headers":{"server":"cloudflare","content-type":"text/html"},
+      "body":"<title>Cloudflare Error</title><span title=\" class='cf-error-code'\">1027</span>","daily":false
+    },
+    {
+      "name": "plain1027",
+      "status": 429,
+      "headers": {
+        "server": "cloudflare",
+        "content-type": "text/plain"
+      },
+      "body": "error code: 1027\n",
+      "daily": true
+    },
+    {
+      "name": "plain-case-trim",
+      "status": 503,
+      "headers": {
+        "server": " CloudFlare ",
+        "content-type": "text/plain; charset=utf-8"
+      },
+      "body": "  ERROR CODE: 1027\n",
+      "daily": true
+    },
+    {
+      "name": "html1027",
+      "status": 403,
+      "headers": {
+        "cf-ray": "synthetic-ray",
+        "content-type": "text/html"
+      },
+      "body": "<html><head><title>Error 1027 | Cloudflare</title></head><body><span class=\"cf-error-code\">1027</span></body></html>",
+      "daily": true
+    },
+    {
+      "name": "html-attributes",
+      "status": 503,
+      "headers": {
+        "server": "cloudflare",
+        "content-type": "text/html; charset=UTF-8"
+      },
+      "body": "<title>Cloudflare Error</title><span data-id='synthetic' class='other cf-error-code label' aria-label='error'> 1027 </span>",
+      "daily": true
+    },
+    {
+      "name": "successful-task",
+      "status": 200,
+      "headers": {
+        "server": "cloudflare",
+        "content-type": "application/json"
+      },
+      "body": "{\"tasks\":[{\"title\":\"error code: 1027\"}]}",
+      "daily": false
+    },
+    {
+      "name": "successful-error-looking-html",
+      "status": 200,
+      "headers": {
+        "server": "cloudflare",
+        "content-type": "text/html"
+      },
+      "body": "<title>Cloudflare Error</title><span class='cf-error-code'>1027</span>",
+      "daily": false
+    },
+    {
+      "name": "other-cloudflare-code",
+      "status": 503,
+      "headers": {
+        "server": "cloudflare",
+        "content-type": "text/plain"
+      },
+      "body": "error code: 1102",
+      "daily": false
+    },
+    {
+      "name": "ordinary403",
+      "status": 403,
+      "headers": {
+        "server": "cloudflare",
+        "content-type": "text/plain"
+      },
+      "body": "Forbidden",
+      "daily": false
+    },
+    {
+      "name": "ordinary429",
+      "status": 429,
+      "headers": {
+        "server": "cloudflare",
+        "content-type": "text/plain"
+      },
+      "body": "Too many requests",
+      "daily": false
+    },
+    {
+      "name": "ordinary503",
+      "status": 503,
+      "headers": {
+        "server": "cloudflare",
+        "content-type": "text/plain"
+      },
+      "body": "Service unavailable",
+      "daily": false
+    },
+    {
+      "name": "arbitrary-html-mention",
+      "status": 503,
+      "headers": {
+        "server": "cloudflare",
+        "content-type": "text/html"
+      },
+      "body": "<title>Cloudflare Error</title><p>Read about 1027 here.</p>",
+      "daily": false
+    },
+    {
+      "name": "no-error-page-title",
+      "status": 503,
+      "headers": {
+        "server": "cloudflare",
+        "content-type": "text/html"
+      },
+      "body": "<title>Task details</title><span class='cf-error-code'>1027</span>",
+      "daily": false
+    },
+    {
+      "name": "missing-edge-context",
+      "status": 429,
+      "headers": {
+        "content-type": "text/plain"
+      },
+      "body": "error code: 1027",
+      "daily": false
+    },
+    {
+      "name": "empty-ray",
+      "status": 429,
+      "headers": {
+        "cf-ray": " ",
+        "content-type": "text/plain"
+      },
+      "body": "error code: 1027",
+      "daily": false
+    },
+    {
+      "name": "wrong-media",
+      "status": 503,
+      "headers": {
+        "server": "cloudflare",
+        "content-type": "application/json"
+      },
+      "body": "error code: 1027",
+      "daily": false
+    },
+    {
+      "name": "plain-substring",
+      "status": 429,
+      "headers": {
+        "server": "cloudflare",
+        "content-type": "text/plain"
+      },
+      "body": "Task error code: 1027 is a title",
+      "daily": false
+    },
+    {
+      "name": "oversized-body",
+      "status": 429,
+      "headers": {
+        "server": "cloudflare",
+        "content-type": "text/plain"
+      },
+      "body": "error code: 1027",
+      "paddingBytes": 65537,
+      "daily": false
+    }
+  ],
+  "d1Cases": [
+    {
+      "message": "D1_ERROR: Your account has exceeded D1's free tier daily row read limit. Upgrade to a paid plan or wait until tomorrow (midnight UTC) to continue.",
+      "resource": "d1_rows_read"
+    },
+    {
+      "message": "Your account has exceeded D1’s free tier daily row write limit. Upgrade to a paid plan or wait until tomorrow (midnight UTC) to continue.",
+      "resource": "d1_rows_written"
+    },
+    {
+      "message": "D1_ERROR: Exceeded maximum DB size.",
+      "resource": null
+    },
+    {
+      "message": "D1_ERROR: D1 DB is overloaded. Too many requests queued.",
+      "resource": null
+    },
+    {
+      "message": "D1_ERROR: string or blob too big: SQLITE_TOOBIG",
+      "resource": null
+    },
+    {
+      "message": "rate limit exceeded",
+      "resource": null
+    },
+    {
+      "message": "Task text says Your account has exceeded D1's free tier daily row read limit.",
+      "resource": null
+    }
+  ],
+  "quotaError": {
+    "code": "daily_quota_exceeded",
+    "message": "Personal Cloud reached a daily Cloudflare limit. Sync can resume after the next UTC reset.",
+    "retryable": true,
+    "requestId": "request_synthetic",
+    "quota": {
+      "protocolVersion": 1,
+      "resource": "d1_rows_read",
+      "resetAt": "2026-10-20T00:00:00.000Z"
+    }
+  },
+  "batch": {
+    "protocolVersion": 1,
+    "product": "tasks",
+    "instanceId": "instance_synthetic",
+    "receipts": [
+      {
+        "protocolVersion": 1,
+        "product": "tasks",
+        "outcome": "accepted",
+        "mutationId": "mutation_synthetic_1",
+        "entityId": "task_synthetic_1",
+        "entityVersion": 1,
+        "changeSeq": 1,
+        "serverAcceptedAt": "2026-10-19T12:00:00.000Z"
+      }
+    ],
+    "processedCount": 1,
+    "stoppedAt": 1,
+    "error": {
+      "code": "daily_quota_exceeded",
+      "message": "Personal Cloud reached a daily Cloudflare limit. Sync can resume after the next UTC reset.",
+      "retryable": true,
+      "requestId": "request_synthetic",
+      "quota": {
+        "protocolVersion": 1,
+        "resource": "d1_rows_written",
+        "resetAt": "2026-10-20T00:00:00.000Z"
+      }
+    }
+  }
+}

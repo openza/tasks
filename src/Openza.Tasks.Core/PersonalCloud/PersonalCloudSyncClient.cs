@@ -24,11 +24,14 @@ public sealed partial class PersonalCloudSyncClient(
     private const int MaximumChangePages = 100;
     private const int MaximumResponseBytes = 2 * 1024 * 1024;
     private bool _supportsWorkspacePaging;
+    private DateTimeOffset? _responseDate;
 
     public async Task<PersonalCloudSyncResult> SyncAsync(CancellationToken cancellationToken = default)
     {
         // Negotiation is scoped to this pass, including retries on the same client.
         _batchCapabilityKnown = false;
+        var pending = await store.GetPendingPersonalCloudOutboxAsync(connection.InstanceId, connection.DeviceId, cancellationToken).ConfigureAwait(false);
+        var prefix = await SelectBudgetPrefixAsync(pending, cancellationToken).ConfigureAwait(false);
         await DiscoverCapabilitiesAsync(cancellationToken).ConfigureAwait(false);
         var access = await identity.IssueAccessTokenAsync(connection.ServiceOrigin, cancellationToken).ConfigureAwait(false);
         if (!string.Equals(access.InstanceId, connection.InstanceId, StringComparison.Ordinal) ||
@@ -44,12 +47,12 @@ public sealed partial class PersonalCloudSyncClient(
         if (progress is not null) await progress(PersonalCloudInitialSyncPhase.Uploading, cancellationToken).ConfigureAwait(false);
         var pushed = 0;
         string? blockedCode = null;
-        var pending = await store.GetPendingPersonalCloudOutboxAsync(
-            connection.InstanceId,
-            connection.DeviceId,
-            cancellationToken).ConfigureAwait(false);
-        if (pending.Count > 0)
-            (pushed, blockedCode) = await PushPendingAsync(pending.Take(PushBatchLimit).ToArray(), access.AccessToken, cancellationToken).ConfigureAwait(false);
+        if (prefix.Items.Count > 0)
+        {
+            (pushed, blockedCode) = await PushPendingAsync(prefix.Items, access.AccessToken, cancellationToken).ConfigureAwait(false);
+            if (blockedCode is null && pushed == prefix.Items.Count && prefix.PauseAfter && PersonalCloudDispatchHttp.PolicyFor(http) is { } dispatch)
+                throw (await dispatch.PauseBudgetAsync(connection.ServiceOrigin, prefix.OversizedUnits, cancellationToken).ConfigureAwait(false)).ToException();
+        }
 
         if (progress is not null) await progress(PersonalCloudInitialSyncPhase.Downloading, cancellationToken).ConfigureAwait(false);
         if (_supportsWorkspace && blockedCode is null && !await store.HasPersonalCloudWorkspaceBaselineAsync(connection.InstanceId, cancellationToken).ConfigureAwait(false) &&
@@ -148,6 +151,7 @@ public sealed partial class PersonalCloudSyncClient(
             request,
             HttpCompletionOption.ResponseHeadersRead,
             cancellationToken).ConfigureAwait(false);
+        _responseDate = response.Headers.Date;
         if (batchRequest && response.StatusCode is System.Net.HttpStatusCode.NotFound or System.Net.HttpStatusCode.MethodNotAllowed or System.Net.HttpStatusCode.NotImplemented)
             throw new BatchEndpointUnavailableException();
         if (response.StatusCode is System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden)

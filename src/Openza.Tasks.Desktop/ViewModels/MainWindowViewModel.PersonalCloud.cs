@@ -21,10 +21,22 @@ public sealed partial class MainWindowViewModel
     public string PersonalCloudPairActionText => IsConnectingPersonalCloud ? IsPairingInitialSync ? "Syncing…" : "Pairing…" : "Pair desktop";
     public string PersonalCloudPairTitle => IsPairingInitialSync ? "This desktop is paired" : "Pair this desktop";
     public PersonalCloudInitialSyncProgress? InitialSyncProgress => _initialSyncProgress;
-    public string InitialSyncSummary => _initialSyncProgress?.Summary ?? string.Empty;
+    public string InitialSyncSummary => _cloudDispatchStatus is { IsPaused: true } pause ? pause.Summary : _initialSyncProgress?.Summary ?? string.Empty;
     public bool HasInitialSyncProgress => IsPersonalCloudConnected && _initialSyncProgress is not null;
     public bool HasActiveInitialSyncProgress => HasInitialSyncProgress && _initialSyncProgress is { IsComplete: false };
-    public bool CanRetryInitialSync => HasInitialSyncProgress && _initialSyncProgress is { IsComplete: false } && !IsSyncing && !IsConnectingPersonalCloud;
+    private PersonalCloudDispatchStatus? _cloudDispatchStatus;
+    public bool IsPersonalCloudPaused => IsPersonalCloudConnected && _cloudDispatchStatus is { IsPaused: true };
+    public bool CanRetryInitialSync => HasInitialSyncProgress && _initialSyncProgress is { IsComplete: false } && !IsSyncing && !IsConnectingPersonalCloud && !IsPersonalCloudPaused;
+
+    private void ShowDispatchPause(PersonalCloudDispatchStatus pause)
+    {
+        _cloudDispatchStatus = pause;
+        OnPropertyChanged(nameof(IsPersonalCloudPaused));
+        OnPropertyChanged(nameof(CanRetryInitialSync));
+        OnPropertyChanged(nameof(InitialSyncSummary));
+        PersonalCloudStatusText = "Paused";
+        PersonalCloudSummaryText = pause.Summary;
+    }
 
     private void ApplyInitialSyncProgress(PersonalCloudInitialSyncProgress progress)
     {
@@ -40,7 +52,7 @@ public sealed partial class MainWindowViewModel
         OnPropertyChanged(nameof(CanRetryInitialSync));
         // Background sync still updates its banner, but must not replace a backup
         // prompt/result or repeat a completed initial upload over a management result.
-        if (_isManagingPersonalCloud || completedAgain) return;
+        if (_isManagingPersonalCloud || completedAgain || IsPersonalCloudPaused) return;
         PersonalCloudSummaryText = progress.Summary;
         PersonalCloudStatusText = progress.Phase switch
         {
@@ -59,6 +71,22 @@ public sealed partial class MainWindowViewModel
             PersonalCloudSummaryText = notice;
             return;
         }
+        var wasPaused = IsPersonalCloudPaused;
+        _cloudDispatchStatus = _personalCloudSetup is IPersonalCloudDispatchStatusService dispatch
+            ? await dispatch.GetDispatchStatusAsync() : null;
+        OnPropertyChanged(nameof(IsPersonalCloudPaused));
+        OnPropertyChanged(nameof(CanRetryInitialSync));
+        OnPropertyChanged(nameof(InitialSyncSummary));
+        if (_cloudDispatchStatus is { IsPaused: true } pause)
+        {
+            ShowDispatchPause(pause);
+            return;
+        }
+        if (wasPaused && IsPersonalCloudConnected)
+        {
+            PersonalCloudStatusText = "Connected";
+            PersonalCloudSummaryText = "This desktop is paired. Sync can continue.";
+        }
         if (_personalCloudSetup is IPersonalCloudInitialSyncProgressService service)
         {
             if (await service.GetInitialSyncProgressAsync() is { } progress) ApplyInitialSyncProgress(progress);
@@ -69,9 +97,18 @@ public sealed partial class MainWindowViewModel
 
     private async Task<PersonalCloudSyncResult> SyncPersonalCloudWithProgressAsync(CancellationToken cancellationToken = default)
     {
-        var result = await _personalCloudSetup!.SyncAsync(cancellationToken);
-        if (result.InitialSyncProgress is { } progress) ApplyInitialSyncProgress(progress);
-        return result;
+        try
+        {
+            var result = await _personalCloudSetup!.SyncAsync(cancellationToken);
+            await RefreshInitialSyncProgressAsync();
+            if (result.InitialSyncProgress is { } progress) ApplyInitialSyncProgress(progress);
+            return result;
+        }
+        catch (PersonalCloudK0ContractException exception) when (exception.DispatchStatus is not null)
+        {
+            await RefreshInitialSyncProgressAsync();
+            throw;
+        }
     }
     public System.Collections.ObjectModel.ObservableCollection<Openza.Tasks.Core.Data.PersonalCloudProviderRequestStatus> ProviderRequests { get; } = [];
 
@@ -108,6 +145,11 @@ public sealed partial class MainWindowViewModel
             await SyncPersonalCloudWithProgressAsync();
             await RefreshProviderRequestStatusAsync();
             StatusMessage = "Provider retry requested. Sync to deliver it through the connected account.";
+        }
+        catch (PersonalCloudK0ContractException exception) when (exception.DispatchStatus is { })
+        {
+            ShowDispatchPause(exception.DispatchStatus);
+            SetPersistentStatusMessage(exception.Message);
         }
         catch (Exception exception) { SetPersistentStatusMessage(exception.Message); }
         finally { IsSyncing = false; _syncGate.Release(); }
@@ -207,6 +249,7 @@ public sealed partial class MainWindowViewModel
                 await RefreshInitialSyncProgressAsync();
                 return null;
             }
+            if (exception.DispatchStatus is { } pause) { ShowDispatchPause(pause); return null; }
             PersonalCloudStatusText = "Needs attention";
             PersonalCloudSummaryText = exception.Code switch
             {
@@ -295,7 +338,9 @@ public sealed partial class MainWindowViewModel
         }
         catch (PersonalCloudK0ContractException exception)
         {
+            if (exception.DispatchStatus is { } pause) ShowDispatchPause(pause);
             if (pairedConnection is not null) return ReportPairedSyncIncomplete(pairedConnection);
+            if (exception.DispatchStatus is not null) return null;
             PersonalCloudStatusText = "Needs attention";
             PersonalCloudSummaryText = exception.Code switch
             {
@@ -321,6 +366,14 @@ public sealed partial class MainWindowViewModel
 
     private PersonalCloudConnectionProfile ReportPairedSyncIncomplete(PersonalCloudConnectionProfile connection)
     {
+        if (_cloudDispatchStatus is { IsPaused: true } pause)
+        {
+            PersonalCloudStatusText = "Paused";
+            PersonalCloudSummaryText = pause.Summary;
+            PersonalCloudActionText = "Manage Personal Cloud";
+            OnPropertyChanged(nameof(IsPersonalCloudConnected));
+            return connection;
+        }
         PersonalCloudStatusText = "Needs attention";
         PersonalCloudSummaryText = "This desktop is paired, but its first sync did not finish. Retry Sync; no new pairing code is needed.";
         PersonalCloudActionText = "Manage Personal Cloud";
@@ -416,6 +469,7 @@ public sealed partial class MainWindowViewModel
         }
         catch (PersonalCloudK0ContractException exception)
         {
+            if (exception.DispatchStatus is { } pause) { ShowDispatchPause(pause); return false; }
             PersonalCloudStatusText = "Needs attention";
             PersonalCloudSummaryText = exception.Code switch
             {
@@ -445,6 +499,8 @@ public sealed partial class MainWindowViewModel
 
     private void SetDisconnected(string summary)
     {
+        _cloudDispatchStatus = null;
+        OnPropertyChanged(nameof(IsPersonalCloudPaused));
         _initialSyncProgress = null;
         OnPropertyChanged(nameof(HasActiveInitialSyncProgress));
         OnPropertyChanged(nameof(HasInitialSyncProgress));

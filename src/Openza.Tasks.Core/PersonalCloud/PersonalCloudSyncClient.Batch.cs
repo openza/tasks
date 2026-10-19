@@ -46,6 +46,13 @@ public sealed partial class PersonalCloudSyncClient
                 }
                 if (receipt.ErrorCode is { } code)
                 {
+                    if (code == "daily_quota_exceeded")
+                    {
+                        var status = PersonalCloudDispatchHttp.PolicyFor(http) is { } dispatch
+                            ? await dispatch.GetStatusAsync(connection.ServiceOrigin, cancellationToken).ConfigureAwait(false) : null;
+                        throw status is { IsPaused: true } ? status.ToException() :
+                            new PersonalCloudK0ContractException(code, "The daily cloud quota was reached. Confirmed changes were acknowledged; remaining exact intents are preserved.");
+                    }
                     if (IsPermanentMutationRejection(code)) return (pushed, code);
                     throw new PersonalCloudK0ContractException("sync_failed", "The cloud could not finish this batch. Remaining exact intents have been preserved.");
                 }
@@ -104,6 +111,8 @@ public sealed partial class PersonalCloudSyncClient
     private (string Json, IReadOnlyList<PersonalCloudK1OutboxEntry> Items)? BuildBatch(IReadOnlyList<PersonalCloudK1OutboxEntry> pending, int start)
     {
         if (_batchCapability is not { } capability) return null;
+        if (PersonalCloudDispatchHttp.PolicyFor(http) is not null && pending[start].Operation is "project.delete" or "task.moveTree")
+            return null; // A whole-day reservation must not be spent probing a batch route before single fallback.
         var items = new List<PersonalCloudK1OutboxEntry>();
         string? json = null;
         for (var index = start; index < pending.Count && items.Count < capability.MaxMutations; index++)
@@ -146,7 +155,15 @@ public sealed partial class PersonalCloudSyncClient
             }
             else
             {
-                RequireKeys(error, "code", "message", "retryable", "requestId");
+                var isQuota = error.ValueKind == JsonValueKind.Object && error.TryGetProperty("code", out var codeValue) &&
+                    codeValue.ValueKind == JsonValueKind.String && codeValue.GetString() == "daily_quota_exceeded";
+                if (isQuota)
+                {
+                    RequireKeys(error, "code", "message", "retryable", "requestId", "quota");
+                    if (!PersonalCloudQuotaResponse.TryReadError(error, PersonalCloudQuotaResponse.ReferenceTime(_responseDate,
+                        PersonalCloudDispatchHttp.PolicyFor(http)?.UtcNow ?? DateTimeOffset.UtcNow), out _)) throw InvalidBatch();
+                }
+                else RequireKeys(error, "code", "message", "retryable", "requestId");
                 if (processed >= submitted.Count || stopped.GetInt32() != processed ||
                     error.GetProperty("code").ValueKind != JsonValueKind.String ||
                     error.GetProperty("message").ValueKind != JsonValueKind.String ||

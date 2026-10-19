@@ -241,9 +241,9 @@ public sealed partial class PersonalCloudBatchSyncTests : IDisposable
         return (store, await CreateClientAsync(store, handler), handler);
     }
 
-    private static async Task<PersonalCloudSyncClient> CreateClientAsync(SqliteTaskStore store, Handler handler)
+    private static async Task<PersonalCloudSyncClient> CreateClientAsync(SqliteTaskStore store, Handler handler, PersonalCloudDispatchPolicy? dispatch = null)
     {
-        var http = new HttpClient(handler);
+        var http = dispatch is null ? new HttpClient(handler) : PersonalCloudDispatchHttp.Create(dispatch, handler);
         var identity = new PersonalCloudDeviceIdentityClient(http, new InMemoryCredentialStore());
         var origin = new Uri("https://synthetic.example.test/");
         await identity.PairAsync(origin, "synthetic-one-time-grant-123456789", "Synthetic desktop", false);
@@ -261,6 +261,7 @@ public sealed partial class PersonalCloudBatchSyncTests : IDisposable
         public string? SingleError { get; set; }
         public string? ResponseDefect { get; set; }
         public bool LoseResponse { get; set; }
+        public DateTimeOffset? ResponseDate { get; set; }
         public int BatchPosts { get; private set; }
         public int SinglePosts { get; private set; }
         public int HealthRequests { get; private set; }
@@ -325,8 +326,14 @@ public sealed partial class PersonalCloudBatchSyncTests : IDisposable
                 ["instanceId"] = ResponseDefect == "instance" ? "wrong" : Instance, ["receipts"] = receipts,
                 ["processedCount"] = ResponseDefect == "count" ? 0 : receipts.Count,
                 ["stoppedAt"] = PartialFailure is not null ? receipts.Count : ResponseDefect == "stopped" ? 0 : null,
-                ["error"] = PartialFailure is null ? null : new { code = PartialFailure, message = "Synthetic", retryable = PartialFailure == "sync_failed", requestId = "request_synthetic" },
+                ["error"] = PartialFailure is null ? null : new Dictionary<string, object?>
+                {
+                    ["code"] = PartialFailure, ["message"] = "Synthetic", ["retryable"] = PartialFailure is "sync_failed" or "daily_quota_exceeded", ["requestId"] = "request_synthetic",
+                },
             };
+            if (PartialFailure == "daily_quota_exceeded")
+                ((Dictionary<string, object?>)result["error"]!)["quota"] = new { protocolVersion = 1, resource = "d1_rows_written",
+                    resetAt = PersonalCloudDispatchPolicy.NextMidnight(ResponseDate ?? DateTimeOffset.UtcNow).ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'") };
             if (ResponseDefect == "unknown") result["extra"] = 1;
             return Json(HttpStatusCode.OK, JsonSerializer.Serialize(result));
         }
@@ -343,7 +350,12 @@ public sealed partial class PersonalCloudBatchSyncTests : IDisposable
             _receipts[id] = receipt;
             return receipt;
         }
-        private static HttpResponseMessage Json(HttpStatusCode status, string body) => new(status) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
+        private HttpResponseMessage Json(HttpStatusCode status, string body)
+        {
+            var response = new HttpResponseMessage(status) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
+            response.Headers.Date = ResponseDate;
+            return response;
+        }
     }
     public void Dispose() => TestDirectory.Delete(_directory);
 }

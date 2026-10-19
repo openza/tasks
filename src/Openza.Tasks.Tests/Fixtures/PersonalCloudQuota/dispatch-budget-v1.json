@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "units": "conservative_workload_credits_not_billing_rows",
+  "dailyLimits": {"requests":10000,"envelopes":3000,"writeCredits":45000},
+  "operations": {
+    "task.patch":25,"source.refreshSnapshot":16,
+    "task.create":50,"task.createRich":50,"task.updateOpenzaFields":50,
+    "task.complete":50,"task.reopen":50,"task.delete":50,
+    "task.setProject":50,"task.move":50,"task.addLabel":50,"task.removeLabel":50,"task.setParent":50,
+    "space.put":50,"project.put":50,"provider.scope.put":50,"provider.catalog.put":50,
+    "provider.intent.request":50,"provider.intent.start":50,"provider.intent.resolve":50,
+    "externalCommand.confirm":50,"externalCommand.reject":50,
+    "project.delete":45000,"task.moveTree":45000
+  },
+  "richCreationPerLabel":10,
+  "creationWithSource":16,
+  "unknownOperation":45001,
+  "fanoutPolicy":"project.delete and task.moveTree reserve the whole daily budget; no inferred client-side row-count bound",
+  "compoundPolicy":"sum each envelope in the exact transmitted FIFO prefix; current v1 has no other explicit multi-entity operation",
+  "overWholeDayPolicy":"visible local_operation_budget_exceeded; retain pending envelope and never schedule automatic daily retries",
+  "retryPolicy":"every dispatched attempt including duplicate retries, unknown results and crash reservations consumes the full reservation; no refund",
+  "cases":[
+    {"operation":"task.patch","payload":{"fields":{"notes":"synthetic"}},"credits":25},
+    {"operation":"source.refreshSnapshot","payload":{},"credits":16},
+    {"operation":"task.createRich","payload":{"task":{"labels":[]}},"credits":50},
+    {"operation":"task.createRich","payload":{"task":{"labels":[{},{}]},"source":{}},"credits":86},
+    {"operation":"task.create","payload":{"source":{}},"credits":66},
+    {"operation":"project.delete","payload":{},"credits":45000},
+    {"operation":"task.moveTree","payload":{},"credits":45000},
+    {"operation":"future.operation","payload":{},"credits":45001}
+  ]
+}
