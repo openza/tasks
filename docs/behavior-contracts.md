@@ -24,7 +24,7 @@ These contracts state the intended product meanings. Current behavior, exception
 | Local enhancements | Notes, labels, local priority, project and workflow generally survive provider refresh. Refresh has explicit date/hierarchy exceptions below. |
 | Provider writes | Completion/reopen and bounded Todoist Date changes for non-recurring source tasks exist. Arbitrary provider title, notes, labels or deadline editing is not implied. |
 | Recurrence | Metadata is stored; local completion does not create another occurrence. A provider can advance and reopen the same wrapper. No universal recurrence engine or reminder service is established. |
-| Windows continuity | Active on Ubuntu through C# compilation, design and synthetic/integration tests, behind its Dev gate. Native build/validation, packaging/distribution, MSIX upgrade testing and Store replacement are not current priorities. Upgraded-user reconnect and initial sync-off policies remain open product decisions. |
+| Windows continuity | Parked until Linux Snap is stable and the maintainer explicitly asks to resume. Retain the existing Dev gate and future reference; Windows Avalonia packaging, MSIX, native testing, Store replacement and continuity policy decisions are all parked. Shared code remains cross-platform. |
 
 ## Implementation and preservation rules
 
@@ -38,4 +38,4 @@ Provider refresh in SqliteTaskStore.RefreshAdoptedTaskFromSourceAsync may update
 
 [Cloud sync](../src/Openza.Tasks.Core/PersonalCloud/PersonalCloudSyncClient.cs) and the [protocol](personal-cloud-protocol.md) retain semantic mutations, durable outbox, idempotency, base versions, tombstones and checkpoints. Stale versions can conflict; do not silently overwrite accepted data. Pulled state and checkpoint persist atomically. Initial upload completion accounts for frozen seed, catch-up and deferred changes.
 
-Use the [initial-sync notes](personal-cloud-initial-sync.md) for recovery mechanics and the [Windows continuity plan](windows-transition.md) for active Ubuntu work and later package/vault acceptance. Test offline restart, delayed acknowledgement, duplicate/stale replay, crash recovery, tombstones, restore with pending intent and missing/revoked pairing in isolated stores. Tests and source compilation do not establish live-provider or packaged acceptance.
+Use the [initial-sync notes](personal-cloud-initial-sync.md) for recovery mechanics and the [parked Windows continuity reference](windows-transition.md) for future package/vault acceptance. Test offline restart, delayed acknowledgement, duplicate/stale replay, crash recovery, tombstones, restore with pending intent and missing/revoked pairing in isolated stores. Tests and source compilation do not establish live-provider or packaged acceptance.

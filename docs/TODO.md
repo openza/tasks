@@ -2,8 +2,9 @@
 
 [Behavior contracts](behavior-contracts.md) define task semantics and open product
 decisions. [Architecture](architecture.md) defines implementation boundaries.
-Avalonia owns all active desktop development across operating systems. Linux Snap
-ships first; Windows Avalonia distribution comes later. WinUI is frozen: its last
+Avalonia remains cross-platform, with Linux Snap as the sole current focus until
+Linux is stable. All Windows work and continuity policy decisions are parked
+unless the maintainer explicitly asks. WinUI is frozen: its last
 Microsoft Store release is final, with no further releases or maintenance. Keep
 the project and leave existing Store users on that release until a future Avalonia
 replacement passes acceptance.
@@ -24,8 +25,8 @@ replacement passes acceptance.
 - Windows continuity is implemented behind its Dev gate. Native package, vault,
   sign-in and replacement acceptance remain separate; see the
   [transition plan](windows-transition.md).
-- CI requires Linux build/tests and Snap validation. The nonblocking Windows job
-  builds Avalonia and runs the shared suite without building the frozen WinUI host.
+- CI requires Linux build/tests and Snap validation. The optional Windows job is a
+  nonblocking early warning only; do not act on its results unless explicitly asked.
 
 ## Release and validation work
 
@@ -37,10 +38,10 @@ replacement passes acceptance.
   and source compilation alone are insufficient.
 - Complete independent-user onboarding and sustained-use feedback, including
   understandable source ownership, local capture and recovery paths.
-- Resolve the Windows reconnect and initial automatic-sync policies with native
-  package/vault testing. Keep live Preview/Production installations separate from
-  test fixtures. Windows Avalonia packaging and replacement remain later work;
-  retain the active Dev-gated continuity path.
+- Windows reconnect and initial automatic-sync decisions, native testing, Avalonia
+  packaging, MSIX and Store replacement are parked until Linux is stable and the
+  maintainer explicitly resumes them. Retain the existing Dev gate and future
+  transition reference; keep live installations separate from test fixtures.
 
 ## Product decisions before expansion
 

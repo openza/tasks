@@ -5,13 +5,18 @@ releases or maintenance. Keep the project as the final Store baseline and
 continuity reference. Existing Store users remain on that release until a future
 Avalonia replacement passes acceptance.
 
-All active desktop development uses Avalonia across operating systems. Linux Snap
-ships first; Windows Avalonia packaging, MSIX upgrade validation and Store
-replacement come later. Windows continuity development remains active behind its
-Dev gate, using Windows-compatible C# and synthetic integration tests on Ubuntu.
-OS-specific behavior stays behind platform services. The nonblocking Windows CI
-job builds Avalonia and runs the shared suite; it does not build WinUI or establish
-native package acceptance. Linux build/tests and Snap validation remain required.
+Linux Snap is the sole current focus for the coming weeks/months, until Linux is
+stable. All Windows work is parked, including Avalonia Windows packaging, MSIX,
+native testing, Store replacement and continuity policy decisions. Resume only
+when the maintainer explicitly asks. This document retains the existing Dev-gated
+implementation and future acceptance requirements as reference.
+
+Keep Core, Application and Desktop code cross-platform and Windows-compatible,
+with OS-specific behavior behind platform services. The optional Windows CI job
+builds Avalonia and runs the shared suite as a nonblocking early warning only; do
+not block Linux work on it or act on its results unless explicitly requested.
+It does not build WinUI or establish native package acceptance. Linux build/tests
+and Snap validation remain required.
 
 The transition covers the matching WinUI-to-Avalonia package only. Automatic import
 of Flutter-era or other legacy stores is excluded.

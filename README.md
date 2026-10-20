@@ -2,7 +2,7 @@
 
 **A simple local-first task app that grows with you, with an optional cloud you control.**
 
-Openza Tasks supports fast local capture and completion without requiring projects or a planning method. Avalonia is the host for all active desktop development across operating systems. Linux Snap ships first; Windows Avalonia distribution comes later, and active code remains Windows-compatible. The WinUI 3 edition is frozen: its last Microsoft Store release is final, with no further releases or maintenance. Existing Store users remain on that release until a future Avalonia replacement passes the [Windows continuity requirements](docs/windows-transition.md). Both projects retain the shared SQLite core. macOS is deferred.
+Openza Tasks supports fast local capture and completion without requiring projects or a planning method. Avalonia is the cross-platform desktop host, with Linux Snap as the sole current focus until Linux is stable. All Windows work is parked; shared code remains Windows-compatible. The WinUI 3 edition is frozen: its last Microsoft Store release is final, with no further releases or maintenance. Existing Store users remain on that release until a future Avalonia replacement passes the [Windows continuity requirements](docs/windows-transition.md). Both projects retain the shared SQLite core. macOS is deferred.
 
 Openza Tasks is maintained by Deependra Solanky as a personal open-source project. Microsoft sign-in may show the Openza app name with the `solanky.dev` publisher/contact identity.
 
@@ -10,7 +10,7 @@ User guide: [solanky.dev/openza/tasks](https://solanky.dev/openza/tasks/)
 
 ## Features
 
-- **Avalonia desktop app** - active desktop development for Windows and Linux
+- **Avalonia desktop app** - cross-platform code with current development focused on Linux Snap; Windows work is parked
 - **Existing Windows Store app** - final frozen WinUI 3 release, retained for current users until a future Avalonia replacement
 - **Local-first storage** - tasks, projects, labels, backups, and imports live on your device
 - **Provider sync** - optional Todoist and Microsoft To Do reconnect/sync
@@ -55,7 +55,7 @@ Snap uses `--dangerous` for a local package installed without a Snap Store
 assertion. Openza Tasks remains strictly confined. A local sideload does not
 automatically track Store updates; use the documented sideload-to-Store process.
 
-Legacy Flutter-era packages remain available in older GitHub releases. Store V1 starts with a clean workspace and does not automatically import those stores. Guarded WinUI-to-Avalonia continuity is separate development behind a Dev gate. Keep legacy imports excluded and follow the Windows transition requirements before replacing a live installation.
+Legacy Flutter-era packages remain available in older GitHub releases. Store V1 starts with a clean workspace and does not automatically import those stores. Guarded WinUI-to-Avalonia continuity is retained as parked reference behind a Dev gate. Keep legacy imports excluded; Windows replacement is future work under the transition requirements.
 
 ## Building From Source
 
@@ -89,10 +89,12 @@ documented in [docs/snap-release.md](docs/snap-release.md).
 Integration configuration and remaining native acceptance checks are documented
 in [docs/avalonia-parity.md](docs/avalonia-parity.md).
 
-### Windows Avalonia development
+### Parked Windows Avalonia reference
 
-Install the .NET 10 SDK. From the desktop project directory, build Avalonia and run
-the shared suite:
+All Windows work, including packaging, MSIX, native testing, Store replacement and
+continuity policy decisions, is parked until Linux is stable. Resume only on an
+explicit maintainer request. The following commands are retained as future source
+validation reference, not a current Windows task:
 
 ```powershell
 cd src/Openza.Tasks.Desktop
@@ -101,11 +103,12 @@ dotnet test ../Openza.Tasks.Tests/Openza.Tasks.Tests.csproj -c Release --no-rest
 dotnet build Openza.Tasks.Desktop.csproj -c Release --no-restore
 ```
 
-CI requires Linux build/tests and Snap validation. Its Windows Avalonia build and
-shared-suite job is nonblocking and does not build WinUI. Windows continuity remains
-active behind its explicit Dev gate; ordinary source builds do not enable it or
-prove installed-package, vault or sign-in continuity. Windows packaging and Store
-replacement are later work. Keep OS-specific code behind platform services.
+CI requires Linux build/tests and Snap validation. The optional Windows Avalonia
+build/shared-suite job is a nonblocking early warning only; do not block Linux work
+on it or act on its results unless the maintainer explicitly asks. It does not build
+WinUI. Retain the existing continuity Dev gate and future package/vault/sign-in
+acceptance requirements. Keep Core, Application and Desktop code cross-platform,
+with OS-specific behavior behind platform services.
 
 ## Architecture
 
@@ -122,7 +125,7 @@ The sync engine is C# in `Openza.Tasks.Core`. Historical Rust FFI work is preser
 
 ## Legacy Flutter App
 
-The last Flutter-era mainline is preserved on the [`legacy-flutter-app`](https://github.com/openza/tasks/tree/legacy-flutter-app) branch. All active desktop development targets Avalonia in `src/Openza.Tasks.Desktop/`; the frozen WinUI project in `src/Openza.Tasks/` remains as the final Store baseline and continuity reference.
+The last Flutter-era mainline is preserved on the [`legacy-flutter-app`](https://github.com/openza/tasks/tree/legacy-flutter-app) branch. Current development targets Avalonia for Linux Snap in `src/Openza.Tasks.Desktop/`, while keeping shared code cross-platform; all Windows work is parked. The frozen WinUI project in `src/Openza.Tasks/` remains as the final Store baseline and continuity reference.
 
 See [docs/architecture.md](docs/architecture.md) for architecture and the task model, [behavior contracts](docs/behavior-contracts.md) for product semantics, and [docs/TODO.md](docs/TODO.md) for the ordered follow-up work.
 See [docs/design-guidelines.md](docs/design-guidelines.md) for the built-in Avalonia Fluent baseline and historical WinUI design reference.
