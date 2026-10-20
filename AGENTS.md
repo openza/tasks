@@ -17,7 +17,7 @@ Also follow the shared Openza guidance in `../AGENTS.md`. Keep this file limited
 - Existing Microsoft Store users remain on the final WinUI release until a future Avalonia replacement passes the Windows transition gates. Keep both projects; the frozen Store app receives no further releases or maintenance. The legacy Flutter app remains on the `legacy-flutter-app` branch only.
 - Historical Rust sync work is preserved in git history and older releases. Do not add its binary to either active host.
 - `assets/` stores icons, images, and bundled resources used at runtime.
-- `docs/` and `scripts/` provide developer documentation and tooling. The user guide lives in the `solanky.dev` repository.
+- `docs/` and `scripts/` provide developer documentation and tooling. The user guide lives in the [openza/website](https://github.com/openza/website) repository and is published at [openza.org/tasks](https://openza.org/tasks/).
 
 ## Build, Test, and Development Commands
 - `dotnet test src/Openza.Tasks.Tests/Openza.Tasks.Tests.csproj -c Release` runs the shared test suite.
