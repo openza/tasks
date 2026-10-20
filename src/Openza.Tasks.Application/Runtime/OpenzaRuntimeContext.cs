@@ -11,6 +11,9 @@ public sealed record OpenzaRuntimeContext
     private const string ProductionSnapName = "openza-tasks";
     public required OpenzaChannel Channel { get; init; }
     public required string DataDirectory { get; init; }
+    // Set only for an isolated Dev data directory, so parallel Dev profiles
+    // on one machine never share saved credentials.
+    public string? CredentialScope { get; init; }
 
     public string DatabasePath => Path.Combine(DataDirectory, "openza-tasks.db");
     public string RestorePointDirectory => Path.Combine(DataDirectory, "restore-points");
@@ -24,7 +27,7 @@ public sealed record OpenzaRuntimeContext
     {
         OpenzaChannel.Production => "tasks",
         OpenzaChannel.Preview => "tasks-preview",
-        _ => "tasks-dev",
+        _ => CredentialScope is { } scope ? $"tasks-dev-{scope}" : "tasks-dev",
     };
 
     public string DisplayName => Channel switch
@@ -44,9 +47,10 @@ public sealed record OpenzaRuntimeContext
             Environment.GetEnvironmentVariable("SNAP"),
             Environment.GetEnvironmentVariable("SNAP_NAME"),
             Environment.GetEnvironmentVariable("SNAP_USER_COMMON"));
+        var isolatedDev = snapDataDirectory is null && channel == OpenzaChannel.Dev && !string.IsNullOrWhiteSpace(devDataDirectory);
         var dataDirectory = snapDataDirectory
-            ?? (channel == OpenzaChannel.Dev && !string.IsNullOrWhiteSpace(devDataDirectory)
-                ? Path.GetFullPath(devDataDirectory)
+            ?? (isolatedDev
+                ? Path.GetFullPath(devDataDirectory!)
                 : Path.Combine(
                     Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                     "Openza",
@@ -57,7 +61,12 @@ public sealed record OpenzaRuntimeContext
                         _ => "Tasks",
                     }));
 
-        return new OpenzaRuntimeContext { Channel = channel, DataDirectory = dataDirectory };
+        return new OpenzaRuntimeContext
+        {
+            Channel = channel,
+            DataDirectory = dataDirectory,
+            CredentialScope = isolatedDev ? StableHash(dataDirectory)[..12] : null,
+        };
     }
 
     public static string? ResolveSnapDataDirectory(

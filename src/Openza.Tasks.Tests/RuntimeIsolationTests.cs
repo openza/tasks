@@ -24,7 +24,8 @@ public sealed class RuntimeIsolationTests : IDisposable
 
         Assert.Equal("tasks", production.CredentialNamespace);
         Assert.Equal("tasks-preview", preview.CredentialNamespace);
-        Assert.Equal("tasks-dev", dev.CredentialNamespace);
+        Assert.Equal("tasks-dev", OpenzaRuntimeContext.Create(OpenzaChannel.Dev).CredentialNamespace);
+        Assert.StartsWith("tasks-dev-", dev.CredentialNamespace, StringComparison.Ordinal);
         Assert.NotEqual(production.DataDirectory, preview.DataDirectory);
         Assert.NotEqual(production.DataDirectory, dev.DataDirectory);
         Assert.NotEqual(preview.DataDirectory, dev.DataDirectory);
@@ -33,6 +34,19 @@ public sealed class RuntimeIsolationTests : IDisposable
         Assert.Equal("Openza Tasks Dev", dev.DisplayName);
         Assert.Equal(OpenzaChannel.Dev, OpenzaRuntimeContext.ReadChannel(typeof(RuntimeIsolationTests).Assembly));
         Assert.Equal(production.DataDirectory, OpenzaRuntimeContext.Create(OpenzaChannel.Production, Path.Combine(_directory, "ignored")).DataDirectory);
+    }
+
+    [Fact]
+    public void Isolated_dev_data_directories_use_separate_stable_credential_namespaces()
+    {
+        var first = OpenzaRuntimeContext.Create(OpenzaChannel.Dev, Path.Combine(_directory, "first"));
+        var second = OpenzaRuntimeContext.Create(OpenzaChannel.Dev, Path.Combine(_directory, "second"));
+        var firstAgain = OpenzaRuntimeContext.Create(OpenzaChannel.Dev, Path.Combine(_directory, "first"));
+
+        Assert.NotEqual(first.CredentialNamespace, second.CredentialNamespace);
+        Assert.Equal(first.CredentialNamespace, firstAgain.CredentialNamespace);
+        Assert.Null(OpenzaRuntimeContext.Create(OpenzaChannel.Production, Path.Combine(_directory, "first")).CredentialScope);
+        Assert.Null(OpenzaRuntimeContext.Create(OpenzaChannel.Preview, Path.Combine(_directory, "first")).CredentialScope);
     }
 
     [Fact]
