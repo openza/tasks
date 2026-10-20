@@ -35,11 +35,11 @@ The primary Linux download is the strict Snap from the
 sudo snap install openza-tasks
 ```
 
-The currently verified public Store version is **1.1.0**, without Personal Cloud.
+The public Store version is **1.1.0**, without Personal Cloud.
 It does not contain the unreleased quota/compatibility candidate in this branch.
 [Release provenance and the proposed 1.2.0 plan](docs/snap-release.md) distinguish
 the public package from the source candidate. Existing local sideload users should
-read the approval-gated [Store adoption plan](docs/snap-release.md#owner-executed-sideload-to-store-transition)
+read the [Store adoption plan](docs/snap-release.md#sideload-to-store-transition)
 before changing their installation.
 
 The [GitHub v1.1.0 release](https://github.com/openza/tasks/releases/tag/v1.1.0)
@@ -53,9 +53,9 @@ sudo snap install ./openza-tasks_1.1.0_amd64.snap --dangerous
 
 Snap uses `--dangerous` for a local package installed without a Snap Store
 assertion. Openza Tasks remains strictly confined. A local sideload does not
-automatically track Store updates; use the documented owner-run adoption process.
+automatically track Store updates; use the documented sideload-to-Store process.
 
-Legacy Flutter-era packages remain available in older GitHub releases. Store V1 starts with a clean workspace and does not automatically import those stores. Guarded WinUI-to-Avalonia continuity is separate active development behind a Dev gate; it does not enable broad legacy imports or authorize installed-package replacement.
+Legacy Flutter-era packages remain available in older GitHub releases. Store V1 starts with a clean workspace and does not automatically import those stores. Guarded WinUI-to-Avalonia continuity is separate development behind a Dev gate. Keep legacy imports excluded and follow the Windows transition requirements before replacing a live installation.
 
 ## Building From Source
 

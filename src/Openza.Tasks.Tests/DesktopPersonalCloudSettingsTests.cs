@@ -28,7 +28,7 @@ public sealed class DesktopPersonalCloudSettingsTests(EditorTestSession fixture)
                 var connection = new PersonalCloudConnectionProfile { ServiceOrigin = origin, InstanceId = "instance_quota_ui", DeviceId = "device_quota_ui",
                     ArtifactVersion = "synthetic", ConnectedAt = DateTimeOffset.UtcNow };
                 var pause = new PersonalCloudDispatchStatus("daily_quota_exceeded", "d1_rows_read", DateTimeOffset.Parse("2026-10-19T12:00:00Z"),
-                    DateTimeOffset.Parse("2026-10-20T00:00:00Z"), true, 10, 25, 3000, 10000) { PendingEnvelopes = 8823 };
+                    DateTimeOffset.Parse("2026-10-20T00:00:00Z"), true, 10, 25, 3000, 10000) { PendingEnvelopes = 9000 };
                 var service = new StubSetupService(new(origin, "worker", "database", "synthetic", origin), connection) { DispatchStatus = pause };
                 service.SyncAction = _ => Task.FromException<PersonalCloudSyncResult>(pause.ToException());
                 var preferences = new Openza.Tasks.Desktop.Services.DesktopPreferencesStore(Path.Combine(directory, "settings.json"));
@@ -39,7 +39,7 @@ public sealed class DesktopPersonalCloudSettingsTests(EditorTestSession fixture)
                 Assert.Equal("Paused", vm.PersonalCloudStatusText);
                 Assert.True(vm.IsPersonalCloudPaused);
                 Assert.Contains("2026-10-20 00:00:00 UTC", vm.PersonalCloudSummaryText);
-                Assert.Contains("8823 changes remain pending", vm.PersonalCloudSummaryText);
+                Assert.Contains("9000 changes remain pending", vm.PersonalCloudSummaryText);
                 Assert.False(vm.CanRetryInitialSync);
                 await vm.RunAutomaticTodoistSyncAsync();
                 Assert.Equal(automaticSync ? 1 : 0, service.SyncCalls);

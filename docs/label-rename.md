@@ -6,4 +6,6 @@ Capital-only changes and other label lists equivalent under the editor's existin
 
 Deliberate shared-label renaming will belong to a dedicated label list screen. That screen does not exist yet and is outside this change.
 
-The earlier desktop rename implementation is preserved unmerged on `parked/label-rename-desktop` at `83e0deb`, including `e4a8dbe`. Its atomic mutation and negotiation design is future reference only; it is not the active task-editor behavior. The corresponding Personal Cloud work remains separately parked and unmerged on `fix/atomic-shared-label-rename`.
+Shared-label rename remains deferred. Its design is retained on
+`parked/label-rename-desktop` and the companion `fix/atomic-shared-label-rename`
+branch for future label-list work.

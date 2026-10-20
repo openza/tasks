@@ -23,7 +23,7 @@ This contract separates intended meanings from current behavior. It does not add
 - Recurrence is opaque metadata. A non-null local value takes precedence over source recurrence; an empty/whitespace local value masks the source, while null falls back. Repeat filters test for non-whitespace and parse no rule grammar.
 - Todoist Date write-back is limited to non-recurring source tasks. Dated recurring provider intake can enter Someday rather than Inbox. Ordinary local capture still defaults to Inbox; this compatibility behavior chooses no user methodology.
 
-## Engineering evidence and boundaries
+## Implementation boundaries
 
 [Task/date models](../src/Openza.Tasks.Core/Models/TaskDateValues.cs) implement day/instant precedence: a stored day wins a mismatched instant; matching/absent day permits exact time. Ordinary SQLite upsert normalizes an exact-only pair, but reads retain stored values. Cloud wire records require date-only/exact alternatives to be exclusive.
 

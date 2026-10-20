@@ -3,7 +3,7 @@
 This client contract implements `quota-pause-v1` alongside the companion
 repository's `docs/quota-pause-v1.md`. It keeps protocol 1, cloud schema 25,
 manifest format 1, healthy capability negotiation and the checked-in artifact pin
-unchanged. [Compatibility and upgrade evidence](cloud-upgrade-compatibility.md)
+unchanged. [Compatibility and upgrade contract](cloud-upgrade-compatibility.md)
 still distinguishes the packaged preview.9/schema-20 pin from a local candidate.
 
 ## Daily quota recognition
@@ -53,7 +53,7 @@ not token acquisition or callbacks into another client.
 Health, device token/pair/revoke, mutations, changes/bootstrap, checkpoints,
 provider bridge/catalog and optional initial-status requests share the policy.
 The factory supplies it to each Worker HTTP client. Cloudflare control-plane
-OAuth and authorized resource management keep their separate transport. Pairing
+OAuth and resource management keep their separate transport. Pairing
 and restart do not clear an existing origin pause. Local editing and independent
 provider sync remain available.
 
@@ -75,7 +75,7 @@ operations exceeding the entire allowance produce a visible
 `local_operation_budget_exceeded` hold with no automatic daily retry; their pending
 envelopes remain intact. Failed attempts and retries consume their full charge.
 Credits are conservative workload estimates, not actual D1 rows or account-wide
-quota reservations. Final acceptance requires the combined measured scenarios.
+quota reservations. Validate these estimates against combined workload scenarios.
 
 A quota or local budget pause suppresses subsequent Worker requests and reporting
 loops until reset. Optional reports record daily exhaustion before swallowing their
@@ -113,9 +113,9 @@ catalog envelopes and FIFO identity are preserved. Unchanged scopes were already
 change-only. Adopted task `source.refreshSnapshot` heartbeats still occur at
 six-hour intervals; the catalog optimization does not suppress those updates.
 
-Final budget selection needs measured D1 result metadata and request counts for
+Budget changes need measured D1 result metadata and request counts for
 fresh upload per day/total, existing backlog catch-up, normal edits, six-hour
-provider refreshes and browser idle. Use synthetic names/content/IDs at the agreed
+provider refreshes and browser idle. Use synthetic names/content/IDs at representative
 population counts. Counts alone do not establish payload size, edit frequency or
 which historical sources remain eligible. A cap must leave steady-state service
 capacity above arriving work and enough margin to drain backlog; a growing queue
@@ -123,5 +123,5 @@ behind a low cap does not satisfy the objective.
 
 Local D1 metadata is not live billing. Other devices and apps share the account's
 allowance, so this per-profile policy does not reserve global account quota.
-Live usage, an approved upgrade, native packaging and installed-app acceptance
-remain separate. This source work does not authorize any deployment or install.
+Validate live usage, upgrade recovery and packaged behavior separately before
+release. Source-level checks do not replace those deployment requirements.

@@ -1,175 +1,134 @@
 # Snap Store release runbook
 
-Openza Tasks uses one strict `openza-tasks` Snap as its only public Linux
-package. The Snap contains the Avalonia desktop app and the `openza` CLI, and
-Snap refreshes deliver updates automatically. These steps are maintainer-only;
-ordinary users do not select an Openza environment or run migration tools.
+Openza Tasks uses one strict `openza-tasks` Snap as its public Linux package.
+It contains the Avalonia desktop app and the `openza` CLI. Store installations
+track a release channel and receive Snap refreshes; local sideloads need Store
+adoption before they track those updates.
 
 ## Coordinated Desktop and Personal Cloud release plan
 
-### Public 1.1.0 provenance and proposed next version
+### Published version and proposed next release
 
-Verification supplied by Claude on the owner's behalf on 2026-10-20 reports
-[Snap Store](https://snapcraft.io/openza-tasks) revision **1** on **latest/stable
-and latest/edge**, created **2026-09-12 13:07 UTC**, size **71,716,864 bytes**.
-The GitHub `v1.1.0` Snap asset has the same byte count; its tag resolves to
-`f45fbe1314f9e6c767cbc3aefe8b64711e4525e4`. That source predates Personal Cloud.
-Equal size alone is **not** SHA-256 or byte-for-byte identity proof; no Store-to-
-GitHub binary hash comparison is claimed. These Store facts are attributed to
-the supplied verification, not to a new installed-app or credential inspection.
+[Openza Tasks is published on the Snap Store](https://snapcraft.io/openza-tasks).
+Store revision **1** is version **1.1.0**, available on **latest/stable** and
+**latest/edge**, created **2026-09-12 13:07 UTC**, with size **71,716,864 bytes**.
+The [GitHub v1.1.0 Snap asset](https://github.com/openza/tasks/releases/tag/v1.1.0)
+has the same size. Its source tag resolves to
+`f45fbe1314f9e6c767cbc3aefe8b64711e4525e4`, before Personal Cloud was added.
+Equal byte counts do not prove checksum or binary identity.
 
-The primary new-install route is `sudo snap install openza-tasks` from the Store.
-The [GitHub v1.1.0 asset](https://github.com/openza/tasks/releases/tag/v1.1.0)
-with checksum verification and `--dangerous` remains a local-file fallback.
-Current public **1.1.0 has no Personal Cloud**. Store approval/publication of that
-older package does not approve or deliver the candidate below.
+For a new installation, use `sudo snap install openza-tasks`. The GitHub asset
+with checksum verification and `--dangerous` is a local-file fallback. Public
+**1.1.0 has no Personal Cloud**; a custom package with the same version string
+may contain different code.
 
-Propose **1.2.0** for the next Linux Snap, matching the planned entry under
-[CHANGELOG Unreleased](../CHANGELOG.md#unreleased). This is a proposal only:
-no package-version bump, tag, build or release has been made. After approval,
-update the Snap version, both .NET publish version properties, AppStream release
-metadata and final changelog/tag together, and name the platforms actually shipped.
-Windows package publication remains later work.
+The proposed next Linux Snap version is **1.2.0**, with planned changes under
+[CHANGELOG Unreleased](../CHANGELOG.md#unreleased). Before release, update the
+Snap version, both .NET publish version properties, AppStream metadata and final
+changelog/tag together. The proposal does not change those version fields.
+Windows package publication remains a separate release lane.
 
-The current step is branch publication and PR review only. Existing PR CI can
-build a Snap and smoke-install it on a disposable GitHub runner; this does not
-validate an upgrade of an existing user installation. No local Snap build,
-installed-app replacement, manual publishing workflow, or cloud upgrade is part
-of this step. Keep the owner involved at each later approval gate below.
+### Cloud artifact selection
 
-The reviewed Desktop runtime is `6b0ab43237cca3976b27ea5ef956badc2f216499`;
-the coordinated Cloud source is `660c847d6ba7a1cb16c6252b2e2aee46361d0cb5`
-on `fix/cloud-quota-budget` in the companion repository. Desktop still pins
-`0.1.0-preview.9` / schema 20. The newer **validation-only** bundle
-`0.0.0-local-quota-660c847d6ba7` targets schema 25, manifest format 1, with
-manifest SHA-256
+Desktop currently pins `0.1.0-preview.9` / schema 20. The development Cloud source
+`660c847d6ba7a1cb16c6252b2e2aee46361d0cb5` produces the validation bundle
+`0.0.0-local-quota-660c847d6ba7`, schema 25, manifest format 1, with SHA-256
 `cdd87066e97e622f13c32ec9507292d65791b4361ed763926c5e4e610c47c5bc`.
-Its successful Desktop loader check does not change the pin or ship that bundle.
-The current pinned publish/Snap CI therefore does not certify a package carrying
-the new schema-25 candidate. See [artifact staging](personal-cloud-desktop-publish.md),
-[compatibility](cloud-upgrade-compatibility.md), and [quota behavior](personal-cloud-quota.md).
+This bundle is not the packaged release pin. Select a release artifact and digest
+explicitly; a successful loader check or pinned CI build does not select it.
+See [artifact staging](personal-cloud-desktop-publish.md),
+[compatibility](cloud-upgrade-compatibility.md) and [quota behavior](personal-cloud-quota.md).
 
-1. **Review both PRs before a separately approved merge.** Preserve their exact
-   source commits and required checks. Choose the release version, changelog and
-   final Cloud artifact deliberately; review any new source pin and manifest
-   digest in Desktop. A release artifact replacing the local validation bundle
-   needs its own provenance and loader verification.
-2. **Prepare the Snap only after build approval.** Use the existing build and
-   inspection wrappers with the selected verified Cloud artifact. Record the
-   source, version, package SHA-256, both app/CLI channel markers, and embedded
-   artifact digest. Keep output under ignored `artifacts/snap/`. Check disk and
-   memory headroom; the builder owns exit cleanup and verification that its
-   Snapcraft/LXD build instance is gone. Do not install the output yet.
-3. **Approve and test an isolated upgrade.** Use a separate Ubuntu test account
-   or VM, synthetic tasks and test-account credentials. Establish the previous
-   package revision and expected database, settings, pairing and outbox state,
-   then upgrade to the exact candidate. Verify GUI/CLI data sharing, task IDs and
-   relationships, restore/export behavior, Secret Portal credential access,
-   provider and backup credential separation, pairing identity, capability
-   negotiation, pending envelope bytes/order, quota pause/restart/reset, and the
-   automatic-sync choice. Include offline and unavailable-credential startup.
-   Use an isolated Dev cloud; do not copy real credentials or mutate real
-   provider tasks. A Preview parallel-instance smoke test is useful isolation
-   evidence, but it does not prove Production-to-Production refresh or credential
-   continuity. Do not replace the owner's daily app or data for these tests.
-4. **Approve the exact Store upload and channel changes.** The manual
-   `Publish Snap Store Edge` workflow builds and publishes an artifact; do not
-   dispatch it as a dry run. After approval, retain its exact package/hash and
-   Store revision, validate that revision from `edge` in isolation, then request
-   approval to promote the same revision to `candidate` and later `stable`.
-   Follow the runbook below; Store approval alone is not publication approval.
-5. **Update participating Desktop clients before Cloud.** Validate that the new
-   packaged client works with the existing schema-20 cloud and understands the
-   target schema-25 quota errors. Establish installed-client coverage before
-   enabling the new Cloud behavior; old strict parsers are not assumed compatible.
-   The unchanged installed `Update` flow does not acquire this local candidate.
-6. **Request the separate Cloud upgrade approval.** Name the exact target,
-   source, artifact and digest. Use the reviewed backup, target-identity and
-   migration-history preflight before the approved upgrade flow; production
-   database writes remain human-executed. Afterward verify health/readiness,
-   preserved state and usage. Keep existing outbox entries intact; do not
-   compact, reorder or regenerate them to accelerate catch-up.
+### Release sequence
+
+1. Review the coordinated Desktop and Cloud changes. Record exact source commits,
+   release version, dependency lock and artifact digest before merging. Changing
+   the Cloud pin requires fresh provenance and loader validation.
+2. Build with the existing Snap wrappers and the selected Cloud artifact. Record
+   the package hash, app/CLI channel markers and embedded artifact digest. Keep
+   output under ignored `artifacts/snap/`. Check disk and memory headroom; clean
+   the Snapcraft/LXD build instance on exit and verify cleanup afterward.
+3. Validate an upgrade in a separate Ubuntu test account or VM with synthetic
+   tasks and test credentials. Check GUI/CLI data sharing, task relationships,
+   restore/export, Secret Portal access, provider/backup credential separation,
+   pairing identity, pending envelope bytes/order, quota restart/reset and the
+   automatic-sync preference. Include offline and unavailable-credential startup.
+   A Preview parallel-instance smoke test does not establish Production-to-
+   Production refresh or credential continuity. Keep live installations separate.
+4. Obtain maintainer release approval before the manual `Publish Snap Store Edge`
+   workflow. It builds and publishes; it is not a dry run. Retain the exact
+   package/hash and Store revision. Validate that revision from `edge`, then
+   promote the same revision to `candidate` and `stable` after channel acceptance.
+5. Update participating Desktop clients before upgrading Cloud. The packaged
+   client must support the existing schema-20 deployment and target schema-25
+   quota errors. Older strict parsers are not assumed compatible. The existing
+   installed `Update` flow does not acquire a local development bundle.
+6. Before the Cloud upgrade, approve the exact target and artifact, verify a
+   backup, and run target-identity/migration-history preflight. Production database
+   writes remain human-executed through the upgrade procedure. Verify readiness,
+   preserved state and usage afterward. Keep pending outbox entries intact.
 
 Windows native packaging, MSIX/Store replacement and sign-in acceptance remain
-later work behind their own gates. Dev-gated managed continuity tests do not
-complete those gates. Shared-label rename remains parked for a future dedicated
-label list; this release keeps equivalent task-editor label edits as a no-op.
+separate validation work. Shared-label rename is deferred to a dedicated label
+list; equivalent task-editor label edits remain a no-op.
 
-## Owner-executed sideload-to-Store transition
+## Sideload-to-Store transition
 
-The owner reports the daily installation as local **openza-tasks 1.1.0, revision
-x8**, installed with `--dangerous` and not tracking a Store channel. The separate
-`openza-tasks_pcdev` parallel instance remains isolated and untouched. No installed
-app, live database, credential store or snapd setting was read or changed to
-prepare this plan. The following is a future **owner-executed**, separately
-approval-gated transition, after the isolated continuity tests above pass.
-The custom local x8 build is not established to be Store revision 1: their shared
-`1.1.0` version string does not prove source, feature or binary identity. In
-particular, do not infer that x8 lacks Personal Cloud or existing pairing/outbox
-state merely because the public Store 1.1.0 source predates it.
+A local installation might show version `1.1.0`, revision `x8`, installed with
+`--dangerous`, while the Store offers revision `1`. These are different package
+identities for provenance purposes: the version label alone cannot establish
+source, features, checksum or existing Personal Cloud state. A separate parallel
+instance such as `openza-tasks_pcdev` has its own test state and must remain
+untouched during adoption of the main `openza-tasks` installation.
 
-1. Record the exact approved candidate version, Store revision and package hash.
-   The owner checks `snap info openza-tasks` and `snap list --all openza-tasks`.
-   **Stop if latest/candidate is empty, inherits the old stable revision, or does
-   not contain that approved candidate.** Revision 1 / version 1.1.0 is not the
-   Personal Cloud candidate; this document does not publish a new candidate.
-2. Before changing the daily app, the owner makes and verifies an app export and
-   restorable backup, then closes the main app and other writers. Preserve a
-   known-good package and a consistent pre-upgrade data copy. The official
-   [snapshot guide](https://snapcraft.io/docs/how-to-guides/manage-snaps/create-data-snapshots/)
+1. Confirm the approved candidate version, Store revision and package hash with
+   `snap info openza-tasks` and `snap list --all openza-tasks`. Stop if
+   latest/candidate is empty, inherits the older stable revision, or does not
+   contain the intended package. Public revision 1 is not the Cloud candidate.
+2. Make and verify an app export and restorable backup. Close the app and other
+   writers before taking a consistent pre-upgrade data copy. Retain a known-good
+   package. The [snapshot guide](https://snapcraft.io/docs/how-to-guides/manage-snaps/create-data-snapshots/)
    documents `sudo snap save openza-tasks`, `sudo snap check-snapshot <set-id>`
    and `sudo snap export-snapshot <set-id> openza-tasks-before-store.zip`.
-   Substitute the returned set ID; retain the export independently of the app.
-   A snap data snapshot is not proof that external keyring secrets are backed up.
-3. After explicit approval for this exact daily-app transition, the **owner**
-   uses the supported same-name adoption command:
+   Substitute the returned set ID and retain the export independently. A snap
+   data snapshot does not establish that external keyring secrets are backed up.
+3. Prove a compatible rollback path in isolation before approving adoption. A
+   retained, supported prior revision may permit
+   `sudo snap revert openza-tasks --revision=x8`. Otherwise validate recovery with
+   a known-good local package and compatible data backup first. Stop if neither
+   path is available. Revert does not change channel tracking: agree a per-snap
+   hold/tracking policy, and avoid named refreshes or lifting a hold until the
+   recovery is accepted.
+4. After maintainer approval for the live installation, use same-name adoption:
 
    ```bash
    sudo snap refresh openza-tasks --amend --channel=latest/candidate
    ```
 
    Canonical's [update guide](https://snapcraft.io/docs/how-to-guides/manage-snaps/manage-updates/)
-   documents `--amend` for replacing a local snap with its same-named Store snap;
-   its [official example](https://snapcraft.io/blog/time-to-branch-out) combines
-   it with `--channel`. Do not remove/purge the app or target `_pcdev` as an
-   adoption shortcut. No command here has been executed by the agent.
-4. The owner verifies the resulting Store revision/version and candidate tracking,
-   app/CLI startup, existing tasks/settings and restore/export access. Production
-   source keeps the database below `$SNAP_USER_COMMON/tasks` and the credential
-   namespace `tasks`. Snap's [environment contract](https://snapcraft.io/docs/reference/development/environment-variables/)
-   makes this common data revision-independent; that path alone does not prove
-   an application's schema or credential upgrade is safe.
-5. Verify credential and pairing continuity without logging secret values. Source
+   documents `--amend`; its [official example](https://snapcraft.io/blog/time-to-branch-out)
+   combines it with `--channel`. Do not remove/purge the app or target `_pcdev`
+   as an adoption shortcut.
+5. Verify Store revision/version, candidate tracking, GUI/CLI startup, tasks,
+   settings and restore/export access. Production uses `$SNAP_USER_COMMON/tasks`
+   and credential namespace `tasks`. Snap's [environment contract](https://snapcraft.io/docs/reference/development/environment-variables/)
+   makes this common data revision-independent, but **refresh/revert does not
+   restore it**. A code downgrade is not a database rollback. A compatible data
+   restore is a separate recovery step with writers stopped; `snap restore`
+   overwrites the current data.
+6. Check credential and pairing continuity without exposing secret values. Source
    retains Secret Tool attributes `openza-app=tasks` and `credential-key`; the
    [Secret portal](https://snapcraft.io/docs/how-to-guides/snap-development/use-the-secret-portal/)
-   uses a per-snap master secret and requires its backend/interface. Retaining
-   the main Snap identity and source keys is an intended continuity condition,
-   **not a guarantee** that sideload-to-Store portal access, account tokens or
-   pairing survive on this desktop. Compare non-secret account/pairing identity
-   and pending counts; stop on unexpected changes instead of resetting identity,
-   clearing the outbox or probing a real provider with a mutation. Preserve any
-   existing **main-instance** Personal Cloud pairing and pending outbox, even if
-   public Store 1.1.0 would not create them. Do not infer absence from the version
-   label, or invent/recreate main-instance state from `_pcdev`.
-6. **Prove a compatible rollback path before adoption approval.** An available,
-   supported and isolated-tested prior revision may allow the owner to use
-   `sudo snap revert openza-tasks --revision=x8`; do not assume x8 remains
-   retained or revertible. Otherwise stop before adoption and agree a tested
-   known-good local-package recovery plus compatible pre-upgrade data restore.
-   If neither path is proved, do not adopt the candidate. The update guide states
-   that revert does not change channel tracking; agree an owner-approved
-   per-snap hold/tracking policy so a later refresh cannot silently undo recovery.
-   Do not issue a named refresh or lift a hold until the recovery is accepted.
-   **`SNAP_USER_COMMON` is not restored by refresh/revert**, so
-   a code downgrade does not roll back this app's common database. Use only an
-   approved compatible pre-upgrade data restore, with writers stopped, if needed.
-   The snapshot guide explains that `snap restore` overwrites current data; it is
-   a separate owner decision and not a harmless rollback command. Do not rely on
-   copying credentials or data from `_pcdev`; leave that instance unchanged.
+   requires its backend/interface and a per-snap master secret. Stable names and
+   keys are necessary continuity conditions, not proof that tokens or pairing
+   survive on every system. Preserve existing main-instance pairing and pending
+   outbox, including state created by a custom build. Stop on unexpected identity
+   changes rather than resetting or clearing state. Never reconstruct that state
+   from `_pcdev` or use a real provider mutation as a credential probe.
 
-This transition is not authorized for execution merely by merging the docs or
-obtaining Store approval. Keep the owner involved before adoption, any restore,
-and later channel promotion. It does not authorize a Cloud upgrade.
+Treat adoption, recovery restores, Store promotion and Cloud upgrades as separate
+maintainer release decisions. Follow the packaged acceptance requirements before
+changing a live installation.
 
 ## One-time Store setup
 
@@ -187,7 +146,7 @@ and later channel promotion. It does not authorize a Cloud upgrade.
    `snap-store` GitHub environment. Never commit the credential file.
 
 Registration, Store listing changes, alias requests, credential creation, and
-uploads are external writes. Perform them only when explicitly authorized.
+uploads are external writes. Include them in the approved maintainer release procedure.
 
 ## Build and validate locally
 
@@ -208,8 +167,8 @@ The local build wrapper inspects the package and cleans its Snapcraft build envi
 
 Inspect the built Snap before installation. It must contain both Production
 channel markers, the desktop launcher, AppStream metadata, icon, GUI binary,
-CLI binary, and `secret-tool`. Installing a local build requires explicit user
-approval because it creates or replaces a live application.
+CLI binary, and `secret-tool`. Installing a local build replaces application state and belongs in an approved
+maintainer test or release procedure.
 
 ### Isolated Personal Cloud preview
 
@@ -227,12 +186,12 @@ Preview markers in the packed Snap. Runtime testing uses Snap's parallel
 instance name `openza-tasks_pcdev`, which gives the test instance separate user
 data, configuration, interfaces, applications, and aliases. Parallel instances
 are an experimental snapd feature and require an administrator to enable them;
-do not enable the feature or install the local package without explicit approval.
-After approval, follow the official parallel-install procedure and install the
+enable the feature and install packages only in a maintainer-approved test environment.
+Follow the official parallel-install procedure and install the
 local file with the explicit instance name and `--dangerous`. Connect only the
 minimum required interfaces for `openza-tasks_pcdev`, test against the retained
 Dev Personal Cloud, and remove only that named instance after preserving any
-requested diagnostics. Never install this preview file as plain `openza-tasks`.
+test diagnostics. Never install this preview file as plain `openza-tasks`.
 
 ## Publish and promote one revision
 

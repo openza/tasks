@@ -18,17 +18,17 @@ These contracts state the intended product meanings. Current behavior, exception
 | Area | Current behavior or limit |
 | --- | --- |
 | Inbox view | Includes only open tasks whose workflow status is inbox and which have no Openza project. Project absence and workflow status remain separate fields. |
-| Inbox badge | Follows workflow status. A project-assigned Inbox-status task is intentionally unprocessed within that project, and its Inbox badge is correct even outside the Inbox view. Project assignment and status selection do not change each other. This contract was decided on 2026-09-11 and shipped in Linux 0.1.9; this cleanup preserves it without runtime changes. |
+| Inbox badge | Follows workflow status. A project-assigned Inbox-status task is intentionally unprocessed within that project, and its Inbox badge is correct even outside the Inbox view. Project assignment and status selection do not change each other. |
 | Capture | A title is required and trimmed; ordinary local capture defaults to inbox and can omit a project. Hosts still have direct store call sites. |
 | Provider adoption | Creates a linked local wrapper. Provider identity, snapshots, description and source context remain provider-owned. |
 | Local enhancements | Notes, labels, local priority, project and workflow generally survive provider refresh. Refresh has explicit date/hierarchy exceptions below. |
 | Provider writes | Completion/reopen and bounded Todoist Date changes for non-recurring source tasks exist. Arbitrary provider title, notes, labels or deadline editing is not implied. |
 | Recurrence | Metadata is stored; local completion does not create another occurrence. A provider can advance and reopen the same wrapper. No universal recurrence engine or reminder service is established. |
-| Windows continuity | Active on Ubuntu through C# compilation, design and synthetic/integration tests, behind its Dev gate. Native build/validation, packaging/distribution, MSIX upgrade testing and Store replacement are not current priorities. Upgraded-user reconnect and initial sync-off policies remain open; this work does not choose them. |
+| Windows continuity | Active on Ubuntu through C# compilation, design and synthetic/integration tests, behind its Dev gate. Native build/validation, packaging/distribution, MSIX upgrade testing and Store replacement are not current priorities. Upgraded-user reconnect and initial sync-off policies remain open product decisions. |
 
-## Engineering evidence and preservation rules
+## Implementation and preservation rules
 
-The [scheduling contract](scheduling-and-recurrence.md) details current day/instant, scheduled-start, recurrence and completion behavior on this branch.
+The [scheduling contract](scheduling-and-recurrence.md) details current day/instant, scheduled-start, recurrence and completion behavior.
 
 [Application operations](../src/Openza.Tasks.Application/Tasks/TaskApplicationService.cs) and [requests](../src/Openza.Tasks.Application/Tasks/TaskRequests.cs) implement local capture and selective edits. [List-row state](../src/Openza.Tasks.Desktop/ViewModels/TaskListItemViewModel.cs) derives badges from workflow status; [SQLite queries](../src/Openza.Tasks.Core/Data/SqliteTaskStore.cs) implement Inbox membership. [Models](../src/Openza.Tasks.Core/Models/TaskStatus.cs) distinguish workflow from open/completed/cancelled completion state.
 

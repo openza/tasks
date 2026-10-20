@@ -1,10 +1,14 @@
-# Windows continuity: active development on Ubuntu
+# Windows continuity
 
-Windows continuity work is active on Ubuntu through C# compilation, design and synthetic/integration tests. All active Avalonia code remains Windows-compatible; shared logic avoids Linux-only assumptions and puts OS specifics behind platform services. WinUI remains the current Store host in necessary maintenance. Native builds/validation, packaging/distribution, MSIX upgrade testing and Store replacement are not current priorities. Any later replacement still needs explicit authorization, evidence and acceptance of unresolved user policies.
+Continuity development uses Windows-compatible C# and synthetic integration tests
+on Ubuntu. OS-specific behavior stays behind platform services. WinUI remains the
+Windows Store host in maintenance; native packaging, MSIX upgrade validation and
+Store replacement are later release work.
 
-The fresh-start rule excludes automatic import of legacy Flutter-era stores. A separately authorized, guarded WinUI-to-Avalonia package transition is a different operation. It does not authorize discovering or importing other old stores.
+The transition covers the matching WinUI-to-Avalonia package only. Automatic import
+of Flutter-era or other legacy stores is excluded.
 
-## Required acceptance
+## Package acceptance requirements
 
 | Boundary | Evidence required before replacement |
 | --- | --- |
@@ -15,41 +19,89 @@ The fresh-start rule excludes automatic import of legacy Flutter-era stores. A s
 | Activation and UI | Verify old/new single-instance ownership, second launch, foregrounding and GUI/CLI coordination. Test title bar/system buttons, resize/snap, dialogs, scaling, high contrast, keyboard and accessibility on supported Windows versions. |
 | Packaging and recovery | Verify signed Dev MSIX replacement, exact identity/publisher, executable/capabilities/dependencies, increasing version, interruption and recovery. An older binary must not open a migrated writable database without proven compatibility. Recovery may require an isolated safety copy or forward fix, not a package downgrade. |
 
-Never compare hosts against the same writable live database. Preview and Production are daily apps; their disruption, installation, Store submission and release require separate authorization. WinUI retirement needs these gates, approved real-integration evidence and the user's replacement/rollout decision.
+Keep test fixtures separate from live installations, and never point both hosts at
+the same writable database. Preview/Production installation, replacement and Store
+release require maintainer release approval. WinUI retirement also depends on
+resolving the reconnect and initial-sync policies below.
 
-## Active Dev implementation and open policies
+## Dev implementation and open policies
 
-The local integration/architecture-continuity branch combines the Dev implementation from feat/windows-continuity at 86dc3cd with docs at 725849b and cleanup at 8c1b96e, which already contains scheduling at 8124c6d. All original source refs are preserved. The original docs/avalonia-architecture-baseline branch at 2795eb7 remains a recovery reference. The standalone docs/scheduling source slices still contain no continuity implementation; the combined integration source does.
+- `OpenzaWindowsContinuity=Dev` checks package name/publisher and uses
+  `ApplicationData.Current.LocalFolder`. Preview/Production continuity is rejected.
+  The existing WinUI `AppInstance` key `Openza.Tasks.Main` is acquired before
+  file/vault access and retained for the session. A runtime lease alone does not
+  establish single-instance activation.
+- `WindowsContinuityCoordinator` retains immutable originals, a SQLite online
+  backup, fingerprints and a versioned journal. Retry validates source/destination
+  state; changed or corrupt files stop recovery without overwriting diagnostics.
+  Orphan staging is preserved. Converted settings use `settings.avalonia.json`,
+  leaving WinUI `settings.json` unchanged, with unsupported values and receipts kept.
+- Scoped `PasswordVault` upsert replaces through supported `Add`, without removing
+  the original first. Unscoped legacy provider credentials lack channel ownership
+  proof and are not automatically copied. Provider reconnection and initially
+  disabled automatic sync/OneDrive upload are provisional **Dev-only** policies;
+  they need native package/vault validation and a production product decision.
+- Microsoft cache handling uses package-local DPAPI CurrentUser and supported MSAL
+  callbacks/account APIs for the configured client/account. It retains originals,
+  reports unusable/missing caches and makes no startup token request. Native silent
+  sign-in, renewal and broker behavior need separate validation.
+- Personal Cloud transfer checks exact origin/instance/device, replica metadata
+  and pending-device intent before reading the origin-specific legacy key and
+  verifying destination storage. Completion prevents legacy re-import after
+  disconnect. Identity recovery retains local tasks, Settings and pending intents;
+  explicit repair respects the pending-intent guard. These recovery/sync-off choices
+  remain provisional until pairing continuity is validated.
+- After a completed transition and valid profile/replica checks, transient vault
+  COM/access failures allow ordinary local startup. A session barrier blocks
+  automatic/manual cloud sync, provider delivery, account operations and credential
+  writes, including direct service calls. Local authoring keeps the saved profile
+  and pending intents. Restoring credential access requires a fresh startup;
+  settings toggles or repeated preparation cannot lift the barrier. Failed
+  validation changes no saved preference, recovery flag, identity or pending intent.
+  Initial-transition failures, file/metadata failures and cancellation remain
+  separate from this fallback; missing/corrupt identity follows its recovery path.
+  Native vault construction is lazy so activation errors reach that boundary.
 
-- An explicit OpenzaWindowsContinuity=Dev build checks package identity/name/publisher and uses ApplicationData.Current.LocalFolder. Preview/Production continuity is rejected. The old WinUI AppInstance key Openza.Tasks.Main is acquired before file/vault access and retained for the session; the shared runtime lease alone is not single-instance activation proof.
-- Before app initialization, WindowsContinuityCoordinator retains immutable originals, a SQLite online-backup copy, fingerprints and a versioned journal. Retry checks originals and destinations; changed/corrupt state stops without overwriting recovery evidence. Orphan staging remains evidence. Settings use settings.avalonia.json, leaving WinUI settings.json unchanged; unsupported settings and completion receipts are retained.
-- Scoped PasswordVault upsert uses supported Add replacement without remove-first. Unscoped legacy provider credentials lack channel ownership proof and are not automatically copied. The experiment asks for provider reconnection and initially disables automatic sync/OneDrive upload. These are **Dev-only provisional policies**, pending real package/vault evidence and a user decision, not the accepted production experience.
-- Microsoft cache handling uses package-local DPAPI CurrentUser and supported MSAL callbacks/account APIs for the configured client/account. It retains originals and reports unusable/missing caches. No startup token request is made. This does not prove silent sign-in, live renewal or broker continuity.
-- Personal Cloud transfer checks exact origin/instance/device, matching replica metadata and pending-device intent before reading the origin-specific legacy key and verifying destination storage. Completed preparation prevents legacy re-import after disconnect. Missing identity can stop preparation or pause sync with local tasks/Settings and pending intent retained; explicit repair still respects the pending-intent guard. These recovery/sync-off choices are provisional Dev behavior, not proof of accepted pairing continuity.
-- After a completed transition and valid profile/replica checks, transient credential vault/COM or access failure opens the ordinary local app. A session barrier blocks automatic/manual cloud sync, provider delivery and cloud account operations, including direct composed-service calls and credential writes. The saved profile remains available for local authoring and pending intents. The notice asks the user to restore credential access and restart; settings toggles or repeated preparation cannot lift the session barrier. A fresh healthy startup revalidates access. No preference, recovery flag, credential, profile, provisioning state or pending intent is changed by the failed validation. First-transition failures, metadata/file failures and cancellation do not enter this local fallback; genuine missing/corrupt/mismatched identity retains the existing provisional recovery path. Native vault construction is lazy so activation errors reach the same validation boundary. Synthetic tests use disposable data and fake credentials; they do not prove live vault or package behavior.
-- Ubuntu C# compilation and synthetic/injected tests are active development checks. The complete native Windows build invokes Windows SDK tooling such as mt.exe and is not a current priority. **C# compilation is not a successful native package build, installed-vault test, MSIX upgrade or user acceptance.** No native build, package, installed-app launch or real vault access is part of the current Ubuntu work.
+The Dev build gate remains in place. Managed C# compilation and fake-platform tests
+are useful development checks; they do not validate native Windows SDK packaging,
+real vault/MSAL behavior, installed upgrades or live-provider integration.
 
-The combined source contains the continuity Application contracts, Desktop Services/Continuity adapters/coordinator, WinUiSettingsConverter and WindowsContinuity tests. Development keeps the existing Dev gate; it does not enable another channel or authorize installed-package replacement.
+## Service composition and regression coverage
 
-## Combined composition and synthetic session evidence
+The view model resolves `_credentials` from
+`WindowsContinuitySession.AppCredentials` before default Microsoft authentication
+and sync resolution. It forwards resolved `_microsoftAuth` and guarded
+`_personalCloudSetup`, including progress subscription. `EnsureCloudAccess` and
+recovery checks run before save/provider resolution in manual and automatic sync.
+Cloud error codes remain available so unauthorized identity recovery stays distinct
+from transient credential inhibition.
 
-The combined view model resolves `_credentials` from `WindowsContinuitySession.AppCredentials` before constructing default Microsoft auth and the sync resolver. It forwards resolved `_microsoftAuth` and guarded `_personalCloudSetup`, including progress subscription. Early `EnsureCloudAccess` and recovery-required checks precede save/provider resolution in both manual and automatic sync. The extracted sync result retains cloud contract error codes so the existing unauthorized-identity recovery policy is preserved separately from transient vault inhibition.
+[Dependency-composition tests](../src/Openza.Tasks.Tests/GuardedDependencyCompositionTests.cs)
+and [session tests](../src/Openza.Tasks.Tests/WindowsContinuityCompositionTests.cs)
+cover these requirements with disposable data and fake platform/vault/providers:
 
-[Guarded dependency tests](../src/Openza.Tasks.Tests/GuardedDependencyCompositionTests.cs) retain compiled-wiring and synthetic dependency-contract coverage. [Combined session tests](../src/Openza.Tasks.Tests/WindowsContinuityCompositionTests.cs) additionally exercise the actual session/coordinator and view-model/service composition with disposable data and fake platform/vault/auth/providers:
+- Completed startup with transient credential failure opens the local window;
+  inhibited manual/automatic sync never enters authentication or provider work.
+- Guarded vault, provider, cloud/bridge and progress operations remain blocked.
+  Local edits preserve pending intent, checkpoints, pairing and preferences.
+- A healthy next session revalidates access without persisting a sync-off choice.
+  Unauthorized cloud identity continues to use its distinct recovery policy.
 
-- Completed startup with transient COM/access failure still opens the ordinary local window. Inhibited manual and automatic sync stop before saving a draft or entering auth/provider/cloud work, including when default Microsoft auth is composed.
-- Underlying fake vault reads/writes, provider factories/calls, cloud/bridge work and guarded progress reads stay blocked. Local reads/explicit edits preserve pending intent, checkpoint, pairing and preferences; same-session retry cannot lift inhibition.
-- A healthy subsequent session revalidates and restores fake provider/cloud access without a persisted sync-off. Unauthorized cloud identity still follows the separate provisional recovery policy; other contract errors do not acquire that flag.
+## Settings conversion
 
-These are real session-class integration tests on a synthetic platform, not native Windows vault/MSAL/sign-in, installed-app, packaging or live-provider acceptance. Those later explicit gates remain open.
+WinUI [TasksPage](../src/Openza.Tasks/Pages/TasksPage.xaml.cs) exposes only `All`
+for DateScopeFilter; [AppShell](../src/Openza.Tasks/Shell/AppShell.xaml.cs) resets
+and persists that getter, and the [Core enum](../src/Openza.Tasks.Core/Data/TaskQuery.cs)
+contains only `All`. However, generic
+[settings persistence](../src/Openza.Tasks/Services/AppSettingsService.cs) can
+round-trip an existing unknown string. Retain the original and reject unsupported
+DateScope values rather than silently reinterpreting them; current UI behavior
+does not establish every historical or manually edited settings value.
 
-## DateScope source evidence
-
-Current WinUI [TasksPage](../src/Openza.Tasks/Pages/TasksPage.xaml.cs) returns All for DateScopeFilter and its setter exposes no other mode. [AppShell](../src/Openza.Tasks/Shell/AppShell.xaml.cs) initializes/resets to All and persists that getter; the [Core enum](../src/Openza.Tasks.Core/Data/TaskQuery.cs) contains only All. The inspected repository history introduces these paths in 58e6a36 with the same restriction. This establishes the checked WinUI writer behavior, not every historical released or manually edited settings file. Unknown persisted values must not be silently reinterpreted; conversion retains the original and rejects unsupported DateScope values. No installed settings were inspected.
-
-That guarantee concerns values authored by the current task-view UI. [AppSettingsService](../src/Openza.Tasks/Services/AppSettingsService.cs) loads/saves string fields without normalizing DateScope, so a pre-existing unknown value can be round-tripped by generic settings persistence. Source does not justify saying that a non-All value could never appear in a saved file.
-
-Converted sort/group tests load synthetic saved preferences through Avalonia's real view model and verify task ordering/group headers for every supported sort/direction/group choice. Checking converter indices alone is insufficient. These tests and synthetic persisted DateScope inputs are retained from feat/windows-continuity in the combined source; this evidence does not imply native UI or package acceptance.
+Validate converted sort/group settings through the Avalonia view model's actual
+ordering and group headers for each supported choice. Converter indices alone
+are insufficient. Keep synthetic unsupported-DateScope cases alongside these
+checks; native UI/package acceptance remains separate.
 
 ## Identity and version constraints
 
@@ -59,18 +111,26 @@ Converted sort/group tests load synthetic saved preferences through Avalonia's r
 | Preview | Openza.OpenzaTasks.Preview | 0.N.B.0 | 0.2.3.0 |
 | Production | Openza.OpenzaTasks | 1.N.P.0 | 1.1.0.0 |
 
-These are checked-in manifest values, not installed/latest Store versions. The Dev manifest differs from its agreed lane; resolve increasing update eligibility during authorized packaging work without silently lowering a version. Preserve Store name/publisher association and supported architecture/OS constraints; do not publish private Store metadata.
+These are source manifest values, not installed or latest Store versions. The Dev
+manifest differs from its intended lane; resolve increasing update eligibility
+before packaging without silently lowering a version. Preserve publisher/name
+association, architecture and OS constraints; keep private Store metadata out of Git.
 
-## Later package acceptance: not a current priority
+## Native package validation
 
-1. Authorize an isolated Windows fixture and the provisional reconnect/sync-off/sign-in policies to test. Retain consistent originals; use synthetic data first and fresh human-controlled authentication where needed.
-2. Build/sign/install a Dev WinUI fixture, then perform a real Dev Avalonia package update. Record source SHA, package identities/versions, actual file/vault paths and before/after state.
-3. Verify local task behavior, settings, activation, interruption and recovery. Separately authorize real provider/OneDrive/Personal Cloud tests using disposable accounts/deployments.
-4. Review evidence and unresolved cases with the user before any Preview trial or Store retirement. A successful source build or earlier Web round trip does not close these gates.
+1. Select an isolated Windows fixture and the reconnect/sync-off/sign-in policies.
+   Preserve consistent originals; start with synthetic data and test accounts.
+2. Build/sign/install a Dev WinUI fixture and update it with a real Dev Avalonia
+   package. Record source, package identities/versions and before/after state.
+3. Validate local task behavior, settings, activation, interrupted recovery,
+   credentials and pairing. Use disposable provider accounts and cloud deployments.
+4. Resolve failures before a Preview trial or Store replacement. Source builds and
+   Web round trips are not substitutes for package acceptance.
 
-Earlier [Windows continuation evidence](windows-continuation.md) remains scoped to its named source/interaction snapshots; it does not establish this in-place upgrade or real-provider acceptance. Reminders and notification delivery are separate product work.
+See [Windows platform notes](windows-continuation.md) for additional implementation
+context. Reminders and notification delivery are separate product work.
 
 ## Platform references
 
 - Microsoft: [packaged AppData behavior](https://learn.microsoft.com/en-us/windows/msix/desktop/desktop-to-uwp-behind-the-scenes), [PasswordVault](https://learn.microsoft.com/uwp/api/windows.security.credentials.passwordvault), [MSAL cache serialization](https://learn.microsoft.com/en-us/entra/msal/dotnet/how-to/token-cache-serialization), [single-instance activation](https://learn.microsoft.com/en-us/windows/apps/windows-app-sdk/applifecycle/applifecycle-single-instance), [package/version requirements](https://learn.microsoft.com/en-us/windows/apps/publish/publish-your-app/msix/app-package-requirements).
-- Avalonia: [Windows guidance](https://docs.avaloniaui.net/docs/platform-specific-guides/windows/). Apply references to a concrete package during future authorized work; documentation is not installed-app evidence.
+- Avalonia: [Windows guidance](https://docs.avaloniaui.net/docs/platform-specific-guides/windows/). Use these references when validating an actual package; documentation alone does not establish installed behavior.

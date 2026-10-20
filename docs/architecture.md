@@ -2,7 +2,7 @@
 
 ## Direction and contract authority
 
-The direction adopted on 2026-10-18 is a simple local-first task app that grows with the user, with an optional cloud they control. Avalonia receives active desktop development using its built-in Fluent theme and controls. Windows is the major target, Linux is supported, and macOS is deferred. All active code remains Windows-compatible; shared logic avoids Linux-only assumptions and delegates OS specifics to platform services. WinUI is the current Store host in necessary maintenance. Windows continuity is active on Ubuntu through C# compilation and synthetic/integration work; native build/validation, packaging/distribution, MSIX upgrade testing and Store replacement are not current priorities. The [acceptance gates](windows-transition.md) still apply before replacement.
+Openza Tasks is a local-first task app with an optional cloud controlled by the user. Avalonia receives active desktop development using its built-in Fluent theme and controls. Windows is the major target, Linux is supported, and macOS is deferred. All active code remains Windows-compatible; shared logic avoids Linux-only assumptions and delegates OS specifics to platform services. WinUI is the current Store host in necessary maintenance. Windows continuity is active on Ubuntu through C# compilation and synthetic/integration work; native build/validation, packaging/distribution, MSIX upgrade testing and Store replacement are not current priorities. The [acceptance gates](windows-transition.md) still apply before replacement.
 
 Lightweight [behavior contracts](behavior-contracts.md) are the product source of truth. Avalonia is the practical reference for ordinary desktop interactions. Existing protocol documents retain their detailed wire contracts; historical staged checkpoints are not a complete description of today's UI. Resolve discrepancies explicitly rather than copying behavior between hosts blindly.
 
@@ -36,17 +36,17 @@ The hosts do not share UI code. Data models, SQLite storage, provider synchroniz
 
 Application [ConnectedSyncApplicationService](../src/Openza.Tasks.Application/Sync/ConnectedSyncApplicationService.cs) owns the connected-provider pass followed by Personal Cloud reconciliation, optional provider bridge and final reconciliation. It retains per-provider fault isolation and runtime leases. [DesktopSyncProviderResolver](../src/Openza.Tasks.Desktop/Services/DesktopSyncProviderResolver.cs) supplies host account/credential resolution and provider construction. The view model keeps the sync gate, save-before-sync, UI busy/navigation separation, presentation and refresh publication. The existing Application provider push service remains the CLI's narrower push-only operation. Desktop Personal Cloud setup remains a host metadata/browser/credential composition adapter; provisioning and protocol behavior stay in Core.
 
-In the combined Dev Windows source, the Desktop session gate precedes the application operation and supplies guarded resolved credentials/cloud services. Cloud contract error-code metadata survives the extracted result so the host can preserve its existing unauthorized-identity recovery policy without treating transient vault unavailability as a persisted sync-off. This does not move Windows platform types into Application or change the cloud protocol.
+In Dev Windows builds, the Desktop session gate precedes the application operation and supplies guarded resolved credentials/cloud services. Cloud contract error-code metadata survives the extracted result so the host can preserve its existing unauthorized-identity recovery policy without treating transient vault unavailability as a persisted sync-off. This does not move Windows platform types into Application or change the cloud protocol.
 
-Desktop [TaskDetailEditPlanner](../src/Openza.Tasks.Desktop/ViewModels/Editing/TaskDetailEditPlanner.cs) and [TaskSourceDateChoice](../src/Openza.Tasks.Desktop/ViewModels/Editing/TaskSourceDateChoice.cs) own draft comparison, selective requests/rebase and acknowledgement metadata. [TaskViewContext](../src/Openza.Tasks.Desktop/ViewModels/Navigation/TaskViewContext.cs) owns existing scope/settings keys and group defaults; [TaskSelectionState](../src/Openza.Tasks.Desktop/ViewModels/Navigation/TaskSelectionState.cs) remembers selection against the displayed context rather than an already-bound destination. Persisted key formats remain unchanged. The view model retains async navigation, save/version checks and editor capture/publication timing. These are bounded responsibility extractions, not a full storage or presentation rewrite.
+Desktop [TaskDetailEditPlanner](../src/Openza.Tasks.Desktop/ViewModels/Editing/TaskDetailEditPlanner.cs) and [TaskSourceDateChoice](../src/Openza.Tasks.Desktop/ViewModels/Editing/TaskSourceDateChoice.cs) own draft comparison, selective requests/rebase and acknowledgement metadata. [TaskViewContext](../src/Openza.Tasks.Desktop/ViewModels/Navigation/TaskViewContext.cs) owns existing scope/settings keys and group defaults; [TaskSelectionState](../src/Openza.Tasks.Desktop/ViewModels/Navigation/TaskSelectionState.cs) remembers selection against the displayed context rather than an already-bound destination. Persisted key formats remain unchanged. The view model retains async navigation, save/version checks and editor capture/publication timing.
 
 On Linux, `Openza.Tasks.Desktop` stores application data below the platform local-data directory, uses the freedesktop Secret Service through `secret-tool` for provider credentials, and creates daily SQLite restore points. The public Linux distribution is one strict `openza-tasks` Snap containing the Avalonia host and CLI. Inside the Snap, both hosts share `$SNAP_USER_COMMON/tasks`, which survives automatic refreshes, while credentials remain in the desktop Secret Portal. Snap packaging is validated independently from the Windows Store lane.
 
 ## Personal Cloud infrastructure boundary
 
-Task semantics and account provisioning have separate owners. Inspection of
-Application task operations and Core Models/Data/Sync found no Cloudflare
-management or provisioning calls; no additional runtime split is justified.
+Task semantics and account provisioning have separate responsibilities. Keep
+Cloudflare management and provisioning calls out of Application task operations
+and Core Models/Data/Sync.
 
 | Responsibility | Owner and extension rule |
 | --- | --- |
@@ -79,7 +79,7 @@ Global search is available as a temporary navigation overlay. It starts in Curre
 
 For a clean new database, Openza creates one default space. If setup/import tooling creates spaces first, the app does not add an extra empty default space.
 
-The fresh-start Store rule excludes automatic import of legacy Flutter-era stores. Guarded WinUI-to-Avalonia continuity is distinct active development behind a Dev gate; native package replacement is not a current priority. It is not permission to discover or migrate other app stores.
+The fresh-start Store rule excludes automatic import of legacy Flutter-era stores. Guarded WinUI-to-Avalonia continuity is distinct active development behind a Dev gate; native package replacement is not a current priority. Other legacy app stores are excluded from that transition.
 
 ## Task Model
 

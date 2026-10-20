@@ -16,7 +16,7 @@ separate build, continuity-validation and publication approval.
   weighted upload budgets and preserved pending mutation order. The current public
   1.1.0 package has no Personal Cloud; the schema-25 bundle remains a validation
   candidate, with the source release pin still preview.9/schema 20.
-- An isolated Snap upgrade and owner-executed sideload-to-Store adoption plan,
+- An isolated Snap upgrade and maintainer-approved sideload-to-Store adoption plan,
   including data, Secret Portal credentials, pairing and rollback acceptance.
 - Dev-gated Windows continuity source work; native Windows/MSIX/Store packaging
   and replacement remain later work. Shared-label rename remains parked.
