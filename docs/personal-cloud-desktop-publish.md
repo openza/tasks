@@ -4,16 +4,15 @@ Run from a clean Tasks checkout with Git, Node.js 22/npm, and the .NET 10 SDK:
 
 ```sh
 node --test scripts/personal-cloud/stage-artifact.test.mjs
-node scripts/personal-cloud/publish-desktop.mjs 1.1.0
+node scripts/personal-cloud/publish-desktop.mjs 1.2.0
 ```
 
 This is maintainer publish validation, not a new public distribution lane or a release.
 It neither launches nor installs the output and does not access an existing task database.
-The version argument is required; `1.1.0` above matches the existing package metadata
-for validation and does not select a new release version.
+The version argument is required; `1.2.0` above matches the current package metadata.
 
 `artifact-lock.json` pins the public Personal Cloud repository to full source commit
-`be1691402129d7a571f9bd881a91d93bafe28ef1`, artifact `0.1.0-preview.9`,
+`43750d5cad01277130d93887e5fe9fd983ed620e`, artifact `0.1.0-preview.10`,
 and an expected manifest SHA-256. Staging fetches that exact commit into an ignored
 temporary source directory, uses `npm ci` with its committed lockfile, and invokes
 the upstream dry-run artifact builder. It requires network access to GitHub and npm,

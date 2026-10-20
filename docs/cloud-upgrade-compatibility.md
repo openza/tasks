@@ -22,11 +22,11 @@ history; `docs/architecture.md` describes Web module and API boundaries.
 | Compatibility implementation from `e7378d7060ed8812eb3608890e25d53633a94f1e` | 17–25, protocol 1, product tasks | Per-pass readiness, capability retention, migration checksum/resource preflight and durable upgrade publication apply. |
 | Current quota-recovery implementation | 17–26, protocol 1, product tasks | Optional guarded-fanout and current-catchup capabilities are negotiated independently; schema 25 remains supported. |
 
-The artifact lock still selects `0.1.0-preview.9`, Cloud source
-`be1691402129d7a571f9bd881a91d93bafe28ef1`, manifest SHA-256
-`5eb0d68377c12f9f5a1f12f82f7f2330ff61d1c58689dae625f4c7fdbf02153d`.
-That bundle advertises schema 20. Desktop accepting schema 26 does not change the
-packaging input or identify the deployed database. Artifact labels are opaque,
+For release 1.2.0 the artifact lock selects `0.1.0-preview.10`, Cloud source
+`43750d5cad01277130d93887e5fe9fd983ed620e`, manifest SHA-256
+`fa29ef1d60ab2acf24b29c95ce42de58a6241c9031aa6e008f3e74676d008e1d`.
+That bundle carries migrations through 0026 (schema 26). The lock identifies the
+packaging input only; it does not identify an already deployed database. Artifact labels are opaque,
 not a numeric upgrade order. See [artifact staging](personal-cloud-desktop-publish.md).
 
 | Schema/feature | Client contract |

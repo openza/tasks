@@ -30,12 +30,10 @@ Windows package publication remains a separate release lane.
 
 ### Cloud artifact selection
 
-Desktop currently pins `0.1.0-preview.9` / schema 20. The development Cloud source
-`660c847d6ba7a1cb16c6252b2e2aee46361d0cb5` produces the validation bundle
-`0.0.0-local-quota-660c847d6ba7`, schema 25, manifest format 1, with SHA-256
-`cdd87066e97e622f13c32ec9507292d65791b4361ed763926c5e4e610c47c5bc`.
-This bundle is not the packaged release pin. Select a release artifact and digest
-explicitly; a successful loader check or pinned CI build does not select it.
+Release 1.2.0 pins Cloud source `43750d5cad01277130d93887e5fe9fd983ed620e`
+as artifact `0.1.0-preview.10` (migrations through 0026), manifest SHA-256
+`fa29ef1d60ab2acf24b29c95ce42de58a6241c9031aa6e008f3e74676d008e1d`.
+The staging script rebuilds it from that public revision and verifies every file.
 See [artifact staging](personal-cloud-desktop-publish.md),
 [compatibility](cloud-upgrade-compatibility.md) and [quota behavior](personal-cloud-quota.md).
 
