@@ -14,7 +14,7 @@ User guide: [solanky.dev/openza/tasks](https://solanky.dev/openza/tasks/)
 - **Current Windows Store app** - WinUI 3, MSIX packaging, Mica where available during transition
 - **Local-first storage** - tasks, projects, labels, backups, and imports live on your device
 - **Provider sync** - optional Todoist and Microsoft To Do reconnect/sync
-- **Optional Personal Cloud** - user-owned Cloudflare deployment for sync and an online-first web companion; task data is access-controlled, not end-to-end encrypted, and provider tokens stay on desktop
+- **Optional Personal Cloud (unreleased development)** - user-owned Cloudflare deployment for sync and an online-first web companion; task data is access-controlled, not end-to-end encrypted, and provider tokens stay on desktop. This is not included in public version 1.1.0.
 - **Local restore points** - automatic and manual SQLite restore points support rollback inside the app package state
 - **Optional durable backup** - restorable backup snapshots can be uploaded to the app's OneDrive folder or exported by the user
 - **Focused task layout** - navigation, projects, task list, and details in one productive surface
@@ -28,10 +28,23 @@ Openza Tasks V1 is live on the Microsoft Store:
 - [Install from Microsoft Store](https://apps.microsoft.com/detail/9NQGDKXGRGF8)
 - [Open in the Store app](ms-windows-store://pdp/?ProductId=9NQGDKXGRGF8)
 
-Openza Tasks 1.1.0 for Linux is available as a strict Snap from the
-[GitHub release](https://github.com/openza/tasks/releases/tag/v1.1.0) while
-Snap Store publication is pending. Download the `.snap` and matching
-`.sha256` asset, verify the download, then install it:
+The primary Linux download is the strict Snap from the
+[Snap Store](https://snapcraft.io/openza-tasks):
+
+```bash
+sudo snap install openza-tasks
+```
+
+The currently verified public Store version is **1.1.0**, without Personal Cloud.
+It does not contain the unreleased quota/compatibility candidate in this branch.
+[Release provenance and the proposed 1.2.0 plan](docs/snap-release.md) distinguish
+the public package from the source candidate. Existing local sideload users should
+read the approval-gated [Store adoption plan](docs/snap-release.md#owner-executed-sideload-to-store-transition)
+before changing their installation.
+
+The [GitHub v1.1.0 release](https://github.com/openza/tasks/releases/tag/v1.1.0)
+remains an explicit local-file fallback. Download its `.snap` and matching
+`.sha256` asset, verify the download, then install only if that fallback is wanted:
 
 ```bash
 sha256sum --check openza-tasks_1.1.0_amd64.snap.sha256
@@ -39,8 +52,8 @@ sudo snap install ./openza-tasks_1.1.0_amd64.snap --dangerous
 ```
 
 Snap uses `--dangerous` for a local package installed without a Snap Store
-assertion. Openza Tasks remains strictly confined. The release page explains
-how to switch to Store-signed automatic updates when they become available.
+assertion. Openza Tasks remains strictly confined. A local sideload does not
+automatically track Store updates; use the documented owner-run adoption process.
 
 Legacy Flutter-era packages remain available in older GitHub releases. Store V1 starts with a clean workspace and does not automatically import those stores. Guarded WinUI-to-Avalonia continuity is separate active development behind a Dev gate; it does not enable broad legacy imports or authorize installed-package replacement.
 
