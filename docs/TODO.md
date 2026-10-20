@@ -30,9 +30,13 @@ replacement passes acceptance.
 
 ## Release and validation work
 
-- Follow the [Snap release plan](snap-release.md) for the proposed 1.2.0 release,
-  artifact pinning, isolated upgrades, credentials/pairing and channel promotion.
-  Public Store 1.1.0 and the development Cloud candidate are different releases.
+- Follow the [Snap release plan](snap-release.md) for release 1.2.0 (cloud artifact
+  `0.1.0-preview.10`): `edge` first, then `candidate` and `stable` after daily use.
+- Default space name: a new cloud names its default space "Inbox" (cloud migration
+  0010 default), and the first sync replaces the desktop's "My space" with it. Fix
+  the first-sync naming; until then, rename the space once after setup.
+- Investigate a one-off 2-second cloud retry pause seen right after a first manual
+  sync on a fresh Dev cloud (recovered automatically; cause not yet identified).
 - Preserve compatible Desktop/Cloud behavior across upgrades. Validate persisted
   round trips, recovery and packaged behavior on the target platform; unit tests
   and source compilation alone are insufficient.

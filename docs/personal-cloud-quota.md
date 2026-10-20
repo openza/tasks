@@ -5,7 +5,7 @@ repository's `docs/quota-pause-v1.md`. It keeps protocol 1, adds optional schema
 current-catchup reporting while retaining schema-25 compatibility,
 manifest format 1, healthy capability negotiation and the checked-in artifact pin
 unchanged. [Compatibility and upgrade contract](cloud-upgrade-compatibility.md)
-still distinguishes the packaged preview.9/schema-20 pin from a local candidate.
+records the release 1.2.0 pin, `0.1.0-preview.10`.
 
 ## Daily quota recognition
 

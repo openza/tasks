@@ -40,7 +40,7 @@ Paged change feeds use explicit `hasMore` rather than treating a short page as c
 
 The combined source bundle is verified through `scripts/personal-cloud/stage-artifact.mjs` and `PersonalCloudArtifactDirectory.Load`, then copied into a Dev build with `-p:PersonalCloudArtifactDirectory=<verified-directory>`. Its Worker, static assets and all 25 migrations must match the manifest hashes and sizes. This verification neither deploys the Worker nor installs or launches a package.
 
-The normal release artifact lock remains pinned to the existing preview.9 revision. A future authorized release must update that lock to the reviewed combined Cloud revision, version and manifest checksum before claiming the combined behavior in a packaged release. Local source/artifact validation does not establish production or native WinUI acceptance. The subsequent Windows Avalonia/Web results and remaining platform checks are recorded in [Windows continuation](windows-continuation.md#current-windows-avalonia-handoff--2026-10-18).
+Release 1.2.0 pins the reviewed combined Cloud revision as artifact `0.1.0-preview.10`. Local source/artifact validation does not establish production or native WinUI acceptance. The subsequent Windows Avalonia/Web results and remaining platform checks are recorded in [Windows continuation](windows-continuation.md#current-windows-avalonia-handoff--2026-10-18).
 
 ## Optional cloud report
 

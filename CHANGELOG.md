@@ -4,22 +4,21 @@ All notable changes to Openza Tasks will be documented in this file.
 
 ## [Unreleased]
 
-### Planned 1.2.0 — proposal, not a release
+## [1.2.0] - 2026-10-20
 
-Proposed next Linux Snap version: **1.2.0**. Package metadata, tags and Store
-channels have not been changed. The [release plan](docs/snap-release.md) requires
-separate build, continuity-validation and publication approval.
+### Added
+- Personal Cloud preview: an optional, user-owned Cloudflare deployment for sync and a web companion, bundling cloud artifact `0.1.0-preview.10`.
+- Daily quota protection: sync pauses when Cloudflare's daily limit is reached, with per-day upload budgets so a large first sync spreads over several days.
+- "Check unfinished change" recovery in the web companion for changes whose result was uncertain.
 
-- Desktop contracts and architecture cleanup, consistent exact-date/query-clock
-  behavior, and equivalent task-editor label changes remaining a no-op.
-- Personal Cloud compatibility/migration preflight, persistent daily quota pause,
-  weighted upload budgets and preserved pending mutation order. The current public
-  1.1.0 package has no Personal Cloud; the schema-25 bundle remains a validation
-  candidate, with the source release pin still preview.9/schema 20.
-- An isolated Snap upgrade and maintainer-approved sideload-to-Store adoption plan,
-  including data, Secret Portal credentials, pairing and rollback acceptance.
-- Dev-gated Windows continuity source work; native Windows/MSIX/Store packaging
-  and replacement remain later work. Shared-label rename remains parked.
+### Changed
+- Avalonia is the only active desktop UI; the WinUI app is frozen at its final Store release.
+- Cloud compatibility checks now stop sync safely when the cloud is not ready or incompatible.
+- Internal cleanup of task reading, sync coordination and navigation state, with consistent exact-date handling.
+
+### Fixed
+- Unrelated edits no longer drop a task's exact time.
+- Capital-only label edits in the task editor are a consistent no-op.
 
 ## [1.1.0] - 2026-09-12
 

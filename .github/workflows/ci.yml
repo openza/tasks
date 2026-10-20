@@ -45,7 +45,7 @@ jobs:
         run: node --test scripts/personal-cloud/*.test.mjs
 
       - name: Validate Desktop publish with pinned Personal Cloud artifact
-        run: node scripts/personal-cloud/publish-desktop.mjs 1.1.0
+        run: node scripts/personal-cloud/publish-desktop.mjs 1.2.0
 
       - name: Validate Snap packaging contract
         if: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'fix/personal-cloud-localhost-recovery') }}

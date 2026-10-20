@@ -14,7 +14,7 @@ User guide: [solanky.dev/openza/tasks](https://solanky.dev/openza/tasks/)
 - **Existing Windows Store app** - final frozen WinUI 3 release, retained for current users until a future Avalonia replacement
 - **Local-first storage** - tasks, projects, labels, backups, and imports live on your device
 - **Provider sync** - optional Todoist and Microsoft To Do reconnect/sync
-- **Optional Personal Cloud (unreleased development)** - user-owned Cloudflare deployment for sync and an online-first web companion; task data is access-controlled, not end-to-end encrypted, and provider tokens stay on desktop. This is not included in public version 1.1.0.
+- **Optional Personal Cloud (preview, from 1.2.0)** - user-owned Cloudflare deployment for sync and an online-first web companion, with daily-quota protection; task data is access-controlled, not end-to-end encrypted, and provider tokens stay on desktop.
 - **Local restore points** - automatic and manual SQLite restore points support rollback inside the app package state
 - **Optional durable backup** - restorable backup snapshots can be uploaded to the app's OneDrive folder or exported by the user
 - **Focused task layout** - navigation, projects, task list, and details in one productive surface
@@ -35,10 +35,14 @@ The primary Linux download is the strict Snap from the
 sudo snap install openza-tasks
 ```
 
-The public Store version is **1.1.0**, without Personal Cloud.
-It does not contain the unreleased quota/compatibility candidate in this branch.
-[Release provenance and the proposed 1.2.0 plan](docs/snap-release.md) distinguish
-the public package from the source candidate. Existing local sideload users should
+The `stable` channel has **1.1.0** (no Personal Cloud). Version **1.2.0**, which
+adds the Personal Cloud preview, is tested on the `edge` channel first:
+
+```bash
+sudo snap install openza-tasks --edge
+```
+
+See the [release plan](docs/snap-release.md). Existing local sideload users should
 read the [Store adoption plan](docs/snap-release.md#sideload-to-store-transition)
 before changing their installation.
 
