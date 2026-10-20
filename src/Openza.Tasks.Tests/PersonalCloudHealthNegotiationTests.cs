@@ -28,7 +28,7 @@ public sealed partial class PersonalCloudBatchSyncTests
     [Theory]
     [InlineData("{")]
     [InlineData("null")]
-    [InlineData("{\"status\":\"ok\",\"protocolVersion\":1,\"product\":\"tasks\",\"artifactVersion\":\"test\",\"schemaVersion\":26}")]
+    [InlineData("{\"status\":\"ok\",\"protocolVersion\":1,\"product\":\"tasks\",\"artifactVersion\":\"test\",\"schemaVersion\":27}")]
     [InlineData("{\"status\":\"ok\",\"protocolVersion\":2,\"product\":\"tasks\",\"artifactVersion\":\"test\",\"schemaVersion\":25}")]
     [InlineData("{\"status\":\"ok\",\"protocolVersion\":1,\"product\":\"tasks\",\"artifactVersion\":\"test\",\"schemaVersion\":25,\"capabilities\":{\"mutationBatch\":{}}}")]
     public async Task Malformed_or_incompatible_success_never_falls_back_or_erases_capabilities(string body)

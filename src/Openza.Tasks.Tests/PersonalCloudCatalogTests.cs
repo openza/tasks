@@ -38,6 +38,7 @@ public sealed class PersonalCloudCatalogTests : IDisposable
         await store.EnqueuePersonalCloudCatalogItemAsync(Instance, Device, local, Source(local), true, ["Public label"], []);
         var entry = Assert.Single(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device));
         Assert.Equal("provider.catalog.put", entry.Operation);
+        DispatchCostAssertions.Known(entry);
         Assert.DoesNotContain("private-identifier-canary", entry.CanonicalJson); Assert.DoesNotContain("private-provider-canary", entry.CanonicalJson);
         Assert.DoesNotContain("private-secret-canary", entry.CanonicalJson); Assert.DoesNotContain("source_local_test", entry.CanonicalJson);
         Assert.Contains("Public label", entry.CanonicalJson);
@@ -54,6 +55,7 @@ public sealed class PersonalCloudCatalogTests : IDisposable
         await store.PreparePersonalCloudCatalogIntentAsync(Instance, Device, intent, "local-account-canary", "todoist_default", null);
         var start = Assert.Single(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device));
         Assert.DoesNotContain("local-account-canary", start.CanonicalJson); Assert.Equal("provider.intent.start", start.Operation);
+        DispatchCostAssertions.Known(start);
         await store.AcknowledgePersonalCloudMutationAsync(Instance, Device, Receipt(start, 2));
         await store.ApplyPersonalCloudSourceIntentAsync(Instance, Device, Intent("started", 2), local.Id);
         var action = (await store.GetPersonalCloudCatalogActionAsync(Instance, "intent_test"))!;

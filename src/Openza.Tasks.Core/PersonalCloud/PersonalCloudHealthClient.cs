@@ -10,6 +10,7 @@ public sealed class PersonalCloudHealthClient(HttpClient http)
     // ownership; 20 guards ambiguous provider aliases; 21 adds optional initial upload feedback.
     // Schema22 adds bounded sequential batches; schema23 adds workspace/catalog;
     // schema24 adds optional byte-bounded workspace paging.
+    // Schema26 adds optional current catch-up metadata; schema25 stays supported.
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
     {
         UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
@@ -28,7 +29,8 @@ public sealed class PersonalCloudHealthClient(HttpClient http)
             (serviceOrigin.Scheme != Uri.UriSchemeHttps && !(serviceOrigin.Scheme == Uri.UriSchemeHttp && serviceOrigin.IsLoopback)) ||
             !string.IsNullOrEmpty(serviceOrigin.Query) || !string.IsNullOrEmpty(serviceOrigin.Fragment))
             throw new PersonalCloudK0ContractException("invalid_request", "A secure Personal Cloud origin is required for health verification.");
-        using var response = await http.GetAsync(new Uri(serviceOrigin, "/health"), cancellationToken).ConfigureAwait(false);
+        using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(serviceOrigin, "/health"));
+        using var response = await PersonalCloudDispatchHttp.SendAsync(http, request, cancellationToken).ConfigureAwait(false);
         if (response.StatusCode is System.Net.HttpStatusCode.NotFound or System.Net.HttpStatusCode.MethodNotAllowed or System.Net.HttpStatusCode.NotImplemented)
             throw new PersonalCloudK0ContractException("health_unsupported", "This Personal Cloud does not expose a supported health endpoint.");
         if (!response.IsSuccessStatusCode)
@@ -37,7 +39,7 @@ public sealed class PersonalCloudHealthClient(HttpClient http)
         {
             var body = await response.Content.ReadFromJsonAsync<HealthResponse>(Json, cancellationToken).ConfigureAwait(false);
             if (body is null || body.Status != "ok" || body.ProtocolVersion != PersonalCloudK0Protocol.Version ||
-                body.Product != PersonalCloudK0Protocol.TasksProduct || body.SchemaVersion is not (17 or 18 or 19 or 20 or 21 or 22 or 23 or 24 or 25) ||
+                body.Product != PersonalCloudK0Protocol.TasksProduct || body.SchemaVersion is not (17 or 18 or 19 or 20 or 21 or 22 or 23 or 24 or 25 or 26) ||
                 string.IsNullOrWhiteSpace(body.ArtifactVersion) || body.ArtifactVersion.Length > 128)
                 throw new PersonalCloudK0ContractException("health_mismatch", "The deployed Personal Cloud is not compatible with this Openza build.");
             var batch = ParseMutationBatch(body.Capabilities);
@@ -45,12 +47,14 @@ public sealed class PersonalCloudHealthClient(HttpClient http)
             var catalogProtocol = ParseProviderCatalog(body.Capabilities);
             var catalog = catalogProtocol > 0;
             var paging = ParseWorkspacePaging(body.Capabilities);
-            if ((workspace || catalog) && body.SchemaVersion is not (23 or 24 or 25) || catalog && !workspace || paging && (!workspace || body.SchemaVersion is not (24 or 25)))
+            if ((workspace || catalog) && body.SchemaVersion is not (23 or 24 or 25 or 26) || catalog && !workspace || paging && (!workspace || body.SchemaVersion is not (24 or 25 or 26)))
                 throw new PersonalCloudK0ContractException("health_mismatch", "The workspace capabilities do not match the cloud schema.");
             return new PersonalCloudHealth(body.ArtifactVersion, body.SchemaVersion)
             {
                 MutationBatch = batch, SupportsWorkspace = workspace, SupportsProviderCatalog = catalog, ProviderCatalogProtocolVersion = catalogProtocol,
                 SupportsWorkspacePaging = paging,
+                SupportsFanoutBudget = ParseFanoutBudget(body.Capabilities),
+                SupportsCatchupStatus = ParseCatchupStatus(body.Capabilities),
             };
         }
         catch (JsonException exception)
@@ -66,6 +70,26 @@ public sealed class PersonalCloudHealthClient(HttpClient http)
         if (!ExactCapability(value, "protocolVersion", "path", "schemaVersion") ||
             !Integer(value, "protocolVersion", 1) || !Text(value, "path", "/v1/tasks/mutations") || !Integer(value, "schemaVersion", schemaVersion))
             throw new PersonalCloudK0ContractException("health_mismatch", "Invalid workspace capability.");
+        return true;
+    }
+
+    private static bool ParseFanoutBudget(JsonElement? capabilities)
+    {
+        if (capabilities is null || capabilities.Value.ValueKind != JsonValueKind.Object ||
+            !capabilities.Value.TryGetProperty("fanoutBudget", out var value)) return false;
+        if (!ExactCapability(value, "protocolVersion", "requestHeader") ||
+            !Integer(value, "protocolVersion", 1) || !Text(value, "requestHeader", PersonalCloudMutationCost.FanoutHeader))
+            throw new PersonalCloudK0ContractException("health_mismatch", "Invalid fanout budget capability.");
+        return true;
+    }
+
+    private static bool ParseCatchupStatus(JsonElement? capabilities)
+    {
+        if (capabilities is null || capabilities.Value.ValueKind != JsonValueKind.Object ||
+            !capabilities.Value.TryGetProperty("catchupStatus", out var value)) return false;
+        if (!ExactCapability(value, "protocolVersion", "path", "staleAfterSeconds") ||
+            !Integer(value, "protocolVersion", 1) || !Text(value, "path", "/sync/catchup-status") || !Integer(value, "staleAfterSeconds", 900))
+            throw new PersonalCloudK0ContractException("health_mismatch", "Invalid catch-up status capability.");
         return true;
     }
 
@@ -122,4 +146,6 @@ public sealed record PersonalCloudHealth(string ArtifactVersion, int SchemaVersi
     public bool SupportsProviderCatalog { get; init; }
     public int ProviderCatalogProtocolVersion { get; init; }
     public bool SupportsWorkspacePaging { get; init; }
+    public bool SupportsFanoutBudget { get; init; }
+    public bool SupportsCatchupStatus { get; init; }
 }

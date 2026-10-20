@@ -69,15 +69,17 @@ public sealed partial class PersonalCloudBatchSyncTests
         var original = await store.GetPendingPersonalCloudOutboxAsync(Instance, Device);
         var policy = new PersonalCloudDispatchPolicy(Path.Combine(_directory, "budget-prefix"), new(3000, 100, 75), resumeJitter: () => TimeSpan.Zero);
         var client = await CreateClientAsync(store, handler, policy);
-        var error = await Assert.ThrowsAsync<PersonalCloudK0ContractException>(() => client.SyncAsync());
-        Assert.Equal("local_budget_exceeded", error.Code);
+        var result = await client.SyncAsync();
+        Assert.Equal("local_budget_exceeded", result.BlockedCode);
+        var status = await policy.GetStatusAsync(new("https://synthetic.example.test/"));
         Assert.Equal(new[] { 1 }, handler.BatchSizes);
         Assert.Equal(original.Take(1).Select(item => item.CanonicalJson), handler.Envelopes);
         Assert.Equal(original.Skip(1).Select(item => item.CanonicalJson),
             (await store.GetPendingPersonalCloudOutboxAsync(Instance, Device)).Select(item => item.CanonicalJson));
-        Assert.Equal(1, error.DispatchStatus!.AttemptedEnvelopes);
-        Assert.Equal(50, error.DispatchStatus.ReservedWriteUnits);
-        Assert.Equal(25, error.DispatchStatus.RemainingWriteUnits);
+        Assert.Equal(1, status.AttemptedEnvelopes);
+        Assert.Equal(50, status.ReservedWriteUnits);
+        Assert.Equal(25, status.RemainingWriteUnits);
+        Assert.False(status.BlocksReads);
     }
 
     [Fact]
@@ -91,14 +93,14 @@ public sealed partial class PersonalCloudBatchSyncTests
         handler.ResponseDate = clock.Utc;
         handler.LoseResponse = true;
         var client = await CreateClientAsync(store, handler, Policy());
-        Assert.Equal("local_budget_exceeded", (await Assert.ThrowsAsync<PersonalCloudK0ContractException>(() => client.SyncAsync())).Code);
+        Assert.Equal("cloud_retry_backoff", (await Assert.ThrowsAsync<PersonalCloudK0ContractException>(() => client.SyncAsync())).Code);
         Assert.Equal(original.Select(item => item.CanonicalJson), (await store.GetPendingPersonalCloudOutboxAsync(Instance, Device)).Select(item => item.CanonicalJson));
 
         clock.Utc = clock.Utc.AddDays(1);
         handler.ResponseDate = clock.Utc;
         handler.LoseResponse = false;
         client = await CreateClientAsync(store, handler, Policy());
-        Assert.Equal("local_budget_exceeded", (await Assert.ThrowsAsync<PersonalCloudK0ContractException>(() => client.SyncAsync())).Code);
+        Assert.Equal("local_budget_exceeded", (await client.SyncAsync()).BlockedCode);
         Assert.Equal(2, handler.DuplicateReceipts);
         Assert.Equal(original.Skip(2).Select(item => item.CanonicalJson), (await store.GetPendingPersonalCloudOutboxAsync(Instance, Device)).Select(item => item.CanonicalJson));
 

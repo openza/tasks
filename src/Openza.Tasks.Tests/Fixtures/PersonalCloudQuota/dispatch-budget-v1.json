@@ -15,7 +15,7 @@
   "richCreationPerLabel":10,
   "creationWithSource":16,
   "unknownOperation":45001,
-  "fanoutPolicy":"project.delete and task.moveTree reserve the whole daily budget; no inferred client-side row-count bound",
+  "fanoutPolicy":"Without verified fanoutBudget v1 capability and a request-local guarded bound, project.delete and task.moveTree reserve the whole daily budget; see fanout-budget-v1.json for the additive scaled policy",
   "compoundPolicy":"sum each envelope in the exact transmitted FIFO prefix; current v1 has no other explicit multi-entity operation",
   "overWholeDayPolicy":"visible local_operation_budget_exceeded; retain pending envelope and never schedule automatic daily retries",
   "retryPolicy":"every dispatched attempt including duplicate retries, unknown results and crash reservations consumes the full reservation; no refund",

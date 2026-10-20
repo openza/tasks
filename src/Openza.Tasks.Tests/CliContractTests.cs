@@ -10,7 +10,7 @@ using Openza.Tasks.Core.Sync;
 
 namespace Openza.Tasks.Tests;
 
-public sealed class CliContractTests : IDisposable
+public sealed partial class CliContractTests : IDisposable
 {
     private readonly string _directory = Path.Combine(Path.GetTempPath(), "openza-cli-tests", Guid.NewGuid().ToString("N"));
 

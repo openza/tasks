@@ -265,6 +265,16 @@ public sealed partial class PersonalCloudBatchSyncTests : IDisposable
         public int BatchPosts { get; private set; }
         public int SinglePosts { get; private set; }
         public int HealthRequests { get; private set; }
+        public int ChangeRequests { get; private set; }
+        public int CheckpointRequests { get; private set; }
+        public int FanoutRejections { get; set; }
+        public Func<Task>? OnChanges { get; set; }
+        public long CurrentCheckpoint { get; set; }
+        public List<string> AttemptBodies { get; } = [];
+        public List<string?> FanoutBounds { get; } = [];
+        public List<JsonElement> CatchupReports { get; } = [];
+        public long CatchupServerSequence { get; set; }
+        public bool CatchupFailure { get; set; }
         public HttpStatusCode HealthStatus { get; set; } = HttpStatusCode.OK;
         public string? HealthBody { get; set; }
         public bool HealthOffline { get; set; }
@@ -286,8 +296,20 @@ public sealed partial class PersonalCloudBatchSyncTests : IDisposable
             }
             if (path == "/auth/pair") return Json(HttpStatusCode.Created, $$"""{"protocolVersion":1,"instanceId":"{{Instance}}","deviceId":"{{Device}}","refreshCredential":"synthetic-refresh-123456789012345","capabilities":["desktop_sync"],"refreshExpiresAt":"2099-01-01T00:00:00Z"}""");
             if (path == "/auth/device/token") return Json(HttpStatusCode.OK, """{"protocolVersion":1,"accessToken":"synthetic-access-123456789012345","expiresAt":"2099-01-01T00:00:00Z","capabilities":["desktop_sync"]}""");
-            if (path == "/sync/changes") return Json(HttpStatusCode.OK, """{"protocolVersion":1,"product":"tasks","changes":[],"nextCheckpoint":0}""");
-            if (path == "/sync/checkpoints") return Json(HttpStatusCode.OK, $$"""{"protocolVersion":1,"product":"tasks","deviceId":"{{Device}}","acknowledgedCheckpoint":0}""");
+            if (path == "/sync/catchup-status")
+            {
+                Assert.Equal("Bearer", request.Headers.Authorization?.Scheme);
+                using var report = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(cancellationToken));
+                CatchupReports.Add(report.RootElement.Clone());
+                if (CatchupFailure) return Json(HttpStatusCode.ServiceUnavailable, "{}");
+                var sequence = report.RootElement.GetProperty("reportSequence").GetInt64();
+                var accepted = sequence > CatchupServerSequence;
+                CatchupServerSequence = Math.Max(CatchupServerSequence, sequence);
+                return Json(HttpStatusCode.OK, JsonSerializer.Serialize(new { protocolVersion = 1, accepted,
+                    reportSequence = CatchupServerSequence, updatedAt = "2026-10-20T01:00:00.000Z" }));
+            }
+            if (path == "/sync/changes") { ChangeRequests++; if (OnChanges is not null) await OnChanges(); return Json(HttpStatusCode.OK, $$"""{"protocolVersion":1,"product":"tasks","changes":[],"nextCheckpoint":{{CurrentCheckpoint}}}"""); }
+            if (path == "/sync/checkpoints") { CheckpointRequests++; return Json(HttpStatusCode.OK, $$"""{"protocolVersion":1,"product":"tasks","deviceId":"{{Device}}","acknowledgedCheckpoint":{{CurrentCheckpoint}}}"""); }
             if (path is not ("/v1/tasks/mutations/batch" or "/v1/tasks/mutations")) throw new InvalidOperationException(path);
             Assert.Equal("Bearer", request.Headers.Authorization?.Scheme);
             var body = await request.Content!.ReadAsStringAsync(cancellationToken);
@@ -295,6 +317,10 @@ public sealed partial class PersonalCloudBatchSyncTests : IDisposable
             if (path == "/v1/tasks/mutations")
             {
                 SinglePosts++;
+                AttemptBodies.Add(body);
+                FanoutBounds.Add(request.Headers.TryGetValues(PersonalCloudMutationCost.FanoutHeader, out var bounds) ? Assert.Single(bounds) : null);
+                if (FanoutRejections-- > 0) return Json(HttpStatusCode.Conflict,
+                    """{"protocolVersion":1,"product":"tasks","error":{"code":"fanout_bound_exceeded","message":"Synthetic","retryable":true,"requestId":"request_synthetic"}}""");
                 if (SingleError is { } code) return Json(HttpStatusCode.Conflict, JsonSerializer.Serialize(new { error = new { code } }));
                 return Json(HttpStatusCode.Created, JsonSerializer.Serialize(Accept(document.RootElement)));
             }
@@ -345,7 +371,7 @@ public sealed partial class PersonalCloudBatchSyncTests : IDisposable
             var duplicate = _receipts.ContainsKey(id);
             if (duplicate) DuplicateReceipts++;
             var receipt = new { protocolVersion = 1, product = "tasks", mutationId = id, outcome = duplicate ? "duplicate" : "accepted",
-                entityId = mutation.GetProperty("entityId").GetString(), entityVersion = 1,
+                entityId = mutation.GetProperty("entityId").GetString(), entityVersion = mutation.GetProperty("baseEntityVersion").ValueKind == JsonValueKind.Null ? 1 : mutation.GetProperty("baseEntityVersion").GetInt64() + 1,
                 changeSeq = mutation.GetProperty("deviceSequence").GetInt64(), serverAcceptedAt = "2026-10-13T00:00:00.000Z" };
             _receipts[id] = receipt;
             return receipt;

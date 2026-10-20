@@ -1,6 +1,6 @@
 # Cloud upgrade compatibility (cloud-upgrade-v1)
 
-The client/server contract uses manifest format 1, protocol 1 and target schema 25.
+The client/server contract uses manifest format 1, protocol 1 and current target schema 26.
 Artifact selection is controlled by the checked-in lock. Desktop staging verifies
 the pinned manifest and every file; the runtime loader also validates the ordered
 migration bundle and SQL hashes.
@@ -20,11 +20,12 @@ history; `docs/architecture.md` describes Web module and API boundaries.
 | Public `v1.1.0`, `f45fbe1314f9e6c767cbc3aefe8b64711e4525e4` | Personal Cloud absent | A custom build with the same version label may have different features. |
 | Initial integration, `3e2a3f923452d461f4228bb3ee65fc8ae1f79796` | 17–20 | Strict historical DTOs lack capability negotiation; an allowlist alone does not establish forward compatibility. |
 | Compatibility implementation from `e7378d7060ed8812eb3608890e25d53633a94f1e` | 17–25, protocol 1, product tasks | Per-pass readiness, capability retention, migration checksum/resource preflight and durable upgrade publication apply. |
+| Current quota-recovery implementation | 17–26, protocol 1, product tasks | Optional guarded-fanout and current-catchup capabilities are negotiated independently; schema 25 remains supported. |
 
 The artifact lock still selects `0.1.0-preview.9`, Cloud source
 `be1691402129d7a571f9bd881a91d93bafe28ef1`, manifest SHA-256
 `5eb0d68377c12f9f5a1f12f82f7f2330ff61d1c58689dae625f4c7fdbf02153d`.
-That bundle advertises schema 20. Desktop accepting schema 25 does not change the
+That bundle advertises schema 20. Desktop accepting schema 26 does not change the
 packaging input or identify the deployed database. Artifact labels are opaque,
 not a numeric upgrade order. See [artifact staging](personal-cloud-desktop-publish.md).
 
@@ -33,11 +34,12 @@ not a numeric upgrade order. See [artifact staging](personal-cloud-desktop-publi
 | 17–20 base protocol | Health acceptance; legacy semantics when optional capabilities are absent. |
 | 21 initial-upload status | Optional monitoring; absence cannot block core sync. |
 | 22 mutation batch | Negotiate mutationBatch protocol 1 before bounded batch delivery. |
-| 23 workspace/catalog | Workspace protocol 1 on 23–25; catalog 1/2 requires workspace. |
-| 24 paging | Paging protocol 1 only on 24/25. |
+| 23 workspace/catalog | Workspace protocol 1 on 23–26; catalog 1/2 requires workspace. |
+| 24 paging | Paging protocol 1 only on 24–26. |
 | 25 updatedAt | Validate health/capability relationships and current payload/store semantics. |
+| 26 current catch-up | Optional catchupStatus protocol 1; guarded-fanout protocol 1 is also capability-negotiated. No new endpoint calls without its matching capability. |
 
-Schema acceptance and feature negotiation are separate. The schema-25 Worker
+Schema acceptance and feature negotiation are separate. The current Worker
 requires its complete D1 footprint; it must not run against an older incomplete
 database simply because Desktop accepts that older schema. Test rejected
 readiness, capability downgrade, legacy fallback, migration-prefix mismatch and

@@ -26,7 +26,7 @@ public sealed partial class MainWindowViewModel
     public bool HasActiveInitialSyncProgress => HasInitialSyncProgress && _initialSyncProgress is { IsComplete: false };
     private PersonalCloudDispatchStatus? _cloudDispatchStatus;
     public bool IsPersonalCloudPaused => IsPersonalCloudConnected && _cloudDispatchStatus is { IsPaused: true };
-    public bool CanRetryInitialSync => HasInitialSyncProgress && _initialSyncProgress is { IsComplete: false } && !IsSyncing && !IsConnectingPersonalCloud && !IsPersonalCloudPaused;
+    public bool CanRetryInitialSync => HasInitialSyncProgress && _initialSyncProgress is { IsComplete: false } && !IsSyncing && !IsConnectingPersonalCloud && _cloudDispatchStatus is not { BlocksReads: true };
 
     private void ShowDispatchPause(PersonalCloudDispatchStatus pause)
     {
@@ -34,8 +34,9 @@ public sealed partial class MainWindowViewModel
         OnPropertyChanged(nameof(IsPersonalCloudPaused));
         OnPropertyChanged(nameof(CanRetryInitialSync));
         OnPropertyChanged(nameof(InitialSyncSummary));
-        PersonalCloudStatusText = "Paused";
-        PersonalCloudSummaryText = pause.Summary;
+        PersonalCloudStatusText = pause.BlocksReads ? "Paused" : "Uploads paused";
+        PersonalCloudSummaryText = pause.Summary + (pause.CatchupTelemetryUnknown
+            ? " Current catch-up status is unknown; large web changes remain deferred until it is saved and confirmed." : "");
     }
 
     private void ApplyInitialSyncProgress(PersonalCloudInitialSyncProgress progress)
@@ -79,6 +80,9 @@ public sealed partial class MainWindowViewModel
         OnPropertyChanged(nameof(InitialSyncSummary));
         if (_cloudDispatchStatus is { IsPaused: true } pause)
         {
+            if (_personalCloudSetup is IPersonalCloudInitialSyncProgressService pausedProgressService &&
+                await pausedProgressService.GetInitialSyncProgressAsync() is { } pausedProgress)
+                ApplyInitialSyncProgress(pausedProgress);
             ShowDispatchPause(pause);
             return;
         }
@@ -93,6 +97,8 @@ public sealed partial class MainWindowViewModel
             else if (IsPersonalCloudConnected)
                 PersonalCloudSummaryText = "This desktop is paired. Initial sync progress is unavailable for this connection.";
         }
+        if (_cloudDispatchStatus is { CatchupTelemetryUnknown: true })
+            PersonalCloudSummaryText = "Current catch-up status could not be saved or confirmed. Backlog uploads are held; downloads and local work remain available within cloud limits. Retry Sync after restoring local storage or connectivity.";
     }
 
     private async Task<PersonalCloudSyncResult> SyncPersonalCloudWithProgressAsync(CancellationToken cancellationToken = default)

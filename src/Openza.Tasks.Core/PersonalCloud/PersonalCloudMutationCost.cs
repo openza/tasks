@@ -8,6 +8,8 @@ internal static class PersonalCloudMutationCost
 {
     internal const int DailyWriteCredits = 45000;
     internal const int UnknownOperationCredits = 45001;
+    internal const string FanoutHeader = "x-openza-fanout-bound";
+    internal static readonly System.Net.Http.HttpRequestOptionsKey<long> GuardedFanoutBound = new("Openza.GuardedFanoutBound.v1");
     internal static readonly FrozenDictionary<string, int> Weights = new Dictionary<string, int>(StringComparer.Ordinal)
     {
         ["task.patch"] = 25, ["source.refreshSnapshot"] = 16,
@@ -37,11 +39,17 @@ internal static class PersonalCloudMutationCost
         return cost;
     }
 
-    internal static long ForBudget(JsonElement mutation, long dailyBudget)
+    internal static bool IsFanout(string? operation) => operation is "project.delete" or "task.moveTree";
+
+    internal static long ForBudget(JsonElement mutation, long dailyBudget, long? fanoutBound = null)
     {
+        if (mutation.ValueKind == JsonValueKind.Object && mutation.TryGetProperty("operation", out var operation) &&
+            operation.ValueKind == JsonValueKind.String && IsFanout(operation.GetString()) &&
+            fanoutBound is >= 0 and <= 9007199254740991)
+            return checked(100 + 12 * fanoutBound.Value);
         var cost = Estimate(mutation);
         if (cost >= UnknownOperationCredits) return Math.Max(cost, dailyBudget + 1);
-        if (mutation.TryGetProperty("operation", out var operation) && operation.GetString() is "project.delete" or "task.moveTree")
+        if (mutation.ValueKind == JsonValueKind.Object && mutation.TryGetProperty("operation", out operation) && IsFanout(operation.GetString()))
             return Math.Max(cost, dailyBudget); // Fan-out never silently receives a flat single-record charge.
         return cost;
     }

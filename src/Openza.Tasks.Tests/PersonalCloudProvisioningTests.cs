@@ -321,6 +321,7 @@ public sealed class PersonalCloudProvisioningTests
     [InlineData(23)]
     [InlineData(24)]
     [InlineData(25)]
+    [InlineData(26)]
     public async Task Health_verification_accepts_compatible_schema_migrations(int schemaVersion)
     {
         var client = new PersonalCloudHealthClient(new HttpClient(new RecordingHandler(Json(HttpStatusCode.OK,
@@ -336,7 +337,7 @@ public sealed class PersonalCloudProvisioningTests
 
     [Theory]
     [InlineData(16, 1, "tasks")]
-    [InlineData(26, 1, "tasks")]
+    [InlineData(27, 1, "tasks")]
     [InlineData(18, 2, "tasks")]
     [InlineData(18, 1, "reader")]
     public async Task Health_verification_rejects_incompatible_schema_protocol_or_product(

@@ -1,0 +1,13 @@
+{
+ "formatVersion":1,
+ "capability":{"protocolVersion":1,"path":"/sync/catchup-status","staleAfterSeconds":900},
+ "postFields":["protocolVersion","reportSequence","state","pending"],
+ "states":["catching_up","idle"],
+ "response":{"protocolVersion":1,"accepted":true,"reportSequence":1,"updatedAt":"2026-10-20T12:00:00.000Z"},
+ "firstIdlePolicy":"Server sets finishedAt now on the first idle report; repeated idle retains it; catching_up clears it and the next idle resets it",
+ "freshnessPolicy":"Any missing or stale active Desktop report restricts Web fanout to the cumulative small allowance; no old initial-upload completion is used as current catchup evidence",
+ "webPolicy":{"dailyCredits":12000,"catchupDailyCredits":1000,"readyAfter":"UTC day after verified catchup completion"},
+ "clientTriggerPolicy":"Initial upload incomplete, prior-UTC legacy backlog, upload-budget or oversized hold, or conservative sum of pending credits above45000; routine same-day provider bursts do not alone trigger catchup",
+ "clientCompletionPolicy":"Once triggered, retain catchup until the whole queue is empty and seed/recovery completes; resample on the existing pass, no fast telemetry poll",
+ "sequenceRecoveryPolicy":"Persist reportSequence independently; on rejected older report use the authoritative response sequence to freshly resample on a later existing pass, never blindly replay old idle"
+}

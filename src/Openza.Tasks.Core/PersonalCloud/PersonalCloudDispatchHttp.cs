@@ -17,29 +17,48 @@ public static class PersonalCloudDispatchHttp
     }
     public static PersonalCloudDispatchPolicy? PolicyFor(HttpClient client) => Policies.TryGetValue(client, out var policy) ? policy : null;
 
+    // Classify cancellation outside HttpClient: the handler receives a linked
+    // timeout/caller token and cannot tell which source cancelled it.
+    public static async Task<HttpResponseMessage> SendAsync(HttpClient client, HttpRequestMessage request,
+        CancellationToken cancellationToken, HttpCompletionOption completion = HttpCompletionOption.ResponseHeadersRead)
+    {
+        try { return await client.SendAsync(request, completion, cancellationToken).ConfigureAwait(false); }
+        catch (OperationCanceledException exception) when (!cancellationToken.IsCancellationRequested &&
+            exception.InnerException is TimeoutException && request.RequestUri?.AbsolutePath != "/sync/initial-status" &&
+            PolicyFor(client) is { } policy)
+        {
+            throw (await policy.RecordFailureAsync(request.RequestUri!, CancellationToken.None).ConfigureAwait(false)).ToException();
+        }
+    }
+
     private sealed class DispatchHandler(PersonalCloudDispatchPolicy policy, HttpMessageHandler inner) : DelegatingHandler(inner)
     {
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             var origin = request.RequestUri ?? throw new InvalidOperationException("A cloud request needs an origin.");
-            var optionalReport = origin.AbsolutePath == "/sync/initial-status";
+            var optionalReport = origin.AbsolutePath is "/sync/initial-status" or "/sync/catchup-status";
             var envelopes = 0;
             long writeUnits = 0;
+            string? singleMutation = null;
+            long? fanoutBound = request.Options.TryGetValue(PersonalCloudMutationCost.GuardedFanoutBound, out var bound) &&
+                request.Headers.TryGetValues(PersonalCloudMutationCost.FanoutHeader, out var values) &&
+                values.SequenceEqual([bound.ToString(CultureInfo.InvariantCulture)]) ? bound : null;
             var budget = (await policy.GetStatusAsync(origin, cancellationToken).ConfigureAwait(false)).WriteUnitLimit;
             if (request.Method == HttpMethod.Post && origin.AbsolutePath == "/v1/tasks/mutations")
             {
                 envelopes = 1;
-                using var payload = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(cancellationToken).ConfigureAwait(false));
-                writeUnits = PersonalCloudMutationCost.ForBudget(payload.RootElement, budget);
+                singleMutation = await request.Content!.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                using var payload = JsonDocument.Parse(singleMutation);
+                writeUnits = PersonalCloudMutationCost.ForBudget(payload.RootElement, budget, fanoutBound);
             }
             else if (request.Method == HttpMethod.Post && origin.AbsolutePath == "/v1/tasks/mutations/batch")
             {
                 using var payload = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(cancellationToken).ConfigureAwait(false));
                 envelopes = payload.RootElement.GetProperty("mutations").GetArrayLength();
                 if (envelopes is < 1 or > 2) throw new PersonalCloudK0ContractException("invalid_request", "Invalid mutation batch size.");
-                writeUnits = payload.RootElement.GetProperty("mutations").EnumerateArray().Sum(mutation => PersonalCloudMutationCost.ForBudget(mutation, budget));
+                writeUnits = payload.RootElement.GetProperty("mutations").EnumerateArray().Sum(mutation => PersonalCloudMutationCost.ForBudget(mutation, budget, fanoutBound));
             }
-            using var lease = await policy.BeginAsync(origin, envelopes, writeUnits, cancellationToken).ConfigureAwait(false);
+            using var lease = await policy.BeginAsync(origin, envelopes, writeUnits, cancellationToken, singleMutation).ConfigureAwait(false);
             HttpResponseMessage? response = null;
             try
             {
@@ -81,11 +100,6 @@ public static class PersonalCloudDispatchHttp
                 return response;
             }
             catch (HttpRequestException) when (!optionalReport)
-            {
-                response?.Dispose();
-                throw lease.Backoff().ToException();
-            }
-            catch (OperationCanceledException) when (!optionalReport)
             {
                 response?.Dispose();
                 throw lease.Backoff().ToException();

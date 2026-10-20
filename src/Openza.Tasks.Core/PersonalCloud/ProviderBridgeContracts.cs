@@ -151,7 +151,7 @@ public sealed partial class PersonalCloudProviderDeliveryClient(HttpClient http,
         using var request = new HttpRequestMessage(HttpMethod.Post, new Uri(connection.ServiceOrigin, path));
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", access.AccessToken);
         request.Content = new StringContent(json, Encoding.UTF8, "application/json");
-        using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+        using var response = await PersonalCloudDispatchHttp.SendAsync(http, request, cancellationToken).ConfigureAwait(false);
         const int limit = 64 * 1024;
         if (response.Content.Headers.ContentLength > limit)
             throw new PersonalCloudK0ContractException("invalid_request", "Oversized delivery receipt.");

@@ -19,13 +19,16 @@ public sealed record PersonalCloudDispatchStatus(string? Code, string? Resource,
     public long ReservedWriteUnits { get; init; }
     public long WriteUnitLimit { get; init; }
     public long? BlockingWriteUnits { get; init; }
+    public bool CatchupTelemetryUnknown { get; init; }
     public long RemainingWriteUnits => Math.Max(0, WriteUnitLimit - ReservedWriteUnits);
     public bool IsPaused => Code is not null;
+    public bool BlocksReads => IsPaused && (AttemptedRequests >= RequestLimit ||
+        Code is not ("local_operation_budget_exceeded" or "local_budget_exceeded"));
     public string Summary => !IsDurable
-        ? "Personal Cloud is paused because its local dispatch state could not be saved or read. This pause is not restart-safe. Local edits and pending changes are preserved."
+        ? "Personal Cloud is paused because its local dispatch state could not be saved or read. Storage is checked again after five seconds. This pause is not restart-safe. Local edits and pending changes are preserved."
         : Code == "local_operation_budget_exceeded"
-        ? $"A pending change requires {BlockingWriteUnits} reserved write credits, beyond the whole daily budget of {WriteUnitLimit}. Cloud retries are stopped; the change and local edits are preserved. Its cost policy or budget needs review before cloud sync can continue."
-        : $"Personal Cloud is paused until {CloudResetAt ?? ResumeAt:yyyy-MM-dd HH:mm:ss} UTC ({(Code == "daily_quota_exceeded" ? "daily cloud quota reached" : Code == "local_budget_exceeded" ? "daily upload budget reached" : "retry backoff")}). " +
+        ? $"A pending change requires {BlockingWriteUnits} reserved write credits, beyond the whole daily budget of {WriteUnitLimit}. Uploads are held; downloads can continue within the request limit. Local edits are preserved. Run openza cloud-budget status to inspect the exact entry and the explicit allow-once recovery command."
+        : $"{(BlocksReads ? "Personal Cloud is paused" : "Personal Cloud uploads are paused")} until {CloudResetAt ?? ResumeAt:yyyy-MM-dd HH:mm:ss} UTC ({(Code == "daily_quota_exceeded" ? "daily cloud quota reached" : Code == "local_budget_exceeded" ? "daily upload budget reached" : "retry backoff")}). " +
           (CloudResetAt is { } reset && ResumeAt is { } local && (reset - local).Duration() > TimeSpan.FromMinutes(2)
               ? $"A clock difference was detected; the local retry deadline is {local:yyyy-MM-dd HH:mm:ss} UTC. " : "") +
           $"Today: {AttemptedEnvelopes} of {EnvelopeLimit} upload attempts, {AttemptedRequests} of {RequestLimit} requests. " +
@@ -42,7 +45,7 @@ public interface IPersonalCloudDispatchStatusService
 
 // One private ledger per profile/origin. No task data, credentials or cloud schema changes.
 // The cross-process file lease covers reservation AND dispatch, serializing the first resume.
-public sealed class PersonalCloudDispatchPolicy
+public sealed partial class PersonalCloudDispatchPolicy
 {
     private static readonly ConcurrentDictionary<string, PersonalCloudDispatchStatus> MemoryBrakes = new(StringComparer.Ordinal);
     private static readonly JsonSerializerOptions Json = new() { UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow };
@@ -65,50 +68,82 @@ public sealed class PersonalCloudDispatchPolicy
     public void BindInstance(Uri origin, string instanceId) => _instances[Origin(origin)] = instanceId;
     internal DateTimeOffset UtcNow => _clock.GetUtcNow();
 
-    public Task<PersonalCloudDispatchStatus> GetStatusAsync(Uri origin, CancellationToken cancellationToken = default)
+    public async Task<PersonalCloudDispatchStatus> GetStatusAsync(Uri origin, CancellationToken cancellationToken = default)
+    {
+        var status = await GetStatusCoreAsync(origin, cancellationToken).ConfigureAwait(false);
+        return status with { CatchupTelemetryUnknown = _catchupUnknown.ContainsKey(Origin(origin)) };
+    }
+
+    private async Task<PersonalCloudDispatchStatus> GetStatusCoreAsync(Uri origin, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var path = StatePath(origin);
-        if (MemoryBrakes.TryGetValue(path, out var brake)) return Task.FromResult(brake);
-        try { return Task.FromResult(Status(Read(path, Origin(origin)), _clock.GetUtcNow())); }
-        catch (Exception e) when (StorageFailure(e)) { return Task.FromResult(StorageBrake(path)); }
+        if (ActiveStorageBrake(path) is { } brake) return brake;
+        try
+        {
+            var state = Read(path, Origin(origin));
+            if (!MemoryBrakes.ContainsKey(path) && !File.Exists(path + ".recovering") && !HasFutureClock(state))
+                return Status(state, _clock.GetUtcNow());
+        }
+        catch (Exception e) when (StorageFailure(e)) { /* Re-probe under the dispatch lease. */ }
+        try
+        {
+            using var fileLock = await AcquireLockAsync(path, cancellationToken).ConfigureAwait(false);
+            return Status(ReadForDispatch(path, Origin(origin)), _clock.GetUtcNow());
+        }
+        catch (Exception e) when (StorageFailure(e)) { return StorageBrake(path); }
     }
 
-    internal async Task<DispatchLease> BeginAsync(Uri origin, int envelopes, long writeUnits, CancellationToken cancellationToken)
+    internal async Task<DispatchLease> BeginAsync(Uri origin, int envelopes, long writeUnits, CancellationToken cancellationToken,
+        string? singleMutation = null)
     {
         var path = StatePath(origin);
-        if (MemoryBrakes.TryGetValue(path, out var brake)) throw brake.ToException();
+        if (ActiveStorageBrake(path) is { } brake) throw brake.ToException();
         FileStream? fileLock = null;
         try
         {
             fileLock = await AcquireLockAsync(path, cancellationToken).ConfigureAwait(false);
-            if (MemoryBrakes.TryGetValue(path, out brake)) throw brake.ToException();
-            var state = Read(path, Origin(origin));
+            if (ActiveStorageBrake(path) is { } currentBrake) throw currentBrake.ToException();
+            var state = ReadForDispatch(path, Origin(origin));
             var now = _clock.GetUtcNow();
             var status = Status(state, now);
-            if (status.IsPaused) throw status.ToException();
-            var resuming = state.Code is not null;
+            var permit = singleMutation is not null && ReadAttemptPermit(path, origin, singleMutation) is { Consumed: false };
+            if (status.BlocksReads || status.IsPaused && envelopes > 0 && !permit) throw status.ToException();
+            var keepUploadHold = status.IsPaused && !status.BlocksReads;
+            var resuming = state.Code is not null && !status.IsPaused;
             AdvanceDay(state, now);
-            state.Code = null; state.Resource = null; state.ResumeAt = null; state.ObservedAt = null; state.CloudResetAt = null;
-            state.BlockingWriteUnits = null;
+            if (!keepUploadHold)
+            {
+                state.Code = null; state.Resource = null; state.ResumeAt = null; state.ObservedAt = null; state.CloudResetAt = null;
+                state.BlockingWriteUnits = null;
+            }
             if (_instances.TryGetValue(state.Origin, out var instance)) state.InstanceId = instance;
-            if (writeUnits > _limits.WriteUnitsPerDay)
+            if (writeUnits > _limits.WriteUnitsPerDay && !permit)
             {
                 state.BlockingWriteUnits = writeUnits;
                 SetPause(state, "local_operation_budget_exceeded", null, now, null);
                 Write(path, state);
                 throw Status(state, now).ToException();
             }
-            if (envelopes > _limits.EnvelopesPerDay - state.Envelopes || state.Requests >= _limits.RequestsPerDay || writeUnits > _limits.WriteUnitsPerDay - state.WriteUnits)
+            if (state.Requests >= _limits.RequestsPerDay || !permit && envelopes > 0 &&
+                (envelopes > _limits.EnvelopesPerDay - state.Envelopes || writeUnits > _limits.WriteUnitsPerDay - state.WriteUnits))
             {
                 SetPause(state, "local_budget_exceeded", null, now, NextMidnight(now));
                 Write(path, state);
                 throw Status(state, now).ToException();
             }
+            if (permit)
+            {
+                // Consume durably before any send or reservation that might fail.
+                // Uncertain outcomes require another explicit maintainer decision.
+                ConsumeAttemptPermit(path, origin, singleMutation!);
+                writeUnits = _limits.WriteUnitsPerDay;
+            }
             state.Envelopes = checked(state.Envelopes + envelopes);
             state.Requests = checked(state.Requests + 1);
             state.WriteUnits = checked(state.WriteUnits + writeUnits);
-            if (state.Envelopes >= _limits.EnvelopesPerDay || state.Requests >= _limits.RequestsPerDay || state.WriteUnits >= _limits.WriteUnitsPerDay)
+            if (state.Requests >= _limits.RequestsPerDay || !keepUploadHold &&
+                (state.Envelopes >= _limits.EnvelopesPerDay || state.WriteUnits >= _limits.WriteUnitsPerDay))
                 SetPause(state, "local_budget_exceeded", null, now, NextMidnight(now));
             Write(path, state); // A crash or uncertain request consumes its reservation.
             if (resuming)
@@ -128,11 +163,11 @@ public sealed class PersonalCloudDispatchPolicy
     internal async Task<PersonalCloudDispatchStatus> PauseBudgetAsync(Uri origin, long? oversizedWriteUnits, CancellationToken cancellationToken)
     {
         var path = StatePath(origin);
-        if (MemoryBrakes.TryGetValue(path, out var brake)) return brake;
+        if (ActiveStorageBrake(path) is { } brake) return brake;
         try
         {
             using var fileLock = await AcquireLockAsync(path, cancellationToken).ConfigureAwait(false);
-            var state = Read(path, Origin(origin));
+            var state = ReadForDispatch(path, Origin(origin));
             var now = _clock.GetUtcNow();
             var status = Status(state, now);
             if (status.IsPaused && (state.Code is "daily_quota_exceeded" or "local_operation_budget_exceeded" ||
@@ -153,11 +188,11 @@ public sealed class PersonalCloudDispatchPolicy
     internal async Task<PersonalCloudDispatchStatus> RecordFailureAsync(Uri origin, CancellationToken cancellationToken)
     {
         var path = StatePath(origin);
-        if (MemoryBrakes.TryGetValue(path, out var brake)) return brake;
+        if (ActiveStorageBrake(path) is { } brake) return brake;
         try
         {
             using var fileLock = await AcquireLockAsync(path, cancellationToken).ConfigureAwait(false);
-            var state = Read(path, Origin(origin));
+            var state = ReadForDispatch(path, Origin(origin));
             var status = Status(state, _clock.GetUtcNow());
             if (status.IsPaused) return status;
             AdvanceDay(state, _clock.GetUtcNow());
@@ -222,6 +257,40 @@ public sealed class PersonalCloudDispatchPolicy
         return state;
     }
 
+    // Only called with the cross-process lease. A persistent marker closes the
+    // crash window between quarantine and replacement; it never grants allowance.
+    private DispatchState ReadForDispatch(string path, string origin)
+    {
+        DispatchState? state = null;
+        var invalid = false;
+        try { state = Read(path, origin); }
+        catch (Exception e) when (StorageFailure(e)) { invalid = true; }
+        if (!invalid && !MemoryBrakes.ContainsKey(path) && !File.Exists(path + ".recovering") && !HasFutureClock(state!))
+            return state!;
+
+        var now = _clock.GetUtcNow();
+        state = new DispatchState
+        {
+            Origin = origin, Day = Day(now), Envelopes = _limits.EnvelopesPerDay,
+            Requests = _limits.RequestsPerDay, WriteUnits = _limits.WriteUnitsPerDay,
+        };
+        SetPause(state, "local_budget_exceeded", "dispatch_state_recovered", now, NextMidnight(now));
+        Write(path + ".recovering", state);
+        if (File.Exists(path))
+        {
+            var quarantine = path + "." + Guid.NewGuid().ToString("N") + ".quarantine";
+            File.Move(path, quarantine);
+            PrivateFilePermissions.EnsureFile(quarantine);
+        }
+        Write(path, state);
+        File.Delete(path + ".recovering");
+        MemoryBrakes.TryRemove(path, out _);
+        return state;
+    }
+
+    private bool HasFutureClock(DispatchState state) => string.CompareOrdinal(state.Day, Day(_clock.GetUtcNow())) > 0 ||
+        state.ResumeAt > _clock.GetUtcNow().AddDays(1);
+
     private static void AdvanceDay(DispatchState state, DateTimeOffset now)
     {
         // Clock rollback cannot grant a second daily allowance.
@@ -240,7 +309,7 @@ public sealed class PersonalCloudDispatchPolicy
             WriteUnitLimit = _limits.WriteUnitsPerDay, BlockingWriteUnits = state.BlockingWriteUnits };
     }
 
-    private void Write(string path, DispatchState state)
+    private void Write<T>(string path, T state)
     {
         var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
@@ -256,9 +325,18 @@ public sealed class PersonalCloudDispatchPolicy
         finally { if (File.Exists(temporary)) File.Delete(temporary); }
     }
 
-    private PersonalCloudDispatchStatus StorageBrake(string path) => MemoryBrakes.GetOrAdd(path, _ =>
-        new("dispatch_state_unavailable", null, _clock.GetUtcNow(), null, false, 0, 0,
-            _limits.EnvelopesPerDay, _limits.RequestsPerDay));
+    private PersonalCloudDispatchStatus? ActiveStorageBrake(string path) =>
+        MemoryBrakes.TryGetValue(path, out var brake) && brake.ResumeAt > _clock.GetUtcNow() ? brake : null;
+
+    private PersonalCloudDispatchStatus StorageBrake(string path)
+    {
+        var now = _clock.GetUtcNow();
+        var brake = new PersonalCloudDispatchStatus("dispatch_state_unavailable", null, now, now.AddSeconds(5), false, 0, 0,
+            _limits.EnvelopesPerDay, _limits.RequestsPerDay)
+        { WriteUnitLimit = _limits.WriteUnitsPerDay };
+        MemoryBrakes[path] = brake;
+        return brake;
+    }
 
     private static bool StorageFailure(Exception e) => e is IOException or UnauthorizedAccessException or JsonException;
     private static void SetPause(DispatchState state, string code, string? resource, DateTimeOffset observedAt, DateTimeOffset? resetAt, DateTimeOffset? cloudResetAt = null)
@@ -292,7 +370,8 @@ public sealed class PersonalCloudDispatchPolicy
         }
         public PersonalCloudDispatchStatus Backoff()
         {
-            if ((state.Code is "daily_quota_exceeded" or "local_budget_exceeded") && state.ResumeAt > owner._clock.GetUtcNow())
+            if ((state.Code is "daily_quota_exceeded" or "local_budget_exceeded") &&
+                owner.Status(state, owner._clock.GetUtcNow()).BlocksReads)
                 return owner.Status(state, owner._clock.GetUtcNow());
             state.Failures = Math.Min(20, state.Failures + 1);
             var now = owner._clock.GetUtcNow();

@@ -39,8 +39,12 @@ public sealed class PersonalCloudDeviceIdentityClient(HttpClient http, ICredenti
         RequireText(deviceName, 1, 80, nameof(deviceName));
         var requested = new PairRequest(grant, deviceName.Trim(),
             providerBridge ? ["desktop_sync", "provider_bridge"] : ["desktop_sync"]);
-        using var response = await http.PostAsJsonAsync(new Uri(origin, "/auth/pair"), requested, Json, cancellationToken)
-            .ConfigureAwait(false);
+        using var request = new HttpRequestMessage(HttpMethod.Post, new Uri(origin, "/auth/pair"))
+        {
+            Content = JsonContent.Create(requested, options: Json),
+        };
+        using var response = await PersonalCloudDispatchHttp.SendAsync(http, request, cancellationToken,
+            HttpCompletionOption.ResponseContentRead).ConfigureAwait(false);
         var body = await ReadRequiredAsync<PairResponse>(response, cancellationToken).ConfigureAwait(false);
         RequireProtocol(body.ProtocolVersion);
         RequireIdentifier(body.InstanceId, nameof(body.InstanceId));
@@ -86,8 +90,12 @@ public sealed class PersonalCloudDeviceIdentityClient(HttpClient http, ICredenti
                 cached.Access.InstanceId == stored.InstanceId && cached.Access.DeviceId == stored.DeviceId &&
                 cached.Access.ExpiresAt > _clock.GetUtcNow().AddSeconds(30)) return cached.Access;
 
-            using var response = await http.PostAsJsonAsync(new Uri(origin, "/auth/device/token"),
-                new TokenRequest(stored.DeviceId, stored.RefreshCredential), Json, cancellationToken).ConfigureAwait(false);
+            using var request = new HttpRequestMessage(HttpMethod.Post, new Uri(origin, "/auth/device/token"))
+            {
+                Content = JsonContent.Create(new TokenRequest(stored.DeviceId, stored.RefreshCredential), options: Json),
+            };
+            using var response = await PersonalCloudDispatchHttp.SendAsync(http, request, cancellationToken,
+                HttpCompletionOption.ResponseContentRead).ConfigureAwait(false);
             var body = await ReadRequiredAsync<TokenResponse>(response, cancellationToken).ConfigureAwait(false);
             RequireProtocol(body.ProtocolVersion);
             RequireText(body.AccessToken, 20, 512, nameof(body.AccessToken));
@@ -141,7 +149,7 @@ public sealed class PersonalCloudDeviceIdentityClient(HttpClient http, ICredenti
             Content = JsonContent.Create(new { }),
         };
         request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", access.AccessToken);
-        using var response = await http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        using var response = await PersonalCloudDispatchHttp.SendAsync(http, request, cancellationToken).ConfigureAwait(false);
         var revoked = await ReadRequiredAsync<RevokeResponse>(response, cancellationToken).ConfigureAwait(false);
         RequireProtocol(revoked.ProtocolVersion);
         RequireIdentifier(revoked.DeviceId, nameof(revoked.DeviceId));

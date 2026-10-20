@@ -5,7 +5,7 @@ using Openza.Tasks.Core.PersonalCloud;
 
 namespace Openza.Tasks.Tests;
 
-public sealed class PersonalCloudDispatchBudgetTests : IDisposable
+public sealed partial class PersonalCloudDispatchBudgetTests : IDisposable
 {
     private static readonly Uri Origin = new("https://budget.example.test/");
     private readonly string _directory = Path.Combine(Path.GetTempPath(), "openza-write-budget", Guid.NewGuid().ToString("N"));
@@ -45,7 +45,7 @@ public sealed class PersonalCloudDispatchBudgetTests : IDisposable
     [Theory]
     [InlineData("project.delete")]
     [InlineData("task.moveTree")]
-    public async Task Fanout_reserves_a_whole_daily_budget_and_stops_other_cloud_requests(string operation)
+    public async Task Legacy_fanout_reserves_a_whole_daily_budget_but_keeps_read_requests_available(string operation)
     {
         var policy = Policy();
         var handler = new Handler();
@@ -55,8 +55,10 @@ public sealed class PersonalCloudDispatchBudgetTests : IDisposable
         Assert.Equal(45000, status.ReservedWriteUnits);
         Assert.Equal(0, status.RemainingWriteUnits);
         Assert.Equal("local_budget_exceeded", status.Code);
-        await Assert.ThrowsAsync<PersonalCloudK0ContractException>(() => client.GetAsync(new Uri(Origin, "/health")));
-        Assert.Equal(1, handler.Calls);
+        Assert.False(status.BlocksReads);
+        using (await client.GetAsync(new Uri(Origin, "/health"))) { }
+        Assert.Equal("local_budget_exceeded", (await policy.GetStatusAsync(Origin)).Code);
+        Assert.Equal(2, handler.Calls);
     }
 
     [Theory]
@@ -71,13 +73,14 @@ public sealed class PersonalCloudDispatchBudgetTests : IDisposable
         var error = await Assert.ThrowsAsync<PersonalCloudK0ContractException>(() => client.PostAsync(new Uri(Origin, "/v1/tasks/mutations"), Mutation(operation)));
         Assert.Equal("local_operation_budget_exceeded", error.Code);
         Assert.Null(error.DispatchStatus!.ResumeAt);
-        Assert.Contains("Cloud retries are stopped", error.Message);
+        Assert.Contains("allow-once", error.Message);
         Assert.True(error.DispatchStatus.BlockingWriteUnits > dailyCredits);
         Assert.Equal(0, error.DispatchStatus.AttemptedRequests);
         _clock.Utc = _clock.Utc.AddDays(3);
         using var restarted = PersonalCloudDispatchHttp.Create(Policy(dailyCredits), handler);
-        await Assert.ThrowsAsync<PersonalCloudK0ContractException>(() => restarted.GetAsync(new Uri(Origin, "/health")));
-        Assert.Equal(0, handler.Calls);
+        using (await restarted.GetAsync(new Uri(Origin, "/health"))) { }
+        Assert.Equal("local_operation_budget_exceeded", (await policy.GetStatusAsync(Origin)).Code);
+        Assert.Equal(1, handler.Calls);
     }
 
     [Fact]

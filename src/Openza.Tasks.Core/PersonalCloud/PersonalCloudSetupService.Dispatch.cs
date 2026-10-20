@@ -18,7 +18,7 @@ public sealed partial class PersonalCloudSetupService
 
     private async Task EnsureDispatchAvailableAsync(CancellationToken cancellationToken)
     {
-        if (await GetDispatchStatusAsync(cancellationToken).ConfigureAwait(false) is { IsPaused: true } status)
+        if (await GetDispatchStatusAsync(cancellationToken).ConfigureAwait(false) is { BlocksReads: true } status)
             throw status.ToException();
     }
 }

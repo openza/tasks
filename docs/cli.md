@@ -21,9 +21,28 @@ openza project list
 openza label list
 openza sync status --provider todoist --direction push --scope pending
 openza sync run --provider todoist --direction push --scope pending --yes
+openza cloud-budget status
+openza cloud-budget allow-once --mutation-id MUTATION_ID --sha256 EXACT_SHA256 --yes
 ```
 
 Use `--format text|json|tsv` on any leaf command. JSON responses have a stable `schemaVersion` and `data` envelope. Results go to stdout and diagnostics go to stderr.
+
+`cloud-budget` is a maintainer recovery tool for the current channel's saved
+Personal Cloud origin. `status` reports the exact FIFO head and its immutable
+envelope SHA256 without displaying task contents or credentials. After inspecting
+that operation, `allow-once` grants one attempt for that exact ID and SHA256,
+expiring after 15 minutes. It makes no network request and changes no outbox row;
+use Sync in the app afterward. The permission is durably consumed before sending,
+including uncertain outcomes, and charges a full day's estimated write credits.
+That charge is added to today's existing spending. This is an explicit exception
+to the local upload budget and can take the day's total above its configured
+limit. It is excluded from automatic-budget "below 50%" workload claims and does
+not guarantee an account-wide quota margin. Review the exact operation and current
+usage before granting it. Another attempt requires explicit authorization again.
+It does not bypass a
+confirmed cloud quota, HTTP-attempt limit, backoff or unavailable local storage.
+It cannot target another origin or a later FIFO entry. Source `./dev-cli.sh`
+commands affect only Dev; the installed CLI uses its own channel's data.
 
 The current JSON contract is `schemaVersion: 2` for successful results and structured errors. Version 2 reflects the finalized task detail/mutation shape and priority fields; the previously installed 0.1.0 CLI emitted version 1. Consumers must branch on `schemaVersion` rather than treating versions 1 and 2 as interchangeable. Successful responses use `data`; failures write an `error` object with the same schema version to stderr.
 

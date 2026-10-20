@@ -26,6 +26,7 @@ public sealed class PersonalCloudProviderScopesTests : IDisposable
     {
         foreach (var e in await store.GetPendingPersonalCloudOutboxAsync(Instance, Device))
         {
+            DispatchCostAssertions.Known(e);
             using var envelope = JsonDocument.Parse(e.CanonicalJson);
             var basis = envelope.RootElement.GetProperty("baseEntityVersion");
             await store.AcknowledgePersonalCloudMutationAsync(Instance, Device, PersonalCloudK0Codec.Serialize(new K0MutationReceipt {
@@ -145,6 +146,7 @@ public sealed class PersonalCloudProviderScopesTests : IDisposable
             SettingsJson = TodoistRoutingRuleCodec.Write(new([new("rule_desktop", "Typed label", SpaceIds.Default, null)], null)) });
         await store.EnqueuePersonalCloudTodoistRoutesAsync(Instance, Device, scopeId);
         var first = Assert.Single(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device)); Assert.Equal("provider.intent.request", first.Operation);
+        DispatchCostAssertions.Known(first);
         var resumed = new SqliteTaskStore(store.DatabasePath); await resumed.InitializeAsync();
         await resumed.EnqueuePersonalCloudTodoistRoutesAsync(Instance, Device, scopeId);
         Assert.Equal(first, Assert.Single(await resumed.GetPendingPersonalCloudOutboxAsync(Instance, Device)));

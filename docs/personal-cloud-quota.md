@@ -1,7 +1,8 @@
 # Personal Cloud quota pause and dispatch budget
 
 This client contract implements `quota-pause-v1` alongside the companion
-repository's `docs/quota-pause-v1.md`. It keeps protocol 1, cloud schema 25,
+repository's `docs/quota-pause-v1.md`. It keeps protocol 1, adds optional schema-26
+current-catchup reporting while retaining schema-25 compatibility,
 manifest format 1, healthy capability negotiation and the checked-in artifact pin
 unchanged. [Compatibility and upgrade contract](cloud-upgrade-compatibility.md)
 still distinguishes the packaged preview.9/schema-20 pin from a local candidate.
@@ -26,7 +27,10 @@ material clock difference. Restarts with the same clock offset retain the pause;
 changing the system clock after persistence can change when the local deadline is
 reached. No local policy can prove external UTC elapsed time across arbitrary
 clock changes and restarts without another trusted observation. UTC-day counter
-rollback does not replenish allowance, and a resumed failed request pauses again.
+rollback does not replenish allowance. A future ledger day or a deadline more than
+24 hours ahead is conservatively reanchored to today with today's counters spent;
+it cannot keep dispatch disabled for multiple days after a large clock correction.
+A resumed failed request pauses again.
 
 Workers request exhaustion can occur before Worker code runs. The client accepts
 only a bounded unsuccessful Cloudflare edge response: HTTP 400–599, Server exactly
@@ -69,19 +73,32 @@ The shared `dispatch-budget-v1.json` table defines **45,000 estimated write cred
 3,000 envelopes and 10,000 HTTP attempts per UTC day**. Task patches reserve 25
 credits, task-source refreshes 16, and known single-record operations 50. Rich
 creation adds 10 per label and 16 for an included source. Project deletion and tree
-movement reserve the whole day because their fan-out is not bounded by envelope
-size. Compound batches sum the exact transmitted prefix. Unknown operations and
+movement use the guarded fanout contract below when supported; older Cloud
+instances retain the conservative whole-day reservation. Compound batches sum the
+exact transmitted prefix. Unknown operations and
 operations exceeding the entire allowance produce a visible
 `local_operation_budget_exceeded` hold with no automatic daily retry; their pending
-envelopes remain intact. Failed attempts and retries consume their full charge.
+envelopes remain intact. A channel-scoped maintainer command can authorize one exact
+pending attempt; this explicit recovery path does not automatically retry it every
+day. Failed attempts and retries consume their full charge.
 Credits are conservative workload estimates, not actual D1 rows or account-wide
 quota reservations. Validate these estimates against combined workload scenarios.
 
-A quota or local budget pause suppresses subsequent Worker requests and reporting
-loops until reset. Optional reports record daily exhaustion before swallowing their
-failure; ordinary diagnostic failures remain optional. Failed storage retains an
-in-memory brake and explicitly reports that restart protection was not saved.
-Corrupt state fails closed. Lock contention is a bounded busy result, not corruption.
+A confirmed Cloud quota, HTTP-attempt limit, retry backoff or unavailable storage
+suppresses all Worker requests. Local write-credit/envelope exhaustion and an
+oversized pending operation suppress mutation uploads; health, authentication,
+downloads and checkpoint acknowledgement remain available within the request cap.
+Successful reads do not clear an upload hold. Sync reports the blocked upload after
+pulling, with exact pending envelopes and initial-catchup counts retained.
+
+Optional reports record daily exhaustion before swallowing their failure; ordinary
+diagnostic failures remain optional. Failed storage reports that restart protection
+was not saved and re-probes after five seconds. Once storage works, malformed,
+unreadable or newer-format ledgers are quarantined without discarding the evidence,
+and a durable replacement conservatively spends today. A durable recovery marker
+closes the crash window between quarantine and replacement. The memory brake clears
+only after durable state is restored. Lock contention is a bounded busy result, not
+corruption.
 
 At reset, a serialized request resumes with small jitter. Transient failures use
 bounded exponential backoff. The existing automatic sync timer resumes eligible
@@ -89,6 +106,89 @@ work when automatic sync is enabled; the policy never enables that preference.
 When it is disabled, the user can continue with manual Sync after reset. Personal
 Cloud settings and paused sync results show the exact UTC reset, attempted work
 and remaining pending changes.
+
+Caller/shutdown cancellation propagates without persisting failure backoff. A real
+HttpClient timeout is classified outside its handler, where the original caller
+token can be distinguished from HttpClient's linked timeout token. Reservations
+already made remain consumed in both cases.
+
+## Guarded fanout and explicit single-attempt recovery
+
+Health may advertise `fanoutBudget: { protocolVersion: 1, requestHeader:
+"x-openza-fanout-bound" }`. Only that verified capability enables scaled credits:
+`100 + 12 × N` for each project deletion or tree move. `N` bounds live affected tasks
+plus direct live child projects for deletion, and the live subtree including its
+root for movement. The nonnegative safe-integer header is outside the immutable
+canonical mutation body. The same bound applies separately to every fanout member
+of a batch. No formula is clamped to the daily allowance; no new workspace size cap
+replaces the existing response-size limit.
+
+Desktop uses mutation-bound indirect-version metadata captured during local
+authoring. When that evidence is absent or a bound was stale, a conservative
+whole-workspace task/project count is used, including Cloud records retained after
+local detachment. The Worker enforces the bound atomically against concurrent
+growth. A retryable `409 fanout_bound_exceeded` preserves FIFO and triggers a pull,
+then bounded backoff before a fresh estimate with the same mutation ID, sequence,
+digest and payload. Accepted-receipt lookup precedes bound checks, so changing a
+hint does not invalidate an already accepted retry. Every attempt is charged.
+The paired `fanout-budget-v1.json` fixture records the formula and wire contract;
+the original cost fixture retains legacy weights.
+
+For an unknown or above-budget FIFO head, `openza cloud-budget status` reports its
+ID and exact-envelope SHA256 and prints the explicit `allow-once` command. The
+current channel and saved origin scope the permission; a later entry or changed
+digest is rejected. Permission expires in 15 minutes and is durably consumed before
+one single-envelope attempt, even if cancellation or an uncertain result follows.
+That attempt adds a full day's write-credit charge to spending already recorded;
+it can exceed the configured local daily write/envelope budget. It requires another
+explicit decision to retry. It never bypasses confirmed Cloud quota, the HTTP cap, backoff or
+failed durable storage. It sends no request itself; use Sync afterward. See the
+[CLI contract](cli.md). The exemption is a maintainer tradeoff, not a guarantee that
+arbitrary fanout fits a daily D1 allowance or the Cloud response-size limit.
+It is excluded from the automatic daily-budget model and any "below 50%" result
+for measured automatic workloads. Review the exact entry, fanout and current usage
+before granting this exception. Neither the automatic model nor an exemption is
+an account-global quota reservation or guarantee.
+
+## Current catch-up status and Web bulk work
+
+Initial-upload status is terminal and describes only the initial seed. It cannot
+prove that a later backlog has drained. A separate optional health capability,
+`catchupStatus: { protocolVersion: 1, path: "/sync/catchup-status",
+staleAfterSeconds: 900 }`, enables authenticated reports containing only protocol
+version, a durable monotonic report sequence, `catching_up`/`idle`, and exact
+pending-envelope count. Reports run before upload and after passes/holds; unchanged
+status has a five-minute heartbeat bound during normal sync. Old Cloud instances
+receive no calls to this endpoint. Global dispatch gates still apply.
+
+Desktop captures a durable backlog watermark for incomplete initial preparation or
+seed, deferred recovery, prior-UTC-day pending work, an upload-budget hold, or
+pending conservative credits exceeding one full daily allowance. Fresh normal
+provider/note changes under that allowance do not trigger catch-up merely because
+there are many envelopes. Once catch-up starts, it stays active until the entire
+current pending queue is empty and initial/recovery work is complete; newer edits
+cannot hide an unfinished backlog. Normal small fresh queues may remain `idle`.
+
+The private report journal is separate from daily counters and keyed by origin,
+instance and device. Each sequence is saved before HTTP. A stale report response
+returns the current server sequence; the client persists that maximum and samples
+fresh state at the next pass instead of replaying an old idle report. Corrupt
+journals are preserved in quarantine and start conservatively as `catching_up`
+until sequence recovery succeeds. Unwritable/unconfirmed metadata is visibly
+unknown while downloads, local work and proven ordinary edits remain available;
+no mutation identity is reset. On a negotiated Cloud, a triggered backlog needs a
+current accepted `catching_up` report before its first upload. Failed, rejected or
+unpersistable reports produce a recoverable upload-only `catchup_status_unavailable`
+result for that pass. The next normal pass samples fresh state and retries; it does
+not install a permanent quota hold. This prevents a previously fresh server idle
+record from admitting Web bulk work while Desktop starts an unreported backlog.
+
+Large new Web changes are deferred until the UTC day after Desktop catch-up
+finishes. The server timestamps completion, preserves idle heartbeat history and
+enforces its Web daily credit admission. Missing/stale status fails closed for bulk
+admission. Ordinary Web edits and downloads remain available. This is measured
+workload scheduling, not an account-global quota reservation or a guarantee for
+arbitrary workspaces. Offline Desktop clients cannot prove fresh catch-up status.
 
 ## Receipts and interrupted work
 

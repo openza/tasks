@@ -1,0 +1,21 @@
+{
+  "formatVersion":1,
+  "capability":{"protocolVersion":1,"requestHeader":"x-openza-fanout-bound"},
+  "baseCredits":100,
+  "perEntityCredits":12,
+  "legacyCredits":45000,
+  "error":{"status":409,"code":"fanout_bound_exceeded","retryable":true},
+  "countPolicy":"project.delete: live affected tasks plus live direct child projects; task.moveTree: live whole subtree including root",
+  "requestPolicy":"One nonnegative safe-integer upper bound applies separately to every fanout envelope; header is outside immutable canonical mutation bodies",
+  "retryPolicy":"Every dispatch reserves its full cost; no refund. Exact accepted receipt precedes bound checks. Refresh and reestimate a stale bound with the same envelope, ID, sequence and digest.",
+  "overflowPolicy":"Do not clamp the formula to the daily allowance; retain pending operations above that allowance for an explicitly approved one-attempt path",
+  "cases":[
+    {"bound":0,"credits":100},
+    {"bound":1,"credits":112},
+    {"bound":10,"credits":220},
+    {"bound":100,"credits":1300},
+    {"bound":900,"credits":10900},
+    {"bound":3500,"credits":42100},
+    {"bound":6100,"credits":73300}
+  ]
+}

@@ -207,6 +207,7 @@ public sealed class PersonalCloudWorkspaceTests : IDisposable
 
     private static async Task AckAsync(SqliteTaskStore store, PersonalCloudK1OutboxEntry entry)
     {
+        DispatchCostAssertions.Known(entry);
         using var document = JsonDocument.Parse(entry.CanonicalJson);
         var basis = document.RootElement.GetProperty("baseEntityVersion");
         await store.AcknowledgePersonalCloudMutationAsync(Instance, Device, PersonalCloudK0Codec.Serialize(new K0MutationReceipt {
@@ -222,6 +223,7 @@ public sealed class PersonalCloudWorkspaceTests : IDisposable
         await store.ApplyPersonalCloudChangePageAsync(Instance, Device, Page(1, [Space()], [Project(), child], [TaskRecord()]));
         await store.DeleteProjectWithPersonalCloudIntentAsync("project_test", Instance, Device);
         var deletion = Assert.Single(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device));
+        Assert.Equal(2, await store.GetPersonalCloudFanoutBoundAsync(deletion)); // Task plus direct child project.
         // An older complete echo must not overwrite indirect optimistic changes.
         await store.ApplyPersonalCloudChangePageAsync(Instance, Device, Page(2, tasks: [TaskRecord(version: 2)]));
         Assert.Null((await store.GetTaskAsync("task_test"))!.ProjectId);
@@ -248,6 +250,7 @@ public sealed class PersonalCloudWorkspaceTests : IDisposable
         var leaf = With(TaskRecord("task_leaf"), ("parentId", "task_child"));
         await store.ApplyPersonalCloudChangePageAsync(Instance, Device, Page(1, [Space(), Space("space_destination", name: "Destination")], [Project()], [TaskRecord(), child, leaf]));
         var move = Assert.Single(await store.MoveTaskTreeToSpaceWithPersonalCloudIntentAsync("task_test", "space_destination", "Destination", new Dictionary<string, long> { ["task_test"] = 1 }, Instance, Device));
+        Assert.Equal(3, await store.GetPersonalCloudFanoutBoundAsync(move));
         await store.ApplyPersonalCloudChangePageAsync(Instance, Device, Page(2, tasks: [With(TaskRecord("task_leaf", 2), ("parentId", "task_child"))]));
         Assert.Equal("space_destination", (await store.GetTaskAsync("task_leaf"))!.SpaceId);
         await AckAsync(store, move);

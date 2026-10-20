@@ -6,7 +6,7 @@ using Openza.Tasks.Core.PersonalCloud;
 
 namespace Openza.Tasks.Tests;
 
-public sealed class PersonalCloudDispatchPolicyTests : IDisposable
+public sealed partial class PersonalCloudDispatchPolicyTests : IDisposable
 {
     private static readonly Uri Origin = new("https://quota.example.test/");
     private readonly string _directory = Path.Combine(Path.GetTempPath(), "openza-quota", Guid.NewGuid().ToString("N"));
@@ -227,7 +227,7 @@ public sealed class PersonalCloudDispatchPolicyTests : IDisposable
     }
 
     [Fact]
-    public async Task Corrupt_or_unwritable_ledger_fails_closed_and_reports_restart_safety()
+    public async Task Corrupt_ledger_is_quarantined_and_rebuilt_spent_while_unwritable_storage_reports_restart_safety()
     {
         var policy = Policy();
         using (var client = PersonalCloudDispatchHttp.Create(policy, new Handler(_ => new(HttpStatusCode.OK))))
@@ -236,9 +236,11 @@ public sealed class PersonalCloudDispatchPolicyTests : IDisposable
         var handler = new Handler(_ => new(HttpStatusCode.OK));
         using var corrupt = PersonalCloudDispatchHttp.Create(Policy(), handler);
         var error = await Assert.ThrowsAsync<PersonalCloudK0ContractException>(() => corrupt.GetAsync(new Uri(Origin, "/health")));
-        Assert.Equal("dispatch_state_unavailable", error.Code);
-        Assert.False(error.DispatchStatus!.IsDurable);
-        Assert.Contains("not restart-safe", error.Message);
+        Assert.Equal("local_budget_exceeded", error.Code);
+        Assert.True(error.DispatchStatus!.IsDurable);
+        Assert.Equal("dispatch_state_recovered", error.DispatchStatus.Resource);
+        Assert.Equal(10000, error.DispatchStatus.AttemptedRequests);
+        Assert.Equal("{", File.ReadAllText(Assert.Single(Directory.GetFiles(_directory, "*.quarantine"))));
         Assert.Equal(0, handler.Calls);
 
         var file = Path.Combine(_directory, "not-a-directory");

@@ -11,6 +11,7 @@ public sealed partial class PersonalCloudSyncClient
     private PersonalCloudMutationBatchCapability? _batchCapability;
     private bool _supportsWorkspace;
     private bool _supportsProviderScopes;
+    private bool _supportsFanoutBudget;
     private sealed class BatchEndpointUnavailableException : Exception { }
 
     private async Task<(int Pushed, string? Blocked)> PushPendingAsync(IReadOnlyList<PersonalCloudK1OutboxEntry> pending,
@@ -27,6 +28,7 @@ public sealed partial class PersonalCloudSyncClient
             {
                 string response;
                 using var request = CreateAuthorizedRequest(HttpMethod.Post, "/v1/tasks/mutations/batch", accessToken);
+                ApplyFanoutBound(request, value.Items);
                 request.Content = new StringContent(value.Json, Encoding.UTF8, "application/json");
                 try { response = await SendForJsonAsync(request, cancellationToken, batchRequest: true).ConfigureAwait(false); }
                 catch (BatchEndpointUnavailableException)
@@ -46,6 +48,11 @@ public sealed partial class PersonalCloudSyncClient
                 }
                 if (receipt.ErrorCode is { } code)
                 {
+                    if (code == "fanout_bound_exceeded")
+                    {
+                        await RememberStaleFanoutAsync(value.Items[receipt.Receipts.Count], cancellationToken).ConfigureAwait(false);
+                        return (pushed, code);
+                    }
                     if (code == "daily_quota_exceeded")
                     {
                         var status = PersonalCloudDispatchHttp.PolicyFor(http) is { } dispatch
@@ -60,9 +67,15 @@ public sealed partial class PersonalCloudSyncClient
             }
             var mutation = pending[pushed];
             using var single = CreateAuthorizedRequest(HttpMethod.Post, "/v1/tasks/mutations", accessToken);
+            ApplyFanoutBound(single, [mutation]);
             single.Content = new StringContent(mutation.CanonicalJson, Encoding.UTF8, "application/json");
             string receiptJson;
             try { receiptJson = await SendForJsonAsync(single, cancellationToken).ConfigureAwait(false); }
+            catch (PersonalCloudK0ContractException exception) when (exception.Code == "fanout_bound_exceeded")
+            {
+                await RememberStaleFanoutAsync(mutation, cancellationToken).ConfigureAwait(false);
+                return (pushed, exception.Code);
+            }
             catch (PersonalCloudK0ContractException exception) when (IsPermanentMutationRejection(exception.Code))
             { return (pushed, exception.Code); }
             SqliteTaskStore.ValidatePersonalCloudMutationReceipt(mutation, receiptJson);
@@ -81,6 +94,8 @@ public sealed partial class PersonalCloudSyncClient
         _supportsProviderScopes = catalogProtocol == 2;
         _batchCapability = null;
         _supportsWorkspacePaging = false;
+        _supportsFanoutBudget = false;
+        _supportsCatchupStatus = false;
         try
         {
             var health = await new PersonalCloudHealthClient(http).InspectAsync(connection.ServiceOrigin, cancellationToken).ConfigureAwait(false);
@@ -90,6 +105,8 @@ public sealed partial class PersonalCloudSyncClient
             _supportsWorkspace = health.SupportsWorkspace;
             _supportsProviderScopes = health.ProviderCatalogProtocolVersion == 2;
             _supportsWorkspacePaging = health.SupportsWorkspacePaging;
+            _supportsFanoutBudget = health.SupportsFanoutBudget;
+            _supportsCatchupStatus = health.SupportsCatchupStatus;
             await store.SavePersonalCloudWorkspaceCapabilitiesAsync(connection.InstanceId, health.SupportsWorkspace, health.SupportsProviderCatalog, cancellationToken, health.ProviderCatalogProtocolVersion).ConfigureAwait(false);
         }
         catch (PersonalCloudK0ContractException exception) when (exception.Code == "health_unsupported" && !_supportsWorkspace && catalogProtocol == 0)
@@ -111,13 +128,15 @@ public sealed partial class PersonalCloudSyncClient
     private (string Json, IReadOnlyList<PersonalCloudK1OutboxEntry> Items)? BuildBatch(IReadOnlyList<PersonalCloudK1OutboxEntry> pending, int start)
     {
         if (_batchCapability is not { } capability) return null;
-        if (PersonalCloudDispatchHttp.PolicyFor(http) is not null && pending[start].Operation is "project.delete" or "task.moveTree")
-            return null; // A whole-day reservation must not be spent probing a batch route before single fallback.
+        if (pending[start].MutationId == _singleAttemptMutationId) return null;
+        if (PersonalCloudDispatchHttp.PolicyFor(http) is not null && PersonalCloudMutationCost.IsFanout(pending[start].Operation))
+            return null; // A failed route probe must not double-reserve a fanout attempt.
         var items = new List<PersonalCloudK1OutboxEntry>();
         string? json = null;
         for (var index = start; index < pending.Count && items.Count < capability.MaxMutations; index++)
         {
             if (!_supportsWorkspace && IsWorkspaceOperation(pending[index].Operation)) break;
+            if (items.Count > 0 && PersonalCloudMutationCost.IsFanout(pending[index].Operation)) break;
             if (!_supportsProviderScopes && IsScopedProviderOperation(pending[index])) break;
             if (items.Count > 0 && pending[index].DeviceSequence != items[^1].DeviceSequence + 1) break;
             items.Add(pending[index]);
@@ -170,6 +189,9 @@ public sealed partial class PersonalCloudSyncClient
                     error.GetProperty("requestId").ValueKind != JsonValueKind.String ||
                     error.GetProperty("retryable").ValueKind is not (JsonValueKind.True or JsonValueKind.False)) throw InvalidBatch();
                 errorCode = error.GetProperty("code").GetString();
+                if (errorCode == "fanout_bound_exceeded" && (error.GetProperty("retryable").ValueKind != JsonValueKind.True ||
+                    !_supportsFanoutBudget || !PersonalCloudMutationCost.IsFanout(submitted[processed].Operation)))
+                    throw InvalidBatch();
                 if (string.IsNullOrWhiteSpace(errorCode) || errorCode.Length > 128) throw InvalidBatch();
             }
             var result = new List<string>();

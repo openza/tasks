@@ -44,6 +44,12 @@ public sealed partial class PersonalCloudSetupService
             var tracking = initial is { IsComplete: false };
             client = new PersonalCloudSyncClient(syncHttp, deviceIdentity, taskStore, current,
                 tracking ? (phase, token) => PublishInitialProgressAsync(current, phase, cancellationToken: token) : null);
+            async Task<PersonalCloudSyncResult> FinishAsync(PersonalCloudSyncResult result)
+            {
+                var finished = await FinishPassAsync(current, result, tracking, cancellationToken).ConfigureAwait(false);
+                await client.ReportCatchupStatusAsync(cancellationToken).ConfigureAwait(false);
+                return finished;
+            }
             await client.DiscoverCapabilitiesAsync(cancellationToken).ConfigureAwait(false);
             if (initial is { IsComplete: true })
                 await ReportInitialProgressAsync(current, initial, true, cancellationToken).ConfigureAwait(false);
@@ -56,7 +62,7 @@ public sealed partial class PersonalCloudSetupService
             }
             var firstPass = await client.SyncAsync(cancellationToken).ConfigureAwait(false);
             if (firstPass.BlockedCode is not null)
-                return await FinishPassAsync(current, firstPass, tracking, cancellationToken).ConfigureAwait(false);
+                return await FinishAsync(firstPass).ConfigureAwait(false);
 
             var staged = await taskStore.StageUnpublishedTasksForPersonalCloudAsync(current.InstanceId, current.DeviceId, cancellationToken).ConfigureAwait(false);
             var pushed = firstPass.PushedMutations;
@@ -72,10 +78,10 @@ public sealed partial class PersonalCloudSetupService
                     pulled = checked(pulled + pass.PulledChanges);
                     checkpoint = pass.Checkpoint;
                     if (pass.BlockedCode is not null)
-                        return await FinishPassAsync(current, new(pushed, pulled, checkpoint) { BlockedCode = pass.BlockedCode }, tracking, cancellationToken).ConfigureAwait(false);
+                        return await FinishAsync(new(pushed, pulled, checkpoint) { BlockedCode = pass.BlockedCode }).ConfigureAwait(false);
                 }
             }
-            return await FinishPassAsync(current, new(pushed, pulled, checkpoint), tracking, cancellationToken).ConfigureAwait(false);
+            return await FinishAsync(new(pushed, pulled, checkpoint)).ConfigureAwait(false);
         }
         catch (Exception exception)
         {
@@ -119,7 +125,9 @@ public sealed partial class PersonalCloudSetupService
         {
             var progress = await taskStore.GetPersonalCloudInitialSyncProgressAsync(current.InstanceId, current.DeviceId, cancellationToken).ConfigureAwait(false);
             if (result.BlockedCode is not null)
-                await PublishInitialProgressAsync(current, PersonalCloudInitialSyncPhase.Blocked, "conflict", cancellationToken).ConfigureAwait(false);
+                await PublishInitialProgressAsync(current, PersonalCloudInitialSyncPhase.Blocked,
+                    result.BlockedCode is "local_budget_exceeded" or "local_operation_budget_exceeded" or "fanout_bound_exceeded" or "catchup_status_unavailable"
+                        ? result.BlockedCode : "conflict", cancellationToken).ConfigureAwait(false);
             else if (progress is { Total: not null } && progress.Acknowledged == progress.Total
                 && await taskStore.GetDeferredPersonalCloudChangeCountAsync(current.InstanceId, cancellationToken).ConfigureAwait(false) == 0)
                 await PublishInitialProgressAsync(current, PersonalCloudInitialSyncPhase.Complete, cancellationToken: cancellationToken).ConfigureAwait(false);
@@ -165,8 +173,9 @@ public sealed partial class PersonalCloudSetupService
         await _reportGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            // The local brake also stops optional token/report activity and sequence churn.
-            if (await GetDispatchStatusAsync(cancellationToken).ConfigureAwait(false) is { IsPaused: true }) return;
+            // Global brakes stop optional traffic too. Upload-only holds can still
+            // report an incomplete seed without blocking downloads.
+            if (await GetDispatchStatusAsync(cancellationToken).ConfigureAwait(false) is { BlocksReads: true }) return;
             if (!heartbeat && _lastReportedPhase == progress.Phase && DateTimeOffset.UtcNow - _lastReportAt < TimeSpan.FromSeconds(30)) return;
             _lastReportAt = DateTimeOffset.UtcNow;
             _lastReportedPhase = progress.Phase;
@@ -183,11 +192,15 @@ public sealed partial class PersonalCloudSetupService
                 ["state"] = progress.IsComplete ? "complete" : blocked ? "blocked" : "uploading",
                 ["acknowledged"] = progress.Acknowledged, ["total"] = progress.Total,
             };
-            if (blocked) payload["errorCode"] = progress.ErrorCode ?? "unknown";
+            // The legacy initial-status endpoint has a fixed allowlist. Keep
+            // detailed local dispatch reasons local; this endpoint is not general
+            // catch-up telemetry after its terminal initial-complete state.
+            if (blocked) payload["errorCode"] = progress.ErrorCode is "offline" or "unauthorized" or "cloud_unavailable" or "conflict" or "interrupted" or "unknown"
+                ? progress.ErrorCode : "cloud_unavailable";
             using var request = new HttpRequestMessage(HttpMethod.Post, new Uri(current.ServiceOrigin, "/sync/initial-status"));
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", access.AccessToken);
             request.Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
-            using var response = await syncHttp.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token).ConfigureAwait(false);
+            using var response = await PersonalCloudDispatchHttp.SendAsync(syncHttp, request, timeout.Token).ConfigureAwait(false);
             // Optional diagnostics: unsupported endpoints, revoked auth, timeouts and all HTTP failures preserve real sync.
         }
         catch (Exception) { /* Progress reporting must never discard or fail task delivery. */ }
