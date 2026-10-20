@@ -1,9 +1,17 @@
 # Windows continuity
 
-Continuity development uses Windows-compatible C# and synthetic integration tests
-on Ubuntu. OS-specific behavior stays behind platform services. WinUI remains the
-Windows Store host in maintenance; native packaging, MSIX upgrade validation and
-Store replacement are later release work.
+WinUI is frozen: its last Microsoft Store release is final, with no further
+releases or maintenance. Keep the project as the final Store baseline and
+continuity reference. Existing Store users remain on that release until a future
+Avalonia replacement passes acceptance.
+
+All active desktop development uses Avalonia across operating systems. Linux Snap
+ships first; Windows Avalonia packaging, MSIX upgrade validation and Store
+replacement come later. Windows continuity development remains active behind its
+Dev gate, using Windows-compatible C# and synthetic integration tests on Ubuntu.
+OS-specific behavior stays behind platform services. The nonblocking Windows CI
+job builds Avalonia and runs the shared suite; it does not build WinUI or establish
+native package acceptance. Linux build/tests and Snap validation remain required.
 
 The transition covers the matching WinUI-to-Avalonia package only. Automatic import
 of Flutter-era or other legacy stores is excluded.
@@ -21,8 +29,9 @@ of Flutter-era or other legacy stores is excluded.
 
 Keep test fixtures separate from live installations, and never point both hosts at
 the same writable database. Preview/Production installation, replacement and Store
-release require maintainer release approval. WinUI retirement also depends on
-resolving the reconnect and initial-sync policies below.
+release require maintainer release approval. A future Avalonia replacement also
+depends on resolving the reconnect and initial-sync policies below; freezing WinUI
+does not bypass those gates or authorize a new WinUI release.
 
 ## Dev implementation and open policies
 
@@ -120,8 +129,10 @@ association, architecture and OS constraints; keep private Store metadata out of
 
 1. Select an isolated Windows fixture and the reconnect/sync-off/sign-in policies.
    Preserve consistent originals; start with synthetic data and test accounts.
-2. Build/sign/install a Dev WinUI fixture and update it with a real Dev Avalonia
-   package. Record source, package identities/versions and before/after state.
+2. Use the frozen final WinUI baseline as an isolated Dev fixture, then update it
+   with a real Dev Avalonia package. Any fixture construction is validation-only,
+   not WinUI maintenance or a release. Record source, package identities/versions
+   and before/after state.
 3. Validate local task behavior, settings, activation, interrupted recovery,
    credentials and pairing. Use disposable provider accounts and cloud deployments.
 4. Resolve failures before a Preview trial or Store replacement. Source builds and

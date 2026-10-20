@@ -2,7 +2,7 @@
 
 ## Direction and contract authority
 
-Openza Tasks is a local-first task app with an optional cloud controlled by the user. Avalonia receives active desktop development using its built-in Fluent theme and controls. Windows is the major target, Linux is supported, and macOS is deferred. All active code remains Windows-compatible; shared logic avoids Linux-only assumptions and delegates OS specifics to platform services. WinUI is the current Store host in necessary maintenance. Windows continuity is active on Ubuntu through C# compilation and synthetic/integration work; native build/validation, packaging/distribution, MSIX upgrade testing and Store replacement are not current priorities. The [acceptance gates](windows-transition.md) still apply before replacement.
+Openza Tasks is a local-first task app with an optional cloud controlled by the user. Avalonia owns all active desktop development across operating systems using its built-in Fluent theme and controls. Linux Snap is the first release target; Windows Avalonia distribution comes later, and macOS is deferred. All active code remains Windows-compatible; shared logic avoids Linux-only assumptions and delegates OS specifics to platform services. WinUI is frozen: its last Microsoft Store release is final, with no further releases or maintenance. Existing Store users remain on that release until a future Avalonia replacement passes the [acceptance gates](windows-transition.md). Windows continuity stays active on Ubuntu through C# compilation and synthetic/integration work behind its Dev gate; native packaging, MSIX upgrade testing and Store replacement come later.
 
 Lightweight [behavior contracts](behavior-contracts.md) are the product source of truth. Avalonia is the practical reference for ordinary desktop interactions. Existing protocol documents retain their detailed wire contracts; historical staged checkpoints are not a complete description of today's UI. Resolve discrepancies explicitly rather than copying behavior between hosts blindly.
 
@@ -26,8 +26,8 @@ The SQLite schema is internal to the app. It is not a public plugin contract yet
 
 Openza Tasks has two application hosts over the same cross-platform Core:
 
-- `Openza.Tasks` is the Windows-native WinUI 3 app and remains the current Windows Store distribution during maintenance/transition.
-- `Openza.Tasks.Desktop` is the Avalonia app and active desktop implementation reference. It owns desktop presentation and platform integrations without introducing Avalonia dependencies into Core or Application.
+- `Openza.Tasks` retains the frozen final WinUI 3 Store host and continuity reference. Keep the project without further maintenance or releases.
+- `Openza.Tasks.Desktop` is the Avalonia app for all active desktop development across operating systems. It owns desktop presentation and platform integrations without introducing Avalonia dependencies into Core or Application.
 - `Openza.Tasks.Application` owns shared application operations and runtime coordination over Core. Hosts still have direct store call sites; this is not a claim that presentation orchestration is already fully separated.
 
 The hosts do not share UI code. Data models, SQLite storage, provider synchronization, import/export, and backup behavior belong in `Openza.Tasks.Core` when they are platform-neutral. Credentials, notifications, launch behavior, packaging, and other OS integrations remain host-specific.
@@ -79,7 +79,7 @@ Global search is available as a temporary navigation overlay. It starts in Curre
 
 For a clean new database, Openza creates one default space. If setup/import tooling creates spaces first, the app does not add an extra empty default space.
 
-The fresh-start Store rule excludes automatic import of legacy Flutter-era stores. Guarded WinUI-to-Avalonia continuity is distinct active development behind a Dev gate; native package replacement is not a current priority. Other legacy app stores are excluded from that transition.
+The fresh-start Store rule excludes automatic import of legacy Flutter-era stores. Guarded WinUI-to-Avalonia continuity is distinct active development behind a Dev gate; Windows Avalonia packaging and replacement come after Linux Snap. The frozen WinUI Store release remains installed for existing users until replacement acceptance. Other legacy app stores are excluded from that transition.
 
 ## Task Model
 

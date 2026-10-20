@@ -2,7 +2,7 @@
 
 **A simple local-first task app that grows with you, with an optional cloud you control.**
 
-Openza Tasks supports fast local capture and completion without requiring projects or a planning method. Avalonia is the desktop implementation reference, with Windows as the major target and Linux supported. All active code remains Windows-compatible. The current Windows Store edition uses WinUI 3 and receives necessary maintenance. [Windows continuity work](docs/windows-transition.md) is active; native builds, packaging and distribution are not current priorities. Both hosts use the shared SQLite core. macOS is deferred.
+Openza Tasks supports fast local capture and completion without requiring projects or a planning method. Avalonia is the host for all active desktop development across operating systems. Linux Snap ships first; Windows Avalonia distribution comes later, and active code remains Windows-compatible. The WinUI 3 edition is frozen: its last Microsoft Store release is final, with no further releases or maintenance. Existing Store users remain on that release until a future Avalonia replacement passes the [Windows continuity requirements](docs/windows-transition.md). Both projects retain the shared SQLite core. macOS is deferred.
 
 Openza Tasks is maintained by Deependra Solanky as a personal open-source project. Microsoft sign-in may show the Openza app name with the `solanky.dev` publisher/contact identity.
 
@@ -11,7 +11,7 @@ User guide: [solanky.dev/openza/tasks](https://solanky.dev/openza/tasks/)
 ## Features
 
 - **Avalonia desktop app** - active desktop development for Windows and Linux
-- **Current Windows Store app** - WinUI 3, MSIX packaging, Mica where available during transition
+- **Existing Windows Store app** - final frozen WinUI 3 release, retained for current users until a future Avalonia replacement
 - **Local-first storage** - tasks, projects, labels, backups, and imports live on your device
 - **Provider sync** - optional Todoist and Microsoft To Do reconnect/sync
 - **Optional Personal Cloud (unreleased development)** - user-owned Cloudflare deployment for sync and an online-first web companion; task data is access-controlled, not end-to-end encrypted, and provider tokens stay on desktop. This is not included in public version 1.1.0.
@@ -89,44 +89,29 @@ documented in [docs/snap-release.md](docs/snap-release.md).
 Integration configuration and remaining native acceptance checks are documented
 in [docs/avalonia-parity.md](docs/avalonia-parity.md).
 
-### Current WinUI Windows host prerequisites
+### Windows Avalonia development
 
-Reference for WinUI maintenance and later native validation. Active Windows continuity work uses Ubuntu-safe C# compilation, design and synthetic/integration tests. Native builds/validation, packaging/distribution, MSIX upgrade tests and Store replacement are not current priorities. OS-specific code stays behind platform services.
-
-- Windows 10 22H2 or Windows 11
-- .NET 10 SDK
-- Visual Studio 2026 Community or newer with:
-  - .NET desktop development
-  - Universal Windows Platform development
-  - Windows App SDK C# components
-
-Microsoft's WinUI setup can install the required workloads:
+Install the .NET 10 SDK. From the desktop project directory, build Avalonia and run
+the shared suite:
 
 ```powershell
-winget configure -f https://aka.ms/winui-config
+cd src/Openza.Tasks.Desktop
+dotnet restore ../Openza.Tasks.Tests/Openza.Tasks.Tests.csproj
+dotnet test ../Openza.Tasks.Tests/Openza.Tasks.Tests.csproj -c Release --no-restore
+dotnet build Openza.Tasks.Desktop.csproj -c Release --no-restore
 ```
 
-### Build And Test
-
-```powershell
-dotnet restore Openza.Tasks.slnx
-dotnet test src\Openza.Tasks.Tests\Openza.Tasks.Tests.csproj -c Release
-dotnet build src\Openza.Tasks\Openza.Tasks.csproj -c Release -p:Platform=x64 --no-restore
-```
-
-### Run In Visual Studio
-
-1. Open `Openza.Tasks.slnx`.
-2. Select the `Openza Tasks` launch profile.
-3. Use `x64`.
-4. In Configuration Manager, enable **Build** and **Deploy** for `Openza.Tasks`.
-5. Press F5.
+CI requires Linux build/tests and Snap validation. Its Windows Avalonia build and
+shared-suite job is nonblocking and does not build WinUI. Windows continuity remains
+active behind its explicit Dev gate; ordinary source builds do not enable it or
+prove installed-package, vault or sign-in continuity. Windows packaging and Store
+replacement are later work. Keep OS-specific code behind platform services.
 
 ## Architecture
 
 ```text
 src/
-  Openza.Tasks/        WinUI 3 packaged app
+  Openza.Tasks/        Frozen final WinUI Store host and continuity reference
   Openza.Tasks.Desktop/ Avalonia desktop app
   Openza.Tasks.Application/ UI-independent operations and runtime coordination
   Openza.Tasks.Core/   SQLite data, backups, import/export, provider sync
@@ -137,10 +122,10 @@ The sync engine is C# in `Openza.Tasks.Core`. Historical Rust FFI work is preser
 
 ## Legacy Flutter App
 
-The last Flutter-era mainline is preserved on the [`legacy-flutter-app`](https://github.com/openza/tasks/tree/legacy-flutter-app) branch. Active desktop development targets Avalonia in `src/Openza.Tasks.Desktop/`; WinUI in `src/Openza.Tasks/` receives necessary maintenance until the transition is accepted.
+The last Flutter-era mainline is preserved on the [`legacy-flutter-app`](https://github.com/openza/tasks/tree/legacy-flutter-app) branch. All active desktop development targets Avalonia in `src/Openza.Tasks.Desktop/`; the frozen WinUI project in `src/Openza.Tasks/` remains as the final Store baseline and continuity reference.
 
 See [docs/architecture.md](docs/architecture.md) for architecture and the task model, [behavior contracts](docs/behavior-contracts.md) for product semantics, and [docs/TODO.md](docs/TODO.md) for the ordered follow-up work.
-See [docs/design-guidelines.md](docs/design-guidelines.md) for the built-in Avalonia Fluent baseline and the separate WinUI maintenance reference.
+See [docs/design-guidelines.md](docs/design-guidelines.md) for the built-in Avalonia Fluent baseline and historical WinUI design reference.
 
 Microsoft To Do and OneDrive backup use Openza's built-in public Microsoft app registration. Developers can override the public client ID at build time for testing, but normal users do not need to configure Azure app registrations or client IDs.
 

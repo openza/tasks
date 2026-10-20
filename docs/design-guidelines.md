@@ -6,11 +6,11 @@ Openza Tasks aims for a calm, focused task interface. Its brand palette comes fr
 
 Use Avalonia's built-in controls and `FluentTheme`, following its official [theme](https://docs.avaloniaui.net/docs/styling/themes) and [styling guidance](https://docs.avaloniaui.net/docs/styling/style-best-practices). Keep the existing Avalonia resources, bindings and commands; use theme resources for light/dark variants, readable contrast and focus states. Preserve keyboard and accessibility behavior. Another theme library is not selected.
 
-The [behavior contracts](behavior-contracts.md) define task semantics. Avalonia is the active desktop interaction reference; visual cleanup must not choose a new workflow policy. Keep all active code Windows-compatible and put OS specifics behind platform services. Windows continuity development is active on Ubuntu; native builds/validation, packaging and distribution are not current priorities.
+The [behavior contracts](behavior-contracts.md) define task semantics. Avalonia owns all active desktop development across operating systems; visual cleanup must not choose a new workflow policy. Linux Snap ships first, with Windows Avalonia distribution later. Keep all active code Windows-compatible and put OS specifics behind platform services. Windows continuity development remains active on Ubuntu behind its Dev gate; native packaging and replacement acceptance come later.
 
-## WinUI maintenance reference
+## Historical WinUI design reference
 
-The remaining sections describe the existing **Openza Calm Fluent** WinUI host. WinUI control names, XAML resource keys, Mica and Windows-specific examples apply to necessary WinUI maintenance, not to Avalonia APIs or a required screen-by-screen port. Retain this reference while WinUI remains the Store host.
+WinUI is frozen: its last Microsoft Store release is final, with no further releases or maintenance. Keep its project and retain existing Store installations until a future Avalonia replacement passes acceptance. The remaining sections describe the frozen **Openza Calm Fluent** WinUI baseline for historical and continuity reference. WinUI control names, XAML resource keys, Mica and Windows-specific examples describe that baseline; they do not prescribe Avalonia APIs or a screen-by-screen port. Apply the active Avalonia baseline above to all new UI work.
 
 ## Product Personality
 

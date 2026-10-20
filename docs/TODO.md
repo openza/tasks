@@ -2,8 +2,11 @@
 
 [Behavior contracts](behavior-contracts.md) define task semantics and open product
 decisions. [Architecture](architecture.md) defines implementation boundaries.
-Avalonia is the desktop interaction reference; WinUI remains the Windows Store
-host in maintenance.
+Avalonia owns all active desktop development across operating systems. Linux Snap
+ships first; Windows Avalonia distribution comes later. WinUI is frozen: its last
+Microsoft Store release is final, with no further releases or maintenance. Keep
+the project and leave existing Store users on that release until a future Avalonia
+replacement passes acceptance.
 
 ## Current foundations
 
@@ -21,6 +24,8 @@ host in maintenance.
 - Windows continuity is implemented behind its Dev gate. Native package, vault,
   sign-in and replacement acceptance remain separate; see the
   [transition plan](windows-transition.md).
+- CI requires Linux build/tests and Snap validation. The nonblocking Windows job
+  builds Avalonia and runs the shared suite without building the frozen WinUI host.
 
 ## Release and validation work
 
@@ -34,7 +39,8 @@ host in maintenance.
   understandable source ownership, local capture and recovery paths.
 - Resolve the Windows reconnect and initial automatic-sync policies with native
   package/vault testing. Keep live Preview/Production installations separate from
-  test fixtures. Windows native packaging remains later work.
+  test fixtures. Windows Avalonia packaging and replacement remain later work;
+  retain the active Dev-gated continuity path.
 
 ## Product decisions before expansion
 
