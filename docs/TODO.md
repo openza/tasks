@@ -52,6 +52,8 @@ replacement passes acceptance.
   benefit; avoid generic frameworks or splitting solely by file size.
 - Keep infrastructure setup separate from task semantics and preserve immutable
   pending envelopes during retry, restore and recovery.
+- Future: safe cloud switching, fresh starts and retired-instance queue cleanup; no in-app flow yet.
+  `EnsureNoPendingPersonalCloudIntentsAsync` counts all instances, so retired pending rows can block disconnect/reconnect.
 
 Other future ideas include macOS, custom statuses, time tracking, external capture,
 automation, additional adapters, task tabs and broader search/project-tree changes.
