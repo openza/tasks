@@ -111,6 +111,7 @@ public sealed class PersonalCloudK0ContractException(string code, string message
     : Exception(message, innerException)
 {
     public string Code { get; } = code;
+    public PersonalCloudDispatchStatus? DispatchStatus { get; init; }
 }
 
 public static class PersonalCloudK0Mapper

@@ -32,7 +32,7 @@ public sealed class DesktopMicrosoftAuthService(ICredentialStore credentials) : 
     }
 
     public static string ClientId => Configuration("MicrosoftGraphClientId", "", "OPENZA_TASKS_MS_GRAPH_CLIENT_ID", "OPENZA_TASKS_MSTODO_CLIENT_ID", "VITE_MSTODO_CLIENT_ID");
-    private static string TenantId => Configuration("MicrosoftGraphTenantId", "common", "OPENZA_TASKS_MS_GRAPH_TENANT_ID", "OPENZA_TASKS_MSTODO_TENANT_ID", "VITE_MSTODO_TENANT_ID");
+    internal static string TenantId => Configuration("MicrosoftGraphTenantId", "common", "OPENZA_TASKS_MS_GRAPH_TENANT_ID", "OPENZA_TASKS_MSTODO_TENANT_ID", "VITE_MSTODO_TENANT_ID");
 
     private IPublicClientApplication CreateClient(string feature)
     {

@@ -12,6 +12,7 @@ public sealed partial class MainWindowViewModel
     public TaskExternalLinkInfo? SelectedGitHubLink => _selectedGitHubLink;
     public async Task SignInGitHubAsync(Func<SignInCode, Task> showCode, CancellationToken cancellationToken)
     {
+        _continuitySession?.EnsureCloudAccess();
         var clientId = _gitHubIssueService.ResolveClientId();
         if (string.IsNullOrWhiteSpace(clientId)) throw new InvalidOperationException("GitHub sign-in is not configured. Use a token instead.");
         var code = await _gitHubIssueService.RequestDeviceCodeAsync(clientId, cancellationToken);

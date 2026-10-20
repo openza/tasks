@@ -21,7 +21,7 @@ public sealed partial class PersonalCloudProviderDeliveryClient
             throw new PersonalCloudK0ContractException("unauthorized", "Provider catalog intents require this owning bridge.");
         using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(connection.ServiceOrigin, "/v1/provider/intents"));
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", access.AccessToken);
-        using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+        using var response = await PersonalCloudDispatchHttp.SendAsync(http, request, cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
             if (response.StatusCode is System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden)

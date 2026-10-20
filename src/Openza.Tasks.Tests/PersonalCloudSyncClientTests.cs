@@ -148,7 +148,7 @@ public sealed class PersonalCloudSyncClientTests : IDisposable
         Assert.Equal(0, stored.Revision);
         Assert.Equal(1, await store.GetPersonalCloudCheckpointAsync(InstanceId, DeviceId));
         Assert.Equal(
-            ["/auth/pair", "/auth/device/token", "/health", "/v1/tasks/mutations", "/sync/changes", "/sync/checkpoints"],
+            ["/auth/pair", "/health", "/auth/device/token", "/v1/tasks/mutations", "/sync/changes", "/sync/checkpoints"],
             handler.Paths);
         Assert.All(handler.AuthorizationSchemes, scheme => Assert.Equal("Bearer", scheme));
         Assert.Equal(1, handler.AcknowledgedCheckpoint);

@@ -20,6 +20,39 @@ public sealed class CloudflareManagementClient(HttpClient http)
     public Task<IReadOnlyList<CloudflareD1Database>> ListDatabasesAsync(string accessToken, string accountId, CancellationToken cancellationToken = default) =>
         ListPagesAsync($"accounts/{Segment(accountId)}/d1/database", accessToken, MapDatabase, cancellationToken);
 
+    public async Task VerifyApplicationAsync(string accessToken, string accountId, string workerName,
+        string databaseId, PersonalCloudConnectionProfile connection, CancellationToken cancellationToken = default)
+    {
+        using var originRequest = Authorized(HttpMethod.Get, $"accounts/{Segment(accountId)}/workers/subdomain", accessToken);
+        using var originResponse = await http.SendAsync(originRequest, cancellationToken).ConfigureAwait(false);
+        var subdomain = (await ReadEnvelopeAsync<ApiSubdomain>(originResponse, cancellationToken).ConfigureAwait(false)).Result.Subdomain;
+        if (string.IsNullOrWhiteSpace(subdomain) || subdomain.Any(character => !char.IsAsciiLetterOrDigit(character) && character != '-'))
+            throw InvalidResponse();
+        if (new Uri($"https://{workerName}.{subdomain}.workers.dev/") != connection.ServiceOrigin)
+            throw ResourceMismatch();
+
+        // Read existing metadata before any upload can replace the DB/identity bindings.
+        // https://developers.cloudflare.com/api/typescript/resources/workers/subresources/scripts/subresources/script_and_version_settings/methods/get/
+        using var request = Authorized(HttpMethod.Get, $"accounts/{Segment(accountId)}/workers/scripts/{Segment(workerName)}/settings", accessToken);
+        using var response = await http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        var settings = (await ReadEnvelopeAsync<JsonElement>(response, cancellationToken).ConfigureAwait(false)).Result;
+        if (settings.ValueKind != JsonValueKind.Object || !settings.TryGetProperty("bindings", out var bindings) || bindings.ValueKind != JsonValueKind.Array)
+            throw InvalidResponse();
+        bool Matches(string name, string type, string field, string expected)
+        {
+            var matches = bindings.EnumerateArray().Where(item => Text(item, "name", name)).ToArray();
+            return matches.Length == 1 && Text(matches[0], "type", type) && Text(matches[0], field, expected);
+        }
+        if (!Matches("DB", "d1", "database_id", databaseId) || !Matches("INSTANCE_ID", "plain_text", "text", connection.InstanceId))
+            throw ResourceMismatch();
+    }
+
+    private static bool Text(JsonElement value, string field, string expected) => value.ValueKind == JsonValueKind.Object &&
+        value.TryGetProperty(field, out var property) && property.ValueKind == JsonValueKind.String && property.GetString() == expected;
+
+    private static PersonalCloudK0ContractException ResourceMismatch() => new("resource_mismatch",
+        "The authorized Personal Cloud origin, database or instance does not match the saved connection. No update was started.");
+
     public async Task<CloudflareD1Database> EnsureDatabaseAsync(
         string accessToken,
         string accountId,
@@ -70,7 +103,11 @@ public sealed class CloudflareManagementClient(HttpClient http)
             $"accounts/{Segment(accountId)}/d1/database/{Segment(databaseId)}/query", accessToken);
         request.Content = JsonContent.Create(new { sql, @params = parameters ?? [] });
         using var response = await http.SendAsync(request, cancellationToken).ConfigureAwait(false);
-        return (await ReadEnvelopeAsync<JsonElement>(response, cancellationToken).ConfigureAwait(false)).Result;
+        var result = (await ReadEnvelopeAsync<JsonElement>(response, cancellationToken).ConfigureAwait(false)).Result;
+        if (result.ValueKind != JsonValueKind.Array || result.EnumerateArray().Any(item => item.ValueKind != JsonValueKind.Object ||
+            item.TryGetProperty("success", out var success) && success.ValueKind != JsonValueKind.True))
+            throw InvalidResponse();
+        return result;
     }
 
     public async Task<CloudflareD1Export> ExportDatabaseAsync(
@@ -218,6 +255,8 @@ public sealed class CloudflareManagementClient(HttpClient http)
         string Id,
         string Name,
         [property: JsonPropertyName("uuid")] string? Uuid = null);
+
+    private sealed record ApiSubdomain(string Subdomain);
 
     private sealed record ApiResultInfo(
         [property: JsonPropertyName("total_pages")] int TotalPages);

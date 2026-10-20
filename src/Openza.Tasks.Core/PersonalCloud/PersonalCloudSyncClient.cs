@@ -24,9 +24,16 @@ public sealed partial class PersonalCloudSyncClient(
     private const int MaximumChangePages = 100;
     private const int MaximumResponseBytes = 2 * 1024 * 1024;
     private bool _supportsWorkspacePaging;
+    private DateTimeOffset? _responseDate;
 
     public async Task<PersonalCloudSyncResult> SyncAsync(CancellationToken cancellationToken = default)
     {
+        // Negotiation is scoped to this pass, including retries on the same client.
+        _batchCapabilityKnown = false;
+        _catchupReportRejected = false;
+        var pending = await store.GetPendingPersonalCloudOutboxAsync(connection.InstanceId, connection.DeviceId, cancellationToken).ConfigureAwait(false);
+        await DiscoverCapabilitiesAsync(cancellationToken).ConfigureAwait(false);
+        var prefix = await SelectBudgetPrefixAsync(pending, cancellationToken).ConfigureAwait(false);
         var access = await identity.IssueAccessTokenAsync(connection.ServiceOrigin, cancellationToken).ConfigureAwait(false);
         if (!string.Equals(access.InstanceId, connection.InstanceId, StringComparison.Ordinal) ||
             !string.Equals(access.DeviceId, connection.DeviceId, StringComparison.Ordinal))
@@ -36,18 +43,22 @@ public sealed partial class PersonalCloudSyncClient(
                 "The paired desktop identity does not match the saved Personal Cloud connection.");
         }
 
-        await DiscoverCapabilitiesAsync(cancellationToken).ConfigureAwait(false);
         var bootstrapAttempts = 0;
+        var catchupUploadReady = await ReportCatchupStatusAsync(cancellationToken).ConfigureAwait(false);
         bool ReserveBootstrapAttempt() => ++bootstrapAttempts <= 3;
         if (progress is not null) await progress(PersonalCloudInitialSyncPhase.Uploading, cancellationToken).ConfigureAwait(false);
         var pushed = 0;
         string? blockedCode = null;
-        var pending = await store.GetPendingPersonalCloudOutboxAsync(
-            connection.InstanceId,
-            connection.DeviceId,
-            cancellationToken).ConfigureAwait(false);
-        if (pending.Count > 0)
-            (pushed, blockedCode) = await PushPendingAsync(pending.Take(PushBatchLimit).ToArray(), access.AccessToken, cancellationToken).ConfigureAwait(false);
+        if (!catchupUploadReady && prefix.Items.Count > 0)
+            blockedCode = "catchup_status_unavailable";
+        else if (prefix.Items.Count > 0)
+        {
+            (pushed, blockedCode) = await PushPendingAsync(prefix.Items, access.AccessToken, cancellationToken).ConfigureAwait(false);
+            if (blockedCode is null && pushed == prefix.Items.Count && prefix.PauseAfter && PersonalCloudDispatchHttp.PolicyFor(http) is { } dispatch)
+                blockedCode = (await dispatch.PauseBudgetAsync(connection.ServiceOrigin, prefix.OversizedUnits, cancellationToken).ConfigureAwait(false)).Code;
+        }
+        else if (prefix.PauseAfter && PersonalCloudDispatchHttp.PolicyFor(http) is { } pausedDispatch)
+            blockedCode = (await pausedDispatch.GetStatusAsync(connection.ServiceOrigin, cancellationToken).ConfigureAwait(false)).Code;
 
         if (progress is not null) await progress(PersonalCloudInitialSyncPhase.Downloading, cancellationToken).ConfigureAwait(false);
         if (_supportsWorkspace && blockedCode is null && !await store.HasPersonalCloudWorkspaceBaselineAsync(connection.InstanceId, cancellationToken).ConfigureAwait(false) &&
@@ -130,6 +141,9 @@ public sealed partial class PersonalCloudSyncClient(
 
         if (await store.GetDeferredPersonalCloudChangeCountAsync(connection.InstanceId, cancellationToken).ConfigureAwait(false) > 0)
             blockedCode ??= "pending_changes";
+        if (blockedCode == "fanout_bound_exceeded" && PersonalCloudDispatchHttp.PolicyFor(http) is { } retryPolicy)
+            await retryPolicy.RecordFailureAsync(connection.ServiceOrigin, cancellationToken).ConfigureAwait(false);
+        await ReportCatchupStatusAsync(cancellationToken).ConfigureAwait(false);
         return new PersonalCloudSyncResult(pushed, pulled, checkpoint) { BlockedCode = blockedCode };
     }
 
@@ -142,10 +156,8 @@ public sealed partial class PersonalCloudSyncClient(
 
     private async Task<string> SendForJsonAsync(HttpRequestMessage request, CancellationToken cancellationToken, bool batchRequest = false)
     {
-        using var response = await http.SendAsync(
-            request,
-            HttpCompletionOption.ResponseHeadersRead,
-            cancellationToken).ConfigureAwait(false);
+        using var response = await PersonalCloudDispatchHttp.SendAsync(http, request, cancellationToken).ConfigureAwait(false);
+        _responseDate = response.Headers.Date;
         if (batchRequest && response.StatusCode is System.Net.HttpStatusCode.NotFound or System.Net.HttpStatusCode.MethodNotAllowed or System.Net.HttpStatusCode.NotImplemented)
             throw new BatchEndpointUnavailableException();
         if (response.StatusCode is System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden)
@@ -188,7 +200,10 @@ public sealed partial class PersonalCloudSyncClient(
                     if (document.RootElement.TryGetProperty("error", out var error) && error.ValueKind == JsonValueKind.Object &&
                         error.TryGetProperty("code", out var value) && value.ValueKind == JsonValueKind.String &&
                         value.GetString() is { } returnedCode &&
-                        (IsPermanentMutationRejection(returnedCode) || returnedCode is "checkpoint_expired" or "upgrade_required" or "bootstrap_changed" or "response_too_large"))
+                        (IsPermanentMutationRejection(returnedCode) || returnedCode is "checkpoint_expired" or "upgrade_required" or "bootstrap_changed" or "response_too_large" ||
+                         returnedCode == "fanout_bound_exceeded" && response.StatusCode == System.Net.HttpStatusCode.Conflict &&
+                         _supportsFanoutBudget && request.Options.TryGetValue(PersonalCloudMutationCost.GuardedFanoutBound, out _) &&
+                         error.TryGetProperty("retryable", out var retryable) && retryable.ValueKind == JsonValueKind.True))
                         code = returnedCode;
                 }
                 catch (JsonException) { /* Do not expose untrusted response contents. */ }

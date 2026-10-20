@@ -4,6 +4,23 @@ All notable changes to Openza Tasks will be documented in this file.
 
 ## [Unreleased]
 
+### Planned 1.2.0 — proposal, not a release
+
+Proposed next Linux Snap version: **1.2.0**. Package metadata, tags and Store
+channels have not been changed. The [release plan](docs/snap-release.md) requires
+separate build, continuity-validation and publication approval.
+
+- Desktop contracts and architecture cleanup, consistent exact-date/query-clock
+  behavior, and equivalent task-editor label changes remaining a no-op.
+- Personal Cloud compatibility/migration preflight, persistent daily quota pause,
+  weighted upload budgets and preserved pending mutation order. The current public
+  1.1.0 package has no Personal Cloud; the schema-25 bundle remains a validation
+  candidate, with the source release pin still preview.9/schema 20.
+- An isolated Snap upgrade and maintainer-approved sideload-to-Store adoption plan,
+  including data, Secret Portal credentials, pairing and rollback acceptance.
+- Dev-gated Windows continuity source work; native Windows/MSIX/Store packaging
+  and replacement remain later work. Shared-label rename remains parked.
+
 ## [1.1.0] - 2026-09-12
 
 ### Added

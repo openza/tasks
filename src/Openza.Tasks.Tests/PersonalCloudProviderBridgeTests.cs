@@ -194,6 +194,8 @@ public sealed class PersonalCloudProviderBridgeTests : IDisposable
         var intent = Assert.Single(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device), row => row.Operation == "externalCommand.confirm");
         Assert.DoesNotContain("private-id", intent.CanonicalJson); Assert.DoesNotContain("account-a", intent.CanonicalJson);
         var snapshot = Assert.Single(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device), row => row.Operation == "source.refreshSnapshot");
+        DispatchCostAssertions.Known(intent);
+        DispatchCostAssertions.Known(snapshot);
         using (var sourceJson = JsonDocument.Parse(snapshot.CanonicalJson))
             Assert.True(DateTimeOffset.Parse(sourceJson.RootElement.GetProperty("payload").GetProperty("source").GetProperty("refreshedAt").GetString()!) <= provider.ActionAt);
         Assert.Equal(2, await store.GetPersonalCloudEntityVersionAsync(Instance, TaskId));
@@ -341,6 +343,7 @@ public sealed class PersonalCloudProviderBridgeTests : IDisposable
         var provider = new FakeProvider { Rejection = HttpStatusCode.BadRequest }; var bridge = await BridgeAsync(store, handler);
         Assert.Equal(1, (await bridge.RunAsync([new(provider, "account-a")])).Rejected);
         var result = Assert.Single(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device), row => row.Operation == "externalCommand.reject");
+        DispatchCostAssertions.Known(result);
         using var json = JsonDocument.Parse(result.CanonicalJson);
         Assert.Equal("provider_rejected", json.RootElement.GetProperty("payload").GetProperty("errorCode").GetString());
         await store.AcknowledgePersonalCloudMutationAsync(Instance, Device, Receipt(result.MutationId));

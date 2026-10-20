@@ -8,7 +8,7 @@ using Openza.Tasks.Application.Tasks;
 
 namespace Openza.Tasks.Tests;
 
-public sealed class PersonalCloudLifecycleIntegrationTests
+public sealed partial class PersonalCloudLifecycleIntegrationTests
 {
     [Theory]
     [InlineData(17)] [InlineData(18)] [InlineData(19)] [InlineData(20)] [InlineData(21)] [InlineData(22)] [InlineData(23)]
@@ -78,7 +78,7 @@ public sealed class PersonalCloudLifecycleIntegrationTests
     {
         using var f = await Fixture.CreateAsync();
         await f.Service.UpgradeAsync();
-        Assert.Equal(new[] { "oauth-token", "accounts", "databases", "history", "checksum", "deploy", "journal", "checksum", "migrate", "health", "oauth-revoke" }, f.Events);
+        Assert.Equal(new[] { "oauth-token", "accounts", "databases", "subdomain", "bindings", "history", "checksum", "deploy", "history", "checksum", "migrate", "health", "oauth-revoke" }, f.Events);
         Assert.Equal("openza-personal-test", f.Deployment.ResourceName);
         Assert.Equal("database_test", f.Deployment.DatabaseId);
         Assert.Equal("2.0.0", f.Connections.Load()!.ArtifactVersion);
@@ -93,7 +93,7 @@ public sealed class PersonalCloudLifecycleIntegrationTests
         f.Http.MismatchedMigration = true;
         var error = await Assert.ThrowsAsync<PersonalCloudK0ContractException>(() => f.Service.UpgradeAsync());
         Assert.Equal("migration_mismatch", error.Code);
-        Assert.Equal(new[] { "oauth-token", "accounts", "databases", "history", "checksum", "oauth-revoke" }, f.Events);
+        Assert.Equal(new[] { "oauth-token", "accounts", "databases", "subdomain", "bindings", "history", "checksum", "oauth-revoke" }, f.Events);
         await f.AssertPreservedAsync();
     }
 
@@ -252,6 +252,7 @@ public sealed class PersonalCloudLifecycleIntegrationTests
         internal PersonalCloudDeviceIdentityClient Identity { get; }
         internal PersonalCloudSetupService Service { get; }
         internal string ConnectionPath => Path.Combine(_directory, "connection.json");
+        internal bool FailConnectionSave { get; set; }
         private Fixture()
         {
             Http = new FakeHttp(Events);
@@ -265,7 +266,8 @@ public sealed class PersonalCloudLifecycleIntegrationTests
             var health = new PersonalCloudHealthClient(http);
             var gateway = new CloudflareProvisioningGateway(management, Deployment, new Bundle(), health, "Test desktop", false);
             var coordinator = new PersonalCloudManagementCoordinator(oauth, new Broker(), management, Deployment, gateway, health, "2.0.0");
-            Service = new PersonalCloudSetupService(null!, "2.0.0", (uri, _) => { Opened.Add(uri); return Task.CompletedTask; }, Connections, Identity, http, Tasks, coordinator);
+            Service = new PersonalCloudSetupService(null!, "2.0.0", (uri, _) => { Opened.Add(uri); return Task.CompletedTask; },
+                new SaveFailureStore(Connections, () => FailConnectionSave), Identity, http, Tasks, coordinator);
         }
         internal static async Task<Fixture> CreateAsync(int schemaVersion = 17)
         {
@@ -300,17 +302,22 @@ public sealed class PersonalCloudLifecycleIntegrationTests
     private sealed class Bundle : IPersonalCloudMigrationBundle
     {
         public string ArtifactVersion => "2.0.0";
-        public IReadOnlyList<PersonalCloudMigration> Migrations => [new("0001_synthetic.sql", new string('a', 64), "CREATE TABLE synthetic_test(id TEXT);")];
+        public IReadOnlyList<PersonalCloudMigration> Migrations => [Migration("0001_existing.sql", "CREATE TABLE existing_test(id TEXT);"),
+            Migration("0002_synthetic.sql", "CREATE TABLE synthetic_test(id TEXT);")];
+        private static PersonalCloudMigration Migration(string name, string sql) => new(name,
+            Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(sql))), sql);
     }
     private sealed class FakeDeployment(List<string> events) : ICloudflareArtifactDeploymentClient
     {
         public Uri Origin { get; set; } = Fixture.Origin;
         public string? ResourceName { get; private set; }
         public string? DatabaseId { get; private set; }
-        public Task<CloudflareProvisioningApplication> DeployAsync(string accessToken, string accountId, string databaseId, string resourceName, string attemptId, string artifactVersion, CancellationToken cancellationToken = default)
+        public Func<Task>? BeforeComplete { get; set; }
+        public async Task<CloudflareProvisioningApplication> DeployAsync(string accessToken, string accountId, string databaseId, string resourceName, string attemptId, string artifactVersion, CancellationToken cancellationToken = default)
         {
             events.Add("deploy"); ResourceName = resourceName; DatabaseId = databaseId;
-            return Task.FromResult(new CloudflareProvisioningApplication(resourceName, Origin));
+            if (BeforeComplete is not null) await BeforeComplete();
+            return new CloudflareProvisioningApplication(resourceName, Origin);
         }
     }
     private sealed class FakeHttp(List<string> events) : HttpMessageHandler
@@ -320,6 +327,11 @@ public sealed class PersonalCloudLifecycleIntegrationTests
         public int HealthSchema { get; set; } = 17;
         public bool FailHealthOnce { get; set; }
         public bool MismatchedMigration { get; set; }
+        public string Subdomain { get; set; } = "example";
+        public string BoundDatabase { get; set; } = "database_test";
+        public string BoundInstance { get; set; } = "instance_test";
+        public bool DuplicateDatabaseBinding { get; set; }
+        public bool HealthUnreadyUntilMigrated { get; set; }
         public bool FailDatabaseDeleteOnce { get; set; }
         public bool FailDeviceRevoke { get; set; }
         public bool FailOAuthRevoke { get; set; }
@@ -336,9 +348,17 @@ public sealed class PersonalCloudLifecycleIntegrationTests
             if (path == "/auth/pair") return Reply("pair", """{"protocolVersion":1,"instanceId":"instance_test","deviceId":"device_test","refreshCredential":"synthetic-refresh-1234567890","capabilities":["desktop_sync"],"refreshExpiresAt":"2099-01-01T00:00:00Z"}""");
             if (path == "/auth/device/token") return Reply("device-token", """{"protocolVersion":1,"accessToken":"synthetic-access-1234567890","capabilities":["desktop_sync"],"expiresAt":"2099-01-01T00:00:00Z"}""");
             if (path == "/auth/device/revoke") return Reply("device-revoke", """{"protocolVersion":1,"outcome":"revoked","deviceId":"device_test"}""", FailDeviceRevoke ? HttpStatusCode.BadRequest : HttpStatusCode.OK);
-            if (path == "/health") { var fail = FailHealthOnce; FailHealthOnce = false; return Reply("health", $"{{\"status\":\"ok\",\"protocolVersion\":1,\"product\":\"tasks\",\"artifactVersion\":\"{HealthVersion}\",\"schemaVersion\":{HealthSchema}}}", fail ? HttpStatusCode.ServiceUnavailable : HttpStatusCode.OK); }
+            if (path == "/health") { var fail = FailHealthOnce || HealthUnreadyUntilMigrated && !_migrationApplied; FailHealthOnce = false; return Reply("health", $"{{\"status\":\"ok\",\"protocolVersion\":1,\"product\":\"tasks\",\"artifactVersion\":\"{HealthVersion}\",\"schemaVersion\":{HealthSchema}}}", fail ? HttpStatusCode.ServiceUnavailable : HttpStatusCode.OK); }
             if (path == "/client/v4/accounts") return Reply("accounts", Resources == "account-ambiguous" ? """{"success":true,"result":[{"id":"account_test","name":"Test"},{"id":"account_other","name":"Other"}]}""" : """{"success":true,"result":[{"id":"account_test","name":"Test"}]}""");
             Assert.StartsWith("/client/v4/accounts/account_test/", path, StringComparison.Ordinal);
+            if (path.EndsWith("/workers/subdomain", StringComparison.Ordinal)) return Reply("subdomain", System.Text.Json.JsonSerializer.Serialize(new { success = true, result = new { subdomain = Subdomain } }));
+            if (path.EndsWith("/workers/scripts/openza-personal-test/settings", StringComparison.Ordinal))
+            {
+                var database = new { name = "DB", type = "d1", database_id = BoundDatabase };
+                var bindings = new List<object> { database, new { name = "INSTANCE_ID", type = "plain_text", text = BoundInstance } };
+                if (DuplicateDatabaseBinding) bindings.Add(database);
+                return Reply("bindings", System.Text.Json.JsonSerializer.Serialize(new { success = true, result = new { bindings } }));
+            }
             if (path.EndsWith("/d1/database", StringComparison.Ordinal)) return Reply("databases", Resources switch { "none" => """{"success":true,"result":[]}""", "ambiguous" => """{"success":true,"result":[{"uuid":"database_test","name":"openza-personal-test"},{"uuid":"database_other","name":"openza-personal-test"}]}""", _ => """{"success":true,"result":[{"uuid":"database_test","name":"openza-personal-test"},{"uuid":"database_unrelated","name":"unrelated"}]}""" });
             if (path.EndsWith("/export", StringComparison.Ordinal)) { Assert.EndsWith("/database_test/export", path, StringComparison.Ordinal); if (CancelOnExport is not null) { events.Add("export"); CancelOnExport.Cancel(); throw new OperationCanceledException(cancellationToken); } return Reply("export", """{"success":true,"result":{"status":"complete","result":{"filename":"backup.sql","signed_url":"https://downloads.example.test/backup.sql"}}}"""); }
             if (request.Method == HttpMethod.Delete && path.EndsWith("/workers/scripts/openza-personal-test", StringComparison.Ordinal)) { var already = _workerDeleted; _workerDeleted = true; return Reply("worker-delete", """{"success":true}""", already ? HttpStatusCode.NotFound : HttpStatusCode.OK); }
@@ -346,10 +366,14 @@ public sealed class PersonalCloudLifecycleIntegrationTests
             if (path.EndsWith("/database_test/query", StringComparison.Ordinal))
             {
                 var sql = await request.Content!.ReadAsStringAsync(cancellationToken);
-                if (sql.Contains("sqlite_master", StringComparison.Ordinal)) return Reply("history", """{"success":true,"result":[{"results":[{"sha256":"openza_schema_migrations"}]}]}""");
-                if (MismatchedMigration && sql.Contains("SELECT sha256", StringComparison.Ordinal)) return Reply("checksum", $"{{\"success\":true,\"result\":[{{\"results\":[{{\"sha256\":\"{new string('b', 64)}\"}}]}}]}}");
+                if (sql.Contains("sqlite_master", StringComparison.Ordinal)) return Reply("history", """{"success":true,"result":[{"results":[{"name":"openza_schema_migrations"},{"name":"tasks"}]}]}""");
+                if (sql.Contains("SELECT name,sha256", StringComparison.Ordinal))
+                {
+                    var rows = new Bundle().Migrations.Take(_migrationApplied ? 2 : 1).Select(item => new { name = item.Name, sha256 = MismatchedMigration ? new string('b', 64) : item.Sha256 }).ToArray();
+                    return Reply("checksum", System.Text.Json.JsonSerializer.Serialize(new { success = true, result = new[] { new { results = rows } } }));
+                }
             }
-            if (path.EndsWith("/database_test/query", StringComparison.Ordinal)) { var sql = await request.Content!.ReadAsStringAsync(cancellationToken); if (sql.Contains("SELECT sha256", StringComparison.Ordinal)) return Reply("checksum", _migrationApplied ? $"{{\"success\":true,\"result\":[{{\"results\":[{{\"sha256\":\"{new string('a', 64)}\"}}]}}]}}" : """{"success":true,"result":[{"results":[]}]}"""); if (sql.Contains("CREATE TABLE synthetic_test", StringComparison.Ordinal)) { _migrationApplied = true; return Reply("migrate", """{"success":true,"result":[]}"""); } return Reply("journal", """{"success":true,"result":[]}"""); }
+            if (path.EndsWith("/database_test/query", StringComparison.Ordinal)) { var sql = await request.Content!.ReadAsStringAsync(cancellationToken); if (sql.Contains("CREATE TABLE synthetic_test", StringComparison.Ordinal)) { _migrationApplied = true; return Reply("migrate", """{"success":true,"result":[]}"""); } return Reply("journal", """{"success":true,"result":[]}"""); }
             throw new InvalidOperationException($"Unexpected fake request {request.Method} {path}");
         }
         private HttpResponseMessage Reply(string name, string body, HttpStatusCode status = HttpStatusCode.OK)

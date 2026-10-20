@@ -10,6 +10,24 @@ namespace Openza.Tasks.Tests;
 
 public sealed class PersonalCloudInitialSyncProgressTests : IDisposable
 {
+    [Fact]
+    public async Task Unready_health_blocks_optional_reports_as_well_as_task_delivery_without_changing_pending_work()
+    {
+        var (store, service, handler, _, _) = await CreateAsync();
+        await store.UpsertTaskAsync(new() { Id = "local_unready", Title = "Synthetic pending task" });
+        await store.StageUnpublishedTasksForPersonalCloudAsync(Instance, Device);
+        var pending = await store.GetPendingPersonalCloudOutboxAsync(Instance, Device);
+        var checkpoint = await store.GetPersonalCloudCheckpointAsync(Instance, Device);
+        handler.HealthStatus = HttpStatusCode.ServiceUnavailable;
+        Assert.Equal("health_failed", (await Assert.ThrowsAsync<PersonalCloudK0ContractException>(() => service.SyncAsync())).Code);
+        Assert.Empty(handler.Reports);
+        Assert.Equal(0, handler.MutationPosts);
+        Assert.Equal(0, handler.Checkpoints);
+        Assert.Equal(pending, await store.GetPendingPersonalCloudOutboxAsync(Instance, Device));
+        Assert.Equal(checkpoint, await store.GetPersonalCloudCheckpointAsync(Instance, Device));
+        Assert.Equal(PersonalCloudInitialSyncPhase.Blocked, (await service.GetInitialSyncProgressAsync())!.Phase);
+    }
+
     [Theory]
     [InlineData(false, 915)]
     [InlineData(true, 458)]
@@ -57,7 +75,8 @@ public sealed class PersonalCloudInitialSyncProgressTests : IDisposable
         Assert.Empty(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device));
         Assert.Contains(progress, item => item.Phase == PersonalCloudInitialSyncPhase.Uploading && item.Acknowledged > 0 && item.Acknowledged < 4565);
         Assert.Equal("complete", handler.Reports[^1].GetProperty("state").GetString());
-        Assert.Equal(1, handler.HealthRequests);
+        // Status preflight, first download pass, then 46 bounded upload passes.
+        Assert.Equal(48, handler.HealthRequests);
     }
 
     private const string Instance = "instance_initial_000000000000000000000001";
@@ -274,6 +293,7 @@ public sealed class PersonalCloudInitialSyncProgressTests : IDisposable
         public bool BatchEnabled { get; set; }
         public int MutationPosts { get; private set; }
         public int HealthRequests { get; private set; }
+        public HttpStatusCode HealthStatus { get; set; } = HttpStatusCode.OK;
         public int LastCheckpointMutationCount { get; private set; }
         public int Checkpoints { get; private set; }
         public long Checkpoint { get; set; }
@@ -289,6 +309,7 @@ public sealed class PersonalCloudInitialSyncProgressTests : IDisposable
             if (path == "/health")
             {
                 HealthRequests++;
+                if (HealthStatus != HttpStatusCode.OK) return Json(HealthStatus, "{\"code\":\"schema_not_ready\"}");
                 if (WorkspaceEnabled)
                 {
                     var capabilities = new Dictionary<string, object> { ["workspace"] = new { protocolVersion = 1, path = "/v1/tasks/mutations", schemaVersion = 23 } };

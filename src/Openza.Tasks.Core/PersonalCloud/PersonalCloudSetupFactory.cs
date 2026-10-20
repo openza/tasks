@@ -13,7 +13,8 @@ public static class PersonalCloudSetupFactory
         ICredentialStore credentials,
         Openza.Tasks.Core.Data.SqliteTaskStore taskStore,
         string deviceName,
-        Func<Uri, CancellationToken, Task> openBrowser)
+        Func<Uri, CancellationToken, Task> openBrowser,
+        IPersonalCloudConnectionStore? connectionStoreOverride = null)
     {
         ArgumentNullException.ThrowIfNull(credentials);
         ArgumentNullException.ThrowIfNull(openBrowser);
@@ -24,7 +25,8 @@ public static class PersonalCloudSetupFactory
         var authorization = new LoopbackCloudflareAuthorizationBroker(openBrowser);
         var management = new CloudflareManagementClient(new HttpClient());
         var deployment = new CloudflareArtifactDeploymentClient(new HttpClient(), artifact.Deployment);
-        var health = new PersonalCloudHealthClient(new HttpClient());
+        var dispatch = new PersonalCloudDispatchPolicy(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(checkpointPath))!, "personal-cloud-dispatch"));
+        var health = new PersonalCloudHealthClient(PersonalCloudDispatchHttp.Create(dispatch));
         var gateway = new CloudflareProvisioningGateway(
             management,
             deployment,
@@ -32,7 +34,7 @@ public static class PersonalCloudSetupFactory
             health,
             deviceName,
             providerBridge: true);
-        var identityHttp = new HttpClient();
+        var identityHttp = PersonalCloudDispatchHttp.Create(dispatch);
         var identity = new PersonalCloudDeviceIdentityClient(identityHttp, credentials);
         var coordinator = new PersonalCloudProvisioningCoordinator(
             oauth,
@@ -45,9 +47,9 @@ public static class PersonalCloudSetupFactory
             coordinator,
             artifact.Deployment.Version,
             openBrowser,
-            new JsonPersonalCloudConnectionStore(connectionPath),
+            connectionStoreOverride ?? new JsonPersonalCloudConnectionStore(connectionPath),
             identity,
-            new HttpClient(),
+            PersonalCloudDispatchHttp.Create(dispatch),
             taskStore,
             new PersonalCloudManagementCoordinator(
                 oauth,

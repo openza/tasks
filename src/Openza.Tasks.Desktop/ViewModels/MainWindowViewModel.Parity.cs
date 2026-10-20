@@ -1,4 +1,6 @@
 using Openza.Tasks.Core.Services;
+using Openza.Tasks.Core.Data;
+using Openza.Tasks.Desktop.ViewModels.Navigation;
 
 namespace Openza.Tasks.Desktop.ViewModels;
 
@@ -18,8 +20,7 @@ public sealed partial class MainWindowViewModel
         "metadata" => $"Created: {LocalTaskCreated}\nModified: {LocalTaskUpdated}\nStatus: {StatusFromIndex(DetailStatusIndex)}\nProject: {DetailProject?.Title}\nDate: {FormatTaskDate(DetailDate)}\nDeadline: {FormatTaskDate(DetailDeadline)}\nPriority: {FormatPriority(DetailPriorityIndex + 1)}\nLabels: {(string.IsNullOrWhiteSpace(DetailLabels) ? "No labels" : DetailLabels)}\nSource: {SourceTaskName}",
         _ => string.Empty,
     };
-    private readonly Dictionary<string, string> _taskSelections = new(StringComparer.Ordinal);
-    private string? _displayedSelectionContext;
+    private readonly TaskSelectionState _taskSelectionState = new();
     private string _lastSyncResult = "Not synced in this session.";
     public string LastSyncResult { get => _lastSyncResult; private set => SetProperty(ref _lastSyncResult, value); }
     public bool AutomaticRestorePointsEnabled => _preferencesStore.Load().AutomaticRestorePointsEnabled;
@@ -30,18 +31,16 @@ public sealed partial class MainWindowViewModel
 
     public void CloseTaskDetails()
     {
-        if (_displayedSelectionContext is { } context) _taskSelections.Remove(context);
+        _taskSelectionState.ClearDisplayed();
         SelectedTask = null;
     }
 
-    private string SelectionContext => $"{_currentSpaceId ?? "all"}|{SelectedProject?.Project.Id ?? SelectedNavigation?.Kind.ToString() ?? "Inbox"}";
-    private void RememberTaskSelection()
-    {
-        // Bound selectors may already contain the destination; use the context of the displayed rows.
-        if (_displayedSelectionContext is not { } context) return;
-        if (SelectedTask is { } task) _taskSelections[context] = task.Task.Id;
-    }
-    private string? RememberedTaskSelection() => _taskSelections.GetValueOrDefault(SelectionContext);
+    private TaskViewContext CurrentTaskViewContext => new(
+        _currentSpaceId, SelectedNavigation?.Kind ?? TaskListKind.Inbox, SelectedProject?.Project.Id);
+
+    private void RememberTaskSelection() => _taskSelectionState.RememberDisplayed(SelectedTask?.Task.Id);
+
+    private string? RememberedTaskSelection() => _taskSelectionState.RememberedFor(CurrentTaskViewContext);
 
     public async Task SetAutomaticRestorePointsAsync(bool enabled)
     {

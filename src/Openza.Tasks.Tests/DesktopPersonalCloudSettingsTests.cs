@@ -13,6 +13,91 @@ namespace Openza.Tasks.Tests;
 [Collection(nameof(EditorTestCollection))]
 public sealed class DesktopPersonalCloudSettingsTests(EditorTestSession fixture)
 {
+    [Theory]
+    [InlineData("local_budget_exceeded")]
+    [InlineData("local_operation_budget_exceeded")]
+    public async Task Upload_only_hold_keeps_manual_retry_available_with_visible_pending_recovery(string code)
+    {
+        await fixture.Session.Dispatch(async () =>
+        {
+            var directory = Path.Combine(Path.GetTempPath(), "openza-upload-hold-ui", Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(directory);
+            try
+            {
+                var connection = new PersonalCloudConnectionProfile { ServiceOrigin = new("https://ui-budget.example.test/"),
+                    InstanceId = "instance_ui_budget", DeviceId = "device_ui_budget", ArtifactVersion = "synthetic", ConnectedAt = DateTimeOffset.UtcNow };
+                var progress = new PersonalCloudInitialSyncProgress(connection.InstanceId, connection.DeviceId, PersonalCloudInitialSyncPhase.Blocked, 10, 100, code);
+                var service = new ProgressStubSetupService(connection, progress) {
+                    DispatchStatus = new(code, null, DateTimeOffset.UtcNow, code == "local_budget_exceeded" ? DateTimeOffset.UtcNow.AddHours(1) : null,
+                        true, 10, 20, 3000, 10000) { PendingEnvelopes = 90, WriteUnitLimit = 45000, BlockingWriteUnits = 45001 },
+                };
+                var preferences = new Openza.Tasks.Desktop.Services.DesktopPreferencesStore(Path.Combine(directory, "settings.json"));
+                await preferences.SaveAsync(new() { AutomaticSyncEnabled = false, AutomaticRestorePointsEnabled = false });
+                var vm = new MainWindowViewModel(new SqliteTaskStore(Path.Combine(directory, "tasks.db")), new InMemoryCredentialStore(),
+                    preferencesStore: preferences, personalCloudSetup: service);
+                await vm.InitializeAsync();
+                Assert.Equal("Uploads paused", vm.PersonalCloudStatusText);
+                Assert.True(vm.CanRetryInitialSync);
+                Assert.Equal(10, vm.InitialSyncProgress!.Acknowledged);
+                Assert.False(vm.InitialSyncProgress.IsComplete);
+                if (code == "local_operation_budget_exceeded") Assert.Contains("allow-once", vm.PersonalCloudSummaryText);
+                await vm.RunTodoistSyncAsync();
+                Assert.Equal(1, service.SyncCalls);
+                Assert.True(vm.CanRetryInitialSync);
+                Assert.False(vm.AutomaticSyncEnabled);
+            }
+            finally { TestDirectory.Delete(directory); }
+            return true;
+        }, CancellationToken.None);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Quota_pause_shows_reset_and_backlog_then_resumes_respecting_automatic_sync(bool automaticSync)
+    {
+        await fixture.Session.Dispatch(async () =>
+        {
+            var directory = Path.Combine(Path.GetTempPath(), "openza-quota-ui", Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(directory);
+            try
+            {
+                var origin = new Uri("https://quota-ui.example.test/");
+                var connection = new PersonalCloudConnectionProfile { ServiceOrigin = origin, InstanceId = "instance_quota_ui", DeviceId = "device_quota_ui",
+                    ArtifactVersion = "synthetic", ConnectedAt = DateTimeOffset.UtcNow };
+                var pause = new PersonalCloudDispatchStatus("daily_quota_exceeded", "d1_rows_read", DateTimeOffset.Parse("2026-10-19T12:00:00Z"),
+                    DateTimeOffset.Parse("2026-10-20T00:00:00Z"), true, 10, 25, 3000, 10000) { PendingEnvelopes = 9000 };
+                var service = new StubSetupService(new(origin, "worker", "database", "synthetic", origin), connection) { DispatchStatus = pause };
+                service.SyncAction = _ => Task.FromException<PersonalCloudSyncResult>(pause.ToException());
+                var preferences = new Openza.Tasks.Desktop.Services.DesktopPreferencesStore(Path.Combine(directory, "settings.json"));
+                await preferences.SaveAsync(new() { AutomaticSyncEnabled = automaticSync, AutomaticRestorePointsEnabled = false });
+                var vm = new MainWindowViewModel(new SqliteTaskStore(Path.Combine(directory, "tasks.db")), new InMemoryCredentialStore(),
+                    preferencesStore: preferences, personalCloudSetup: service);
+                await vm.InitializeAsync();
+                Assert.Equal("Paused", vm.PersonalCloudStatusText);
+                Assert.True(vm.IsPersonalCloudPaused);
+                Assert.Contains("2026-10-20 00:00:00 UTC", vm.PersonalCloudSummaryText);
+                Assert.Contains("9000 changes remain pending", vm.PersonalCloudSummaryText);
+                Assert.False(vm.CanRetryInitialSync);
+                await vm.RunAutomaticTodoistSyncAsync();
+                Assert.Equal(automaticSync ? 1 : 0, service.SyncCalls);
+                Assert.Equal(automaticSync, preferences.Load().AutomaticSyncEnabled);
+                service.DispatchStatus = null;
+                service.SyncAction = null;
+                if (automaticSync) await vm.RunAutomaticTodoistSyncAsync();
+                else await vm.RunTodoistSyncAsync();
+                Assert.False(vm.IsPersonalCloudPaused);
+                Assert.Equal("Connected", vm.PersonalCloudStatusText);
+                Assert.DoesNotContain("daily cloud quota", vm.PersonalCloudSummaryText);
+                Assert.Equal(automaticSync, vm.AutomaticSyncEnabled);
+                Assert.Equal(automaticSync, preferences.Load().AutomaticSyncEnabled);
+                Assert.Equal(automaticSync ? 2 : 1, service.SyncCalls);
+            }
+            finally { TestDirectory.Delete(directory); }
+            return true;
+        }, CancellationToken.None);
+    }
+
     [Fact]
     public async Task Native_sync_provider_retry_dispatches_the_selected_request_and_disables_while_busy()
     {
@@ -384,10 +469,12 @@ public sealed class DesktopPersonalCloudSettingsTests(EditorTestSession fixture)
     private class StubSetupService(
         PersonalCloudProvisioningResult result,
         PersonalCloudConnectionProfile? connection = null,
-        PersonalCloudSyncResult? syncResult = null) : IPersonalCloudSetupService
+        PersonalCloudSyncResult? syncResult = null) : IPersonalCloudSetupService, IPersonalCloudDispatchStatusService
     {
         private PersonalCloudConnectionProfile? _connection = connection;
         public bool IsConfigured => true;
+        public PersonalCloudDispatchStatus? DispatchStatus { get; set; }
+        public Task<PersonalCloudDispatchStatus?> GetDispatchStatusAsync(CancellationToken cancellationToken = default) => Task.FromResult(DispatchStatus);
         public PersonalCloudConnectionProfile? CurrentConnection => _connection;
         public Task OpenAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
         public int SyncCalls { get; private set; }
@@ -436,6 +523,13 @@ public sealed class DesktopPersonalCloudSettingsTests(EditorTestSession fixture)
             };
             return Task.FromResult(_connection!);
         }
+    }
+
+    private sealed class ProgressStubSetupService(PersonalCloudConnectionProfile connection, PersonalCloudInitialSyncProgress progress)
+        : StubSetupService(new(connection.ServiceOrigin, "worker", "database", "synthetic", connection.ServiceOrigin), connection), IPersonalCloudInitialSyncProgressService
+    {
+        public event Action<PersonalCloudInitialSyncProgress>? InitialSyncProgressChanged { add { } remove { } }
+        public Task<PersonalCloudInitialSyncProgress?> GetInitialSyncProgressAsync(CancellationToken cancellationToken = default) => Task.FromResult<PersonalCloudInitialSyncProgress?>(progress);
     }
 
     private sealed class BridgeStubSetupService() : StubSetupService(new(new Uri("https://bridge.example.test/"), "worker", "database", "0.1.0-preview.9", new Uri("https://bridge.example.test/")),

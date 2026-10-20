@@ -40,11 +40,14 @@ public sealed partial class SqliteTaskStore
     }
 
     public async Task<bool> SupportsPersonalCloudProviderScopesAsync(string instanceId, CancellationToken cancellationToken = default)
+        => await GetPersonalCloudProviderCatalogProtocolVersionAsync(instanceId, cancellationToken).ConfigureAwait(false) == 2;
+
+    public async Task<int> GetPersonalCloudProviderCatalogProtocolVersionAsync(string instanceId, CancellationToken cancellationToken = default)
     {
         await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         var command = connection.CreateCommand(); command.CommandText = "SELECT provider_catalog FROM personal_cloud_workspace_capabilities WHERE instance_id=@i";
         command.Parameters.AddWithValue("@i", instanceId);
-        return Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)) == 2;
+        return Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false));
     }
 
     public async Task<IReadOnlyList<JsonElement>> GetPersonalCloudWorkspaceRecordsAsync(string instanceId, string kind, CancellationToken cancellationToken = default)

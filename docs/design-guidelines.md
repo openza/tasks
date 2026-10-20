@@ -1,6 +1,16 @@
 # Openza Tasks Design Guidelines
 
-Openza Tasks uses **Openza Calm Fluent**: a native Windows design language for a calm, focused, local-first task app. Its brand color language comes from the Tasks icon: charcoal, slate, and white.
+Openza Tasks aims for a calm, focused task interface. Its brand palette comes from the Tasks icon: charcoal, slate and white.
+
+## Active Avalonia baseline
+
+Use Avalonia's built-in controls and `FluentTheme`, following its official [theme](https://docs.avaloniaui.net/docs/styling/themes) and [styling guidance](https://docs.avaloniaui.net/docs/styling/style-best-practices). Keep the existing Avalonia resources, bindings and commands; use theme resources for light/dark variants, readable contrast and focus states. Preserve keyboard and accessibility behavior. Another theme library is not selected.
+
+The [behavior contracts](behavior-contracts.md) define task semantics. Avalonia is the cross-platform desktop host; visual cleanup must not choose a new workflow policy. Linux Snap is the sole current focus until Linux is stable. All Windows work, including continuity policy decisions, is parked unless the maintainer explicitly asks. Keep Core, Application and Desktop code Windows-compatible and free of Linux-only assumptions, with OS specifics behind platform services. Retain the Windows Dev gate and transition design as future reference.
+
+## Historical WinUI design reference
+
+WinUI is frozen: its last Microsoft Store release is final, with no further releases or maintenance. Keep its project and retain existing Store installations until a future Avalonia replacement passes acceptance. The remaining sections describe the frozen **Openza Calm Fluent** WinUI baseline for historical and continuity reference. WinUI control names, XAML resource keys, Mica and Windows-specific examples describe that baseline; they do not prescribe Avalonia APIs or a screen-by-screen port. Apply the active Avalonia baseline above to all new UI work.
 
 ## Product Personality
 

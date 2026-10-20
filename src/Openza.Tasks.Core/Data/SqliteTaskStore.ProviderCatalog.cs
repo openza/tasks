@@ -165,8 +165,10 @@ public sealed partial class SqliteTaskStore
                 ["isSkipped"] = previous.GetProperty("isSkipped").GetBoolean(), ["available"] = previous.GetProperty("available").GetBoolean(), ["adoptedTaskId"] = WText(previous, "adoptedTaskId"),
                 ["labelNames"] = previous.GetProperty("labelNames"), ["projectChoices"] = previous.GetProperty("projectChoices") };
             if (scoped) comparable["scopeId"] = previous.TryGetProperty("scopeId", out _) ? WText(previous, "scopeId") : null;
-            if (PersonalCloudK0Codec.Canonicalize(PersonalCloudK0Codec.Serialize(item)) == PersonalCloudK0Codec.Canonicalize(PersonalCloudK0Codec.Serialize(comparable)) &&
-                ParseProtocolTimestamp(source.RefreshedAt) - ParseProtocolTimestamp(WText(previous.GetProperty("source"), "refreshedAt")!) < SourceSnapshotHeartbeatInterval)
+            // Catalog time is the last published facts observation, not connection
+            // liveness. Equal facts need no periodic full-record publication.
+            // Adopted task source snapshots retain their separate six-hour heartbeat.
+            if (PersonalCloudK0Codec.Canonicalize(PersonalCloudK0Codec.Serialize(item)) == PersonalCloudK0Codec.Canonicalize(PersonalCloudK0Codec.Serialize(comparable)))
             { await transaction.CommitAsync(cancellationToken).ConfigureAwait(false); return false; }
         }
         await AppendWorkspaceMutationAsync(connection, instanceId, deviceId, "provider.catalog.put", id,

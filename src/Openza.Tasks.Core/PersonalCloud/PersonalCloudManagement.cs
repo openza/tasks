@@ -24,6 +24,7 @@ public sealed class PersonalCloudManagementCoordinator(
         CancellationToken cancellationToken = default) =>
         WithResourcesAsync(connection, async (access, accountId, workerName, database, token) =>
         {
+            await management.VerifyApplicationAsync(access, accountId, workerName, database.Id, connection, token).ConfigureAwait(false);
             await provisioning.VerifyMigrationHistoryAsync(access, accountId, database.Id, artifactVersion, token).ConfigureAwait(false);
             var deployed = await deployment.DeployAsync(
                 access,
@@ -109,6 +110,8 @@ public sealed class PersonalCloudManagementCoordinator(
     internal static string WorkerName(Uri serviceOrigin)
     {
         var origin = NormalizeOrigin(serviceOrigin);
+        if (!origin.IsDefaultPort || origin.Host.Split('.').Length != 4 || !origin.Host.EndsWith(".workers.dev", StringComparison.Ordinal))
+            throw new PersonalCloudK0ContractException("resource_mismatch", "Personal Cloud management requires the original workers.dev address.");
         var firstDot = origin.Host.IndexOf('.');
         var name = firstDot < 0 ? origin.Host : origin.Host[..firstDot];
         if (!name.StartsWith("openza-personal-", StringComparison.Ordinal) || name.Length > 64 ||
@@ -120,6 +123,7 @@ public sealed class PersonalCloudManagementCoordinator(
     private static Uri NormalizeOrigin(Uri value)
     {
         if (!value.IsAbsoluteUri || value.Scheme != Uri.UriSchemeHttps ||
+            !string.IsNullOrEmpty(value.UserInfo) || value.AbsolutePath != "/" ||
             !string.IsNullOrEmpty(value.Query) || !string.IsNullOrEmpty(value.Fragment))
             throw new PersonalCloudK0ContractException("connection_invalid", "The Personal Cloud address is invalid.");
         return new Uri(value.GetLeftPart(UriPartial.Authority) + "/", UriKind.Absolute);

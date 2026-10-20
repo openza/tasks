@@ -9,7 +9,7 @@ using Openza.Tasks.Core.PersonalCloud;
 
 namespace Openza.Tasks.Tests;
 
-public sealed class PersonalCloudBatchSyncTests : IDisposable
+public sealed partial class PersonalCloudBatchSyncTests : IDisposable
 {
     private const string Instance = "instance_batch_synthetic";
     private const string Device = "device_batch_synthetic";
@@ -53,7 +53,7 @@ public sealed class PersonalCloudBatchSyncTests : IDisposable
         Assert.Equal(3, (await store.GetPendingPersonalCloudOutboxAsync(Instance, Device)).Count);
         Assert.Equal(3, (await client.SyncAsync()).PushedMutations);
         Assert.Equal(52, handler.BatchPosts);
-        Assert.Equal(1, handler.HealthRequests);
+        Assert.Equal(2, handler.HealthRequests);
         Assert.Empty(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device));
         Assert.All(handler.BatchSizes, size => Assert.InRange(size, 1, 2));
         Assert.All(handler.BatchBytes, bytes => Assert.InRange(bytes, 1, 16384));
@@ -90,7 +90,8 @@ public sealed class PersonalCloudBatchSyncTests : IDisposable
         var original = Assert.Single(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device));
         handler.SchemaVersion = 23;
         handler.CapabilityOverride = """{"workspace":{"protocolVersion":1,"path":"/v1/tasks/mutations","schemaVersion":23},"providerCatalog":{"protocolVersion":1,"path":"/v1/provider/catalog","intentsPath":"/v1/provider/intents"}}""";
-        Assert.Equal("upgrade_required", (await client.SyncAsync()).BlockedCode);
+        Assert.Equal("health_mismatch", (await Assert.ThrowsAsync<PersonalCloudK0ContractException>(() => client.SyncAsync())).Code);
+        Assert.True(await store.SupportsPersonalCloudProviderScopesAsync(Instance));
         Assert.Equal(original, Assert.Single(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device))); Assert.Equal(0, handler.SinglePosts); Assert.Equal(0, handler.BatchPosts);
     }
 
@@ -240,9 +241,9 @@ public sealed class PersonalCloudBatchSyncTests : IDisposable
         return (store, await CreateClientAsync(store, handler), handler);
     }
 
-    private static async Task<PersonalCloudSyncClient> CreateClientAsync(SqliteTaskStore store, Handler handler)
+    private static async Task<PersonalCloudSyncClient> CreateClientAsync(SqliteTaskStore store, Handler handler, PersonalCloudDispatchPolicy? dispatch = null)
     {
-        var http = new HttpClient(handler);
+        var http = dispatch is null ? new HttpClient(handler) : PersonalCloudDispatchHttp.Create(dispatch, handler);
         var identity = new PersonalCloudDeviceIdentityClient(http, new InMemoryCredentialStore());
         var origin = new Uri("https://synthetic.example.test/");
         await identity.PairAsync(origin, "synthetic-one-time-grant-123456789", "Synthetic desktop", false);
@@ -260,9 +261,23 @@ public sealed class PersonalCloudBatchSyncTests : IDisposable
         public string? SingleError { get; set; }
         public string? ResponseDefect { get; set; }
         public bool LoseResponse { get; set; }
+        public DateTimeOffset? ResponseDate { get; set; }
         public int BatchPosts { get; private set; }
         public int SinglePosts { get; private set; }
         public int HealthRequests { get; private set; }
+        public int ChangeRequests { get; private set; }
+        public int CheckpointRequests { get; private set; }
+        public int FanoutRejections { get; set; }
+        public Func<Task>? OnChanges { get; set; }
+        public long CurrentCheckpoint { get; set; }
+        public List<string> AttemptBodies { get; } = [];
+        public List<string?> FanoutBounds { get; } = [];
+        public List<JsonElement> CatchupReports { get; } = [];
+        public long CatchupServerSequence { get; set; }
+        public bool CatchupFailure { get; set; }
+        public HttpStatusCode HealthStatus { get; set; } = HttpStatusCode.OK;
+        public string? HealthBody { get; set; }
+        public bool HealthOffline { get; set; }
         public int DuplicateReceipts { get; private set; }
         public List<int> BatchSizes { get; } = [];
         public List<int> BatchBytes { get; } = [];
@@ -275,13 +290,26 @@ public sealed class PersonalCloudBatchSyncTests : IDisposable
             if (path == "/health")
             {
                 HealthRequests++;
+                if (HealthOffline) throw new HttpRequestException("Synthetic health transport failure");
                 var capabilities = CapabilityOverride ?? (AdvertiseBatch ? $$$"""{"mutationBatch":{"protocolVersion":1,"path":"/v1/tasks/mutations/batch","maxMutations":2,"maxRequestUtf8Bytes":{{{MaxBytes}}}}}""" : "{}");
-                return Json(HttpStatusCode.OK, $$"""{"status":"ok","protocolVersion":1,"product":"tasks","artifactVersion":"test","schemaVersion":{{SchemaVersion}},"capabilities":{{capabilities}}}""");
+                return Json(HealthStatus, HealthBody ?? $$"""{"status":"ok","protocolVersion":1,"product":"tasks","artifactVersion":"test","schemaVersion":{{SchemaVersion}},"capabilities":{{capabilities}}}""");
             }
             if (path == "/auth/pair") return Json(HttpStatusCode.Created, $$"""{"protocolVersion":1,"instanceId":"{{Instance}}","deviceId":"{{Device}}","refreshCredential":"synthetic-refresh-123456789012345","capabilities":["desktop_sync"],"refreshExpiresAt":"2099-01-01T00:00:00Z"}""");
             if (path == "/auth/device/token") return Json(HttpStatusCode.OK, """{"protocolVersion":1,"accessToken":"synthetic-access-123456789012345","expiresAt":"2099-01-01T00:00:00Z","capabilities":["desktop_sync"]}""");
-            if (path == "/sync/changes") return Json(HttpStatusCode.OK, """{"protocolVersion":1,"product":"tasks","changes":[],"nextCheckpoint":0}""");
-            if (path == "/sync/checkpoints") return Json(HttpStatusCode.OK, $$"""{"protocolVersion":1,"product":"tasks","deviceId":"{{Device}}","acknowledgedCheckpoint":0}""");
+            if (path == "/sync/catchup-status")
+            {
+                Assert.Equal("Bearer", request.Headers.Authorization?.Scheme);
+                using var report = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(cancellationToken));
+                CatchupReports.Add(report.RootElement.Clone());
+                if (CatchupFailure) return Json(HttpStatusCode.ServiceUnavailable, "{}");
+                var sequence = report.RootElement.GetProperty("reportSequence").GetInt64();
+                var accepted = sequence > CatchupServerSequence;
+                CatchupServerSequence = Math.Max(CatchupServerSequence, sequence);
+                return Json(HttpStatusCode.OK, JsonSerializer.Serialize(new { protocolVersion = 1, accepted,
+                    reportSequence = CatchupServerSequence, updatedAt = "2026-10-20T01:00:00.000Z" }));
+            }
+            if (path == "/sync/changes") { ChangeRequests++; if (OnChanges is not null) await OnChanges(); return Json(HttpStatusCode.OK, $$"""{"protocolVersion":1,"product":"tasks","changes":[],"nextCheckpoint":{{CurrentCheckpoint}}}"""); }
+            if (path == "/sync/checkpoints") { CheckpointRequests++; return Json(HttpStatusCode.OK, $$"""{"protocolVersion":1,"product":"tasks","deviceId":"{{Device}}","acknowledgedCheckpoint":{{CurrentCheckpoint}}}"""); }
             if (path is not ("/v1/tasks/mutations/batch" or "/v1/tasks/mutations")) throw new InvalidOperationException(path);
             Assert.Equal("Bearer", request.Headers.Authorization?.Scheme);
             var body = await request.Content!.ReadAsStringAsync(cancellationToken);
@@ -289,6 +317,10 @@ public sealed class PersonalCloudBatchSyncTests : IDisposable
             if (path == "/v1/tasks/mutations")
             {
                 SinglePosts++;
+                AttemptBodies.Add(body);
+                FanoutBounds.Add(request.Headers.TryGetValues(PersonalCloudMutationCost.FanoutHeader, out var bounds) ? Assert.Single(bounds) : null);
+                if (FanoutRejections-- > 0) return Json(HttpStatusCode.Conflict,
+                    """{"protocolVersion":1,"product":"tasks","error":{"code":"fanout_bound_exceeded","message":"Synthetic","retryable":true,"requestId":"request_synthetic"}}""");
                 if (SingleError is { } code) return Json(HttpStatusCode.Conflict, JsonSerializer.Serialize(new { error = new { code } }));
                 return Json(HttpStatusCode.Created, JsonSerializer.Serialize(Accept(document.RootElement)));
             }
@@ -320,8 +352,14 @@ public sealed class PersonalCloudBatchSyncTests : IDisposable
                 ["instanceId"] = ResponseDefect == "instance" ? "wrong" : Instance, ["receipts"] = receipts,
                 ["processedCount"] = ResponseDefect == "count" ? 0 : receipts.Count,
                 ["stoppedAt"] = PartialFailure is not null ? receipts.Count : ResponseDefect == "stopped" ? 0 : null,
-                ["error"] = PartialFailure is null ? null : new { code = PartialFailure, message = "Synthetic", retryable = PartialFailure == "sync_failed", requestId = "request_synthetic" },
+                ["error"] = PartialFailure is null ? null : new Dictionary<string, object?>
+                {
+                    ["code"] = PartialFailure, ["message"] = "Synthetic", ["retryable"] = PartialFailure is "sync_failed" or "daily_quota_exceeded", ["requestId"] = "request_synthetic",
+                },
             };
+            if (PartialFailure == "daily_quota_exceeded")
+                ((Dictionary<string, object?>)result["error"]!)["quota"] = new { protocolVersion = 1, resource = "d1_rows_written",
+                    resetAt = PersonalCloudDispatchPolicy.NextMidnight(ResponseDate ?? DateTimeOffset.UtcNow).ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'") };
             if (ResponseDefect == "unknown") result["extra"] = 1;
             return Json(HttpStatusCode.OK, JsonSerializer.Serialize(result));
         }
@@ -333,12 +371,17 @@ public sealed class PersonalCloudBatchSyncTests : IDisposable
             var duplicate = _receipts.ContainsKey(id);
             if (duplicate) DuplicateReceipts++;
             var receipt = new { protocolVersion = 1, product = "tasks", mutationId = id, outcome = duplicate ? "duplicate" : "accepted",
-                entityId = mutation.GetProperty("entityId").GetString(), entityVersion = 1,
+                entityId = mutation.GetProperty("entityId").GetString(), entityVersion = mutation.GetProperty("baseEntityVersion").ValueKind == JsonValueKind.Null ? 1 : mutation.GetProperty("baseEntityVersion").GetInt64() + 1,
                 changeSeq = mutation.GetProperty("deviceSequence").GetInt64(), serverAcceptedAt = "2026-10-13T00:00:00.000Z" };
             _receipts[id] = receipt;
             return receipt;
         }
-        private static HttpResponseMessage Json(HttpStatusCode status, string body) => new(status) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
+        private HttpResponseMessage Json(HttpStatusCode status, string body)
+        {
+            var response = new HttpResponseMessage(status) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
+            response.Headers.Date = ResponseDate;
+            return response;
+        }
     }
     public void Dispose() => TestDirectory.Delete(_directory);
 }

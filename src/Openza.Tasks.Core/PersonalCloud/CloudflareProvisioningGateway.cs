@@ -48,51 +48,66 @@ public sealed class CloudflareProvisioningGateway(
         return new CloudflareProvisioningDatabase(database.Id);
     }
 
-    public Task<CloudflareProvisioningApplication> DeployApplicationAsync(string accessToken, string accountId, string databaseId, string attemptId, string artifactVersion, CancellationToken cancellationToken = default) =>
-        deployment.DeployAsync(accessToken, accountId, databaseId, ResourceName(attemptId), attemptId, artifactVersion, cancellationToken);
-
-    public async Task VerifyMigrationHistoryAsync(string accessToken, string accountId, string databaseId, string artifactVersion, CancellationToken cancellationToken = default)
+    public async Task<CloudflareProvisioningApplication> DeployApplicationAsync(string accessToken, string accountId, string databaseId, string attemptId, string artifactVersion, CancellationToken cancellationToken = default)
     {
-        if (!string.Equals(migrations.ArtifactVersion, artifactVersion, StringComparison.Ordinal) || migrations.Migrations.Count == 0)
-            throw new PersonalCloudK0ContractException("artifact_mismatch", "The Personal Cloud migration bundle does not match the deployment artifact.");
-        foreach (var migration in migrations.Migrations) ValidateMigration(migration);
-        var journal = await management.QueryD1Async(accessToken, accountId, databaseId,
-            "SELECT name AS sha256 FROM sqlite_master WHERE type='table' AND name='openza_schema_migrations'", cancellationToken: cancellationToken).ConfigureAwait(false);
-        if (ReadChecksum(journal) is null) return;
-        foreach (var migration in migrations.Migrations)
-        {
-            var result = await management.QueryD1Async(accessToken, accountId, databaseId,
-                "SELECT sha256 FROM openza_schema_migrations WHERE name=?1", [migration.Name], cancellationToken).ConfigureAwait(false);
-            if (ReadChecksum(result) is { } existing && !string.Equals(existing, migration.Sha256, StringComparison.Ordinal))
-                throw new PersonalCloudK0ContractException("migration_mismatch", "The deployed Personal Cloud migration history does not match the artifact.");
-        }
+        // Also preflight a resumed setup before replacing any already deployed Worker.
+        await VerifyMigrationHistoryAsync(accessToken, accountId, databaseId, artifactVersion, cancellationToken, allowFreshDatabase: true).ConfigureAwait(false);
+        return await deployment.DeployAsync(accessToken, accountId, databaseId, ResourceName(attemptId), attemptId, artifactVersion, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task VerifyMigrationHistoryAsync(string accessToken, string accountId, string databaseId, string artifactVersion, CancellationToken cancellationToken = default, bool allowFreshDatabase = false)
+    {
+        var bundle = PersonalCloudMigrationHistory.ValidateBundle(artifactVersion, migrations);
+        await ReadAppliedPrefixAsync(accessToken, accountId, databaseId, bundle, allowFreshDatabase, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task ApplyMigrationsAsync(string accessToken, string accountId, string databaseId, string artifactVersion, CancellationToken cancellationToken = default)
     {
-        if (!string.Equals(migrations.ArtifactVersion, artifactVersion, StringComparison.Ordinal) || migrations.Migrations.Count == 0)
-            throw new PersonalCloudK0ContractException("artifact_mismatch", "The Personal Cloud migration bundle does not match the deployment artifact.");
-        await management.ExecuteD1Async(accessToken, accountId, databaseId,
-            "CREATE TABLE IF NOT EXISTS openza_schema_migrations(name TEXT PRIMARY KEY,sha256 TEXT NOT NULL,applied_at TEXT NOT NULL)",
-            cancellationToken: cancellationToken).ConfigureAwait(false);
-        foreach (var migration in migrations.Migrations)
+        var bundle = PersonalCloudMigrationHistory.ValidateBundle(artifactVersion, migrations);
+        var applied = await ReadAppliedPrefixAsync(accessToken, accountId, databaseId, bundle, allowFreshDatabase: true, cancellationToken).ConfigureAwait(false);
+        if (applied == 0)
+            await management.ExecuteD1Async(accessToken, accountId, databaseId,
+                "CREATE TABLE IF NOT EXISTS openza_schema_migrations(name TEXT PRIMARY KEY,sha256 TEXT NOT NULL,applied_at TEXT NOT NULL)",
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+        foreach (var migration in bundle.Skip(applied))
         {
-            ValidateMigration(migration);
-            var result = await management.QueryD1Async(accessToken, accountId, databaseId,
-                "SELECT sha256 FROM openza_schema_migrations WHERE name=?1", [migration.Name], cancellationToken).ConfigureAwait(false);
-            var existing = ReadChecksum(result);
-            if (existing is not null)
-            {
-                if (!string.Equals(existing, migration.Sha256, StringComparison.Ordinal))
-                    throw new PersonalCloudK0ContractException("migration_mismatch", "The deployed Personal Cloud migration history does not match the artifact.");
-                continue;
-            }
             var appliedAt = DateTimeOffset.UtcNow.ToString("O");
             await management.ExecuteD1Async(accessToken, accountId, databaseId,
                 $"{migration.Sql.TrimEnd()}\nINSERT INTO openza_schema_migrations(name,sha256,applied_at) VALUES('{Literal(migration.Name)}','{Literal(migration.Sha256)}','{Literal(appliedAt)}');",
                 cancellationToken: cancellationToken).ConfigureAwait(false);
         }
     }
+
+    private async Task<int> ReadAppliedPrefixAsync(string accessToken, string accountId, string databaseId,
+        IReadOnlyList<PersonalCloudMigration> bundle, bool allowFreshDatabase, CancellationToken cancellationToken)
+    {
+        var tablesResult = await management.QueryD1Async(accessToken, accountId, databaseId,
+            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT GLOB 'sqlite_*' AND name <> '_cf_KV' ORDER BY name COLLATE BINARY",
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        var tables = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var row in PersonalCloudMigrationHistory.ReadRows(tablesResult).EnumerateArray())
+        {
+            if (row.ValueKind != System.Text.Json.JsonValueKind.Object || !row.TryGetProperty("name", out var name) ||
+                name.ValueKind != System.Text.Json.JsonValueKind.String || string.IsNullOrWhiteSpace(name.GetString()) || !tables.Add(name.GetString()!))
+                throw new PersonalCloudK0ContractException("invalid_response", "Cloudflare returned an invalid migration history response.");
+        }
+        // Wrangler's names-only ledger cannot prove which SQL/checksums were applied.
+        if (tables.Contains("d1_migrations")) throw UnverifiableHistory();
+        var applied = 0;
+        if (tables.Contains("openza_schema_migrations"))
+        {
+            var result = await management.QueryD1Async(accessToken, accountId, databaseId,
+                $"SELECT name,sha256 FROM openza_schema_migrations ORDER BY name COLLATE BINARY LIMIT {bundle.Count + 1}",
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+            applied = PersonalCloudMigrationHistory.ValidatePrefix(PersonalCloudMigrationHistory.ReadRows(result), bundle);
+        }
+        if (applied == 0 && (!allowFreshDatabase || tables.Any(name => name != "openza_schema_migrations")))
+            throw UnverifiableHistory();
+        return applied;
+    }
+
+    private static PersonalCloudK0ContractException UnverifiableHistory() => new("migration_history_unverifiable",
+        "Personal Cloud has no verifiable checksum migration history. Retain the database and use reviewed recovery.");
 
     public Task VerifyHealthAsync(Uri serviceOrigin, string artifactVersion, CancellationToken cancellationToken = default) =>
         health.VerifyAsync(serviceOrigin, artifactVersion, cancellationToken);
@@ -140,25 +155,6 @@ public sealed class CloudflareProvisioningGateway(
     }
 
     private static string Base64Url(byte[] value) => Convert.ToBase64String(value).TrimEnd('=').Replace('+', '-').Replace('/', '_');
-
-    private static void ValidateMigration(PersonalCloudMigration migration)
-    {
-        if (string.IsNullOrWhiteSpace(migration.Name) || migration.Name.Length > 100 ||
-            migration.Name.Any(character => !char.IsAsciiLetterOrDigit(character) && character is not ('_' or '-' or '.')) ||
-            migration.Sha256.Length != 64 || migration.Sha256.Any(character => !char.IsAsciiHexDigit(character)) ||
-            string.IsNullOrWhiteSpace(migration.Sql) || migration.Sql.Length > 100_000)
-            throw new PersonalCloudK0ContractException("artifact_invalid", "The Personal Cloud migration artifact is invalid.");
-    }
-
-    private static string? ReadChecksum(System.Text.Json.JsonElement result)
-    {
-        if (result.ValueKind != System.Text.Json.JsonValueKind.Array || result.GetArrayLength() == 0) return null;
-        var query = result[0];
-        if (!query.TryGetProperty("results", out var rows) || rows.ValueKind != System.Text.Json.JsonValueKind.Array || rows.GetArrayLength() == 0) return null;
-        return rows[0].TryGetProperty("sha256", out var checksum) && checksum.ValueKind == System.Text.Json.JsonValueKind.String
-            ? checksum.GetString()
-            : throw new PersonalCloudK0ContractException("invalid_response", "Cloudflare returned an invalid migration response.");
-    }
 
     private static string Literal(string value) => value.Replace("'", "''", StringComparison.Ordinal);
 }

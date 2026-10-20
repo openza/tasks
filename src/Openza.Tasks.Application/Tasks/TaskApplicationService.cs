@@ -309,9 +309,13 @@ public sealed class TaskApplicationService(
             CompletedAt = completed ? original.CompletedAt ?? now : null,
             Priority = request.Priority.IsSpecified ? ValidatePriority(request.Priority.Value) : original.Priority,
             PlannedOn = plannedOn,
-            PlannedAt = ProviderWriteBackPlanner.PreserveExactTime(plannedOn, original.PlannedOn, original.PlannedAt),
+            PlannedAt = request.PlannedOn.IsSpecified
+                ? ProviderWriteBackPlanner.PreserveExactTime(plannedOn, original.PlannedOn, original.PlannedAt)
+                : original.PlannedAt,
             DeadlineOn = deadlineOn,
-            DeadlineAt = ProviderWriteBackPlanner.PreserveExactTime(deadlineOn, original.DeadlineOn, original.DeadlineAt),
+            DeadlineAt = request.DeadlineOn.IsSpecified
+                ? ProviderWriteBackPlanner.PreserveExactTime(deadlineOn, original.DeadlineOn, original.DeadlineAt)
+                : original.DeadlineAt,
             Labels = labels,
             LocalMetadataJson = request.LocalMetadataJson.IsSpecified ? request.LocalMetadataJson.Value : original.LocalMetadataJson,
             UpdatedAt = now,

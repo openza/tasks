@@ -1,40 +1,9 @@
-# Openza Tasks
+# Openza Tasks context
 
-Local-first task manager with a Windows-native WinUI app and a Linux-first Avalonia app.
+[AGENTS.md](AGENTS.md) is the authoritative repository instruction source. Use the [behavior contracts](docs/behavior-contracts.md), [architecture](docs/architecture.md) and [design guidance](docs/design-guidelines.md) for product meaning and host ownership.
 
-## Tech Stack
+See [AGENTS.md: Current Platform Focus](AGENTS.md#current-platform-focus) for the current platform policy.
 
-.NET 10, Avalonia 12, Windows App SDK 2.0.x, WinUI 3, Microsoft.Data.Sqlite, xUnit.
+The fresh-start rule excludes automatic import of Flutter-era stores. Any guarded WinUI-to-Avalonia package transition is a separate explicitly authorized scope. Preserve live-app safeguards, channel identities, credentials and pending intent.
 
-## Essential Commands
-
-```powershell
-dotnet restore Openza.Tasks.slnx
-dotnet test src\Openza.Tasks.Tests\Openza.Tasks.Tests.csproj -c Release
-dotnet build src\Openza.Tasks\Openza.Tasks.csproj -c Release --no-restore
-```
-
-```bash
-./dev.sh
-```
-
-## Critical Rules
-
-- Never commit secrets, `.env` files, generated certificates, MSIX packages, or Store-private data.
-- Run `gitleaks detect --source . --verbose` before publishing.
-- Keep provider tokens behind `ICredentialStore`; do not log token values.
-- Store V1 is a fresh-start WinUI app. Do not auto-migrate legacy Flutter databases; consider explicit import tooling later if the product decision changes.
-- XAML changes must compile through the app project.
-
-## Architecture
-
-```text
-src/Openza.Tasks        WinUI app, Windows Credential Locker, app settings
-src/Openza.Tasks.Desktop Linux-first Avalonia app and desktop services
-src/Openza.Tasks.Core   Data, migration, backup, Markdown import/export, C# sync
-src/Openza.Tasks.Tests  Unit and migration tests
-```
-
-## Migration Notes
-
-Flutter/Rust-FFI builds are legacy. The WinUI app does not ship the old Rust DLL; sync logic now lives in C# so it can later move into an Openza Sync service or CLI.
+Project and workflow status are independent: assigning a project never changes status and choosing status never changes project. Inbox is the default; None is explicit no-workflow-status. Inbox view membership is open + Inbox status + no project. A project-assigned Inbox-status task remains unprocessed within its project; its Inbox badge is intentional and correct. Preserve this decided contract during cleanup.

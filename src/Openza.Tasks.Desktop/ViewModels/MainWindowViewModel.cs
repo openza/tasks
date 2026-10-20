@@ -1,7 +1,6 @@
 using System.Collections.ObjectModel;
-using System.Text.Json;
-using System.Text.Json.Nodes;
 using Openza.Tasks.Application.Tasks;
+using Openza.Tasks.Application.Sync;
 using Openza.Tasks.Core.Data;
 using Openza.Tasks.Core.Credentials;
 using Openza.Tasks.Core.Models;
@@ -9,6 +8,9 @@ using Openza.Tasks.Core.PersonalCloud;
 using Openza.Tasks.Core.Services;
 using Openza.Tasks.Core.Sync;
 using Openza.Tasks.Desktop.Services;
+using Openza.Tasks.Desktop.ViewModels.Editing;
+using Openza.Tasks.Desktop.ViewModels.Navigation;
+using Openza.Tasks.Desktop.Services.Continuity;
 using FluentIcons.Common;
 
 namespace Openza.Tasks.Desktop.ViewModels;
@@ -21,7 +23,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private readonly TaskApplicationService _taskService;
     private readonly ICredentialStore _credentials;
     private readonly HttpClient _httpClient = new();
-    private readonly TaskSyncEngine _syncEngine;
+    private readonly ConnectedSyncApplicationService _connectedSync;
     private readonly IDesktopMicrosoftAuthService _microsoftAuth;
     private readonly Func<string, ISyncProvider> _microsoftSyncProviderFactory;
     private readonly CloudBackupService? _cloudService;
@@ -37,6 +39,15 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private readonly GitHubIssueService _gitHubIssueService;
     private readonly DesktopPreferencesStore _preferencesStore;
     private readonly IPersonalCloudSetupService? _personalCloudSetup;
+    private readonly Openza.Tasks.Desktop.Services.Continuity.WindowsContinuitySession? _continuitySession;
+    public string? SessionCloudNotice => _continuitySession?.CloudAccessInhibited == true
+        ? Openza.Tasks.Desktop.Services.Continuity.WindowsContinuitySession.CloudAccessNotice : null;
+    private bool AllowSessionCloudAccess()
+    {
+        if (SessionCloudNotice is not { } notice) return true;
+        ReportError(notice);
+        return false;
+    }
     private readonly Lazy<BackupService?> _backupService;
     private readonly List<ProjectItem> _projects = [];
     private readonly List<LabelItem> _labels = [];
@@ -111,19 +122,21 @@ public sealed partial class MainWindowViewModel : ObservableObject
         CloudBackupService? cloudService = null,
         BackupService? backupService = null,
         GitHubIssueService? gitHubIssueService = null,
-        IPersonalCloudSetupService? personalCloudSetup = null)
+        IPersonalCloudSetupService? personalCloudSetup = null,
+        Openza.Tasks.Desktop.Services.Continuity.WindowsContinuitySession? continuitySession = null)
     {
         _store = store;
-        _personalCloudSetup = personalCloudSetup;
-        if (personalCloudSetup is IPersonalCloudInitialSyncProgressService progressService)
+        _continuitySession = continuitySession ?? Openza.Tasks.Desktop.Services.Continuity.WindowsContinuityHost.Session;
+        _personalCloudSetup = personalCloudSetup is not null && _continuitySession is not null ? _continuitySession.GuardCloudService(personalCloudSetup) : personalCloudSetup;
+        if (_personalCloudSetup is IPersonalCloudInitialSyncProgressService progressService)
             progressService.InitialSyncProgressChanged += progress =>
             {
                 if (Avalonia.Threading.Dispatcher.UIThread.CheckAccess()) ApplyInitialSyncProgress(progress);
                 else Avalonia.Threading.Dispatcher.UIThread.Post(() => ApplyInitialSyncProgress(progress));
             };
         _taskService = new TaskApplicationService(store, () => _personalCloudSetup?.CurrentConnection);
-        _credentials = credentials;
-        _microsoftAuth = microsoftAuth ?? new DesktopMicrosoftAuthService(credentials);
+        _credentials = _continuitySession?.AppCredentials ?? credentials;
+        _microsoftAuth = microsoftAuth ?? new DesktopMicrosoftAuthService(_credentials);
         _microsoftSyncProviderFactory = microsoftSyncProviderFactory ?? (token => new MicrosoftToDoProvider(_httpClient, token));
         _cloudService = cloudService;
         _gitHubIssueService = gitHubIssueService ?? new GitHubIssueService(_httpClient);
@@ -134,10 +147,13 @@ public sealed partial class MainWindowViewModel : ObservableObject
             _personalCloudActionText = "Manage Personal Cloud";
         }
         _preferencesStore = preferencesStore ?? CreatePreferencesStore(store);
-        _syncEngine = new TaskSyncEngine(store);
         _todoistSyncProviderFactory = todoistSyncProviderFactory ?? (token => new TodoistProvider(_httpClient, token));
         _todoistMoveProviderFactory = todoistMoveProviderFactory ??
             ((token, connectionId) => new TodoistProvider(_httpClient, token, connectionId));
+        _connectedSync = new ConnectedSyncApplicationService(store,
+            new DesktopSyncProviderResolver(_credentials, _preferencesStore, _microsoftAuth,
+                _todoistSyncProviderFactory, _microsoftSyncProviderFactory),
+            DesktopDataPaths.Runtime, _personalCloudSetup);
         _backupService = new Lazy<BackupService?>(() => backupService ?? (store is SqliteTaskStore sqliteStore
             ? new BackupService(
                 sqliteStore.DatabasePath,
@@ -171,7 +187,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         if (store is SqliteTaskStore sqliteStore &&
             Path.GetDirectoryName(sqliteStore.DatabasePath) is { } dataDirectory)
         {
-            return new DesktopPreferencesStore(Path.Combine(dataDirectory, "settings.json"));
+            return new DesktopPreferencesStore(Path.GetFullPath(sqliteStore.DatabasePath) == Path.GetFullPath(DesktopDataPaths.Runtime.DatabasePath)
+                ? DesktopDataPaths.SettingsPath : Path.Combine(dataDirectory, "settings.json"));
         }
 
         return new DesktopPreferencesStore();
@@ -272,8 +289,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         get => _selectedTask;
         set
         {
-            if (value is not null && _displayedSelectionContext is { } context)
-                _taskSelections[context] = value.Task.Id;
+            _taskSelectionState.RememberDisplayed(value?.Task.Id);
             if (SetProperty(ref _selectedTask, value))
             {
                 using var detailUpdate = BeginDetailUpdate();
@@ -863,7 +879,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
             await RefreshProviderRequestStatusAsync();
             await LoadConnectedTasksCoreAsync();
             await RefreshTodoistConnectionAsync();
-            StatusMessage = $"Local data · {_store.GetType().Name.Replace("TaskStore", string.Empty, StringComparison.Ordinal)}";
+            StatusMessage = _continuitySession?.CloudAccessInhibited == true ? Openza.Tasks.Desktop.Services.Continuity.WindowsContinuitySession.CloudAccessNotice
+                : $"Local data · {_store.GetType().Name.Replace("TaskStore", string.Empty, StringComparison.Ordinal)}";
         });
     }
 
@@ -1459,6 +1476,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     public async Task ConnectGitHubAsync()
     {
+        if (!AllowSessionCloudAccess()) return;
         var token = GitHubToken.Trim();
         if (token.Length == 0)
         {
@@ -1471,6 +1489,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     private async Task SaveGitHubTokenAsync(string token, CancellationToken cancellationToken)
     {
+        _continuitySession?.EnsureCloudAccess();
         var validation = await _gitHubIssueService.ValidateTokenAsync(token, cancellationToken);
         if (!validation.Success) throw new InvalidOperationException(validation.Error ?? "GitHub rejected the token.");
         await _credentials.SaveAsync(GitHubIssueService.TokenKey, token);
@@ -1493,6 +1512,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     public async Task DisconnectGitHubAsync()
     {
+        if (!AllowSessionCloudAccess()) return;
         await RunBusyAsync(async () =>
         {
             await _credentials.RemoveAsync(GitHubIssueService.TokenKey);
@@ -1543,6 +1563,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     public async Task ConnectTodoistAsync()
     {
+        if (!AllowSessionCloudAccess()) return;
         if (IsSyncing) { StatusMessage = "Wait for the current sync before changing the Todoist connection."; return; }
         var token = TodoistToken.Trim();
         if (token.Length == 0)
@@ -1576,6 +1597,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     public async Task DisconnectTodoistAsync()
     {
+        if (!AllowSessionCloudAccess()) return;
         if (IsSyncing) { StatusMessage = "Wait for Todoist sync to finish before disconnecting."; return; }
         await RunBusyAsync(async () =>
         {
@@ -1604,8 +1626,23 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     public void SetAutomaticSyncEnabled(bool enabled) => AutomaticSyncEnabled = enabled;
 
+    private sealed class SyncProgressReporter(MainWindowViewModel owner) : IProgress<PersonalCloudInitialSyncProgress>
+    {
+        public void Report(PersonalCloudInitialSyncProgress value) => owner.ApplyInitialSyncProgress(value);
+    }
+
     private async Task RunTodoistSyncAsync(bool showMissingConnection)
     {
+        if (_continuitySession is not null)
+        {
+            try { _continuitySession.EnsureCloudAccess(); }
+            catch (InvalidOperationException exception) { ReportError(exception.Message); return; }
+        }
+        if (_preferencesStore.Load().WindowsCloudRecoveryRequired)
+        {
+            ReportError("Personal Cloud sync is paused. Recover the saved pairing in Sync or restore/export a safety copy in Settings; local tasks and pending operations are retained.");
+            return;
+        }
         // Network work has its own gate and cannot queue navigation behind a provider.
         if (!await _syncGate.WaitAsync(0)) return;
         IsSyncing = true;
@@ -1614,62 +1651,27 @@ public sealed partial class MainWindowViewModel : ObservableObject
             if (!await SaveSelectedAsync()) return;
             LastSyncResult = "Syncing connected apps…";
             StatusMessage = LastSyncResult;
-            var bridgeProviders = new List<PersonalCloudConfiguredProvider>();
-            var summaries = await Task.Run(async () =>
+            var result = await _connectedSync.RunAsync(new SyncProgressReporter(this));
+            var summaries = result.Providers;
+            var personalCloud = result.PersonalCloud;
+            var bridgeResult = result.ProviderBridge;
+            var personalCloudError = result.PersonalCloudError;
+            if (result.CloudAttempted)
             {
-                using var databaseLease = Openza.Tasks.Application.Runtime.ChannelRuntimeLease.AcquireDatabaseRead(DesktopDataPaths.Runtime);
-                var results = new List<SyncSummary>();
-                async Task SyncProvider(string integrationId, Func<Task<PersonalCloudConfiguredProvider?>> factory)
+                await RefreshInitialSyncProgressAsync();
+                if (personalCloudError is not null)
                 {
-                    try
-                    {
-                        using var lease = Openza.Tasks.Application.Runtime.ChannelRuntimeLease.AcquireProviderSync(DesktopDataPaths.Runtime, integrationId);
-                        var configuration = await factory().ConfigureAwait(false);
-                        if (configuration is not null)
-                        {
-                            var summary = await _syncEngine.SyncAsync(configuration.Provider).ConfigureAwait(false);
-                            results.Add(summary);
-                            if (summary.Success) bridgeProviders.Add(configuration);
-                        }
-                    }
-                    catch (Exception exception) { results.Add(new SyncSummary(integrationId, false, 0, 0, 0, 0, 0, 0, exception.Message)); }
+                    await MarkWindowsCloudRecoveryAsync(result.PersonalCloudErrorCode);
                 }
-                await SyncProvider(IntegrationIds.Todoist, async () =>
+                else
                 {
-                    var token = await _credentials.GetAsync(TodoistTokenKey).ConfigureAwait(false);
-                    return string.IsNullOrWhiteSpace(token) ? null : new PersonalCloudConfiguredProvider(_todoistSyncProviderFactory(token),
-                        Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(token))).ToLowerInvariant());
-                });
-                await SyncProvider(IntegrationIds.MicrosoftToDo, async () =>
-                {
-                    var account = _preferencesStore.Load().MicrosoftToDoAccount;
-                    var token = await _microsoftAuth.GetTokenAsync("todo", account).ConfigureAwait(false);
-                    return string.IsNullOrWhiteSpace(token) || account is null ? null :
-                        new PersonalCloudConfiguredProvider(_microsoftSyncProviderFactory(token), account.HomeAccountId);
-                });
-                return results;
-            });
-            PersonalCloudSyncResult? personalCloud = null;
-            PersonalCloudProviderBridgeResult? bridgeResult = null;
-            string? personalCloudError = null;
-            if (_personalCloudSetup?.CurrentConnection is not null)
-            {
-                try
-                {
-                    personalCloud = await SyncPersonalCloudWithProgressAsync().ConfigureAwait(true);
-                    if (personalCloud.BlockedCode is null && _personalCloudSetup is IPersonalCloudProviderBridgeService bridge)
+                    try { await RefreshProviderRequestStatusAsync(); }
+                    catch (Exception exception)
                     {
-                        bridgeResult = await Task.Run(() => bridge.RunProviderBridgeAsync(bridgeProviders)).ConfigureAwait(true);
-                        var resultPass = await SyncPersonalCloudWithProgressAsync().ConfigureAwait(true);
-                        personalCloud = new PersonalCloudSyncResult(personalCloud.PushedMutations + resultPass.PushedMutations,
-                            personalCloud.PulledChanges + resultPass.PulledChanges, resultPass.Checkpoint) { BlockedCode = resultPass.BlockedCode, InitialSyncProgress = resultPass.InitialSyncProgress };
+                        await RefreshInitialSyncProgressAsync();
+                        await MarkWindowsCloudRecoveryAsync((exception as PersonalCloudK0ContractException)?.Code);
+                        personalCloudError = exception.Message;
                     }
-                    await RefreshProviderRequestStatusAsync().ConfigureAwait(true);
-                }
-                catch (Exception exception)
-                {
-                    await RefreshInitialSyncProgressAsync();
-                    personalCloudError = exception.Message;
                 }
             }
             if (summaries.Count == 0 && personalCloud is null && personalCloudError is null)
@@ -1693,7 +1695,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                     ? $"Personal Cloud synced · {personalCloud.PushedMutations} uploaded, {personalCloud.PulledChanges} downloaded"
                     : $"Personal Cloud sync blocked ({personalCloud.BlockedCode}) · {personalCloud.PulledChanges} downloaded. Pending edits are preserved and require resolution.");
             if (personalCloudError is not null)
-                resultMessages.Add($"Personal Cloud sync failed: {personalCloudError}");
+                resultMessages.Add(_cloudDispatchStatus is { IsPaused: true } pause ? pause.Summary : $"Personal Cloud sync failed: {personalCloudError}");
             if (bridgeResult is not null) resultMessages.Add(bridgeResult.Summary);
             LastSyncResult = $"{DateTimeOffset.Now:g} · " + string.Join("; ", resultMessages);
             if (summaries.Any(summary => !summary.Success) || personalCloudError is not null) SetPersistentStatusMessage(LastSyncResult);
@@ -1705,6 +1707,15 @@ public sealed partial class MainWindowViewModel : ObservableObject
             SetPersistentStatusMessage(LastSyncResult);
         }
         finally { IsSyncing = false; OnPropertyChanged(nameof(CanRetryInitialSync)); _syncGate.Release(); }
+    }
+
+    private async Task MarkWindowsCloudRecoveryAsync(string? errorCode)
+    {
+        if (_continuitySession is not null && errorCode == "unauthorized")
+        {
+            await _preferencesStore.UpdateAsync(value => value with { WindowsCloudRecoveryRequired = true, AutomaticSyncEnabled = false });
+            AutomaticSyncEnabled = false;
+        }
     }
 
     public void FilterConnectedTasks(string searchText)
@@ -2319,26 +2330,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
                     return;
                 }
 
-                var completed = draft.Status == TaskItemStatus.Completed;
-                var localMetadataJson = WithSourceDateMismatchAcknowledgement(original.LocalMetadataJson, draft.SourceDateMismatchAcknowledgementKey);
                 TaskItem? updated = null;
-                if (HasDetailChanges(baseline, draft, completed, WithSourceDateMismatchAcknowledgement(baseline.LocalMetadataJson, draft.SourceDateMismatchAcknowledgementKey)))
+                var request = TaskDetailEditPlanner.CreateRequest(baseline, original, draft);
+                if (request is not null)
                 {
-                    updated = await _taskService.UpdateTaskAsync(new UpdateTaskRequest
-                    {
-                        TaskId = original.Id,
-                        ExpectedRevision = original.Revision,
-                        Title = draft.Title == baseline.Title ? default : OptionalValue<string?>.Set(draft.Title),
-                        Notes = NullIfEmpty(draft.Notes) == NullIfEmpty(baseline.Notes) ? default : OptionalValue<string?>.Set(NullIfEmpty(draft.Notes)),
-                        Status = completed || draft.Status == baseline.Status ? default : OptionalValue<TaskWorkflowStatus>.Set(draft.Status.ToWorkflowStatus()),
-                        Completed = completed == baseline.IsCompleted ? default : OptionalValue<bool>.Set(completed),
-                        Priority = draft.Priority == baseline.Priority ? default : OptionalValue<int>.Set(draft.Priority),
-                        Project = draft.ProjectId == baseline.ProjectId ? default : OptionalValue<string?>.Set(draft.ProjectId),
-                        PlannedOn = draft.PlannedOn == baseline.PlannedOn ? default : OptionalValue<DateOnly?>.Set(draft.PlannedOn),
-                        DeadlineOn = draft.DeadlineOn == baseline.DeadlineOn ? default : OptionalValue<DateOnly?>.Set(draft.DeadlineOn),
-                        Labels = draft.Labels.Select(x => x.Name).Order().SequenceEqual(baseline.Labels.Select(x => x.Name).Order()) ? default : OptionalValue<IReadOnlyList<string>>.Set(draft.Labels.Select(label => label.Name).ToArray()),
-                        LocalMetadataJson = draft.SourceDateMismatchAcknowledgementKey == ReadSourceDateMismatchAcknowledgementKey(baseline.LocalMetadataJson) ? default : OptionalValue<string?>.Set(localMetadataJson),
-                    });
+                    updated = await _taskService.UpdateTaskAsync(request);
                     savedChanges = true;
                 }
 
@@ -2353,14 +2349,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
                     // The next edit is relative to the editor values just saved,
                     // not to provider fields that may have changed meanwhile.
-                    baseline = baseline with
-                    {
-                        Title = draft.Title, Notes = draft.Notes, Status = draft.Status,
-                        Priority = draft.Priority, ProjectId = draft.ProjectId,
-                        PlannedOn = draft.PlannedOn, DeadlineOn = draft.DeadlineOn,
-                        Labels = draft.Labels,
-                        LocalMetadataJson = WithSourceDateMismatchAcknowledgement(baseline.LocalMetadataJson, draft.SourceDateMismatchAcknowledgementKey),
-                    };
+                    baseline = TaskDetailEditPlanner.Rebase(baseline, draft);
                     draft = CaptureDetailSaveDraft(draft.TaskId);
                     continue;
                 }
@@ -2380,7 +2369,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         return succeeded && valid;
     }
 
-    private DetailSaveDraft CaptureDetailSaveDraft(string taskId) => new(
+    private TaskDetailDraft CaptureDetailSaveDraft(string taskId) => new(
         taskId,
         DetailTitle.Trim(),
         DetailNotes,
@@ -2510,7 +2499,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     private async Task RefreshAsyncCore(string? selectTaskId = null, bool preserveEditor = false)
     {
-        _displayedSelectionContext = SelectionContext;
+        _taskSelectionState.DisplayedContext = CurrentTaskViewContext;
         ApplyTaskViewPreferencesForCurrentContext();
         var labels = await _store.GetLabelsAsync();
         await ClearStaleLabelFilterAsync(labels);
@@ -2601,8 +2590,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         if (editorTask is not null && editorDraft is not null)
         {
             // Keep an edited task open even when a changed filter removes its row.
-            var edited = HasDetailChanges(editorTask.Task, editorDraft, editorDraft.Status == TaskItemStatus.Completed,
-                WithSourceDateMismatchAcknowledgement(editorTask.Task.LocalMetadataJson, editorDraft.SourceDateMismatchAcknowledgementKey));
+            var edited = TaskDetailEditPlanner.HasChanges(editorTask.Task, editorDraft);
             if (SelectedTask is null && edited) SelectedTask = editorTask;
             if (SelectedTask?.Task.Id == editorTask.Task.Id)
                 RestoreEditedFields(editorTask.Task, editorDraft, editorTitle);
@@ -2612,14 +2600,14 @@ public sealed partial class MainWindowViewModel : ObservableObject
         OnPropertyChanged(nameof(HasNoSelectedTask));
     }
 
-    private void RestoreEditedFields(TaskItem before, DetailSaveDraft draft, string rawTitle)
+    private void RestoreEditedFields(TaskItem before, TaskDetailDraft draft, string rawTitle)
     {
         if (draft.Title != before.Title) DetailTitle = rawTitle;
         if (NullIfEmpty(draft.Notes) != NullIfEmpty(before.Notes)) DetailNotes = draft.Notes;
         if (draft.Status != before.Status) DetailStatusIndex = StatusIndex(draft.Status);
         if (draft.Priority != before.Priority) DetailPriorityIndex = draft.Priority - 1;
-        if (draft.PlannedOn != before.PlannedOn) DetailDate = draft.PlannedOn is { } date ? ToLocalDateTimeOffset(date) : null;
-        if (draft.DeadlineOn != before.DeadlineOn) DetailDeadline = draft.DeadlineOn is { } deadline ? ToLocalDateTimeOffset(deadline) : null;
+        if (draft.PlannedOn != TaskDetailEditPlanner.DisplayPlannedOn(before)) DetailDate = draft.PlannedOn is { } date ? ToLocalDateTimeOffset(date) : null;
+        if (draft.DeadlineOn != TaskDetailEditPlanner.DisplayDeadlineOn(before)) DetailDeadline = draft.DeadlineOn is { } deadline ? ToLocalDateTimeOffset(deadline) : null;
         if (draft.ProjectId != before.ProjectId) DetailProject = ProjectOptions.FirstOrDefault(option => option.ProjectId == draft.ProjectId);
         if (!draft.Labels.Select(x => x.Name).Order().SequenceEqual(before.Labels.Select(x => x.Name).Order()))
         {
@@ -2627,7 +2615,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             foreach (var label in draft.Labels) DetailLabelItems.Add(label.Name);
             SyncDetailLabels();
         }
-        if (draft.SourceDateMismatchAcknowledgementKey != ReadSourceDateMismatchAcknowledgementKey(before.LocalMetadataJson))
+        if (draft.SourceDateMismatchAcknowledgementKey != TaskSourceDateChoice.ReadAcknowledgement(before.LocalMetadataJson))
             _sourceDateMismatchAcknowledgementKey = draft.SourceDateMismatchAcknowledgementKey;
     }
 
@@ -2732,42 +2720,13 @@ public sealed partial class MainWindowViewModel : ObservableObject
         await SaveTaskViewPreferencesAsync();
     }
 
-    private bool IsTasksView() => SelectedProject is not null || SelectedNavigation?.Kind == TaskListKind.Open;
+    private bool IsTasksView() => CurrentTaskViewContext.IsTasksView;
 
-    private string SharedTasksSettingsKey() => $"{_currentSpaceId ?? "all"}|tasks|all";
+    private string SharedTasksSettingsKey() => CurrentTaskViewContext.SharedTasksSettingsKey;
 
-    private string TaskViewSettingsKey()
-    {
-        var view = SelectedProject is not null ? "tasks" : ViewKey(SelectedNavigation?.Kind ?? TaskListKind.Inbox);
-        var project = string.Equals(view, "tasks", StringComparison.Ordinal)
-            ? SelectedProject?.Project.Id ?? "all"
-            : "all";
-        return $"{_currentSpaceId ?? "all"}|{view}|{project}";
-    }
+    private string TaskViewSettingsKey() => CurrentTaskViewContext.PreferencesKey;
 
-    private int DefaultGroupIndexForCurrentView() => SelectedProject is not null
-        ? 2
-        : SelectedNavigation?.Kind switch
-        {
-            TaskListKind.Overdue or TaskListKind.Calendar => 1,
-            TaskListKind.Completed => 9,
-            TaskListKind.Open => 2,
-            _ => 0,
-        };
-
-    private static string ViewKey(TaskListKind kind) => kind switch
-    {
-        TaskListKind.Inbox => "inbox",
-        TaskListKind.NextActions => "next",
-        TaskListKind.Today => "today",
-        TaskListKind.Calendar => "calendar",
-        TaskListKind.Overdue => "overdue",
-        TaskListKind.Waiting => "waiting",
-        TaskListKind.Someday => "someday",
-        TaskListKind.Open => "tasks",
-        TaskListKind.Completed => "completed",
-        _ => "inbox",
-    };
+    private int DefaultGroupIndexForCurrentView() => CurrentTaskViewContext.DefaultGroupIndex;
 
     private async Task LoadSubtasksAsync()
     {
@@ -3069,15 +3028,15 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     private void LoadDetails(TaskItem? task)
     {
-        _sourceDateMismatchAcknowledgementKey = ReadSourceDateMismatchAcknowledgementKey(task?.LocalMetadataJson);
+        _sourceDateMismatchAcknowledgementKey = TaskSourceDateChoice.ReadAcknowledgement(task?.LocalMetadataJson);
         DetailTitle = task?.Title ?? string.Empty;
         DetailNotes = task?.Notes ?? string.Empty;
         DetailStatusIndex = StatusIndex(task?.Status ?? TaskItemStatus.Inbox);
         DetailPriorityIndex = Math.Clamp((task?.Priority ?? 2) - 1, 0, 3);
-        DetailDate = task?.PlannedOn is { } date
+        DetailDate = TaskDetailEditPlanner.DisplayPlannedOn(task) is { } date
             ? ToLocalDateTimeOffset(date)
             : null;
-        DetailDeadline = task?.DeadlineOn is { } deadline
+        DetailDeadline = TaskDetailEditPlanner.DisplayDeadlineOn(task) is { } deadline
             ? ToLocalDateTimeOffset(deadline)
             : null;
         DetailLabelItems.Clear();
@@ -3164,51 +3123,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
         OnPropertyChanged(nameof(UseSourceDatesText));
     }
 
-    private SourceDateMismatchPresentation? BuildSourceDateMismatch(bool ignoreAcknowledgement = false)
-    {
-        if (SelectedTask?.Task is not { } task ||
-            !task.HasProviderSource ||
-            IsTodoistNonRecurringSourceTask(task) ||
-            !string.IsNullOrWhiteSpace(task.SourceRecurrenceRule))
-        {
-            return null;
-        }
-
-        DateOnly? localDate = DetailDate is null ? null : DateOnly.FromDateTime(DetailDate.Value.LocalDateTime);
-        DateOnly? localDeadline = DetailDeadline is null ? null : DateOnly.FromDateTime(DetailDeadline.Value.LocalDateTime);
-        var sourceDate = TaskDateValues.FromDateTimeOffset(task.SourcePlannedMoment);
-        var sourceDeadline = TaskDateValues.FromDateTimeOffset(task.SourceDeadlineMoment);
-        var dateMismatch = localDate != sourceDate;
-        var deadlineMismatch = localDeadline != sourceDeadline;
-        if (!dateMismatch && !deadlineMismatch)
-        {
-            return null;
-        }
-
-        var key = BuildSourceDateMismatchKey(task.Id, localDate, sourceDate, localDeadline, sourceDeadline);
-        if (!ignoreAcknowledgement && string.Equals(_sourceDateMismatchAcknowledgementKey, key, StringComparison.Ordinal))
-        {
-            return null;
-        }
-
-        var sourceName = SourceTaskName;
-        var title = dateMismatch && deadlineMismatch
-            ? $"{sourceName} dates changed"
-            : dateMismatch
-                ? $"{sourceName} date changed"
-                : $"{sourceName} deadline changed";
-        var message = dateMismatch && deadlineMismatch
-            ? $"{sourceName} date is {FormatDateOnly(sourceDate)} and deadline is {FormatDateOnly(sourceDeadline)}. Openza keeps {FormatDateOnly(localDate)} and {FormatDateOnly(localDeadline)} until you choose otherwise."
-            : dateMismatch
-                ? $"{sourceName} date is {FormatDateOnly(sourceDate)}. Openza date is {FormatDateOnly(localDate)}."
-                : $"{sourceName} deadline is {FormatDateOnly(sourceDeadline)}. Openza deadline is {FormatDateOnly(localDeadline)}.";
-        var useSourceText = dateMismatch && deadlineMismatch
-            ? $"Use {sourceName} dates"
-            : dateMismatch
-                ? $"Use {sourceName} date"
-                : $"Use {sourceName} deadline";
-        return new SourceDateMismatchPresentation(title, message, useSourceText);
-    }
+    private TaskSourceDateChoice.Presentation? BuildSourceDateMismatch(bool ignoreAcknowledgement = false) =>
+        TaskSourceDateChoice.Describe(SelectedTask?.Task,
+            DetailDate is null ? null : DateOnly.FromDateTime(DetailDate.Value.LocalDateTime),
+            DetailDeadline is null ? null : DateOnly.FromDateTime(DetailDeadline.Value.LocalDateTime),
+            SourceTaskName, _sourceDateMismatchAcknowledgementKey, ignoreAcknowledgement);
 
     private string BuildSourceDateMismatchKey()
     {
@@ -3217,94 +3136,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         DateOnly? localDeadline = DetailDeadline is null ? null : DateOnly.FromDateTime(DetailDeadline.Value.LocalDateTime);
         var sourceDate = TaskDateValues.FromDateTimeOffset(task?.SourcePlannedMoment);
         var sourceDeadline = TaskDateValues.FromDateTimeOffset(task?.SourceDeadlineMoment);
-        return BuildSourceDateMismatchKey(task?.Id ?? string.Empty, localDate, sourceDate, localDeadline, sourceDeadline);
+        return TaskSourceDateChoice.CreateKey(task?.Id ?? string.Empty, localDate, sourceDate, localDeadline, sourceDeadline);
     }
-
-    private static string BuildSourceDateMismatchKey(string taskId, DateOnly? localDate, DateOnly? sourceDate, DateOnly? localDeadline, DateOnly? sourceDeadline) =>
-        $"{taskId}|{string.Join('|', localDate?.ToString("O") ?? "", sourceDate?.ToString("O") ?? "", localDeadline?.ToString("O") ?? "", sourceDeadline?.ToString("O") ?? "")}";
-
-    private static string FormatDateOnly(DateOnly? date) =>
-        date?.ToString("MMM d, yyyy", System.Globalization.CultureInfo.CurrentCulture) ?? "no date";
-
-    private static bool IsTodoistNonRecurringSourceTask(TaskItem task) =>
-        string.Equals(task.SourceIntegrationId ?? task.IntegrationId, IntegrationIds.Todoist, StringComparison.Ordinal) &&
-        string.IsNullOrWhiteSpace(task.SourceRecurrenceRule);
-
-    private static string? ReadSourceDateMismatchAcknowledgementKey(string? localMetadataJson)
-    {
-        if (string.IsNullOrWhiteSpace(localMetadataJson))
-        {
-            return null;
-        }
-
-        try
-        {
-            using var document = JsonDocument.Parse(localMetadataJson);
-            return document.RootElement.ValueKind == JsonValueKind.Object &&
-                document.RootElement.TryGetProperty("openza", out var openza) &&
-                openza.ValueKind == JsonValueKind.Object &&
-                openza.TryGetProperty("sourceDateMismatchAcknowledgementKey", out var value) &&
-                value.ValueKind == JsonValueKind.String
-                    ? value.GetString()
-                    : null;
-        }
-        catch (JsonException)
-        {
-            return null;
-        }
-    }
-
-    private static string? WithSourceDateMismatchAcknowledgement(string? localMetadataJson, string? acknowledgementKey)
-    {
-        var currentKey = ReadSourceDateMismatchAcknowledgementKey(localMetadataJson);
-        if (string.Equals(currentKey, acknowledgementKey, StringComparison.Ordinal) ||
-            (string.IsNullOrWhiteSpace(currentKey) && string.IsNullOrWhiteSpace(acknowledgementKey)))
-        {
-            return localMetadataJson;
-        }
-
-        JsonObject root;
-        try
-        {
-            root = string.IsNullOrWhiteSpace(localMetadataJson)
-                ? new JsonObject()
-                : JsonNode.Parse(localMetadataJson) as JsonObject ?? throw new JsonException("Task metadata must be a JSON object.");
-        }
-        catch (JsonException exception)
-        {
-            throw new InvalidOperationException("The task's existing metadata is not a JSON object, so its date choice could not be recorded safely.", exception);
-        }
-
-        var openza = root["openza"] as JsonObject;
-        if (openza is null)
-        {
-            if (root["openza"] is not null)
-            {
-                throw new InvalidOperationException("The task's existing Openza metadata is incompatible, so its date choice could not be recorded safely.");
-            }
-
-            openza = new JsonObject();
-            root["openza"] = openza;
-        }
-
-        if (string.IsNullOrWhiteSpace(acknowledgementKey))
-        {
-            openza.Remove("sourceDateMismatchAcknowledgementKey");
-        }
-        else
-        {
-            openza["sourceDateMismatchAcknowledgementKey"] = acknowledgementKey;
-        }
-
-        if (openza.Count == 0)
-        {
-            root.Remove("openza");
-        }
-
-        return root.Count == 0 ? null : root.ToJsonString();
-    }
-
-    private sealed record SourceDateMismatchPresentation(string Title, string Message, string UseSourceText);
 
     private IDisposable BeginDetailUpdate()
     {
@@ -3393,44 +3226,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 })
             .ToList();
     }
-
-    private static bool HasDetailChanges(
-        TaskItem original,
-        DetailSaveDraft draft,
-        bool completed,
-        string? localMetadataJson)
-    {
-        var originalLabels = original.Labels
-            .Select(label => label.Name)
-            .OrderBy(name => name, StringComparer.CurrentCultureIgnoreCase);
-        var editedLabels = draft.Labels
-            .Select(label => label.Name)
-            .OrderBy(name => name, StringComparer.CurrentCultureIgnoreCase);
-
-        return !string.Equals(original.Title, draft.Title, StringComparison.Ordinal)
-            || !string.Equals(NullIfEmpty(original.Notes), NullIfEmpty(draft.Notes), StringComparison.Ordinal)
-            || original.Status != draft.Status
-            || original.IsCompleted != completed
-            || original.Priority != draft.Priority
-            || !string.Equals(original.ProjectId, draft.ProjectId, StringComparison.Ordinal)
-            || original.PlannedOn != draft.PlannedOn
-            || original.DeadlineOn != draft.DeadlineOn
-            || !string.Equals(original.LocalMetadataJson, localMetadataJson, StringComparison.Ordinal)
-            || !originalLabels.SequenceEqual(editedLabels, StringComparer.CurrentCultureIgnoreCase);
-    }
-
-    private sealed record DetailSaveDraft(
-        string TaskId,
-        string Title,
-        string Notes,
-        TaskItemStatus Status,
-        int Priority,
-        string? ProjectId,
-        DateOnly? PlannedOn,
-        DateOnly? DeadlineOn,
-        IReadOnlyList<LabelItem> Labels,
-        string? SourceDateMismatchAcknowledgementKey,
-        long Version);
 
     private static TaskSortMode SortModeFromIndex(int index) => index switch
     {

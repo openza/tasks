@@ -24,7 +24,8 @@ public static class PersonalCloudArtifactDirectory
             var manifest = JsonSerializer.Deserialize<ArtifactManifest>(File.ReadAllText(manifestPath), Json)
                 ?? throw InvalidArtifact();
             if (manifest.FormatVersion != 1 || string.IsNullOrWhiteSpace(manifest.ArtifactVersion) ||
-                manifest.ArtifactVersion.Length > 128 || manifest.Assets.Count == 0 || manifest.Migrations.Count == 0)
+                manifest.ArtifactVersion.Length > 128 || manifest.Worker is null || manifest.Assets is null || manifest.Migrations is null ||
+                manifest.Assets.Count == 0 || manifest.Migrations.Count == 0)
                 throw InvalidArtifact();
             var worker = ReadVerified(root, manifest.Worker);
             var assets = manifest.Assets.Select(item => new PersonalCloudStaticAsset(
@@ -34,16 +35,18 @@ public static class PersonalCloudArtifactDirectory
             var migrations = manifest.Migrations.Select(item => new PersonalCloudMigration(
                 Path.GetFileName(ValidatedFile(root, item.File)),
                 item.Sha256,
-                System.Text.Encoding.UTF8.GetString(ReadVerified(root, item)))).ToArray();
+                new System.Text.UTF8Encoding(false, true).GetString(ReadVerified(root, item)))).ToArray();
+            var bundle = new MigrationBundle(manifest.ArtifactVersion, migrations);
+            PersonalCloudMigrationHistory.ValidateBundle(manifest.ArtifactVersion, bundle);
             return new LoadedPersonalCloudArtifact(
                 new PersonalCloudDeploymentArtifact(manifest.ArtifactVersion, manifest.CompatibilityDate, worker, assets),
-                new MigrationBundle(manifest.ArtifactVersion, migrations));
+                bundle);
         }
         catch (PersonalCloudK0ContractException)
         {
             throw;
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException or FormatException)
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException or FormatException or System.Text.DecoderFallbackException)
         {
             throw new PersonalCloudK0ContractException("artifact_invalid", "The Personal Cloud deployment artifact could not be verified.", exception);
         }
@@ -51,7 +54,7 @@ public static class PersonalCloudArtifactDirectory
 
     private static byte[] ReadVerified(string root, ArtifactFile item)
     {
-        if (item.Size < 0 || item.Size > 25 * 1024 * 1024 || item.Sha256.Length != 64 ||
+        if (item is null || item.Size < 0 || item.Size > 25 * 1024 * 1024 || item.Sha256 is null || item.Sha256.Length != 64 ||
             item.Sha256.Any(character => !char.IsAsciiHexDigit(character))) throw InvalidArtifact();
         var content = File.ReadAllBytes(ValidatedFile(root, item.File));
         if (content.LongLength != item.Size) throw InvalidArtifact();

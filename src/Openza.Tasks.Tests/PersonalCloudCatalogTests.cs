@@ -38,6 +38,7 @@ public sealed class PersonalCloudCatalogTests : IDisposable
         await store.EnqueuePersonalCloudCatalogItemAsync(Instance, Device, local, Source(local), true, ["Public label"], []);
         var entry = Assert.Single(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device));
         Assert.Equal("provider.catalog.put", entry.Operation);
+        DispatchCostAssertions.Known(entry);
         Assert.DoesNotContain("private-identifier-canary", entry.CanonicalJson); Assert.DoesNotContain("private-provider-canary", entry.CanonicalJson);
         Assert.DoesNotContain("private-secret-canary", entry.CanonicalJson); Assert.DoesNotContain("source_local_test", entry.CanonicalJson);
         Assert.Contains("Public label", entry.CanonicalJson);
@@ -54,6 +55,7 @@ public sealed class PersonalCloudCatalogTests : IDisposable
         await store.PreparePersonalCloudCatalogIntentAsync(Instance, Device, intent, "local-account-canary", "todoist_default", null);
         var start = Assert.Single(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device));
         Assert.DoesNotContain("local-account-canary", start.CanonicalJson); Assert.Equal("provider.intent.start", start.Operation);
+        DispatchCostAssertions.Known(start);
         await store.AcknowledgePersonalCloudMutationAsync(Instance, Device, Receipt(start, 2));
         await store.ApplyPersonalCloudSourceIntentAsync(Instance, Device, Intent("started", 2), local.Id);
         var action = (await store.GetPersonalCloudCatalogActionAsync(Instance, "intent_test"))!;
@@ -85,26 +87,75 @@ public sealed class PersonalCloudCatalogTests : IDisposable
         Assert.Empty(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device));
         Assert.NotNull(await store.GetTaskAsync("task_legacy"));
     }
-    [Fact]
-    public async Task Combined_catalog_144_unchanged_observations_emit_two_actual_time_heartbeats()
+    [Theory]
+    [InlineData(7)]
+    [InlineData(25)]
+    [InlineData(48)]
+    public async Task Unchanged_catalog_and_scope_do_not_publish_periodic_full_records(int hours)
     {
         var store = await StoreAsync(); var local = Local(); var source = Source(local); var baseline = DateTimeOffset.Parse(Stamp);
         await store.SavePersonalCloudWorkspaceCapabilitiesAsync(Instance, true, true, providerCatalogProtocolVersion: 2);
         var scopeId = SqliteTaskStore.PersonalCloudOpaqueId("scope_", $"{Device}:{local.IntegrationId}:{local.ProviderConnectionId}");
         await store.ApplyPersonalCloudChangePageAsync(Instance, Device, PersonalCloudWorkspaceTests.Page(1, catalog: [Catalog(source, scopeId: scopeId)], scopes: [new {
             id = scopeId, bridgeDeviceId = Device, name = "Todoist", integrationKind = IntegrationIds.Todoist, available = true, labelNames = Array.Empty<string>(), projectChoices = Array.Empty<object>(), entityVersion = 1, createdAt = Stamp, updatedAt = Stamp }]));
-        var count = 0; long version = 1;
-        for (var minutes = 5; minutes <= 720; minutes += 5)
-        {
-            var observed = source with { RefreshedAt = PersonalCloudK0Mapper.FormatTimestamp(baseline.AddMinutes(minutes)) };
-            await store.EnqueuePersonalCloudProviderScopeAsync(Instance, Device, local.IntegrationId, local.ProviderConnectionId, true, [], []);
-            if (!await store.EnqueuePersonalCloudCatalogItemAsync(Instance, Device, local, observed, true, [], [], scopeId: scopeId)) continue;
-            count++; var entry = Assert.Single(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device));
-            Assert.True(minutes is 360 or 720); Assert.Contains(observed.RefreshedAt, entry.CanonicalJson);
-            await store.AcknowledgePersonalCloudMutationAsync(Instance, Device, Receipt(entry, ++version));
-            await store.ApplyPersonalCloudChangePageAsync(Instance, Device, PersonalCloudWorkspaceTests.Page(version, catalog: [Catalog(observed, version, scopeId)]));
-        }
-        Assert.Equal(2, count); Assert.Empty(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device));
+        var observed = source with { RefreshedAt = PersonalCloudK0Mapper.FormatTimestamp(baseline.AddHours(hours)) };
+        await store.EnqueuePersonalCloudProviderScopeAsync(Instance, Device, local.IntegrationId, local.ProviderConnectionId, true, [], []);
+        Assert.False(await store.EnqueuePersonalCloudCatalogItemAsync(Instance, Device, local, observed, true, [], [], scopeId: scopeId));
+        Assert.Empty(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device));
+        var retained = Assert.Single(await store.GetPersonalCloudWorkspaceRecordsAsync(Instance, "catalog"));
+        Assert.Equal(Stamp, retained.GetProperty("source").GetProperty("refreshedAt").GetString());
+    }
+
+    [Theory]
+    [InlineData("content")]
+    [InlineData("availability")]
+    [InlineData("adoption")]
+    [InlineData("skip")]
+    [InlineData("labels")]
+    [InlineData("projects")]
+    [InlineData("scope")]
+    public async Task Real_catalog_facts_publish_new_observation_and_preserve_any_queued_envelope(string changed)
+    {
+        var store = await StoreAsync(); var local = Local(); var source = Source(local);
+        await store.UpsertProviderSourceItemAsync(local);
+        await store.SavePersonalCloudWorkspaceCapabilitiesAsync(Instance, true, true, providerCatalogProtocolVersion: 2);
+        var scopeId = SqliteTaskStore.PersonalCloudOpaqueId("scope_", $"{Device}:{local.IntegrationId}:{local.ProviderConnectionId}");
+        object Scope(string id) => new { id, bridgeDeviceId = Device, name = "Todoist", integrationKind = IntegrationIds.Todoist,
+            available = true, labelNames = Array.Empty<string>(), projectChoices = Array.Empty<object>(), entityVersion = 1, createdAt = Stamp, updatedAt = Stamp };
+        var task = JsonSerializer.Deserialize<Dictionary<string, object?>>(JsonSerializer.Serialize(PersonalCloudWorkspaceTests.TaskRecord("task_adopted_test", projectId: null)))!;
+        task["source"] = source; task["sourceOwnerDeviceId"] = Device;
+        await store.ApplyPersonalCloudChangePageAsync(Instance, Device, PersonalCloudWorkspaceTests.Page(1,
+            spaces: [PersonalCloudWorkspaceTests.Space()], tasks: changed == "adoption" ? [task] : [],
+            catalog: [Catalog(source, scopeId: changed == "scope" ? null : scopeId)], scopes: [Scope(scopeId)]));
+        var observed = source with { RefreshedAt = PersonalCloudK0Mapper.FormatTimestamp(DateTimeOffset.Parse(Stamp).AddHours(25)) };
+        if (changed == "content") observed = observed with { Title = "Changed synthetic title" };
+        if (changed == "adoption") local = local with { AdoptedTaskId = "task_adopted_test", AdoptionState = ProviderSourceAdoptionStates.Adopted };
+        if (changed == "skip") local = local with { AdoptionState = ProviderSourceAdoptionStates.Ignored };
+        Assert.True(await store.EnqueuePersonalCloudCatalogItemAsync(Instance, Device, local, observed, changed != "availability",
+            changed == "labels" ? ["Changed label"] : [], changed == "projects" ? [new("project_choice", "Changed project")] : [],
+            scopeId: scopeId));
+        var queued = Assert.Single(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device));
+        Assert.Equal("provider.catalog.put", queued.Operation);
+        Assert.Contains(observed.RefreshedAt, queued.CanonicalJson);
+        Assert.False(await store.EnqueuePersonalCloudCatalogItemAsync(Instance, Device, local,
+            observed with { Title = "Later observation while pending", RefreshedAt = PersonalCloudK0Mapper.FormatTimestamp(DateTimeOffset.Parse(Stamp).AddHours(49)) },
+            true, [], [], scopeId: scopeId));
+        Assert.Equal(queued, Assert.Single(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device)));
+    }
+
+    [Fact]
+    public async Task Changed_connection_cannot_rebind_a_published_catalog_scope()
+    {
+        var store = await StoreAsync(); var local = Local(); var source = Source(local);
+        await store.SavePersonalCloudWorkspaceCapabilitiesAsync(Instance, true, true, providerCatalogProtocolVersion: 2);
+        var originalScope = SqliteTaskStore.PersonalCloudOpaqueId("scope_", $"{Device}:{local.IntegrationId}:{local.ProviderConnectionId}");
+        await store.ApplyPersonalCloudChangePageAsync(Instance, Device, PersonalCloudWorkspaceTests.Page(1, catalog: [Catalog(source, scopeId: originalScope)]));
+        local = local with { ProviderConnectionId = "todoist_other_connection" };
+        var differentScope = SqliteTaskStore.PersonalCloudOpaqueId("scope_", $"{Device}:{local.IntegrationId}:{local.ProviderConnectionId}");
+        Assert.False(await store.EnqueuePersonalCloudCatalogItemAsync(Instance, Device, local,
+            source with { RefreshedAt = PersonalCloudK0Mapper.FormatTimestamp(DateTimeOffset.Parse(Stamp).AddDays(2)) }, true, [], [], scopeId: differentScope));
+        Assert.Empty(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device));
+        Assert.Equal(originalScope, Assert.Single(await store.GetPersonalCloudWorkspaceRecordsAsync(Instance, "catalog")).GetProperty("scopeId").GetString());
     }
     [Fact]
     public async Task Manual_adoption_after_Web_request_cannot_create_duplicate_or_skip_existing_adoption()

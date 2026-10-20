@@ -14,7 +14,7 @@ using Openza.Tasks.Core.Sync;
 
 return await OpenzaCli.RunAsync(args);
 
-internal static class OpenzaCli
+internal static partial class OpenzaCli
 {
     private static readonly HttpClient SyncHttpClient = new();
     internal static HttpClient SyncHttpClientForDependencies => SyncHttpClient;
@@ -71,6 +71,7 @@ internal static class OpenzaCli
         root.Subcommands.Add(BuildProjectCommand(format));
         root.Subcommands.Add(BuildLabelCommand(format));
         root.Subcommands.Add(BuildSyncCommand(format, dependencies));
+        root.Subcommands.Add(BuildCloudBudgetCommand(format));
         return root;
     }
 
