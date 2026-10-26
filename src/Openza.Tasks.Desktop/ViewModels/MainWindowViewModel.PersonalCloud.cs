@@ -456,6 +456,11 @@ public sealed partial class MainWindowViewModel
         {
             PersonalCloudReleaseText = exception.Message;
         }
+        catch (Exception)
+        {
+            // Called from the window's Opened handler; a check must never crash the app.
+            PersonalCloudReleaseText = "Couldn't check for a newer Personal Cloud release. Try again later.";
+        }
     }
 
     public async Task<bool> UpgradePersonalCloudAsync(CancellationToken cancellationToken = default)

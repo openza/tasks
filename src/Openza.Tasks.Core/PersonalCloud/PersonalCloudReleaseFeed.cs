@@ -411,16 +411,24 @@ public sealed partial class GitHubPersonalCloudReleaseSource(HttpClient http, Pe
     private static async Task<byte[]> ReadLimitedAsync(HttpResponseMessage response, long limit, CancellationToken cancellationToken)
     {
         if (response.Content.Headers.ContentLength > limit) throw new PersonalCloudK0ContractException("release_invalid", "A Personal Cloud release file is too large.");
-        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-        using var buffer = new MemoryStream();
-        var chunk = new byte[81920];
-        int read;
-        while ((read = await stream.ReadAsync(chunk, cancellationToken).ConfigureAwait(false)) > 0)
+        try
         {
-            if (buffer.Length + read > limit) throw new PersonalCloudK0ContractException("release_invalid", "A Personal Cloud release file is too large.");
-            buffer.Write(chunk, 0, read);
+            await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+            using var buffer = new MemoryStream();
+            var chunk = new byte[81920];
+            int read;
+            while ((read = await stream.ReadAsync(chunk, cancellationToken).ConfigureAwait(false)) > 0)
+            {
+                if (buffer.Length + read > limit) throw new PersonalCloudK0ContractException("release_invalid", "A Personal Cloud release file is too large.");
+                buffer.Write(chunk, 0, read);
+            }
+            return buffer.ToArray();
         }
-        return buffer.ToArray();
+        catch (IOException exception)
+        {
+            // A connection closed mid-response (HttpIOException) is a temporary failure.
+            throw Unavailable(exception);
+        }
     }
 
     private static HttpRequestMessage Request(Uri url)

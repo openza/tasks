@@ -242,6 +242,17 @@ public sealed class PersonalCloudReleaseFeedTests : IDisposable
     }
 
     [Fact]
+    public async Task A_connection_dropped_mid_download_reports_the_release_as_unavailable()
+    {
+        Publish("0.1.0-preview.11", 11, "1.3.0");
+        _feed.BreakBodies = true;
+
+        var error = await Assert.ThrowsAsync<PersonalCloudK0ContractException>(() => Source().CheckAsync(null));
+
+        Assert.Equal("release_unavailable", error.Code);
+    }
+
+    [Fact]
     public async Task Recording_an_installed_release_uses_the_verified_listing_without_another_download()
     {
         Publish("0.1.0-preview.11", 11, "1.3.0");
@@ -432,12 +443,15 @@ public sealed class PersonalCloudReleaseFeedTests : IDisposable
         public bool FailListing { get; set; }
         public int PageSize { get; set; } = 100;
         public bool FailTags { get; set; }
+        public bool BreakBodies { get; set; }
         public Dictionary<string, object?> Tagged { get; } = new(StringComparer.Ordinal);
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             var path = request.RequestUri!.AbsolutePath;
             Requests.Add(path);
+            if (BreakBodies)
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StreamContent(new BrokenStream()) });
             if (path == "/repos/openza/personal-cloud/releases")
             {
                 if (FailListing) throw new HttpRequestException("offline");
@@ -459,6 +473,21 @@ public sealed class PersonalCloudReleaseFeedTests : IDisposable
                 ? new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(content) }
                 : new HttpResponseMessage(HttpStatusCode.NotFound));
         }
+    }
+
+    private sealed class BrokenStream : Stream
+    {
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => 0; set => throw new NotSupportedException(); }
+        public override int Read(byte[] buffer, int offset, int count) => throw new IOException("connection reset");
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default) => throw new IOException("connection reset");
+        public override void Flush() { }
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     }
 
     private sealed class MemoryStateStore : IPersonalCloudProvisioningStateStore
