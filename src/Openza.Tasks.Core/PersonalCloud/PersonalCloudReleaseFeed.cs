@@ -80,6 +80,9 @@ public sealed partial class GitHubPersonalCloudReleaseSource(HttpClient http, Pe
     private const long MaxArchiveBytes = 64L * 1024 * 1024;
     private const int MaxArchiveEntries = 4096;
     private const int MaxListingPages = 10;
+    // Deadlines cover the whole response, including bodies read after the headers.
+    private static readonly TimeSpan RequestDeadline = TimeSpan.FromMinutes(1);
+    private static readonly TimeSpan ArchiveDeadline = TimeSpan.FromMinutes(5);
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private static readonly JsonSerializerOptions StoreJson = new(JsonSerializerDefaults.Web) { WriteIndented = true };
     private IReadOnlyList<VerifiedRelease> _lastVerified = [];
@@ -187,7 +190,7 @@ public sealed partial class GitHubPersonalCloudReleaseSource(HttpClient http, Pe
         Uri? next = new(options.ApiRoot, $"repos/{options.Repository}/releases?per_page=100");
         for (var page = 0; next is not null && page < MaxListingPages; page++)
         {
-            var (items, link) = await GetJsonAsync<IReadOnlyList<GitHubRelease>>(next, cancellationToken).ConfigureAwait(false);
+            var (items, link, _) = await GetJsonAsync<IReadOnlyList<GitHubRelease>>(next, cancellationToken).ConfigureAwait(false);
             releases.AddRange(items ?? []);
             next = NextPage(link);
         }
@@ -205,9 +208,11 @@ public sealed partial class GitHubPersonalCloudReleaseSource(HttpClient http, Pe
     private async Task<VerifiedRelease?> FindByTagAsync(string version, CancellationToken cancellationToken)
     {
         if (!ArtifactVersionPattern().IsMatch(version)) return null;
-        var (release, _) = await GetJsonAsync<GitHubRelease>(
+        var (release, _, found) = await GetJsonAsync<GitHubRelease>(
             new Uri(options.ApiRoot, $"repos/{options.Repository}/releases/tags/cloud-v{version}"), cancellationToken, notFoundIsNull: true).ConfigureAwait(false);
-        if (release is null) return null;
+        if (!found) return null;
+        if (release is null)
+            throw new PersonalCloudK0ContractException("release_invalid", $"The Personal Cloud release cloud-v{version} could not be verified.");
         var verified = release.Draft ? null : await VerifyAsync(release, cancellationToken).ConfigureAwait(false);
         // A tagged release that cannot be verified as this version is never treated
         // as "no release": that would drop the rollback floor.
@@ -215,20 +220,23 @@ public sealed partial class GitHubPersonalCloudReleaseSource(HttpClient http, Pe
             : throw new PersonalCloudK0ContractException("release_invalid", $"The Personal Cloud release cloud-v{version} could not be verified.");
     }
 
-    private async Task<(T? Value, string? Link)> GetJsonAsync<T>(Uri url, CancellationToken cancellationToken, bool notFoundIsNull = false)
+    // Found is false only for an explicit 404 when notFoundIsNull is set.
+    private async Task<(T? Value, string? Link, bool Found)> GetJsonAsync<T>(Uri url, CancellationToken cancellationToken, bool notFoundIsNull = false)
     {
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deadline.CancelAfter(RequestDeadline);
         try
         {
             using var request = Request(url);
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
-            using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
-            if (notFoundIsNull && response.StatusCode == System.Net.HttpStatusCode.NotFound) return (default, null);
+            using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, deadline.Token).ConfigureAwait(false);
+            if (notFoundIsNull && response.StatusCode == System.Net.HttpStatusCode.NotFound) return (default, null, false);
             if (!response.IsSuccessStatusCode) throw Unavailable();
-            var bytes = await ReadLimitedAsync(response, 4 * 1024 * 1024, cancellationToken).ConfigureAwait(false);
+            var bytes = await ReadLimitedAsync(response, 4 * 1024 * 1024, deadline.Token).ConfigureAwait(false);
             var link = response.Headers.TryGetValues("Link", out var values) ? string.Join(",", values) : null;
-            return (JsonSerializer.Deserialize<T>(bytes, Json), link);
+            return (JsonSerializer.Deserialize<T>(bytes, Json), link, true);
         }
-        catch (Exception exception) when (exception is HttpRequestException or JsonException or TaskCanceledException && !cancellationToken.IsCancellationRequested)
+        catch (Exception exception) when (exception is HttpRequestException or JsonException or OperationCanceledException && !cancellationToken.IsCancellationRequested)
         {
             throw Unavailable(exception);
         }
@@ -384,11 +392,20 @@ public sealed partial class GitHubPersonalCloudReleaseSource(HttpClient http, Pe
     private async Task<byte[]> DownloadLimitedAsync(Uri url, long limit, CancellationToken cancellationToken)
     {
         if (url.Scheme != Uri.UriSchemeHttps && !url.IsLoopback) throw Unavailable();
-        using var request = Request(url);
-        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/octet-stream"));
-        using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
-        if (!response.IsSuccessStatusCode) throw Unavailable();
-        return await ReadLimitedAsync(response, limit, cancellationToken).ConfigureAwait(false);
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deadline.CancelAfter(limit > MaxMetadataBytes ? ArchiveDeadline : RequestDeadline);
+        try
+        {
+            using var request = Request(url);
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/octet-stream"));
+            using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, deadline.Token).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode) throw Unavailable();
+            return await ReadLimitedAsync(response, limit, deadline.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw Unavailable(exception);
+        }
     }
 
     private static async Task<byte[]> ReadLimitedAsync(HttpResponseMessage response, long limit, CancellationToken cancellationToken)

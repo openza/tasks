@@ -231,6 +231,17 @@ public sealed class PersonalCloudReleaseFeedTests : IDisposable
     }
 
     [Fact]
+    public async Task A_null_tag_response_is_not_treated_as_a_missing_release()
+    {
+        Publish("0.1.0-preview.11", 11, "1.3.0");
+        _feed.Tagged["cloud-v0.1.0-preview.12"] = null;
+
+        var error = await Assert.ThrowsAsync<PersonalCloudK0ContractException>(() => Source().ResolveAsync(null, Installed("0.1.0-preview.12")));
+
+        Assert.Equal("release_invalid", error.Code);
+    }
+
+    [Fact]
     public async Task Recording_an_installed_release_uses_the_verified_listing_without_another_download()
     {
         Publish("0.1.0-preview.11", 11, "1.3.0");
@@ -421,7 +432,7 @@ public sealed class PersonalCloudReleaseFeedTests : IDisposable
         public bool FailListing { get; set; }
         public int PageSize { get; set; } = 100;
         public bool FailTags { get; set; }
-        public Dictionary<string, object> Tagged { get; } = new(StringComparer.Ordinal);
+        public Dictionary<string, object?> Tagged { get; } = new(StringComparer.Ordinal);
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
