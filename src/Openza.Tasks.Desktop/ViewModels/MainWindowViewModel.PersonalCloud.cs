@@ -416,16 +416,51 @@ public sealed partial class MainWindowViewModel
             });
     }
 
+    private string _personalCloudReleaseText = "Checking for a newer Personal Cloud release…";
+
+    public string PersonalCloudReleaseText
+    {
+        get => _personalCloudReleaseText;
+        private set => SetProperty(ref _personalCloudReleaseText, value);
+    }
+
+    // Cloud releases ship separately from Desktop; Desktop only installs them when asked.
+    public async Task CheckPersonalCloudReleaseAsync(CancellationToken cancellationToken = default)
+    {
+        if (_personalCloudSetup is not IPersonalCloudReleaseStatusService releases) return;
+        PersonalCloudReleaseText = "Checking for a newer Personal Cloud release…";
+        try
+        {
+            var status = await releases.CheckForCloudUpdateAsync(cancellationToken);
+            var installed = _personalCloudSetup.CurrentConnection?.ArtifactVersion;
+            PersonalCloudReleaseText = status switch
+            {
+                { UpdateAvailable: true, AvailableVersion: { } available } => $"Update available: {available} (installed {installed ?? "unknown"}).",
+                { NewerVersionNeedingDesktop: { } newer, RequiredDesktopVersion: { } desktop } => $"Up to date for this Desktop. Personal Cloud {newer} needs Openza Desktop {desktop} or newer.",
+                { AvailableVersion: { } } => $"Up to date ({installed}).",
+                _ => "No signed Personal Cloud release is available yet.",
+            };
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (PersonalCloudK0ContractException exception)
+        {
+            PersonalCloudReleaseText = exception.Message;
+        }
+    }
+
     public async Task<bool> UpgradePersonalCloudAsync(CancellationToken cancellationToken = default)
     {
         if (_personalCloudSetup is null) return false;
         return await RunManagementAsync(
             "Updating",
-            "Authorize Cloudflare to deploy the version bundled with this Openza build.",
+            "Getting the newest signed Personal Cloud release, then authorize Cloudflare to install it.",
             async () =>
             {
                 var result = await _personalCloudSetup.UpgradeAsync(cancellationToken);
                 PersonalCloudSummaryText = $"Personal Cloud is updated to {result.ArtifactVersion}.";
+                PersonalCloudReleaseText = $"Up to date ({result.ArtifactVersion}).";
             });
     }
 
@@ -485,7 +520,8 @@ public sealed partial class MainWindowViewModel
                 "resource_not_found" => "The Personal Cloud resources were not found in the authorized Cloudflare account.",
                 "account_selection_required" => "Authorize only the Cloudflare account containing this Personal Cloud.",
                 "cloudflare_export_timeout" => "Cloudflare did not finish the backup in time. Your Personal Cloud was not changed.",
-                "migration_mismatch" => "The bundled database migrations differ from this Personal Cloud's history. Use a matching Openza build before updating.",
+                "migration_mismatch" => "This release's database migrations differ from this Personal Cloud's history. Your Personal Cloud was not changed.",
+                "release_unavailable" or "release_requires_newer_desktop" or "release_invalid" => exception.Message + " Your Personal Cloud was not changed.",
                 _ => "The Personal Cloud action stopped safely. You can try again.",
             };
             return false;

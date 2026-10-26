@@ -78,7 +78,7 @@ public sealed partial class PersonalCloudBatchSyncTests
     [InlineData("{\"protocolVersion\":2,\"requestHeader\":\"x-openza-fanout-bound\"}")]
     [InlineData("{\"protocolVersion\":1,\"requestHeader\":\"other-header\"}")]
     [InlineData("{\"protocolVersion\":\"1\",\"requestHeader\":\"x-openza-fanout-bound\"}")]
-    [InlineData("{\"protocolVersion\":1,\"requestHeader\":\"x-openza-fanout-bound\",\"extra\":true}")]
+    [InlineData("{\"protocolVersion\":1,\"extra\":true}")]
     public async Task Malformed_fanout_capability_never_grants_scaled_cost(string capability)
     {
         var handler = new Handler { CapabilityOverride = "{\"fanoutBudget\":" + capability + "}" };

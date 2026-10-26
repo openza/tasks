@@ -11,9 +11,14 @@ public sealed class PersonalCloudHealthClient(HttpClient http)
     // Schema22 adds bounded sequential batches; schema23 adds workspace/catalog;
     // schema24 adds optional byte-bounded workspace paging.
     // Schema26 adds optional current catch-up metadata; schema25 stays supported.
+    // Cloud releases ship independently and may be newer than this Desktop
+    // (personal-cloud/docs/cloud-releases.md): unknown health fields, unknown
+    // capabilities, extra capability keys and higher schema versions are
+    // accepted, while the values this Desktop relies on are still checked exactly.
+    private const int MinimumSchemaVersion = 17;
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
     {
-        UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
+        UnmappedMemberHandling = JsonUnmappedMemberHandling.Skip,
     };
 
     public async Task VerifyAsync(Uri serviceOrigin, string artifactVersion, CancellationToken cancellationToken = default)
@@ -39,7 +44,7 @@ public sealed class PersonalCloudHealthClient(HttpClient http)
         {
             var body = await response.Content.ReadFromJsonAsync<HealthResponse>(Json, cancellationToken).ConfigureAwait(false);
             if (body is null || body.Status != "ok" || body.ProtocolVersion != PersonalCloudK0Protocol.Version ||
-                body.Product != PersonalCloudK0Protocol.TasksProduct || body.SchemaVersion is not (17 or 18 or 19 or 20 or 21 or 22 or 23 or 24 or 25 or 26) ||
+                body.Product != PersonalCloudK0Protocol.TasksProduct || body.SchemaVersion < MinimumSchemaVersion ||
                 string.IsNullOrWhiteSpace(body.ArtifactVersion) || body.ArtifactVersion.Length > 128)
                 throw new PersonalCloudK0ContractException("health_mismatch", "The deployed Personal Cloud is not compatible with this Openza build.");
             var batch = ParseMutationBatch(body.Capabilities);
@@ -47,7 +52,7 @@ public sealed class PersonalCloudHealthClient(HttpClient http)
             var catalogProtocol = ParseProviderCatalog(body.Capabilities);
             var catalog = catalogProtocol > 0;
             var paging = ParseWorkspacePaging(body.Capabilities);
-            if ((workspace || catalog) && body.SchemaVersion is not (23 or 24 or 25 or 26) || catalog && !workspace || paging && (!workspace || body.SchemaVersion is not (24 or 25 or 26)))
+            if ((workspace || catalog) && body.SchemaVersion < 23 || catalog && !workspace || paging && (!workspace || body.SchemaVersion < 24))
                 throw new PersonalCloudK0ContractException("health_mismatch", "The workspace capabilities do not match the cloud schema.");
             return new PersonalCloudHealth(body.ArtifactVersion, body.SchemaVersion)
             {
@@ -113,8 +118,9 @@ public sealed class PersonalCloudHealthClient(HttpClient http)
         return true;
     }
 
+    // Newer clouds may add keys to a capability; the keys this Desktop uses must be present.
     private static bool ExactCapability(JsonElement value, params string[] keys) => value.ValueKind == JsonValueKind.Object &&
-        value.EnumerateObject().Count() == keys.Length && keys.All(key => value.TryGetProperty(key, out _));
+        keys.All(key => value.TryGetProperty(key, out _));
     private static bool Integer(JsonElement value, string key, int expected) => value.TryGetProperty(key, out var item) &&
         item.ValueKind == JsonValueKind.Number && item.TryGetInt32(out var number) && number == expected;
     private static bool Text(JsonElement value, string key, string expected) => value.TryGetProperty(key, out var item) &&
@@ -126,7 +132,7 @@ public sealed class PersonalCloudHealthClient(HttpClient http)
         if (capabilities.Value.ValueKind != JsonValueKind.Object)
             throw new PersonalCloudK0ContractException("health_mismatch", "Invalid cloud capabilities.");
         if (!capabilities.Value.TryGetProperty("mutationBatch", out var batch)) return null;
-        if (batch.ValueKind != JsonValueKind.Object || batch.EnumerateObject().Count() != 4 ||
+        if (batch.ValueKind != JsonValueKind.Object ||
             !batch.TryGetProperty("protocolVersion", out var protocol) || protocol.ValueKind != JsonValueKind.Number || !protocol.TryGetInt32(out var version) || version != 1 ||
             !batch.TryGetProperty("path", out var path) || path.ValueKind != JsonValueKind.String || path.GetString() != "/v1/tasks/mutations/batch" ||
             !batch.TryGetProperty("maxMutations", out var items) || items.ValueKind != JsonValueKind.Number || !items.TryGetInt32(out var count) || count is < 1 or > 2 ||

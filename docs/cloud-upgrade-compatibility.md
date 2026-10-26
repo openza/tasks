@@ -1,9 +1,18 @@
 # Cloud upgrade compatibility (cloud-upgrade-v1)
 
-The client/server contract uses manifest format 1, protocol 1 and current target schema 26.
-Artifact selection is controlled by the checked-in lock. Desktop staging verifies
-the pinned manifest and every file; the runtime loader also validates the ordered
-migration bundle and SQL hashes.
+The client/server contract uses manifest format 1 and protocol 1. From Desktop
+1.3.0, cloud releases ship separately as signed releases (personal-cloud
+`docs/cloud-releases.md`): Desktop installs the newest release whose
+`minDesktopVersion` it meets, after verifying the signature, archive, manifest
+and every file; the runtime loader also validates the ordered migration bundle
+and SQL hashes.
+
+Because the cloud may now be newer than Desktop, health parsing is additive:
+unknown health fields, unknown capabilities, extra keys inside a known
+capability and schema versions above 26 are accepted. The values Desktop relies
+on (protocol, product, known capability protocol versions, paths and limits)
+are still checked exactly, and schemas below 17 are rejected. A cloud change
+that older Desktops cannot handle must raise `minDesktopVersion`.
 
 The [quota pause and dispatch budget](personal-cloud-quota.md) defines client-side
 daily exhaustion handling, durable reservations and change-only catalog publication.
@@ -20,14 +29,13 @@ history; `docs/architecture.md` describes Web module and API boundaries.
 | Public `v1.1.0`, `f45fbe1314f9e6c767cbc3aefe8b64711e4525e4` | Personal Cloud absent | A custom build with the same version label may have different features. |
 | Initial integration, `3e2a3f923452d461f4228bb3ee65fc8ae1f79796` | 17–20 | Strict historical DTOs lack capability negotiation; an allowlist alone does not establish forward compatibility. |
 | Compatibility implementation from `e7378d7060ed8812eb3608890e25d53633a94f1e` | 17–25, protocol 1, product tasks | Per-pass readiness, capability retention, migration checksum/resource preflight and durable upgrade publication apply. |
-| Current quota-recovery implementation | 17–26, protocol 1, product tasks | Optional guarded-fanout and current-catchup capabilities are negotiated independently; schema 25 remains supported. |
+| Quota-recovery implementation (1.2.0) | 17–26, protocol 1, product tasks | Optional guarded-fanout and current-catchup capabilities are negotiated independently; schema 25 remains supported. |
+| Signed cloud releases (1.3.0) | 17 and newer, protocol 1, product tasks | Additive health parsing; installs only releases whose `minDesktopVersion` it meets. |
 
-For release 1.2.0 the artifact lock selects `0.1.0-preview.10`, Cloud source
-`43750d5cad01277130d93887e5fe9fd983ed620e`, manifest SHA-256
-`fa29ef1d60ab2acf24b29c95ce42de58a6241c9031aa6e008f3e74676d008e1d`.
-That bundle carries migrations through 0026 (schema 26). The lock identifies the
-packaging input only; it does not identify an already deployed database. Artifact labels are opaque,
-not a numeric upgrade order. See [artifact staging](personal-cloud-desktop-publish.md).
+Release 1.2.0 bundled `0.1.0-preview.10` (Cloud source
+`43750d5cad01277130d93887e5fe9fd983ed620e`, migrations through 0026). From 1.3.0
+no artifact is bundled; signed releases are ordered by their `releaseNumber`,
+and artifact labels stay opaque. See [Desktop publish validation](personal-cloud-desktop-publish.md).
 
 | Schema/feature | Client contract |
 | --- | --- |

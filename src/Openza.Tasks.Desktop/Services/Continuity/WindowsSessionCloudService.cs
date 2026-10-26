@@ -4,8 +4,12 @@ namespace Openza.Tasks.Desktop.Services.Continuity;
 
 // The composed service is the barrier, so callers outside the window also stay offline.
 internal sealed class WindowsSessionCloudService(WindowsContinuitySession session, IPersonalCloudSetupService inner)
-    : IPersonalCloudSetupService, IPersonalCloudProviderBridgeService, IPersonalCloudInitialSyncProgressService, IPersonalCloudDispatchStatusService
+    : IPersonalCloudSetupService, IPersonalCloudProviderBridgeService, IPersonalCloudInitialSyncProgressService, IPersonalCloudDispatchStatusService, IPersonalCloudReleaseStatusService
 {
+    public Task<PersonalCloudReleaseStatus> CheckForCloudUpdateAsync(CancellationToken cancellationToken = default) =>
+        inner is IPersonalCloudReleaseStatusService releases
+            ? releases.CheckForCloudUpdateAsync(cancellationToken)
+            : Task.FromResult(new PersonalCloudReleaseStatus(null, false));
     internal WindowsContinuitySession Session => session;
     public bool IsConfigured => inner.IsConfigured;
     // Keep local authoring attached to the existing identity and its durable outbox.

@@ -36,7 +36,7 @@ jobs:
         working-directory: src/Openza.Tasks.Desktop
         run: dotnet build Openza.Tasks.Desktop.csproj -c Release --no-restore
 
-      - name: Setup Node for pinned Personal Cloud artifact
+      - name: Setup Node for packaging scripts
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '22'
@@ -44,8 +44,8 @@ jobs:
       - name: Test artifact verification
         run: node --test scripts/personal-cloud/*.test.mjs
 
-      - name: Validate Desktop publish with pinned Personal Cloud artifact
-        run: node scripts/personal-cloud/publish-desktop.mjs 1.2.0
+      - name: Validate Desktop publish
+        run: node scripts/personal-cloud/publish-desktop.mjs 1.3.0
 
       - name: Validate Snap packaging contract
         if: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'fix/personal-cloud-localhost-recovery') }}
@@ -60,14 +60,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Setup Node for pinned Personal Cloud artifact
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version: '22'
-
-      - name: Stage verified Personal Cloud artifact for Snap
-        run: node scripts/personal-cloud/stage-snap-artifact.mjs
 
       - name: Build strict Snap
         id: snapcraft

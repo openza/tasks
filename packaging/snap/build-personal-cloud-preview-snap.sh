@@ -3,18 +3,8 @@ set -Eeuo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 artifact="${1:-$repo_root/artifacts/snap/openza-tasks-personal-cloud-preview.snap}"
-personal_cloud_artifact="${2:-}"
 artifact="$(realpath -m "$artifact")"
 
-if [[ -z "$personal_cloud_artifact" ]]; then
-    printf 'Usage: %s <snap-output> <personal-cloud-artifact-directory>\n' "$0" >&2
-    exit 2
-fi
-personal_cloud_artifact="$(realpath "$personal_cloud_artifact")"
-if [[ ! -f "$personal_cloud_artifact/artifact-manifest.json" ]]; then
-    printf 'Personal Cloud artifact manifest not found: %s\n' "$personal_cloud_artifact" >&2
-    exit 2
-fi
 if [[ -e "$artifact" ]]; then
     printf 'Refusing to overwrite an existing Snap artifact: %s\n' "$artifact" >&2
     exit 2
@@ -45,7 +35,6 @@ test "$(grep -Fc 'OpenzaPackagingProfile: Preview' "$manifest")" -eq 2
 preview_output="$preview_repo/artifacts/snap/$(basename "$artifact")"
 bash "$preview_repo/packaging/snap/build-local-snap.sh" \
     "$preview_output" \
-    "$personal_cloud_artifact" \
     Preview
 
 mkdir -p "$(dirname "$artifact")"

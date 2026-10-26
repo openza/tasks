@@ -99,8 +99,15 @@ public sealed partial class PersonalCloudSetupService(
     PersonalCloudDeviceIdentityClient? deviceIdentity = null,
     HttpClient? syncHttp = null,
     Openza.Tasks.Core.Data.SqliteTaskStore? taskStore = null,
-    PersonalCloudManagementCoordinator? management = null) : IPersonalCloudSetupService, IPersonalCloudProviderBridgeService, IPersonalCloudInitialSyncProgressService, IPersonalCloudDispatchStatusService
+    PersonalCloudManagementCoordinator? management = null,
+    PersonalCloudArtifactSlot? artifactSlot = null) : IPersonalCloudSetupService, IPersonalCloudProviderBridgeService, IPersonalCloudInitialSyncProgressService, IPersonalCloudDispatchStatusService, IPersonalCloudReleaseStatusService
 {
+    public Task<PersonalCloudReleaseStatus> CheckForCloudUpdateAsync(CancellationToken cancellationToken = default) =>
+        artifactSlot is not null
+            ? artifactSlot.CheckAsync(CurrentConnection?.ArtifactVersion, cancellationToken)
+            : Task.FromResult(new PersonalCloudReleaseStatus(artifactVersion,
+                !string.Equals(CurrentConnection?.ArtifactVersion, artifactVersion, StringComparison.Ordinal)));
+
     private PersonalCloudProviderBridge CreateProviderBridge()
     {
         if (CurrentConnection is not { } current || syncHttp is null || deviceIdentity is null || taskStore is null)
@@ -123,7 +130,7 @@ public sealed partial class PersonalCloudSetupService(
         await EnsureDispatchAvailableAsync(cancellationToken).ConfigureAwait(false);
         await CreateProviderBridge().RetryAsync(taskId, cancellationToken).ConfigureAwait(false);
     }
-    public bool IsConfigured => !string.IsNullOrWhiteSpace(artifactVersion);
+    public bool IsConfigured => artifactSlot is not null || !string.IsNullOrWhiteSpace(artifactVersion);
     public PersonalCloudConnectionProfile? CurrentConnection { get; private set; } = connectionStore?.Load();
 
     public Task OpenAsync(CancellationToken cancellationToken = default)
@@ -140,7 +147,13 @@ public sealed partial class PersonalCloudSetupService(
         using var connectionLease = taskStore is null ? null : PersonalCloudConnectionLease.AcquireReplacement(taskStore.DatabasePath);
         if (taskStore is not null)
             await taskStore.EnsureNoPendingPersonalCloudIntentsAsync(cancellationToken).ConfigureAwait(false);
-        var result = await coordinator.ConnectAsync(artifactVersion, cancellationToken, progress).ConfigureAwait(false);
+        var version = artifactVersion;
+        if (artifactSlot is not null)
+        {
+            await artifactSlot.PrepareForSetupAsync(cancellationToken).ConfigureAwait(false);
+            version = artifactSlot.Version;
+        }
+        var result = await coordinator.ConnectAsync(version, cancellationToken, progress).ConfigureAwait(false);
         if (connectionStore is not null)
         {
             if (result.InstanceId is null || result.DeviceId is null)
@@ -218,6 +231,8 @@ public sealed partial class PersonalCloudSetupService(
         var current = RequireConnection();
         if (management is null || connectionStore is null)
             throw new PersonalCloudK0ContractException("management_unavailable", "Personal Cloud management is not available in this build.");
+        if (artifactSlot is not null)
+            await artifactSlot.PrepareForUpgradeAsync(cancellationToken).ConfigureAwait(false);
         var result = await management.UpgradeAsync(current, cancellationToken).ConfigureAwait(false);
         var updated = current with { ArtifactVersion = result.ArtifactVersion };
         await connectionStore.SaveAsync(updated, cancellationToken).ConfigureAwait(false);

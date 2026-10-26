@@ -35,8 +35,8 @@ The primary Linux download is the strict Snap from the
 sudo snap install openza-tasks
 ```
 
-The `stable` channel has **1.1.0** (no Personal Cloud). Version **1.2.0**, which
-adds the Personal Cloud preview, is tested on the `edge` channel first:
+The `stable` channel has **1.1.0** (no Personal Cloud). Version **1.3.0**, with
+the Personal Cloud preview, is tested on the `edge` channel first:
 
 ```bash
 sudo snap install openza-tasks --edge

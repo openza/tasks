@@ -22,17 +22,17 @@ awk '/^  openza:$/ { cli = 1; next } cli && /^[^ ]|^  [^ ]/ { exit } cli { print
 grep -Fq 'libsecret-tools' "$manifest"
 grep -Fq 'network-bind' "$manifest"
 grep -Fq 'password-manager-service' "$manifest"
-grep -Fq 'PersonalCloudArtifactDirectory: ../../packaging/personal-cloud/artifact' "$manifest"
+# Personal Cloud ships as signed cloud releases, not inside the Snap.
+! grep -Fq 'PersonalCloudArtifact' "$manifest"
 grep -Fq 'libicu74' "$manifest"
 grep -Fq 'extensions: [gnome]' "$manifest"
-test "$(grep -Fc "version: '1.2.0'" "$manifest")" -eq 1
-test "$(grep -Ec "^[[:space:]]+Version: '1.2.0'$" "$manifest")" -eq 2
-test "$(grep -Ec "^[[:space:]]+InformationalVersion: '1.2.0'$" "$manifest")" -eq 2
+test "$(grep -Fc "version: '1.3.0'" "$manifest")" -eq 1
+test "$(grep -Ec "^[[:space:]]+Version: '1.3.0'$" "$manifest")" -eq 2
+test "$(grep -Ec "^[[:space:]]+InformationalVersion: '1.3.0'$" "$manifest")" -eq 2
 test "$(grep -Fc "'.openza-channel': opt/openza-tasks/" "$manifest")" -eq 2
 grep -Fq "'Openza.Tasks.Desktop': opt/openza-tasks/desktop/Openza.Tasks.Desktop" "$manifest"
-grep -Fq "'PersonalCloudArtifact': opt/openza-tasks/desktop/PersonalCloudArtifact" "$manifest"
 grep -Fq "'openza': opt/openza-tasks/cli/openza" "$manifest"
-grep -Fq 'expected_channel="${3:-Production}"' "$repo_root/packaging/snap/build-local-snap.sh"
+grep -Fq 'expected_channel="${2:-Production}"' "$repo_root/packaging/snap/build-local-snap.sh"
 grep -Fq 'OpenzaPackagingProfile: Preview' "$repo_root/packaging/snap/build-personal-cloud-preview-snap.sh"
 grep -Fq 'openza-tasks_pcdev' "$repo_root/docs/snap-release.md"
 grep -Fq 'SNAP_USER_COMMON/dotnet/desktop' "$repo_root/snap/local/openza-tasks-launch"
@@ -42,7 +42,7 @@ grep -Fq 'opt/openza-tasks/cli/openza' "$repo_root/snap/local/openza-cli-launch"
 grep -Fqx 'Exec=openza-tasks' "$repo_root/snap/gui/openza-tasks.desktop"
 grep -Fqx 'Icon=${SNAP}/meta/gui/openza-tasks.png' "$repo_root/snap/gui/openza-tasks.desktop"
 grep -Fq '<launchable type="desktop-id">openza-tasks.desktop</launchable>' "$repo_root/snap/gui/com.openza.Tasks.metainfo.xml"
-grep -Fq '<release version="1.2.0" date="2026-10-20" />' "$repo_root/snap/gui/com.openza.Tasks.metainfo.xml"
+grep -Fq '<release version="1.3.0" date="2026-10-26" />' "$repo_root/snap/gui/com.openza.Tasks.metainfo.xml"
 grep -Fq 'release: edge' "$repo_root/.github/workflows/snap-store.yml"
 ! grep -Eq 'release: (stable|candidate|beta)' "$repo_root/.github/workflows/snap-store.yml"
 

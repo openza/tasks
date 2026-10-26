@@ -16,5 +16,8 @@
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <NeutralLanguage>en-US</NeutralLanguage>
     <Deterministic>true</Deterministic>
+    <!-- Release builds pass Version explicitly; this default keeps local and Dev
+         builds on the current Desktop version for cloud release compatibility. -->
+    <Version Condition="'$(Version)' == ''">1.3.0</Version>
   </PropertyGroup>
 </Project>

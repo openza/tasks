@@ -17,6 +17,7 @@ public sealed partial class PersonalCloudManageWindow : Window
     {
         _viewModel = viewModel;
         DataContext = viewModel;
+        Opened += async (_, _) => await viewModel.CheckPersonalCloudReleaseAsync();
     }
 
     private async void OnOpenTasksClicked(object? sender, RoutedEventArgs e)
