@@ -217,6 +217,20 @@ public sealed class PersonalCloudReleaseFeedTests : IDisposable
     }
 
     [Fact]
+    public async Task A_tagged_release_that_fails_verification_does_not_lower_the_floor()
+    {
+        using var other = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        Publish("0.1.0-preview.11", 11, "1.3.0");
+        Publish("0.1.0-preview.12", 12, "1.3.0", signer: other);
+        _feed.Tagged["cloud-v0.1.0-preview.12"] = _feed.Releases[1];
+        _feed.Releases.RemoveAt(1);
+
+        var error = await Assert.ThrowsAsync<PersonalCloudK0ContractException>(() => Source().ResolveAsync(null, Installed("0.1.0-preview.12")));
+
+        Assert.Equal("release_invalid", error.Code);
+    }
+
+    [Fact]
     public async Task Recording_an_installed_release_uses_the_verified_listing_without_another_download()
     {
         Publish("0.1.0-preview.11", 11, "1.3.0");

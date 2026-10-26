@@ -207,8 +207,12 @@ public sealed partial class GitHubPersonalCloudReleaseSource(HttpClient http, Pe
         if (!ArtifactVersionPattern().IsMatch(version)) return null;
         var (release, _) = await GetJsonAsync<GitHubRelease>(
             new Uri(options.ApiRoot, $"repos/{options.Repository}/releases/tags/cloud-v{version}"), cancellationToken, notFoundIsNull: true).ConfigureAwait(false);
-        var verified = release is null || release.Draft ? null : await VerifyAsync(release, cancellationToken).ConfigureAwait(false);
-        return verified?.Metadata.ArtifactVersion == version ? verified : null;
+        if (release is null) return null;
+        var verified = release.Draft ? null : await VerifyAsync(release, cancellationToken).ConfigureAwait(false);
+        // A tagged release that cannot be verified as this version is never treated
+        // as "no release": that would drop the rollback floor.
+        return verified?.Metadata.ArtifactVersion == version ? verified
+            : throw new PersonalCloudK0ContractException("release_invalid", $"The Personal Cloud release cloud-v{version} could not be verified.");
     }
 
     private async Task<(T? Value, string? Link)> GetJsonAsync<T>(Uri url, CancellationToken cancellationToken, bool notFoundIsNull = false)

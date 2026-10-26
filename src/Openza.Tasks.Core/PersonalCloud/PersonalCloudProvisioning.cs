@@ -307,11 +307,18 @@ public sealed partial class PersonalCloudSetupService(
     private async Task<PersonalCloudConnectionProfile> DeployedAsync(PersonalCloudConnectionProfile current, CancellationToken cancellationToken)
     {
         if (management is null) return current;
+        // The deadline covers the whole response, including its body.
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deadline.CancelAfter(TimeSpan.FromSeconds(30));
         try
         {
-            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
-            var health = await new PersonalCloudHealthClient(http).InspectAsync(current.ServiceOrigin, cancellationToken).ConfigureAwait(false);
+            using var http = new HttpClient();
+            var health = await new PersonalCloudHealthClient(http).InspectAsync(current.ServiceOrigin, deadline.Token).ConfigureAwait(false);
             return current with { ArtifactVersion = health.ArtifactVersion };
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return current;
         }
         catch (PersonalCloudK0ContractException exception) when (exception.Code != "desktop_update_required")
         {
