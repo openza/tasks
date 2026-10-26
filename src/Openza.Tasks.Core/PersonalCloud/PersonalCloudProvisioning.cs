@@ -102,9 +102,12 @@ public sealed partial class PersonalCloudSetupService(
     PersonalCloudManagementCoordinator? management = null,
     PersonalCloudArtifactSlot? artifactSlot = null) : IPersonalCloudSetupService, IPersonalCloudProviderBridgeService, IPersonalCloudInitialSyncProgressService, IPersonalCloudDispatchStatusService, IPersonalCloudReleaseStatusService
 {
+    // Setup and upgrade share the artifact slot, so they never run concurrently.
+    private readonly SemaphoreSlim _artifactOperation = new(1, 1);
+
     public Task<PersonalCloudReleaseStatus> CheckForCloudUpdateAsync(CancellationToken cancellationToken = default) =>
         artifactSlot is not null
-            ? artifactSlot.CheckAsync(CurrentConnection?.ArtifactVersion, cancellationToken)
+            ? artifactSlot.CheckAsync(CurrentConnection, cancellationToken)
             : Task.FromResult(new PersonalCloudReleaseStatus(artifactVersion,
                 !string.Equals(CurrentConnection?.ArtifactVersion, artifactVersion, StringComparison.Ordinal)));
 
@@ -144,6 +147,22 @@ public sealed partial class PersonalCloudSetupService(
         CancellationToken cancellationToken = default,
         IProgress<PersonalCloudSetupProgress>? progress = null)
     {
+        if (!await _artifactOperation.WaitAsync(0, cancellationToken).ConfigureAwait(false))
+            throw new PersonalCloudK0ContractException("operation_in_progress", "Another Personal Cloud setup or update is already running.");
+        try
+        {
+            return await ConnectCoreAsync(cancellationToken, progress).ConfigureAwait(false);
+        }
+        finally
+        {
+            _artifactOperation.Release();
+        }
+    }
+
+    private async Task<PersonalCloudProvisioningResult> ConnectCoreAsync(
+        CancellationToken cancellationToken,
+        IProgress<PersonalCloudSetupProgress>? progress)
+    {
         using var connectionLease = taskStore is null ? null : PersonalCloudConnectionLease.AcquireReplacement(taskStore.DatabasePath);
         if (taskStore is not null)
             await taskStore.EnsureNoPendingPersonalCloudIntentsAsync(cancellationToken).ConfigureAwait(false);
@@ -171,6 +190,7 @@ public sealed partial class PersonalCloudSetupService(
             await connectionStore.SaveAsync(connection, cancellationToken).ConfigureAwait(false);
             CurrentConnection = connection;
             await coordinator.ConfirmConnectionSavedAsync(connection, cancellationToken).ConfigureAwait(false);
+            if (artifactSlot is not null) await artifactSlot.RecordInstalledAsync(connection).ConfigureAwait(false);
         }
         if (openOwnerBootstrap is not null)
             await openOwnerBootstrap(result.OwnerBootstrapUri, cancellationToken).ConfigureAwait(false);
@@ -227,16 +247,31 @@ public sealed partial class PersonalCloudSetupService(
 
     public async Task<PersonalCloudUpgradeResult> UpgradeAsync(CancellationToken cancellationToken = default)
     {
+        if (!await _artifactOperation.WaitAsync(0, cancellationToken).ConfigureAwait(false))
+            throw new PersonalCloudK0ContractException("operation_in_progress", "Another Personal Cloud setup or update is already running.");
+        try
+        {
+            return await UpgradeCoreAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _artifactOperation.Release();
+        }
+    }
+
+    private async Task<PersonalCloudUpgradeResult> UpgradeCoreAsync(CancellationToken cancellationToken)
+    {
         using var connectionLease = taskStore is null ? null : PersonalCloudConnectionLease.AcquireAuthoring(taskStore.DatabasePath);
         var current = RequireConnection();
         if (management is null || connectionStore is null)
             throw new PersonalCloudK0ContractException("management_unavailable", "Personal Cloud management is not available in this build.");
         if (artifactSlot is not null)
-            await artifactSlot.PrepareForUpgradeAsync(cancellationToken).ConfigureAwait(false);
+            await artifactSlot.PrepareForUpgradeAsync(current, cancellationToken).ConfigureAwait(false);
         var result = await management.UpgradeAsync(current, cancellationToken).ConfigureAwait(false);
         var updated = current with { ArtifactVersion = result.ArtifactVersion };
         await connectionStore.SaveAsync(updated, cancellationToken).ConfigureAwait(false);
         CurrentConnection = updated;
+        if (artifactSlot is not null) await artifactSlot.RecordInstalledAsync(updated).ConfigureAwait(false);
         return result;
     }
 

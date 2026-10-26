@@ -16,12 +16,17 @@ public sealed record PersonalCloudReleaseStatus(
     string? NewerVersionNeedingDesktop = null,
     string? RequiredDesktopVersion = null);
 
+// The cloud a Desktop is connected to, used to refuse installing an older release over it.
+public sealed record PersonalCloudInstalledRelease(string InstanceId, string ArtifactVersion);
+
 public interface IPersonalCloudArtifactSource
 {
-    // Null selects the newest release this Desktop supports; a version resumes
-    // an interrupted setup with exactly that artifact.
-    Task<LoadedPersonalCloudArtifact> ResolveAsync(string? requiredVersion, CancellationToken cancellationToken = default);
-    Task<PersonalCloudReleaseStatus> CheckAsync(string? installedVersion, CancellationToken cancellationToken = default);
+    // A null version selects the newest release this Desktop supports, never older
+    // than what the connected cloud already runs; a version resumes an interrupted
+    // setup with exactly that artifact.
+    Task<LoadedPersonalCloudArtifact> ResolveAsync(string? requiredVersion, PersonalCloudInstalledRelease? installed, CancellationToken cancellationToken = default);
+    Task<PersonalCloudReleaseStatus> CheckAsync(PersonalCloudInstalledRelease? installed, CancellationToken cancellationToken = default);
+    Task RecordInstalledAsync(PersonalCloudInstalledRelease installed, CancellationToken cancellationToken = default);
 }
 
 // A locally built artifact, for Dev builds and tests of unreleased cloud changes.
@@ -31,7 +36,7 @@ public sealed class DirectoryPersonalCloudArtifactSource(string directory) : IPe
 
     public LoadedPersonalCloudArtifact Artifact => _artifact.Value;
 
-    public Task<LoadedPersonalCloudArtifact> ResolveAsync(string? requiredVersion, CancellationToken cancellationToken = default)
+    public Task<LoadedPersonalCloudArtifact> ResolveAsync(string? requiredVersion, PersonalCloudInstalledRelease? installed, CancellationToken cancellationToken = default)
     {
         if (requiredVersion is not null && !string.Equals(requiredVersion, Artifact.Deployment.Version, StringComparison.Ordinal))
             throw new PersonalCloudK0ContractException("setup_resume_required",
@@ -39,9 +44,11 @@ public sealed class DirectoryPersonalCloudArtifactSource(string directory) : IPe
         return Task.FromResult(Artifact);
     }
 
-    public Task<PersonalCloudReleaseStatus> CheckAsync(string? installedVersion, CancellationToken cancellationToken = default) =>
+    public Task<PersonalCloudReleaseStatus> CheckAsync(PersonalCloudInstalledRelease? installed, CancellationToken cancellationToken = default) =>
         Task.FromResult(new PersonalCloudReleaseStatus(Artifact.Deployment.Version,
-            !string.Equals(installedVersion, Artifact.Deployment.Version, StringComparison.Ordinal)));
+            !string.Equals(installed?.ArtifactVersion, Artifact.Deployment.Version, StringComparison.Ordinal)));
+
+    public Task RecordInstalledAsync(PersonalCloudInstalledRelease installed, CancellationToken cancellationToken = default) => Task.CompletedTask;
 }
 
 public sealed record PersonalCloudReleaseFeedOptions
@@ -72,27 +79,42 @@ public sealed partial class GitHubPersonalCloudReleaseSource(HttpClient http, Pe
     private const long MaxMetadataBytes = 64 * 1024;
     private const long MaxArchiveBytes = 64L * 1024 * 1024;
     private const int MaxArchiveEntries = 4096;
+    private const int MaxListingPages = 10;
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
+    private static readonly JsonSerializerOptions StoreJson = new(JsonSerializerDefaults.Web) { WriteIndented = true };
 
-    public async Task<PersonalCloudReleaseStatus> CheckAsync(string? installedVersion, CancellationToken cancellationToken = default)
+    public async Task<PersonalCloudReleaseStatus> CheckAsync(PersonalCloudInstalledRelease? installed, CancellationToken cancellationToken = default)
     {
         var releases = await ListVerifiedReleasesAsync(cancellationToken).ConfigureAwait(false);
+        var floor = Floor(releases, installed);
         var compatible = releases.Where(Compatible).MaxBy(release => release.Metadata.ReleaseNumber);
         var newest = releases.MaxBy(release => release.Metadata.ReleaseNumber);
         var blocked = newest is not null && newest != compatible && !Compatible(newest) ? newest : null;
         return new PersonalCloudReleaseStatus(
             compatible?.Metadata.ArtifactVersion,
-            compatible is not null && !string.Equals(installedVersion, compatible.Metadata.ArtifactVersion, StringComparison.Ordinal),
+            compatible is not null && compatible.Metadata.ReleaseNumber > floor &&
+                !string.Equals(installed?.ArtifactVersion, compatible.Metadata.ArtifactVersion, StringComparison.Ordinal),
             blocked?.Metadata.ArtifactVersion,
             blocked?.Metadata.MinDesktopVersion);
     }
 
-    public async Task<LoadedPersonalCloudArtifact> ResolveAsync(string? requiredVersion, CancellationToken cancellationToken = default)
+    public async Task<LoadedPersonalCloudArtifact> ResolveAsync(string? requiredVersion, PersonalCloudInstalledRelease? installed, CancellationToken cancellationToken = default)
     {
         var releases = await ListVerifiedReleasesAsync(cancellationToken).ConfigureAwait(false);
-        var selected = requiredVersion is null
-            ? releases.Where(Compatible).MaxBy(release => release.Metadata.ReleaseNumber)
-            : releases.FirstOrDefault(release => string.Equals(release.Metadata.ArtifactVersion, requiredVersion, StringComparison.Ordinal));
+        VerifiedRelease? selected;
+        if (requiredVersion is null)
+        {
+            selected = releases.Where(Compatible).MaxBy(release => release.Metadata.ReleaseNumber);
+            var floor = Floor(releases, installed);
+            if (selected is not null && selected.Metadata.ReleaseNumber < floor)
+                throw new PersonalCloudK0ContractException("release_rollback",
+                    "The newest available Personal Cloud release is older than the one already installed, so it was not installed.");
+        }
+        else
+        {
+            selected = releases.FirstOrDefault(release => string.Equals(release.Metadata.ArtifactVersion, requiredVersion, StringComparison.Ordinal))
+                ?? await FindByTagAsync(requiredVersion, cancellationToken).ConfigureAwait(false);
+        }
         if (selected is null)
         {
             var newest = releases.MaxBy(release => release.Metadata.ReleaseNumber);
@@ -109,53 +131,132 @@ public sealed partial class GitHubPersonalCloudReleaseSource(HttpClient http, Pe
         return await DownloadAsync(selected, cancellationToken).ConfigureAwait(false);
     }
 
+    // Remembers the highest release installed on each connected cloud, so a later
+    // listing that hides newer releases cannot roll that cloud back.
+    public async Task RecordInstalledAsync(PersonalCloudInstalledRelease installed, CancellationToken cancellationToken = default)
+    {
+        var releases = await ListVerifiedReleasesAsync(cancellationToken).ConfigureAwait(false);
+        var number = releases.FirstOrDefault(release => release.Metadata.ArtifactVersion == installed.ArtifactVersion)?.Metadata.ReleaseNumber ?? 0;
+        if (number == 0) return;
+        var floors = ReadFloors();
+        if (floors.TryGetValue(installed.InstanceId, out var existing) && existing >= number) return;
+        floors[installed.InstanceId] = number;
+        Directory.CreateDirectory(Path.GetFullPath(options.CacheDirectory));
+        var path = FloorPath();
+        var temporary = path + $".{Guid.NewGuid():N}.tmp";
+        await File.WriteAllBytesAsync(temporary, JsonSerializer.SerializeToUtf8Bytes(floors, StoreJson), cancellationToken).ConfigureAwait(false);
+        File.Move(temporary, path, overwrite: true);
+    }
+
+    private int Floor(IReadOnlyList<VerifiedRelease> releases, PersonalCloudInstalledRelease? installed)
+    {
+        if (installed is null) return 0;
+        var listed = releases.FirstOrDefault(release => release.Metadata.ArtifactVersion == installed.ArtifactVersion)?.Metadata.ReleaseNumber ?? 0;
+        return Math.Max(listed, ReadFloors().GetValueOrDefault(installed.InstanceId));
+    }
+
+    private string FloorPath() => Path.Combine(Path.GetFullPath(options.CacheDirectory), "installed-releases.json");
+
+    private Dictionary<string, int> ReadFloors()
+    {
+        try
+        {
+            return File.Exists(FloorPath())
+                ? JsonSerializer.Deserialize<Dictionary<string, int>>(File.ReadAllBytes(FloorPath()), StoreJson) ?? []
+                : [];
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
+    }
+
     private bool Compatible(VerifiedRelease release) => release.MinDesktop <= options.DesktopVersion;
 
     private async Task<IReadOnlyList<VerifiedRelease>> ListVerifiedReleasesAsync(CancellationToken cancellationToken)
     {
         if (!RepositoryPattern().IsMatch(options.Repository))
             throw new PersonalCloudK0ContractException("release_unavailable", "The Personal Cloud release repository is invalid.");
-        IReadOnlyList<GitHubRelease> releases;
+        var releases = new List<GitHubRelease>();
+        Uri? next = new(options.ApiRoot, $"repos/{options.Repository}/releases?per_page=100");
+        for (var page = 0; next is not null && page < MaxListingPages; page++)
+        {
+            var (items, link) = await GetJsonAsync<IReadOnlyList<GitHubRelease>>(next, cancellationToken).ConfigureAwait(false);
+            releases.AddRange(items ?? []);
+            next = NextPage(link);
+        }
+        var verified = new List<VerifiedRelease>();
+        foreach (var release in releases.Where(release => !release.Draft))
+            if (await VerifyAsync(release, cancellationToken).ConfigureAwait(false) is { } item) verified.Add(item);
+        return verified;
+    }
+
+    // An interrupted setup must finish with its exact release, even after it has
+    // dropped off the release listing.
+    private async Task<VerifiedRelease?> FindByTagAsync(string version, CancellationToken cancellationToken)
+    {
+        if (!ArtifactVersionPattern().IsMatch(version)) return null;
         try
         {
-            using var request = Request(new Uri(options.ApiRoot, $"repos/{options.Repository}/releases?per_page=30"));
+            var (release, _) = await GetJsonAsync<GitHubRelease>(
+                new Uri(options.ApiRoot, $"repos/{options.Repository}/releases/tags/cloud-v{version}"), cancellationToken).ConfigureAwait(false);
+            var verified = release is null || release.Draft ? null : await VerifyAsync(release, cancellationToken).ConfigureAwait(false);
+            return verified?.Metadata.ArtifactVersion == version ? verified : null;
+        }
+        catch (PersonalCloudK0ContractException exception) when (exception.Code == "release_unavailable")
+        {
+            return null;
+        }
+    }
+
+    private async Task<(T? Value, string? Link)> GetJsonAsync<T>(Uri url, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var request = Request(url);
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
             using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode) throw Unavailable();
-            var bytes = await ReadLimitedAsync(response, 2 * 1024 * 1024, cancellationToken).ConfigureAwait(false);
-            releases = JsonSerializer.Deserialize<IReadOnlyList<GitHubRelease>>(bytes, Json) ?? [];
+            var bytes = await ReadLimitedAsync(response, 4 * 1024 * 1024, cancellationToken).ConfigureAwait(false);
+            var link = response.Headers.TryGetValues("Link", out var values) ? string.Join(",", values) : null;
+            return (JsonSerializer.Deserialize<T>(bytes, Json), link);
         }
         catch (Exception exception) when (exception is HttpRequestException or JsonException or TaskCanceledException && !cancellationToken.IsCancellationRequested)
         {
             throw Unavailable(exception);
         }
+    }
 
-        var verified = new List<VerifiedRelease>();
-        foreach (var release in releases.Where(release => !release.Draft))
+    private Uri? NextPage(string? link)
+    {
+        var match = link is null ? null : NextLinkPattern().Match(link);
+        if (match is not { Success: true } || !Uri.TryCreate(match.Groups[1].Value, UriKind.Absolute, out var next)) return null;
+        // Follow pagination only within the configured API host.
+        return next.Scheme == options.ApiRoot.Scheme && next.Host == options.ApiRoot.Host ? next : null;
+    }
+
+    private async Task<VerifiedRelease?> VerifyAsync(GitHubRelease release, CancellationToken cancellationToken)
+    {
+        var assets = release.Assets ?? [];
+        var metadataAsset = assets.FirstOrDefault(asset => asset.Name == "cloud-release.json");
+        var signatureAsset = assets.FirstOrDefault(asset => asset.Name == "cloud-release.json.sig");
+        if (metadataAsset is null || signatureAsset is null) return null;
+        byte[] metadataBytes, signatureText;
+        try
         {
-            var assets = release.Assets ?? [];
-            var metadataAsset = assets.FirstOrDefault(asset => asset.Name == "cloud-release.json");
-            var signatureAsset = assets.FirstOrDefault(asset => asset.Name == "cloud-release.json.sig");
-            if (metadataAsset is null || signatureAsset is null) continue;
-            byte[] metadataBytes, signatureText;
-            try
-            {
-                metadataBytes = await DownloadLimitedAsync(metadataAsset.BrowserDownloadUrl, MaxMetadataBytes, cancellationToken).ConfigureAwait(false);
-                signatureText = await DownloadLimitedAsync(signatureAsset.BrowserDownloadUrl, MaxMetadataBytes, cancellationToken).ConfigureAwait(false);
-            }
-            catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException && !cancellationToken.IsCancellationRequested)
-            {
-                throw Unavailable(exception);
-            }
-            // Nothing in an unsigned or wrongly signed release is trusted, so it is skipped.
-            if (!SignatureValid(metadataBytes, signatureText)) continue;
-            var parsed = ParseMetadata(metadataBytes);
-            if (parsed is null) continue;
-            var archive = assets.FirstOrDefault(asset => asset.Name == parsed.Value.Metadata.Archive.File);
-            if (archive is null) continue;
-            verified.Add(new VerifiedRelease(parsed.Value.Metadata, parsed.Value.MinDesktop, archive.BrowserDownloadUrl));
+            metadataBytes = await DownloadLimitedAsync(metadataAsset.BrowserDownloadUrl, MaxMetadataBytes, cancellationToken).ConfigureAwait(false);
+            signatureText = await DownloadLimitedAsync(signatureAsset.BrowserDownloadUrl, MaxMetadataBytes, cancellationToken).ConfigureAwait(false);
         }
-        return verified;
+        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException && !cancellationToken.IsCancellationRequested)
+        {
+            throw Unavailable(exception);
+        }
+        // Nothing in an unsigned or wrongly signed release is trusted, so it is skipped.
+        if (!SignatureValid(metadataBytes, signatureText)) return null;
+        var parsed = ParseMetadata(metadataBytes);
+        if (parsed is null) return null;
+        var archive = assets.FirstOrDefault(asset => asset.Name == parsed.Value.Metadata.Archive.File);
+        return archive is null ? null : new VerifiedRelease(parsed.Value.Metadata, parsed.Value.MinDesktop, archive.BrowserDownloadUrl);
     }
 
     private bool SignatureValid(byte[] metadata, byte[] signatureText)
@@ -232,13 +333,16 @@ public sealed partial class GitHubPersonalCloudReleaseSource(HttpClient http, Pe
         return LoadVerified(target, metadata);
     }
 
+    // Every file is read once and verified in memory, so the loaded artifact is
+    // exactly what the signed manifest describes even if the cache changes later.
     private static LoadedPersonalCloudArtifact LoadVerified(string directory, ReleaseMetadata metadata)
     {
-        var manifestPath = Path.Combine(directory, "artifact-manifest.json");
-        if (!File.Exists(manifestPath) ||
-            !CryptographicOperations.FixedTimeEquals(SHA256.HashData(File.ReadAllBytes(manifestPath)), Convert.FromHexString(metadata.ManifestSha256)))
-            throw new PersonalCloudK0ContractException("release_invalid", "The Personal Cloud release manifest does not match its signed checksum.");
-        var loaded = PersonalCloudArtifactDirectory.Load(directory);
+        LoadedPersonalCloudArtifact loaded;
+        try { loaded = PersonalCloudArtifactDirectory.Load(directory, metadata.ManifestSha256); }
+        catch (PersonalCloudK0ContractException exception) when (exception.Code == "artifact_invalid")
+        {
+            throw new PersonalCloudK0ContractException("release_invalid", "The Personal Cloud release files do not match their signed checksums.", exception);
+        }
         if (!string.Equals(loaded.Deployment.Version, metadata.ArtifactVersion, StringComparison.Ordinal))
             throw new PersonalCloudK0ContractException("release_invalid", "The Personal Cloud release version does not match its signed metadata.");
         return loaded;
@@ -310,6 +414,7 @@ public sealed partial class GitHubPersonalCloudReleaseSource(HttpClient http, Pe
     [GeneratedRegex("^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$")] private static partial Regex RepositoryPattern();
     [GeneratedRegex("^[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?$")] private static partial Regex ArtifactVersionPattern();
     [GeneratedRegex("^[0-9]+\\.[0-9]+\\.[0-9]+$")] private static partial Regex DesktopVersionPattern();
+    [GeneratedRegex("<([^>]+)>;\\s*rel=\"next\"")] private static partial Regex NextLinkPattern();
 
     private sealed record VerifiedRelease(ReleaseMetadata Metadata, Version MinDesktop, Uri ArchiveUrl);
     private sealed record GitHubRelease(bool Draft, IReadOnlyList<GitHubAsset>? Assets);

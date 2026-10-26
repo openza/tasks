@@ -11,7 +11,7 @@ All notable changes to Openza Tasks will be documented in this file.
 
 ### Changed
 - Desktop no longer bundles a Personal Cloud copy. First setup installs the newest signed release.
-- Desktop accepts a newer Personal Cloud that only adds fields, capabilities or schema versions, and refuses releases that declare a newer minimum Desktop.
+- Desktop accepts a newer Personal Cloud that only adds fields, capabilities or schema versions. It refuses to install a release that needs a newer Desktop or is older than the one already installed, and stops syncing with a message if a cloud reports that it needs a newer Desktop.
 - Built with .NET 10.0.13, which includes upstream security fixes.
 
 ## [1.2.0] - 2026-10-20

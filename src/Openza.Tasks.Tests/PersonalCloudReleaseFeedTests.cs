@@ -26,10 +26,10 @@ public sealed class PersonalCloudReleaseFeedTests : IDisposable
         Publish("0.1.0-preview.11", 11, "1.3.0");
         var source = Source();
 
-        var status = await source.CheckAsync("0.1.0-preview.10");
-        var loaded = await source.ResolveAsync(null);
+        var status = await source.CheckAsync(Installed("0.1.0-preview.10"));
+        var loaded = await source.ResolveAsync(null, null);
         var archiveDownloads = _feed.Requests.Count(path => path.EndsWith(".zip", StringComparison.Ordinal));
-        var again = await source.ResolveAsync(null);
+        var again = await source.ResolveAsync(null, null);
 
         Assert.Equal("0.1.0-preview.11", status.AvailableVersion);
         Assert.True(status.UpdateAvailable);
@@ -38,7 +38,7 @@ public sealed class PersonalCloudReleaseFeedTests : IDisposable
         Assert.Equal("0.1.0-preview.11", again.Deployment.Version);
         Assert.Equal(1, archiveDownloads);
         Assert.Equal(1, _feed.Requests.Count(path => path.EndsWith(".zip", StringComparison.Ordinal)));
-        Assert.False((await source.CheckAsync("0.1.0-preview.11")).UpdateAvailable);
+        Assert.False((await source.CheckAsync(Installed("0.1.0-preview.11"))).UpdateAvailable);
     }
 
     [Fact]
@@ -48,8 +48,8 @@ public sealed class PersonalCloudReleaseFeedTests : IDisposable
         Publish("0.2.0", 12, "1.4.0");
         var source = Source(new Version(1, 3, 0));
 
-        var status = await source.CheckAsync("0.1.0-preview.11");
-        var loaded = await source.ResolveAsync(null);
+        var status = await source.CheckAsync(Installed("0.1.0-preview.11"));
+        var loaded = await source.ResolveAsync(null, null);
 
         Assert.False(status.UpdateAvailable);
         Assert.Equal("0.1.0-preview.11", status.AvailableVersion);
@@ -59,7 +59,7 @@ public sealed class PersonalCloudReleaseFeedTests : IDisposable
 
         var onlyNewer = new PersonalCloudReleaseFeedTests();
         onlyNewer.Publish("0.2.0", 12, "1.4.0");
-        var error = await Assert.ThrowsAsync<PersonalCloudK0ContractException>(() => onlyNewer.Source(new Version(1, 3, 0)).ResolveAsync(null));
+        var error = await Assert.ThrowsAsync<PersonalCloudK0ContractException>(() => onlyNewer.Source(new Version(1, 3, 0)).ResolveAsync(null, null));
         Assert.Equal("release_requires_newer_desktop", error.Code);
         Assert.Contains("1.4.0", error.Message, StringComparison.Ordinal);
         onlyNewer.Dispose();
@@ -71,10 +71,10 @@ public sealed class PersonalCloudReleaseFeedTests : IDisposable
         Publish("0.1.0-preview.11", 11, "1.3.0");
         Publish("0.1.0-preview.12", 12, "1.3.0");
 
-        var loaded = await Source().ResolveAsync("0.1.0-preview.11");
+        var loaded = await Source().ResolveAsync("0.1.0-preview.11", null);
 
         Assert.Equal("0.1.0-preview.11", loaded.Deployment.Version);
-        var missing = await Assert.ThrowsAsync<PersonalCloudK0ContractException>(() => Source().ResolveAsync("0.1.0-preview.9"));
+        var missing = await Assert.ThrowsAsync<PersonalCloudK0ContractException>(() => Source().ResolveAsync("0.1.0-preview.9", null));
         Assert.Equal("release_unavailable", missing.Code);
     }
 
@@ -86,7 +86,7 @@ public sealed class PersonalCloudReleaseFeedTests : IDisposable
         Publish("0.1.0-preview.12", 12, "1.3.0", signature: "not-base64!");
 
         var status = await Source().CheckAsync(null);
-        var error = await Assert.ThrowsAsync<PersonalCloudK0ContractException>(() => Source().ResolveAsync(null));
+        var error = await Assert.ThrowsAsync<PersonalCloudK0ContractException>(() => Source().ResolveAsync(null, null));
 
         Assert.Null(status.AvailableVersion);
         Assert.Equal("release_unavailable", error.Code);
@@ -98,7 +98,7 @@ public sealed class PersonalCloudReleaseFeedTests : IDisposable
         Publish("0.1.0-preview.11", 11, "1.3.0");
         _feed.Files["/download/0.1.0-preview.11/openza-personal-cloud-0.1.0-preview.11.zip"] = Zip(Artifact("0.1.0-preview.11", "tampered"));
 
-        var error = await Assert.ThrowsAsync<PersonalCloudK0ContractException>(() => Source().ResolveAsync(null));
+        var error = await Assert.ThrowsAsync<PersonalCloudK0ContractException>(() => Source().ResolveAsync(null, null));
 
         Assert.Equal("release_invalid", error.Code);
         Assert.False(Directory.Exists(Path.Combine(_cache, "0.1.0-preview.11")));
@@ -111,7 +111,7 @@ public sealed class PersonalCloudReleaseFeedTests : IDisposable
         files["../escape.txt"] = Encoding.UTF8.GetBytes("outside");
         Publish("0.1.0-preview.11", 11, "1.3.0", archive: Zip(files));
 
-        var error = await Assert.ThrowsAsync<PersonalCloudK0ContractException>(() => Source().ResolveAsync(null));
+        var error = await Assert.ThrowsAsync<PersonalCloudK0ContractException>(() => Source().ResolveAsync(null, null));
 
         Assert.Equal("release_invalid", error.Code);
         Assert.False(File.Exists(Path.Combine(_cache, "escape.txt")));
@@ -122,10 +122,10 @@ public sealed class PersonalCloudReleaseFeedTests : IDisposable
     {
         Publish("0.1.0-preview.11", 11, "1.3.0");
         var source = Source();
-        await source.ResolveAsync(null);
+        await source.ResolveAsync(null, null);
         File.WriteAllText(Path.Combine(_cache, "0.1.0-preview.11", "worker.js"), "changed");
 
-        var loaded = await source.ResolveAsync(null);
+        var loaded = await source.ResolveAsync(null, null);
 
         Assert.Equal("0.1.0-preview.11", loaded.Deployment.Version);
         Assert.Equal(2, _feed.Requests.Count(path => path.EndsWith(".zip", StringComparison.Ordinal)));
@@ -157,9 +157,79 @@ public sealed class PersonalCloudReleaseFeedTests : IDisposable
         await slot.PrepareForSetupAsync();
         Assert.Equal("0.1.0-preview.11", slot.Version);
         Assert.Equal("0.1.0-preview.11", slot.MigrationBundle().ArtifactVersion);
-        await slot.PrepareForUpgradeAsync();
+        await slot.PrepareForUpgradeAsync(new PersonalCloudConnectionProfile
+        {
+            ServiceOrigin = new Uri("https://openza-personal-test.example.workers.dev/"),
+            InstanceId = "pc_connected",
+            DeviceId = "device_test",
+            ArtifactVersion = "0.1.0-preview.11",
+            ConnectedAt = DateTimeOffset.UnixEpoch,
+        });
         Assert.Equal("0.1.0-preview.12", slot.Version);
     }
+
+    [Fact]
+    public async Task Update_never_installs_an_older_release_than_the_cloud_already_runs()
+    {
+        Publish("0.1.0-preview.11", 11, "1.3.0");
+        Publish("0.1.0-preview.12", 12, "1.3.0");
+        var source = Source();
+        await source.RecordInstalledAsync(Installed("0.1.0-preview.12"));
+        _feed.Releases.RemoveAt(1); // The newer release disappears from the listing.
+
+        var status = await source.CheckAsync(Installed("0.1.0-preview.12"));
+        var error = await Assert.ThrowsAsync<PersonalCloudK0ContractException>(() => source.ResolveAsync(null, Installed("0.1.0-preview.12")));
+        var otherCloud = await source.ResolveAsync(null, new PersonalCloudInstalledRelease("pc_other", "0.1.0-preview.10"));
+
+        Assert.False(status.UpdateAvailable);
+        Assert.Equal("release_rollback", error.Code);
+        Assert.Equal("0.1.0-preview.11", otherCloud.Deployment.Version);
+    }
+
+    [Fact]
+    public async Task Every_page_of_releases_is_searched()
+    {
+        for (var number = 1; number <= 3; number++) Publish($"0.1.{number}", number, "1.3.0");
+        _feed.PageSize = 1;
+
+        var status = await Source().CheckAsync(null);
+
+        Assert.Equal("0.1.3", status.AvailableVersion);
+        Assert.Contains(_feed.Requests, path => path == "/repos/openza/personal-cloud/releases");
+        Assert.Equal(3, _feed.Requests.Count(path => path == "/repos/openza/personal-cloud/releases"));
+    }
+
+    [Fact]
+    public async Task An_interrupted_setup_finds_its_release_by_tag_when_it_left_the_listing()
+    {
+        Publish("0.1.0-preview.11", 11, "1.3.0");
+        Publish("0.1.0-preview.12", 12, "1.3.0");
+        _feed.Tagged["cloud-v0.1.0-preview.11"] = _feed.Releases[0];
+        _feed.Releases.RemoveAt(0);
+
+        var loaded = await Source().ResolveAsync("0.1.0-preview.11", null);
+
+        Assert.Equal("0.1.0-preview.11", loaded.Deployment.Version);
+    }
+
+    [Fact]
+    public async Task A_cached_release_with_a_swapped_manifest_is_not_trusted()
+    {
+        Publish("0.1.0-preview.11", 11, "1.3.0");
+        var source = Source();
+        await source.ResolveAsync(null, null);
+        var cached = Path.Combine(_cache, "0.1.0-preview.11");
+        // A self-consistent but different artifact with the same version.
+        foreach (var (name, content) in Artifact("0.1.0-preview.11", "export default {fetch(){return new Response('swapped')}}"))
+            File.WriteAllBytes(Path.Combine(cached, name), content);
+
+        var loaded = await source.ResolveAsync(null, null);
+
+        Assert.DoesNotContain("swapped", Encoding.UTF8.GetString(loaded.Deployment.WorkerModule), StringComparison.Ordinal);
+        Assert.Equal(2, _feed.Requests.Count(path => path.EndsWith(".zip", StringComparison.Ordinal)));
+    }
+
+    private static PersonalCloudInstalledRelease Installed(string version) => new("pc_connected", version);
 
     // Produced by personal-cloud/scripts/cloud-release.mjs (Node.js crypto) with a
     // throwaway key, so the release workflow and Desktop agree on the signature format.
@@ -291,6 +361,8 @@ public sealed class PersonalCloudReleaseFeedTests : IDisposable
         public Dictionary<string, byte[]> Files { get; } = new(StringComparer.Ordinal);
         public List<string> Requests { get; } = [];
         public bool FailListing { get; set; }
+        public int PageSize { get; set; } = 100;
+        public Dictionary<string, object> Tagged { get; } = new(StringComparer.Ordinal);
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
@@ -299,8 +371,18 @@ public sealed class PersonalCloudReleaseFeedTests : IDisposable
             if (path == "/repos/openza/personal-cloud/releases")
             {
                 if (FailListing) throw new HttpRequestException("offline");
-                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(JsonSerializer.Serialize(Releases)) });
+                var query = System.Web.HttpUtility.ParseQueryString(request.RequestUri.Query);
+                var page = int.TryParse(query["page"], out var value) ? value : 1;
+                var items = Releases.Skip((page - 1) * PageSize).Take(PageSize).ToArray();
+                var response = new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(JsonSerializer.Serialize(items)) };
+                if (page * PageSize < Releases.Count)
+                    response.Headers.TryAddWithoutValidation("Link", $"<https://api.example.test/repos/openza/personal-cloud/releases?per_page=100&page={page + 1}>; rel=\"next\"");
+                return Task.FromResult(response);
             }
+            if (path.StartsWith("/repos/openza/personal-cloud/releases/tags/", StringComparison.Ordinal))
+                return Task.FromResult(Tagged.TryGetValue(path[(path.LastIndexOf('/') + 1)..], out var tagged)
+                    ? new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(JsonSerializer.Serialize(tagged)) }
+                    : new HttpResponseMessage(HttpStatusCode.NotFound));
             return Task.FromResult(Files.TryGetValue(path, out var content)
                 ? new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(content) }
                 : new HttpResponseMessage(HttpStatusCode.NotFound));

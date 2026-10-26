@@ -16,6 +16,12 @@ public sealed class PersonalCloudHealthClient(HttpClient http)
     // capabilities, extra capability keys and higher schema versions are
     // accepted, while the values this Desktop relies on are still checked exactly.
     private const int MinimumSchemaVersion = 17;
+
+    // This Desktop's version, compared with a cloud's desktopCompatibility capability.
+    // Release builds stamp the same Version on every assembly.
+    public static Version DesktopVersion { get; set; } = Normalize(typeof(PersonalCloudHealthClient).Assembly.GetName().Version);
+
+    private static Version Normalize(Version? value) => value is null ? new Version(0, 0, 0) : new Version(value.Major, value.Minor, Math.Max(0, value.Build));
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
     {
         UnmappedMemberHandling = JsonUnmappedMemberHandling.Skip,
@@ -47,6 +53,7 @@ public sealed class PersonalCloudHealthClient(HttpClient http)
                 body.Product != PersonalCloudK0Protocol.TasksProduct || body.SchemaVersion < MinimumSchemaVersion ||
                 string.IsNullOrWhiteSpace(body.ArtifactVersion) || body.ArtifactVersion.Length > 128)
                 throw new PersonalCloudK0ContractException("health_mismatch", "The deployed Personal Cloud is not compatible with this Openza build.");
+            RequireSupportedDesktop(body.Capabilities);
             var batch = ParseMutationBatch(body.Capabilities);
             var workspace = ParseWorkspace(body.Capabilities, body.SchemaVersion);
             var catalogProtocol = ParseProviderCatalog(body.Capabilities);
@@ -66,6 +73,21 @@ public sealed class PersonalCloudHealthClient(HttpClient http)
         {
             throw new PersonalCloudK0ContractException("invalid_response", "Personal Cloud returned an invalid health response.", exception);
         }
+    }
+
+    // A cloud release that needs a newer Desktop says so here, so this Desktop stops
+    // safely even when another computer installed that release.
+    private static void RequireSupportedDesktop(JsonElement? capabilities)
+    {
+        if (capabilities is null || capabilities.Value.ValueKind != JsonValueKind.Object ||
+            !capabilities.Value.TryGetProperty("desktopCompatibility", out var value)) return;
+        if (!ExactCapability(value, "protocolVersion", "minDesktopVersion") || !Integer(value, "protocolVersion", 1) ||
+            value.GetProperty("minDesktopVersion").ValueKind != JsonValueKind.String ||
+            !Version.TryParse(value.GetProperty("minDesktopVersion").GetString(), out var minimum) || minimum.Revision != -1 || minimum.Build < 0)
+            throw new PersonalCloudK0ContractException("health_mismatch", "Invalid desktop compatibility capability.");
+        if (DesktopVersion < minimum)
+            throw new PersonalCloudK0ContractException("desktop_update_required",
+                $"This Personal Cloud needs Openza Desktop {minimum} or newer. Update Openza Desktop to keep syncing; your tasks stay on this computer.");
     }
 
     private static bool ParseWorkspace(JsonElement? capabilities, int schemaVersion)

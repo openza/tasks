@@ -365,6 +365,21 @@ public sealed class PersonalCloudProvisioningTests
         Assert.True(health.SupportsWorkspace);
     }
 
+    [Theory]
+    [InlineData("9.9.9", "desktop_update_required")]
+    [InlineData("1.0.0", null)]
+    [InlineData("1.3", "health_mismatch")]
+    public async Task Health_enforces_the_cloud_releases_minimum_desktop_version(string minimum, string? code)
+    {
+        var client = new PersonalCloudHealthClient(new HttpClient(new RecordingHandler(Json(HttpStatusCode.OK,
+            """{"status":"ok","protocolVersion":1,"product":"tasks","artifactVersion":"0.2.0","schemaVersion":26,"capabilities":{"desktopCompatibility":{"protocolVersion":1,"minDesktopVersion":"MINIMUM"}}}""".Replace("MINIMUM", minimum, StringComparison.Ordinal)))));
+
+        var error = await Record.ExceptionAsync(() => client.InspectAsync(new Uri("https://openza-personal-test.workers.dev/")));
+
+        Assert.Equal(code, (error as PersonalCloudK0ContractException)?.Code);
+        if (code == "desktop_update_required") Assert.Contains("9.9.9", error!.Message, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task Health_still_rejects_changed_values_that_this_desktop_relies_on()
     {

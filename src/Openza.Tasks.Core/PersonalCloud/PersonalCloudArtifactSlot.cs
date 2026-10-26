@@ -3,7 +3,7 @@ namespace Openza.Tasks.Core.PersonalCloud;
 // Holds the cloud artifact for the current setup or upgrade. Desktop resolves
 // it from a signed release (or a local Dev artifact) just before the operation;
 // the deployment client, migration bundle and management coordinator read it
-// at that time. Setup and upgrade run under the connection lease, one at a time.
+// at that time. PersonalCloudSetupService runs setup and upgrade one at a time.
 public sealed class PersonalCloudArtifactSlot(IPersonalCloudArtifactSource source, IPersonalCloudProvisioningStateStore stateStore)
 {
     private LoadedPersonalCloudArtifact? _current;
@@ -17,14 +17,24 @@ public sealed class PersonalCloudArtifactSlot(IPersonalCloudArtifactSource sourc
     {
         // An interrupted setup resumes with exactly the artifact it started with.
         var pending = await stateStore.LoadAsync(cancellationToken).ConfigureAwait(false);
-        _current = await source.ResolveAsync(pending?.ArtifactVersion, cancellationToken).ConfigureAwait(false);
+        _current = await source.ResolveAsync(pending?.ArtifactVersion, null, cancellationToken).ConfigureAwait(false);
     }
 
-    public async Task PrepareForUpgradeAsync(CancellationToken cancellationToken = default) =>
-        _current = await source.ResolveAsync(null, cancellationToken).ConfigureAwait(false);
+    public async Task PrepareForUpgradeAsync(PersonalCloudConnectionProfile connection, CancellationToken cancellationToken = default) =>
+        _current = await source.ResolveAsync(null, Installed(connection), cancellationToken).ConfigureAwait(false);
 
-    public Task<PersonalCloudReleaseStatus> CheckAsync(string? installedVersion, CancellationToken cancellationToken = default) =>
-        source.CheckAsync(installedVersion, cancellationToken);
+    public Task<PersonalCloudReleaseStatus> CheckAsync(PersonalCloudConnectionProfile? connection, CancellationToken cancellationToken = default) =>
+        source.CheckAsync(connection is null ? null : Installed(connection), cancellationToken);
+
+    // Best effort: a failure to record only weakens rollback protection for later updates.
+    public async Task RecordInstalledAsync(PersonalCloudConnectionProfile connection)
+    {
+        try { await source.RecordInstalledAsync(Installed(connection), CancellationToken.None).ConfigureAwait(false); }
+        catch (Exception exception) when (exception is PersonalCloudK0ContractException or IOException or UnauthorizedAccessException) { }
+    }
+
+    private static PersonalCloudInstalledRelease Installed(PersonalCloudConnectionProfile connection) =>
+        new(connection.InstanceId, connection.ArtifactVersion);
 
     public ICloudflareArtifactDeploymentClient DeploymentClient(HttpClient http) => new SlotDeploymentClient(this, http);
     public IPersonalCloudMigrationBundle MigrationBundle() => new SlotMigrationBundle(this);
