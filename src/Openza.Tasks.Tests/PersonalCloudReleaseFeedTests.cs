@@ -174,6 +174,7 @@ public sealed class PersonalCloudReleaseFeedTests : IDisposable
         Publish("0.1.0-preview.11", 11, "1.3.0");
         Publish("0.1.0-preview.12", 12, "1.3.0");
         var source = Source();
+        await source.ResolveAsync(null, Installed("0.1.0-preview.11"));
         await source.RecordInstalledAsync(Installed("0.1.0-preview.12"));
         _feed.Releases.RemoveAt(1); // The newer release disappears from the listing.
 
@@ -184,6 +185,35 @@ public sealed class PersonalCloudReleaseFeedTests : IDisposable
         Assert.False(status.UpdateAvailable);
         Assert.Equal("release_rollback", error.Code);
         Assert.Equal("0.1.0-preview.11", otherCloud.Deployment.Version);
+    }
+
+    [Fact]
+    public async Task An_installed_release_that_left_the_listing_still_sets_the_floor_by_its_tag()
+    {
+        Publish("0.1.0-preview.11", 11, "1.3.0");
+        Publish("0.1.0-preview.12", 12, "1.3.0");
+        _feed.Tagged["cloud-v0.1.0-preview.12"] = _feed.Releases[1];
+        _feed.Releases.RemoveAt(1);
+
+        var error = await Assert.ThrowsAsync<PersonalCloudK0ContractException>(() => Source().ResolveAsync(null, Installed("0.1.0-preview.12")));
+        var status = await Source().CheckAsync(Installed("0.1.0-preview.12"));
+
+        Assert.Equal("release_rollback", error.Code);
+        Assert.False(status.UpdateAvailable);
+    }
+
+    [Fact]
+    public async Task Recording_an_installed_release_uses_the_verified_listing_without_another_download()
+    {
+        Publish("0.1.0-preview.11", 11, "1.3.0");
+        var source = Source();
+        await source.CheckAsync(null);
+        var requests = _feed.Requests.Count;
+
+        await source.RecordInstalledAsync(Installed("0.1.0-preview.11"));
+
+        Assert.Equal(requests, _feed.Requests.Count);
+        Assert.Contains("\"pc_connected\": 11", File.ReadAllText(Path.Combine(_cache, "installed-releases.json")), StringComparison.Ordinal);
     }
 
     [Fact]

@@ -266,7 +266,7 @@ public sealed partial class PersonalCloudSetupService(
         if (management is null || connectionStore is null)
             throw new PersonalCloudK0ContractException("management_unavailable", "Personal Cloud management is not available in this build.");
         if (artifactSlot is not null)
-            await artifactSlot.PrepareForUpgradeAsync(current, cancellationToken).ConfigureAwait(false);
+            await artifactSlot.PrepareForUpgradeAsync(await DeployedAsync(current, cancellationToken).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
         var result = await management.UpgradeAsync(current, cancellationToken).ConfigureAwait(false);
         var updated = current with { ArtifactVersion = result.ArtifactVersion };
         await connectionStore.SaveAsync(updated, cancellationToken).ConfigureAwait(false);
@@ -297,6 +297,23 @@ public sealed partial class PersonalCloudSetupService(
         await deviceIdentity.ForgetAsync(current.ServiceOrigin, cancellationToken).ConfigureAwait(false);
         await connectionStore.ClearAsync(cancellationToken).ConfigureAwait(false);
         CurrentConnection = null;
+    }
+
+    // Another computer may have upgraded this cloud, so the version it actually runs
+    // sets the rollback floor. An unhealthy cloud falls back to the saved version so
+    // that reinstalling can repair it; a cloud needing a newer Desktop stops here.
+    private async Task<PersonalCloudConnectionProfile> DeployedAsync(PersonalCloudConnectionProfile current, CancellationToken cancellationToken)
+    {
+        if (syncHttp is null) return current;
+        try
+        {
+            var health = await new PersonalCloudHealthClient(syncHttp).InspectAsync(current.ServiceOrigin, cancellationToken).ConfigureAwait(false);
+            return current with { ArtifactVersion = health.ArtifactVersion };
+        }
+        catch (PersonalCloudK0ContractException exception) when (exception.Code != "desktop_update_required" && exception.DispatchStatus is null)
+        {
+            return current;
+        }
     }
 
     private PersonalCloudConnectionProfile RequireConnection() => CurrentConnection

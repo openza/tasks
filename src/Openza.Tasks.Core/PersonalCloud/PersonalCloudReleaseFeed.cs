@@ -82,11 +82,12 @@ public sealed partial class GitHubPersonalCloudReleaseSource(HttpClient http, Pe
     private const int MaxListingPages = 10;
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private static readonly JsonSerializerOptions StoreJson = new(JsonSerializerDefaults.Web) { WriteIndented = true };
+    private IReadOnlyList<VerifiedRelease> _lastVerified = [];
 
     public async Task<PersonalCloudReleaseStatus> CheckAsync(PersonalCloudInstalledRelease? installed, CancellationToken cancellationToken = default)
     {
         var releases = await ListVerifiedReleasesAsync(cancellationToken).ConfigureAwait(false);
-        var floor = Floor(releases, installed);
+        var floor = await FloorAsync(releases, installed, cancellationToken).ConfigureAwait(false);
         var compatible = releases.Where(Compatible).MaxBy(release => release.Metadata.ReleaseNumber);
         var newest = releases.MaxBy(release => release.Metadata.ReleaseNumber);
         var blocked = newest is not null && newest != compatible && !Compatible(newest) ? newest : null;
@@ -105,7 +106,7 @@ public sealed partial class GitHubPersonalCloudReleaseSource(HttpClient http, Pe
         if (requiredVersion is null)
         {
             selected = releases.Where(Compatible).MaxBy(release => release.Metadata.ReleaseNumber);
-            var floor = Floor(releases, installed);
+            var floor = await FloorAsync(releases, installed, cancellationToken).ConfigureAwait(false);
             if (selected is not null && selected.Metadata.ReleaseNumber < floor)
                 throw new PersonalCloudK0ContractException("release_rollback",
                     "The newest available Personal Cloud release is older than the one already installed, so it was not installed.");
@@ -132,11 +133,11 @@ public sealed partial class GitHubPersonalCloudReleaseSource(HttpClient http, Pe
     }
 
     // Remembers the highest release installed on each connected cloud, so a later
-    // listing that hides newer releases cannot roll that cloud back.
+    // listing that hides newer releases cannot roll that cloud back. Uses the
+    // releases verified for the operation that just finished; no network access.
     public async Task RecordInstalledAsync(PersonalCloudInstalledRelease installed, CancellationToken cancellationToken = default)
     {
-        var releases = await ListVerifiedReleasesAsync(cancellationToken).ConfigureAwait(false);
-        var number = releases.FirstOrDefault(release => release.Metadata.ArtifactVersion == installed.ArtifactVersion)?.Metadata.ReleaseNumber ?? 0;
+        var number = _lastVerified.FirstOrDefault(release => release.Metadata.ArtifactVersion == installed.ArtifactVersion)?.Metadata.ReleaseNumber ?? 0;
         if (number == 0) return;
         var floors = ReadFloors();
         if (floors.TryGetValue(installed.InstanceId, out var existing) && existing >= number) return;
@@ -148,11 +149,16 @@ public sealed partial class GitHubPersonalCloudReleaseSource(HttpClient http, Pe
         File.Move(temporary, path, overwrite: true);
     }
 
-    private int Floor(IReadOnlyList<VerifiedRelease> releases, PersonalCloudInstalledRelease? installed)
+    // The lowest release number an update may install: the installed version's
+    // signed number (looked up by tag when it has left the listing) or the highest
+    // number previously installed on that cloud. Clouds from before signed releases
+    // (for example the 1.2.0 bundled 0.1.0-preview.10) have no number and floor 0.
+    private async Task<int> FloorAsync(IReadOnlyList<VerifiedRelease> releases, PersonalCloudInstalledRelease? installed, CancellationToken cancellationToken)
     {
         if (installed is null) return 0;
-        var listed = releases.FirstOrDefault(release => release.Metadata.ArtifactVersion == installed.ArtifactVersion)?.Metadata.ReleaseNumber ?? 0;
-        return Math.Max(listed, ReadFloors().GetValueOrDefault(installed.InstanceId));
+        var listed = releases.FirstOrDefault(release => release.Metadata.ArtifactVersion == installed.ArtifactVersion)
+            ?? await FindByTagAsync(installed.ArtifactVersion, cancellationToken).ConfigureAwait(false);
+        return Math.Max(listed?.Metadata.ReleaseNumber ?? 0, ReadFloors().GetValueOrDefault(installed.InstanceId));
     }
 
     private string FloorPath() => Path.Combine(Path.GetFullPath(options.CacheDirectory), "installed-releases.json");
@@ -188,6 +194,7 @@ public sealed partial class GitHubPersonalCloudReleaseSource(HttpClient http, Pe
         var verified = new List<VerifiedRelease>();
         foreach (var release in releases.Where(release => !release.Draft))
             if (await VerifyAsync(release, cancellationToken).ConfigureAwait(false) is { } item) verified.Add(item);
+        _lastVerified = verified;
         return verified;
     }
 

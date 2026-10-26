@@ -26,7 +26,8 @@ public sealed class PersonalCloudArtifactSlot(IPersonalCloudArtifactSource sourc
     public Task<PersonalCloudReleaseStatus> CheckAsync(PersonalCloudConnectionProfile? connection, CancellationToken cancellationToken = default) =>
         source.CheckAsync(connection is null ? null : Installed(connection), cancellationToken);
 
-    // Best effort: a failure to record only weakens rollback protection for later updates.
+    // Best effort and local only: a failure to record only weakens rollback
+    // protection; the deployed version is also checked before every update.
     public async Task RecordInstalledAsync(PersonalCloudConnectionProfile connection)
     {
         try { await source.RecordInstalledAsync(Installed(connection), CancellationToken.None).ConfigureAwait(false); }
