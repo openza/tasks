@@ -300,17 +300,24 @@ public sealed partial class PersonalCloudSetupService(
     }
 
     // Another computer may have upgraded this cloud, so the version it actually runs
-    // sets the rollback floor. An unhealthy cloud falls back to the saved version so
-    // that reinstalling can repair it; a cloud needing a newer Desktop stops here.
+    // sets the rollback floor. This single owner-initiated probe bypasses sync
+    // dispatch backoff, so an interrupted upgrade reporting schema_not_ready can
+    // still be repaired: an unhealthy cloud falls back to the saved version. A
+    // cloud needing a newer Desktop stops the update.
     private async Task<PersonalCloudConnectionProfile> DeployedAsync(PersonalCloudConnectionProfile current, CancellationToken cancellationToken)
     {
-        if (syncHttp is null) return current;
+        if (management is null) return current;
         try
         {
-            var health = await new PersonalCloudHealthClient(syncHttp).InspectAsync(current.ServiceOrigin, cancellationToken).ConfigureAwait(false);
+            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+            var health = await new PersonalCloudHealthClient(http).InspectAsync(current.ServiceOrigin, cancellationToken).ConfigureAwait(false);
             return current with { ArtifactVersion = health.ArtifactVersion };
         }
-        catch (PersonalCloudK0ContractException exception) when (exception.Code != "desktop_update_required" && exception.DispatchStatus is null)
+        catch (PersonalCloudK0ContractException exception) when (exception.Code != "desktop_update_required")
+        {
+            return current;
+        }
+        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException && !cancellationToken.IsCancellationRequested)
         {
             return current;
         }

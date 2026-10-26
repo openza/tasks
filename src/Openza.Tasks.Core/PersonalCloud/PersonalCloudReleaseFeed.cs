@@ -198,31 +198,27 @@ public sealed partial class GitHubPersonalCloudReleaseSource(HttpClient http, Pe
         return verified;
     }
 
-    // An interrupted setup must finish with its exact release, even after it has
-    // dropped off the release listing.
+    // Finds a release that has left the listing (an interrupted setup's release, or
+    // the installed one for the rollback floor). Only a definite 404 means there is
+    // no signed release for that version, such as clouds from before signed releases
+    // (for example 0.1.0-preview.10); a failed lookup throws instead of guessing.
     private async Task<VerifiedRelease?> FindByTagAsync(string version, CancellationToken cancellationToken)
     {
         if (!ArtifactVersionPattern().IsMatch(version)) return null;
-        try
-        {
-            var (release, _) = await GetJsonAsync<GitHubRelease>(
-                new Uri(options.ApiRoot, $"repos/{options.Repository}/releases/tags/cloud-v{version}"), cancellationToken).ConfigureAwait(false);
-            var verified = release is null || release.Draft ? null : await VerifyAsync(release, cancellationToken).ConfigureAwait(false);
-            return verified?.Metadata.ArtifactVersion == version ? verified : null;
-        }
-        catch (PersonalCloudK0ContractException exception) when (exception.Code == "release_unavailable")
-        {
-            return null;
-        }
+        var (release, _) = await GetJsonAsync<GitHubRelease>(
+            new Uri(options.ApiRoot, $"repos/{options.Repository}/releases/tags/cloud-v{version}"), cancellationToken, notFoundIsNull: true).ConfigureAwait(false);
+        var verified = release is null || release.Draft ? null : await VerifyAsync(release, cancellationToken).ConfigureAwait(false);
+        return verified?.Metadata.ArtifactVersion == version ? verified : null;
     }
 
-    private async Task<(T? Value, string? Link)> GetJsonAsync<T>(Uri url, CancellationToken cancellationToken)
+    private async Task<(T? Value, string? Link)> GetJsonAsync<T>(Uri url, CancellationToken cancellationToken, bool notFoundIsNull = false)
     {
         try
         {
             using var request = Request(url);
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
             using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+            if (notFoundIsNull && response.StatusCode == System.Net.HttpStatusCode.NotFound) return (default, null);
             if (!response.IsSuccessStatusCode) throw Unavailable();
             var bytes = await ReadLimitedAsync(response, 4 * 1024 * 1024, cancellationToken).ConfigureAwait(false);
             var link = response.Headers.TryGetValues("Link", out var values) ? string.Join(",", values) : null;

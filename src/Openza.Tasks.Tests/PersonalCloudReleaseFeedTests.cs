@@ -203,6 +203,20 @@ public sealed class PersonalCloudReleaseFeedTests : IDisposable
     }
 
     [Fact]
+    public async Task A_failed_lookup_of_the_installed_release_stops_the_update_instead_of_dropping_the_floor()
+    {
+        Publish("0.1.0-preview.11", 11, "1.3.0");
+        _feed.FailTags = true;
+
+        var error = await Assert.ThrowsAsync<PersonalCloudK0ContractException>(() => Source().ResolveAsync(null, Installed("0.1.0-preview.12")));
+        _feed.FailTags = false;
+        var legacy = await Source().ResolveAsync(null, Installed("0.1.0-preview.10"));
+
+        Assert.Equal("release_unavailable", error.Code);
+        Assert.Equal("0.1.0-preview.11", legacy.Deployment.Version);
+    }
+
+    [Fact]
     public async Task Recording_an_installed_release_uses_the_verified_listing_without_another_download()
     {
         Publish("0.1.0-preview.11", 11, "1.3.0");
@@ -392,6 +406,7 @@ public sealed class PersonalCloudReleaseFeedTests : IDisposable
         public List<string> Requests { get; } = [];
         public bool FailListing { get; set; }
         public int PageSize { get; set; } = 100;
+        public bool FailTags { get; set; }
         public Dictionary<string, object> Tagged { get; } = new(StringComparer.Ordinal);
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
@@ -409,6 +424,8 @@ public sealed class PersonalCloudReleaseFeedTests : IDisposable
                     response.Headers.TryAddWithoutValidation("Link", $"<https://api.example.test/repos/openza/personal-cloud/releases?per_page=100&page={page + 1}>; rel=\"next\"");
                 return Task.FromResult(response);
             }
+            if (path.StartsWith("/repos/openza/personal-cloud/releases/tags/", StringComparison.Ordinal) && FailTags)
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.BadGateway));
             if (path.StartsWith("/repos/openza/personal-cloud/releases/tags/", StringComparison.Ordinal))
                 return Task.FromResult(Tagged.TryGetValue(path[(path.LastIndexOf('/') + 1)..], out var tagged)
                     ? new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(JsonSerializer.Serialize(tagged)) }
