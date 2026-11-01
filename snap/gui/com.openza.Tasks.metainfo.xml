@@ -12,7 +12,7 @@
     <p>Openza Tasks is a local-first task manager for Linux with optional Todoist and Microsoft To Do synchronization, GitHub issue integration, and OneDrive backup.</p>
   </description>
   <launchable type="desktop-id">openza-tasks.desktop</launchable>
-  <url type="homepage">https://solanky.dev/openza/tasks/</url>
+  <url type="homepage">https://openza.org/tasks/</url>
   <url type="bugtracker">https://github.com/openza/tasks/issues</url>
   <content_rating type="oars-1.1" />
   <releases>
