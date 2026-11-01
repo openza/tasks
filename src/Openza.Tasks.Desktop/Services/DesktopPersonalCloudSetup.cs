@@ -39,9 +39,41 @@ public static class DesktopPersonalCloudSetup
         if (Metadata(assembly, "OpenzaChannel") == "Dev" && File.Exists(Path.Combine(bundled, "artifact-manifest.json")))
             return new DirectoryPersonalCloudArtifactSource(bundled);
 #endif
-        return new GitHubPersonalCloudReleaseSource(new HttpClient { Timeout = TimeSpan.FromMinutes(2) },
-            ReleaseFeedOptions(assembly, Environment.GetEnvironmentVariable));
+        var options = ReleaseFeedOptions(assembly, Environment.GetEnvironmentVariable);
+        return new GitHubPersonalCloudReleaseSource(ReleaseHttpClient(options), options);
     }
+
+    private static HttpClient ReleaseHttpClient(PersonalCloudReleaseFeedOptions options)
+    {
+#if DEBUG
+        if (options.ApiRoot.IsLoopback)
+            return new HttpClient(new LoopbackReleaseHandler()) { Timeout = TimeSpan.FromMinutes(2) };
+#endif
+        return new HttpClient { Timeout = TimeSpan.FromMinutes(2) };
+    }
+
+#if DEBUG
+    // All feed, tag and asset requests share this transport. Redirects are refused
+    // before another host can be contacted, even if the local feed is compromised.
+    private sealed class LoopbackReleaseHandler() : DelegatingHandler(new HttpClientHandler { AllowAutoRedirect = false, UseProxy = false })
+    {
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (request.RequestUri is not { IsAbsoluteUri: true, IsLoopback: true } uri ||
+                (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+                throw new PersonalCloudK0ContractException("release_invalid",
+                    "The Dev Personal Cloud release feed and all release assets must use loopback HTTP(S) URLs.");
+            var response = await base.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            if ((int)response.StatusCode is >= 300 and < 400)
+            {
+                response.Dispose();
+                throw new PersonalCloudK0ContractException("release_invalid",
+                    "The Dev Personal Cloud release feed does not allow redirects. Use direct loopback URLs for the feed and all release assets.");
+            }
+            return response;
+        }
+    }
+#endif
 
     private static PersonalCloudReleaseFeedOptions ReleaseFeedOptions(Assembly assembly, Func<string, string?> environment)
     {

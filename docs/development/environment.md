@@ -99,3 +99,5 @@ Set both feed variables and use a Debug build without `PersonalCloudArtifactDire
 (a bundled artifact takes precedence). Release builds ignore both variables and
 bundled artifacts entirely, using only the production key and GitHub release feed.
 Preview and Production builds cannot enable the switch.
+Every request made with this override must use loopback HTTP(S), including release
+assets and pagination. Redirects are rejected; serve each resource at its direct URL.

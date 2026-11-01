@@ -197,6 +197,7 @@ public sealed partial class GitHubPersonalCloudReleaseSource(HttpClient http, Pe
         var verified = new List<VerifiedRelease>();
         foreach (var release in releases.Where(release => !release.Draft))
             if (await VerifyAsync(release, cancellationToken).ConfigureAwait(false) is { } item) verified.Add(item);
+        if (releases.Count > 0 && verified.Count == 0) throw VerificationFailed();
         _lastVerified = verified;
         return verified;
     }
@@ -212,12 +213,12 @@ public sealed partial class GitHubPersonalCloudReleaseSource(HttpClient http, Pe
             new Uri(options.ApiRoot, $"repos/{options.Repository}/releases/tags/cloud-v{version}"), cancellationToken, notFoundIsNull: true).ConfigureAwait(false);
         if (!found) return null;
         if (release is null)
-            throw new PersonalCloudK0ContractException("release_invalid", $"The Personal Cloud release cloud-v{version} could not be verified.");
+            throw VerificationFailed();
         var verified = release.Draft ? null : await VerifyAsync(release, cancellationToken).ConfigureAwait(false);
         // A tagged release that cannot be verified as this version is never treated
         // as "no release": that would drop the rollback floor.
         return verified?.Metadata.ArtifactVersion == version ? verified
-            : throw new PersonalCloudK0ContractException("release_invalid", $"The Personal Cloud release cloud-v{version} could not be verified.");
+            : throw VerificationFailed();
     }
 
     // Found is false only for an explicit 404 when notFoundIsNull is set.
@@ -440,6 +441,8 @@ public sealed partial class GitHubPersonalCloudReleaseSource(HttpClient http, Pe
 
     private static bool Sha256(string? value) => value is { Length: 64 } && value.All(char.IsAsciiHexDigit);
     private static PersonalCloudK0ContractException InvalidArchive() => new("release_invalid", "The Personal Cloud release archive is invalid.");
+    private static PersonalCloudK0ContractException VerificationFailed() => new("release_invalid",
+        "Openza couldn't verify the Personal Cloud release. It may be damaged or tampered with. Try again later.");
     private static PersonalCloudK0ContractException Unavailable(Exception? inner = null) => new("release_unavailable",
         "Openza couldn't get the Personal Cloud release from GitHub. Check your connection and try again.", inner);
 

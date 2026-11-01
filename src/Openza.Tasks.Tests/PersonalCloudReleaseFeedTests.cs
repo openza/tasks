@@ -79,17 +79,66 @@ public sealed class PersonalCloudReleaseFeedTests : IDisposable
     }
 
     [Fact]
-    public async Task Releases_signed_with_another_key_or_unsigned_are_ignored()
+    public async Task Unverifiable_releases_report_verification_failure_instead_of_an_empty_feed()
     {
         using var other = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         Publish("0.1.0-preview.11", 11, "1.3.0", signer: other);
         Publish("0.1.0-preview.12", 12, "1.3.0", signature: "not-base64!");
 
-        var status = await Source().CheckAsync(null);
+        var statusError = await Assert.ThrowsAsync<PersonalCloudK0ContractException>(() => Source().CheckAsync(null));
         var error = await Assert.ThrowsAsync<PersonalCloudK0ContractException>(() => Source().ResolveAsync(null, null));
 
-        Assert.Null(status.AvailableVersion);
+        Assert.Equal("release_invalid", statusError.Code);
+        Assert.Equal("release_invalid", error.Code);
+        Assert.Contains("couldn't verify", error.Message, StringComparison.Ordinal);
+        Assert.Contains("damaged or tampered with", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Changed_metadata_reports_verification_failure()
+    {
+        Publish("0.1.0-preview.11", 11, "1.3.0");
+        _feed.Files["/download/0.1.0-preview.11/cloud-release.json"][0] ^= 1;
+
+        var error = await Assert.ThrowsAsync<PersonalCloudK0ContractException>(() => Source().ResolveAsync(null, null));
+
+        Assert.Equal("release_invalid", error.Code);
+        Assert.Contains("couldn't verify", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Signed_but_invalid_metadata_reports_verification_failure()
+    {
+        Publish("0.1.0-preview.11", 11, "1.3.0");
+        var prefix = "/download/0.1.0-preview.11/";
+        var metadata = Encoding.UTF8.GetBytes("{}");
+        _feed.Files[prefix + "cloud-release.json"] = metadata;
+        _feed.Files[prefix + "cloud-release.json.sig"] = Encoding.ASCII.GetBytes(Convert.ToBase64String(
+            _key.SignData(metadata, HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence)));
+
+        var error = await Assert.ThrowsAsync<PersonalCloudK0ContractException>(() => Source().ResolveAsync(null, null));
+
+        Assert.Equal("release_invalid", error.Code);
+        Assert.Contains("couldn't verify", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Only_an_empty_feed_reports_no_release_available_yet()
+    {
+        Assert.Null((await Source().CheckAsync(null)).AvailableVersion);
+        var error = await Assert.ThrowsAsync<PersonalCloudK0ContractException>(() => Source().ResolveAsync(null, null));
+
         Assert.Equal("release_unavailable", error.Code);
+        Assert.Equal("No signed Personal Cloud release is available yet.", error.Message);
+    }
+
+    [Fact]
+    public async Task Invalid_releases_are_still_skipped_when_a_verified_release_is_available()
+    {
+        Publish("0.1.0-preview.11", 11, "1.3.0");
+        Publish("0.1.0-preview.12", 12, "1.3.0", signature: "not-base64!");
+
+        Assert.Equal("0.1.0-preview.11", (await Source().ResolveAsync(null, null)).Deployment.Version);
     }
 
     [Fact]
