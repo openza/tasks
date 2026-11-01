@@ -8,8 +8,40 @@ using Openza.Tasks.Desktop.Services;
 
 namespace Openza.Tasks.Tests;
 
+[CollectionDefinition("Personal Cloud proxy isolation", DisableParallelization = true)]
+public class PersonalCloudProxyIsolationCollection { }
+
+[Collection("Personal Cloud proxy isolation")]
 public class DesktopPersonalCloudReleaseTransportTests
 {
+    [Fact]
+    public async Task Dev_transport_bypasses_the_configured_default_proxy()
+    {
+        var original = HttpClient.DefaultProxy;
+        var proxy = new RecordingProxy();
+        // This collection cannot overlap other tests while the process-wide
+        // proxy is replaced. Restore it even when an assertion fails.
+        HttpClient.DefaultProxy = proxy;
+        try
+        {
+            await ServeOnceAsync("direct loopback", null, async root =>
+            {
+                using var http = Client(Options(root));
+                Assert.Equal("direct loopback", await http.GetStringAsync(root));
+                Assert.Equal(0, proxy.Calls);
+            });
+        }
+        finally { HttpClient.DefaultProxy = original; }
+    }
+
+    private sealed class RecordingProxy : IWebProxy
+    {
+        public int Calls { get; private set; }
+        public ICredentials? Credentials { get; set; }
+        public Uri GetProxy(Uri destination) { Calls++; return new Uri("http://127.0.0.1:1/"); }
+        public bool IsBypassed(Uri host) { Calls++; return false; }
+    }
+
     [Fact]
     public async Task A_local_feed_advertising_remote_metadata_is_rejected()
     {

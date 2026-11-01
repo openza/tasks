@@ -89,7 +89,8 @@ public sealed partial class GitHubPersonalCloudReleaseSource(HttpClient http, Pe
 
     public async Task<PersonalCloudReleaseStatus> CheckAsync(PersonalCloudInstalledRelease? installed, CancellationToken cancellationToken = default)
     {
-        var releases = await ListVerifiedReleasesAsync(cancellationToken).ConfigureAwait(false);
+        var (releases, hasCandidates) = await ListVerifiedReleasesAsync(cancellationToken).ConfigureAwait(false);
+        if (hasCandidates && releases.Count == 0) throw VerificationFailed();
         var floor = await FloorAsync(releases, installed, cancellationToken).ConfigureAwait(false);
         var compatible = releases.Where(Compatible).MaxBy(release => release.Metadata.ReleaseNumber);
         var newest = releases.MaxBy(release => release.Metadata.ReleaseNumber);
@@ -104,7 +105,7 @@ public sealed partial class GitHubPersonalCloudReleaseSource(HttpClient http, Pe
 
     public async Task<LoadedPersonalCloudArtifact> ResolveAsync(string? requiredVersion, PersonalCloudInstalledRelease? installed, CancellationToken cancellationToken = default)
     {
-        var releases = await ListVerifiedReleasesAsync(cancellationToken).ConfigureAwait(false);
+        var (releases, hasCandidates) = await ListVerifiedReleasesAsync(cancellationToken).ConfigureAwait(false);
         VerifiedRelease? selected;
         if (requiredVersion is null)
         {
@@ -121,6 +122,9 @@ public sealed partial class GitHubPersonalCloudReleaseSource(HttpClient http, Pe
         }
         if (selected is null)
         {
+            // A pinned release can still verify by tag when every listed
+            // candidate is invalid. Only report the listing failure after that lookup.
+            if (hasCandidates && releases.Count == 0) throw VerificationFailed();
             var newest = releases.MaxBy(release => release.Metadata.ReleaseNumber);
             if (requiredVersion is null && newest is not null)
                 throw new PersonalCloudK0ContractException("release_requires_newer_desktop",
@@ -182,7 +186,7 @@ public sealed partial class GitHubPersonalCloudReleaseSource(HttpClient http, Pe
 
     private bool Compatible(VerifiedRelease release) => release.MinDesktop <= options.DesktopVersion;
 
-    private async Task<IReadOnlyList<VerifiedRelease>> ListVerifiedReleasesAsync(CancellationToken cancellationToken)
+    private async Task<(IReadOnlyList<VerifiedRelease> Releases, bool HasCandidates)> ListVerifiedReleasesAsync(CancellationToken cancellationToken)
     {
         if (!RepositoryPattern().IsMatch(options.Repository))
             throw new PersonalCloudK0ContractException("release_unavailable", "The Personal Cloud release repository is invalid.");
@@ -197,9 +201,8 @@ public sealed partial class GitHubPersonalCloudReleaseSource(HttpClient http, Pe
         var verified = new List<VerifiedRelease>();
         foreach (var release in releases.Where(release => !release.Draft))
             if (await VerifyAsync(release, cancellationToken).ConfigureAwait(false) is { } item) verified.Add(item);
-        if (releases.Count > 0 && verified.Count == 0) throw VerificationFailed();
         _lastVerified = verified;
-        return verified;
+        return (verified, releases.Count > 0);
     }
 
     // Finds a release that has left the listing (an interrupted setup's release, or

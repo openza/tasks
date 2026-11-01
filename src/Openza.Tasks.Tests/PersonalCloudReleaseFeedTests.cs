@@ -79,6 +79,24 @@ public sealed class PersonalCloudReleaseFeedTests : IDisposable
     }
 
     [Fact]
+    public async Task A_pinned_release_available_by_tag_resumes_despite_an_invalid_only_listing()
+    {
+        Publish("0.1.0-preview.11", 11, "1.3.0");
+        _feed.Tagged["cloud-v0.1.0-preview.11"] = _feed.Releases[0];
+        _feed.Releases.Clear();
+        Publish("0.1.0-preview.12", 12, "1.3.0", signature: "not-base64!");
+
+        var loaded = await Source().ResolveAsync("0.1.0-preview.11", null);
+
+        Assert.Equal("0.1.0-preview.11", loaded.Deployment.Version);
+        Assert.Contains("/repos/openza/personal-cloud/releases/tags/cloud-v0.1.0-preview.11", _feed.Requests);
+        Assert.DoesNotContain(_feed.Requests, path => path.EndsWith("preview.12.zip", StringComparison.Ordinal));
+        var missing = await Assert.ThrowsAsync<PersonalCloudK0ContractException>(() => Source().ResolveAsync("0.1.0-preview.9", null));
+        Assert.Equal("release_invalid", missing.Code);
+        Assert.Contains("couldn't verify", missing.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Unverifiable_releases_report_verification_failure_instead_of_an_empty_feed()
     {
         using var other = ECDsa.Create(ECCurve.NamedCurves.nistP256);
