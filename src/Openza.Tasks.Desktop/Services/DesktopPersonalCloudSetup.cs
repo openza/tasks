@@ -34,16 +34,40 @@ public static class DesktopPersonalCloudSetup
     // A Dev build may bundle a locally built artifact to test unreleased cloud changes.
     private static IPersonalCloudArtifactSource ArtifactSource(Assembly assembly)
     {
+#if DEBUG
         var bundled = Path.Combine(AppContext.BaseDirectory, "PersonalCloudArtifact");
-        if (File.Exists(Path.Combine(bundled, "artifact-manifest.json"))) return new DirectoryPersonalCloudArtifactSource(bundled);
+        if (Metadata(assembly, "OpenzaChannel") == "Dev" && File.Exists(Path.Combine(bundled, "artifact-manifest.json")))
+            return new DirectoryPersonalCloudArtifactSource(bundled);
+#endif
+        return new GitHubPersonalCloudReleaseSource(new HttpClient { Timeout = TimeSpan.FromMinutes(2) },
+            ReleaseFeedOptions(assembly, Environment.GetEnvironmentVariable));
+    }
+
+    private static PersonalCloudReleaseFeedOptions ReleaseFeedOptions(Assembly assembly, Func<string, string?> environment)
+    {
         var version = assembly.GetName().Version ?? new Version(0, 0, 0);
-        return new GitHubPersonalCloudReleaseSource(new HttpClient { Timeout = TimeSpan.FromMinutes(2) }, new PersonalCloudReleaseFeedOptions
+        var options = new PersonalCloudReleaseFeedOptions
         {
             Repository = PersonalCloudReleaseKeys.Repository,
             PublicKeysPem = [PersonalCloudReleaseKeys.Production],
             DesktopVersion = new Version(version.Major, version.Minor, Math.Max(0, version.Build)),
             CacheDirectory = Path.Combine(DesktopDataPaths.DataDirectory, "personal-cloud-releases"),
-        });
+        };
+#if DEBUG
+        if (Metadata(assembly, "OpenzaChannel") == "Dev")
+        {
+            var apiRoot = environment("OPENZA_TASKS_DEV_CLOUD_RELEASE_API_ROOT");
+            var keyFile = environment("OPENZA_TASKS_DEV_CLOUD_RELEASE_PUBLIC_KEY_FILE");
+            if (!string.IsNullOrWhiteSpace(apiRoot) && !string.IsNullOrWhiteSpace(keyFile))
+            {
+                var uri = new Uri(apiRoot, UriKind.Absolute);
+                if (!uri.IsLoopback || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+                    throw new InvalidOperationException("The Dev cloud release feed must use a loopback HTTP(S) URL.");
+                options = options with { ApiRoot = uri, PublicKeysPem = [File.ReadAllText(keyFile)] };
+            }
+        }
+#endif
+        return options;
     }
 
     private static Task OpenBrowserAsync(Uri uri, CancellationToken cancellationToken)

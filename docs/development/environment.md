@@ -80,3 +80,22 @@ dotnet build src\Openza.Tasks\Openza.Tasks.csproj -c Release -p:Platform=x64 -p:
 ```
 
 See `docs/backup-and-release-channels.md` for the backup, restore point, and channel isolation policy.
+
+### Local signed Personal Cloud release feed
+
+Debug Dev builds can use a loopback GitHub-compatible release API and a throwaway
+signing public key. Serve the API under `repos/openza/personal-cloud/releases`
+(including tag lookups), with local asset download URLs. Sign the release metadata
+with the matching test private key; keep all keys and fixtures outside Git.
+
+```bash
+OPENZA_TASKS_DEV_DATA_DIR=/path/to/disposable-dev-data \
+OPENZA_TASKS_DEV_CLOUD_RELEASE_API_ROOT=http://127.0.0.1:18788/ \
+OPENZA_TASKS_DEV_CLOUD_RELEASE_PUBLIC_KEY_FILE=/path/to/test-public.pem \
+./dev.sh
+```
+
+Set both feed variables and use a Debug build without `PersonalCloudArtifactDirectory`
+(a bundled artifact takes precedence). Release builds ignore both variables and
+bundled artifacts entirely, using only the production key and GitHub release feed.
+Preview and Production builds cannot enable the switch.
