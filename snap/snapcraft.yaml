@@ -7,7 +7,7 @@ description: |
   and Microsoft To Do synchronization, GitHub issue integration, and OneDrive backup. The snap contains the Avalonia desktop app and the Openza
   command-line interface over one private, shared task database.
 license: MIT
-website: https://solanky.dev/openza/tasks/
+website: https://openza.org/tasks/
 source-code: https://github.com/openza/tasks
 issues: https://github.com/openza/tasks/issues
 contact: https://github.com/openza/tasks/issues

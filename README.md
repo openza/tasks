@@ -6,7 +6,7 @@ Openza Tasks supports fast local capture and completion without requiring projec
 
 Openza Tasks is maintained by Deependra Solanky as a personal open-source project. Microsoft sign-in may show the Openza app name with the `solanky.dev` publisher/contact identity.
 
-User guide: [solanky.dev/openza/tasks](https://solanky.dev/openza/tasks/)
+User guide: [openza.org/tasks](https://openza.org/tasks/)
 
 ## Features
 
