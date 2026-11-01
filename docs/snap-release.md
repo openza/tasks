@@ -41,10 +41,12 @@ See [Desktop publish validation](personal-cloud-desktop-publish.md),
 ### Release sequence
 
 1. Review the coordinated Desktop and Cloud changes. Record exact source commits,
-   release version, dependency lock and artifact digest before merging. Changing
-   the Cloud pin requires fresh provenance and loader validation.
-2. Build with the existing Snap wrappers and the selected Cloud artifact. Record
-   the package hash, app/CLI channel markers and embedded artifact digest. Keep
+   release versions and dependency lock before merging. Before rolling out Desktop
+   1.3.0, verify that the compatible signed Personal Cloud release
+   `cloud-v0.1.0-preview.11` (or a newer signed release supporting Desktop 1.3.0)
+   is published in `openza/personal-cloud`, so first-time setup can install it.
+2. Build with the existing Snap wrappers; the Snap contains no Cloud artifact.
+   Record the package hash and app/CLI channel markers. Keep
    output under ignored `artifacts/snap/`. Check disk and memory headroom; clean
    the Snapcraft/LXD build instance on exit and verify cleanup afterward.
 3. Validate an upgrade in a separate Ubuntu test account or VM with synthetic

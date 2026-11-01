@@ -1,6 +1,6 @@
 # Openza Tasks
 
-**A simple local-first task app that grows with you, with an optional cloud you control.**
+**A simple local-first task app that grows with you, with an optional cloud you control (preview).**
 
 Openza Tasks supports fast local capture and completion without requiring projects or a planning method. Avalonia is the cross-platform desktop host, with Linux Snap as the sole current focus until Linux is stable. All Windows work is parked; shared code remains Windows-compatible. The WinUI 3 edition is frozen: its last Microsoft Store release is final, with no further releases or maintenance. Existing Store users remain on that release until a future Avalonia replacement passes the [Windows continuity requirements](docs/windows-transition.md). Both projects retain the shared SQLite core. macOS is deferred.
 

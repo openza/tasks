@@ -434,6 +434,26 @@ public sealed class DesktopPersonalCloudSettingsTests(EditorTestSession fixture)
         Assert.Equal("Set up Personal Cloud", vm.PersonalCloudActionText);
     }
 
+    [Fact]
+    public async Task Management_desktop_update_requirement_shows_the_update_message_without_claiming_no_cloud_change()
+    {
+        var origin = new Uri("https://openza-personal-test.workers.dev/");
+        const string message = "This Personal Cloud needs Openza Desktop 9.0.0 or newer. Update Openza Desktop first.";
+        var service = new StubSetupService(new(origin, "worker", "database", "1.2.3", origin))
+        {
+            UpgradeAction = _ => Task.FromException<PersonalCloudUpgradeResult>(
+                new PersonalCloudK0ContractException("desktop_update_required", message)),
+        };
+        var vm = CreateViewModel(service);
+
+        Assert.False(await vm.UpgradePersonalCloudAsync());
+
+        Assert.Equal(message, vm.PersonalCloudSummaryText);
+        Assert.Equal("Needs attention", vm.PersonalCloudStatusText);
+        Assert.False(vm.IsConnectingPersonalCloud);
+        Assert.Equal(1, service.UpgradeCalls);
+    }
+
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
@@ -489,8 +509,9 @@ public sealed class DesktopPersonalCloudSettingsTests(EditorTestSession fixture)
         public Task<CloudflareD1Export> ExportAsync(CancellationToken cancellationToken = default)
         { ExportCalls++; return ExportAction?.Invoke(cancellationToken) ?? Task.FromResult(new CloudflareD1Export("openza-personal-cloud.sql", new Uri("https://downloads.example/openza.sql"))); }
         public int UpgradeCalls { get; private set; }
+        public Func<CancellationToken, Task<PersonalCloudUpgradeResult>>? UpgradeAction { get; set; }
         public Task<PersonalCloudUpgradeResult> UpgradeAsync(CancellationToken cancellationToken = default)
-        { UpgradeCalls++; return Task.FromResult(new PersonalCloudUpgradeResult(result.ArtifactVersion)); }
+        { UpgradeCalls++; return UpgradeAction?.Invoke(cancellationToken) ?? Task.FromResult(new PersonalCloudUpgradeResult(result.ArtifactVersion)); }
         public int DisconnectCalls { get; private set; }
         public Task DisconnectAsync(CancellationToken cancellationToken = default)
         { DisconnectCalls++; _connection = null; return Task.CompletedTask; }

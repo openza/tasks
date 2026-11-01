@@ -535,6 +535,7 @@ public sealed partial class MainWindowViewModel
                 "cloudflare_export_timeout" => "Cloudflare did not finish the backup in time. Your Personal Cloud was not changed.",
                 "migration_mismatch" => "This release's database migrations differ from this Personal Cloud's history. Your Personal Cloud was not changed.",
                 "release_unavailable" or "release_requires_newer_desktop" or "release_invalid" or "release_rollback" => exception.Message + " Your Personal Cloud was not changed.",
+                "desktop_update_required" => exception.Message,
                 "operation_in_progress" => exception.Message,
                 _ => "The Personal Cloud action stopped safely. You can try again.",
             };
