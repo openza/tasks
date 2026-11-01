@@ -337,7 +337,6 @@ public sealed class PersonalCloudProvisioningTests
 
     [Theory]
     [InlineData(16, 1, "tasks")]
-    [InlineData(27, 1, "tasks")]
     [InlineData(18, 2, "tasks")]
     [InlineData(18, 1, "reader")]
     public async Task Health_verification_rejects_incompatible_schema_protocol_or_product(
@@ -348,6 +347,46 @@ public sealed class PersonalCloudProvisioningTests
 
         var error = await Assert.ThrowsAsync<PersonalCloudK0ContractException>(() => client.InspectAsync(
             new Uri("https://openza-personal-test.workers.dev/")));
+
+        Assert.Equal("health_mismatch", error.Code);
+    }
+
+    // Cloud releases ship separately and may be newer than this Desktop
+    // (personal-cloud/docs/cloud-releases.md): additive health changes are accepted.
+    [Fact]
+    public async Task Health_accepts_a_newer_cloud_with_a_higher_schema_unknown_fields_and_extra_capability_keys()
+    {
+        var client = new PersonalCloudHealthClient(new HttpClient(new RecordingHandler(Json(HttpStatusCode.OK,
+            """{"status":"ok","protocolVersion":1,"product":"tasks","artifactVersion":"0.2.0","schemaVersion":31,"releaseChannel":"stable","capabilities":{"workspace":{"protocolVersion":1,"path":"/v1/tasks/mutations","schemaVersion":31,"added":true},"somethingNew":{"protocolVersion":7}}}"""))));
+
+        var health = await client.InspectAsync(new Uri("https://openza-personal-test.workers.dev/"));
+
+        Assert.Equal(31, health.SchemaVersion);
+        Assert.True(health.SupportsWorkspace);
+    }
+
+    [Theory]
+    [InlineData("9.9.9", "desktop_update_required")]
+    [InlineData("1.0.0", null)]
+    [InlineData("1.3", "health_mismatch")]
+    public async Task Health_enforces_the_cloud_releases_minimum_desktop_version(string minimum, string? code)
+    {
+        var client = new PersonalCloudHealthClient(new HttpClient(new RecordingHandler(Json(HttpStatusCode.OK,
+            """{"status":"ok","protocolVersion":1,"product":"tasks","artifactVersion":"0.2.0","schemaVersion":26,"capabilities":{"desktopCompatibility":{"protocolVersion":1,"minDesktopVersion":"MINIMUM"}}}""".Replace("MINIMUM", minimum, StringComparison.Ordinal)))));
+
+        var error = await Record.ExceptionAsync(() => client.InspectAsync(new Uri("https://openza-personal-test.workers.dev/")));
+
+        Assert.Equal(code, (error as PersonalCloudK0ContractException)?.Code);
+        if (code == "desktop_update_required") Assert.Contains("9.9.9", error!.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Health_still_rejects_changed_values_that_this_desktop_relies_on()
+    {
+        var client = new PersonalCloudHealthClient(new HttpClient(new RecordingHandler(Json(HttpStatusCode.OK,
+            """{"status":"ok","protocolVersion":1,"product":"tasks","artifactVersion":"0.2.0","schemaVersion":31,"capabilities":{"workspace":{"protocolVersion":2,"path":"/v1/tasks/mutations","schemaVersion":31}}}"""))));
+
+        var error = await Assert.ThrowsAsync<PersonalCloudK0ContractException>(() => client.InspectAsync(new Uri("https://openza-personal-test.workers.dev/")));
 
         Assert.Equal("health_mismatch", error.Code);
     }

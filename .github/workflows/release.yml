@@ -52,14 +52,6 @@ jobs:
       - name: Validate Linux metadata
         run: bash packaging/snap/test-snap-package.sh
 
-      - name: Setup Node for pinned Personal Cloud artifact
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: '22'
-
-      - name: Stage verified Personal Cloud artifact for Snap
-        run: node scripts/personal-cloud/stage-snap-artifact.mjs
-
       - name: Build strict Snap
         id: snapcraft
         uses: snapcore/action-build@3bdaa03e1ba6bf59a65f84a751d943d549a54e79 # v1

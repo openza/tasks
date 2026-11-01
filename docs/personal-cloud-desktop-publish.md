@@ -1,43 +1,42 @@
-# Personal Cloud artifact and Desktop publish validation
+# Desktop publish validation and local cloud artifacts
 
-Run from a clean Tasks checkout with Git, Node.js 22/npm, and the .NET 10 SDK:
+From 1.3.0, Openza Desktop does not bundle Personal Cloud. Cloud releases ship
+separately as signed GitHub releases of `openza/personal-cloud`; Desktop lists
+them, verifies the signature, archive and every artifact file, and installs the
+newest release it supports when the owner chooses **Personal Cloud → Manage →
+Update** (or during first setup). The release format, signing key, selection
+rules and add-only compatibility rules are defined in the cloud repository's
+`docs/cloud-releases.md`. The verifying code is `GitHubPersonalCloudReleaseSource`
+with the public key in `PersonalCloudReleaseKeys`.
+
+## Publish validation
+
+Run from a clean Tasks checkout with Node.js 22/npm and the .NET 10 SDK:
 
 ```sh
-node --test scripts/personal-cloud/stage-artifact.test.mjs
-node scripts/personal-cloud/publish-desktop.mjs 1.2.0
+node --test scripts/personal-cloud/*.test.mjs
+node scripts/personal-cloud/publish-desktop.mjs 1.3.0
 ```
 
-This is maintainer publish validation, not a new public distribution lane or a release.
-It neither launches nor installs the output and does not access an existing task database.
-The version argument is required; `1.2.0` above matches the current package metadata.
+This is maintainer publish validation, not a release. It publishes the
+Production profile, checks the channel marker, and fails if a
+`PersonalCloudArtifact/` directory was bundled. It neither launches nor installs
+the output and never overwrites an existing destination. CI runs the same check.
 
-`artifact-lock.json` pins the public Personal Cloud repository to full source commit
-`43750d5cad01277130d93887e5fe9fd983ed620e`, artifact `0.1.0-preview.10`,
-and an expected manifest SHA-256. Staging fetches that exact commit into an ignored
-temporary source directory, uses `npm ci` with its committed lockfile, and invokes
-the upstream dry-run artifact builder. It requires network access to GitHub and npm,
-but no Cloudflare credentials or sibling checkout. Temporary source/dependencies are
-removed after completion; verified artifact output remains under `artifacts/personal-cloud/`.
-No existing staged bundle is replaced; a cached bundle must pass the pinned manifest,
-every file checksum/size, and the exact file allowlist before reuse. A mismatch stops
-the operation rather than updating the lock automatically.
+## Testing an unreleased cloud locally (Dev only)
 
-Publishing uses the dedicated Desktop package project with Production profile and
-copies the verified manifest, Worker, complete asset set and ordered migration bundle into
-`PersonalCloudArtifact/`. The helper verifies the published artifact and Production
-channel marker. Output is framework-dependent and requires the .NET runtime; it is
-only an intermediate validation artifact. Public Linux distribution remains Snap-only.
-An existing publish destination is never overwritten, and failed output is retained
-for diagnosis. CI performs this same publish validation in the Linux build job.
+A Dev build may bundle a locally built cloud artifact to test cloud changes
+before they are released. Desktop then installs that artifact instead of a
+release:
 
-To update the cloud lock, review the new upstream full commit and dependency lock,
-build its versioned artifact, and intentionally update the expected manifest digest.
-Do not pin a branch name or silently accept a newly generated digest.
+```sh
+# in personal-cloud
+npm run build:artifact -- <version>
+# in tasks
+dotnet run --project src/Openza.Tasks.Desktop -p:PersonalCloudArtifactDirectory=/path/to/dist/openza-personal-cloud-<version>
+```
 
-The source lock remains unchanged by the [upgrade compatibility fixes](cloud-upgrade-compatibility.md).
-Offline validation of a newer local artifact does not select it for publication.
-
-Public OAuth availability, registered redirect/scopes, packaged browser/loopback and
-credential-store acceptance, release version/changelog, and domain configuration remain
-separate release gates. The helper does not deploy, perform OAuth, migrate a live D1
-database, change DNS, build Snap, or build Windows packages.
+`scripts/personal-cloud/stage-artifact.mjs` can still rebuild the reference
+revision in `artifact-lock.json` for acceptance tests; that lock no longer
+selects what a release ships. Release Snaps never contain a cloud artifact
+(`packaging/snap/inspect-snap-package.sh` checks this).

@@ -9,8 +9,20 @@ public sealed class PersonalCloudManagementCoordinator(
     ICloudflareArtifactDeploymentClient deployment,
     CloudflareProvisioningGateway provisioning,
     PersonalCloudHealthClient health,
-    string artifactVersion)
+    Func<string> artifactVersion)
 {
+    public PersonalCloudManagementCoordinator(
+        CloudflareOAuthClient oauth,
+        ICloudflareAuthorizationBroker authorizationBroker,
+        CloudflareManagementClient management,
+        ICloudflareArtifactDeploymentClient deployment,
+        CloudflareProvisioningGateway provisioning,
+        PersonalCloudHealthClient health,
+        string artifactVersion)
+        : this(oauth, authorizationBroker, management, deployment, provisioning, health, () => artifactVersion)
+    {
+    }
+
     public Task<CloudflareD1Export> ExportAsync(
         PersonalCloudConnectionProfile connection,
         CancellationToken cancellationToken = default) =>
@@ -24,21 +36,22 @@ public sealed class PersonalCloudManagementCoordinator(
         CancellationToken cancellationToken = default) =>
         WithResourcesAsync(connection, async (access, accountId, workerName, database, token) =>
         {
+            var version = artifactVersion();
             await management.VerifyApplicationAsync(access, accountId, workerName, database.Id, connection, token).ConfigureAwait(false);
-            await provisioning.VerifyMigrationHistoryAsync(access, accountId, database.Id, artifactVersion, token).ConfigureAwait(false);
+            await provisioning.VerifyMigrationHistoryAsync(access, accountId, database.Id, version, token).ConfigureAwait(false);
             var deployed = await deployment.DeployAsync(
                 access,
                 accountId,
                 database.Id,
                 workerName,
                 connection.InstanceId,
-                artifactVersion,
+                version,
                 token).ConfigureAwait(false);
             if (NormalizeOrigin(deployed.ServiceOrigin) != NormalizeOrigin(connection.ServiceOrigin))
                 throw new PersonalCloudK0ContractException("resource_mismatch", "Cloudflare returned a different Personal Cloud address during update.");
-            await provisioning.ApplyMigrationsAsync(access, accountId, database.Id, artifactVersion, token).ConfigureAwait(false);
-            await health.VerifyAsync(connection.ServiceOrigin, artifactVersion, token).ConfigureAwait(false);
-            return new PersonalCloudUpgradeResult(artifactVersion);
+            await provisioning.ApplyMigrationsAsync(access, accountId, database.Id, version, token).ConfigureAwait(false);
+            await health.VerifyAsync(connection.ServiceOrigin, version, token).ConfigureAwait(false);
+            return new PersonalCloudUpgradeResult(version);
         }, cancellationToken);
 
     public Task RemoveAsync(

@@ -39,7 +39,8 @@
         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="18">
           <StackPanel Spacing="4">
             <TextBlock FontWeight="SemiBold" Text="Update Personal Cloud"/>
-            <TextBlock Foreground="{DynamicResource OpenzaTextSecondaryBrush}" Text="Deploy the Personal Cloud version bundled with this Openza build. Existing tasks remain in D1." TextWrapping="Wrap"/>
+            <TextBlock Foreground="{DynamicResource OpenzaTextSecondaryBrush}" Text="Install the newest signed Personal Cloud release. Existing tasks remain in D1." TextWrapping="Wrap"/>
+            <TextBlock x:Name="ReleaseText" Text="{ReflectionBinding PersonalCloudReleaseText}" TextWrapping="Wrap"/>
           </StackPanel>
           <Button x:Name="UpdateButton" Grid.Column="1" Classes="accent" Click="OnUpdateClicked" Content="Update"/>
         </Grid>

@@ -30,8 +30,10 @@ replacement passes acceptance.
 
 ## Release and validation work
 
-- Follow the [Snap release plan](snap-release.md) for release 1.2.0 (cloud artifact
-  `0.1.0-preview.10`): `edge` first, then `candidate` and `stable` after daily use.
+- Follow the [Snap release plan](snap-release.md) for release 1.3.0: `edge` first,
+  then `candidate` and `stable` after daily use. Personal Cloud now ships as signed
+  cloud releases (first: `0.1.0-preview.11`, the mobile-first Web app), installed
+  from Desktop's Manage → Update; 1.3.0 also carries .NET 10.0.13 security fixes.
 - Default space name: a new cloud names its default space "Inbox" (cloud migration
   0010 default), and the first sync replaces the desktop's "My space" with it. Fix
   the first-sync naming; until then, rename the space once after setup.

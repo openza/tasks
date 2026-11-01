@@ -15,13 +15,19 @@ public static class PersonalCloudArtifactDirectory
         UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
     };
 
-    public static LoadedPersonalCloudArtifact Load(string directory)
+    // When expectedManifestSha256 is given (a signed release), the manifest is read
+    // once, checked against that digest, and parsed from those exact bytes.
+    public static LoadedPersonalCloudArtifact Load(string directory, string? expectedManifestSha256 = null)
     {
         var root = Path.GetFullPath(directory);
         var manifestPath = Path.Combine(root, "artifact-manifest.json");
         try
         {
-            var manifest = JsonSerializer.Deserialize<ArtifactManifest>(File.ReadAllText(manifestPath), Json)
+            var manifestBytes = File.ReadAllBytes(manifestPath);
+            if (expectedManifestSha256 is not null &&
+                !CryptographicOperations.FixedTimeEquals(SHA256.HashData(manifestBytes), Convert.FromHexString(expectedManifestSha256)))
+                throw new PersonalCloudK0ContractException("release_invalid", "The Personal Cloud release manifest does not match its signed checksum.");
+            var manifest = JsonSerializer.Deserialize<ArtifactManifest>(manifestBytes, Json)
                 ?? throw InvalidArtifact();
             if (manifest.FormatVersion != 1 || string.IsNullOrWhiteSpace(manifest.ArtifactVersion) ||
                 manifest.ArtifactVersion.Length > 128 || manifest.Worker is null || manifest.Assets is null || manifest.Migrations is null ||

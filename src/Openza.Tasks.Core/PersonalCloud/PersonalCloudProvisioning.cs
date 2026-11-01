@@ -99,8 +99,18 @@ public sealed partial class PersonalCloudSetupService(
     PersonalCloudDeviceIdentityClient? deviceIdentity = null,
     HttpClient? syncHttp = null,
     Openza.Tasks.Core.Data.SqliteTaskStore? taskStore = null,
-    PersonalCloudManagementCoordinator? management = null) : IPersonalCloudSetupService, IPersonalCloudProviderBridgeService, IPersonalCloudInitialSyncProgressService, IPersonalCloudDispatchStatusService
+    PersonalCloudManagementCoordinator? management = null,
+    PersonalCloudArtifactSlot? artifactSlot = null) : IPersonalCloudSetupService, IPersonalCloudProviderBridgeService, IPersonalCloudInitialSyncProgressService, IPersonalCloudDispatchStatusService, IPersonalCloudReleaseStatusService
 {
+    // Setup and upgrade share the artifact slot, so they never run concurrently.
+    private readonly SemaphoreSlim _artifactOperation = new(1, 1);
+
+    public Task<PersonalCloudReleaseStatus> CheckForCloudUpdateAsync(CancellationToken cancellationToken = default) =>
+        artifactSlot is not null
+            ? artifactSlot.CheckAsync(CurrentConnection, cancellationToken)
+            : Task.FromResult(new PersonalCloudReleaseStatus(artifactVersion,
+                !string.Equals(CurrentConnection?.ArtifactVersion, artifactVersion, StringComparison.Ordinal)));
+
     private PersonalCloudProviderBridge CreateProviderBridge()
     {
         if (CurrentConnection is not { } current || syncHttp is null || deviceIdentity is null || taskStore is null)
@@ -123,7 +133,7 @@ public sealed partial class PersonalCloudSetupService(
         await EnsureDispatchAvailableAsync(cancellationToken).ConfigureAwait(false);
         await CreateProviderBridge().RetryAsync(taskId, cancellationToken).ConfigureAwait(false);
     }
-    public bool IsConfigured => !string.IsNullOrWhiteSpace(artifactVersion);
+    public bool IsConfigured => artifactSlot is not null || !string.IsNullOrWhiteSpace(artifactVersion);
     public PersonalCloudConnectionProfile? CurrentConnection { get; private set; } = connectionStore?.Load();
 
     public Task OpenAsync(CancellationToken cancellationToken = default)
@@ -137,10 +147,32 @@ public sealed partial class PersonalCloudSetupService(
         CancellationToken cancellationToken = default,
         IProgress<PersonalCloudSetupProgress>? progress = null)
     {
+        if (!await _artifactOperation.WaitAsync(0, cancellationToken).ConfigureAwait(false))
+            throw new PersonalCloudK0ContractException("operation_in_progress", "Another Personal Cloud setup or update is already running.");
+        try
+        {
+            return await ConnectCoreAsync(cancellationToken, progress).ConfigureAwait(false);
+        }
+        finally
+        {
+            _artifactOperation.Release();
+        }
+    }
+
+    private async Task<PersonalCloudProvisioningResult> ConnectCoreAsync(
+        CancellationToken cancellationToken,
+        IProgress<PersonalCloudSetupProgress>? progress)
+    {
         using var connectionLease = taskStore is null ? null : PersonalCloudConnectionLease.AcquireReplacement(taskStore.DatabasePath);
         if (taskStore is not null)
             await taskStore.EnsureNoPendingPersonalCloudIntentsAsync(cancellationToken).ConfigureAwait(false);
-        var result = await coordinator.ConnectAsync(artifactVersion, cancellationToken, progress).ConfigureAwait(false);
+        var version = artifactVersion;
+        if (artifactSlot is not null)
+        {
+            await artifactSlot.PrepareForSetupAsync(cancellationToken).ConfigureAwait(false);
+            version = artifactSlot.Version;
+        }
+        var result = await coordinator.ConnectAsync(version, cancellationToken, progress).ConfigureAwait(false);
         if (connectionStore is not null)
         {
             if (result.InstanceId is null || result.DeviceId is null)
@@ -158,6 +190,7 @@ public sealed partial class PersonalCloudSetupService(
             await connectionStore.SaveAsync(connection, cancellationToken).ConfigureAwait(false);
             CurrentConnection = connection;
             await coordinator.ConfirmConnectionSavedAsync(connection, cancellationToken).ConfigureAwait(false);
+            if (artifactSlot is not null) await artifactSlot.RecordInstalledAsync(connection).ConfigureAwait(false);
         }
         if (openOwnerBootstrap is not null)
             await openOwnerBootstrap(result.OwnerBootstrapUri, cancellationToken).ConfigureAwait(false);
@@ -214,14 +247,31 @@ public sealed partial class PersonalCloudSetupService(
 
     public async Task<PersonalCloudUpgradeResult> UpgradeAsync(CancellationToken cancellationToken = default)
     {
+        if (!await _artifactOperation.WaitAsync(0, cancellationToken).ConfigureAwait(false))
+            throw new PersonalCloudK0ContractException("operation_in_progress", "Another Personal Cloud setup or update is already running.");
+        try
+        {
+            return await UpgradeCoreAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _artifactOperation.Release();
+        }
+    }
+
+    private async Task<PersonalCloudUpgradeResult> UpgradeCoreAsync(CancellationToken cancellationToken)
+    {
         using var connectionLease = taskStore is null ? null : PersonalCloudConnectionLease.AcquireAuthoring(taskStore.DatabasePath);
         var current = RequireConnection();
         if (management is null || connectionStore is null)
             throw new PersonalCloudK0ContractException("management_unavailable", "Personal Cloud management is not available in this build.");
+        if (artifactSlot is not null)
+            await artifactSlot.PrepareForUpgradeAsync(await DeployedAsync(current, cancellationToken).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
         var result = await management.UpgradeAsync(current, cancellationToken).ConfigureAwait(false);
         var updated = current with { ArtifactVersion = result.ArtifactVersion };
         await connectionStore.SaveAsync(updated, cancellationToken).ConfigureAwait(false);
         CurrentConnection = updated;
+        if (artifactSlot is not null) await artifactSlot.RecordInstalledAsync(updated).ConfigureAwait(false);
         return result;
     }
 
@@ -247,6 +297,37 @@ public sealed partial class PersonalCloudSetupService(
         await deviceIdentity.ForgetAsync(current.ServiceOrigin, cancellationToken).ConfigureAwait(false);
         await connectionStore.ClearAsync(cancellationToken).ConfigureAwait(false);
         CurrentConnection = null;
+    }
+
+    // Another computer may have upgraded this cloud, so the version it actually runs
+    // sets the rollback floor. This single owner-initiated probe bypasses sync
+    // dispatch backoff, so an interrupted upgrade reporting schema_not_ready can
+    // still be repaired: an unhealthy cloud falls back to the saved version. A
+    // cloud needing a newer Desktop stops the update.
+    private async Task<PersonalCloudConnectionProfile> DeployedAsync(PersonalCloudConnectionProfile current, CancellationToken cancellationToken)
+    {
+        if (management is null) return current;
+        // The deadline covers the whole response, including its body.
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deadline.CancelAfter(TimeSpan.FromSeconds(30));
+        try
+        {
+            using var http = new HttpClient();
+            var health = await new PersonalCloudHealthClient(http).InspectAsync(current.ServiceOrigin, deadline.Token).ConfigureAwait(false);
+            return current with { ArtifactVersion = health.ArtifactVersion };
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return current;
+        }
+        catch (PersonalCloudK0ContractException exception) when (exception.Code != "desktop_update_required")
+        {
+            return current;
+        }
+        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException && !cancellationToken.IsCancellationRequested)
+        {
+            return current;
+        }
     }
 
     private PersonalCloudConnectionProfile RequireConnection() => CurrentConnection

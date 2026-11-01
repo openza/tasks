@@ -1,6 +1,6 @@
 name: openza-tasks
 title: Openza Tasks
-version: '1.2.0'
+version: '1.3.0'
 summary: Local-first task management
 description: |
   Openza Tasks is a local-first task manager for Linux with optional Todoist
@@ -68,9 +68,8 @@ parts:
     dotnet-properties:
       OpenzaPackagingProfile: Production
       _IsPublishing: 'true'
-      Version: '1.2.0'
-      InformationalVersion: '1.2.0'
-      PersonalCloudArtifactDirectory: ../../packaging/personal-cloud/artifact
+      Version: '1.3.0'
+      InformationalVersion: '1.3.0'
       PublishSingleFile: 'true'
       IncludeNativeLibrariesForSelfExtract: 'true'
       DebugType: None
@@ -78,7 +77,6 @@ parts:
     organize:
       'Openza.Tasks.Desktop': opt/openza-tasks/desktop/Openza.Tasks.Desktop
       '.openza-channel': opt/openza-tasks/desktop/.openza-channel
-      'PersonalCloudArtifact': opt/openza-tasks/desktop/PersonalCloudArtifact
 
   cli:
     after: [runtime-dependencies]
@@ -91,8 +89,8 @@ parts:
     dotnet-properties:
       OpenzaPackagingProfile: Production
       _IsPublishing: 'true'
-      Version: '1.2.0'
-      InformationalVersion: '1.2.0'
+      Version: '1.3.0'
+      InformationalVersion: '1.3.0'
       PublishSingleFile: 'true'
       IncludeNativeLibrariesForSelfExtract: 'true'
       DebugType: None

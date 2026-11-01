@@ -28,22 +28,25 @@ Snap version, both .NET publish version properties, AppStream metadata and final
 changelog/tag together. The proposal does not change those version fields.
 Windows package publication remains a separate release lane.
 
-### Cloud artifact selection
+### Personal Cloud is not bundled
 
-Release 1.2.0 pins Cloud source `43750d5cad01277130d93887e5fe9fd983ed620e`
-as artifact `0.1.0-preview.10` (migrations through 0026), manifest SHA-256
-`fa29ef1d60ab2acf24b29c95ce42de58a6241c9031aa6e008f3e74676d008e1d`.
-The staging script rebuilds it from that public revision and verifies every file.
-See [artifact staging](personal-cloud-desktop-publish.md),
+From 1.3.0 the Snap contains no Personal Cloud artifact; Desktop installs signed
+cloud releases published separately by `openza/personal-cloud`. A Desktop
+release therefore never needs a cloud change, and cloud changes never need a
+Desktop release unless a cloud release raises `minDesktopVersion`.
+Release 1.2.0 bundled `0.1.0-preview.10`.
+See [Desktop publish validation](personal-cloud-desktop-publish.md),
 [compatibility](cloud-upgrade-compatibility.md) and [quota behavior](personal-cloud-quota.md).
 
 ### Release sequence
 
 1. Review the coordinated Desktop and Cloud changes. Record exact source commits,
-   release version, dependency lock and artifact digest before merging. Changing
-   the Cloud pin requires fresh provenance and loader validation.
-2. Build with the existing Snap wrappers and the selected Cloud artifact. Record
-   the package hash, app/CLI channel markers and embedded artifact digest. Keep
+   release versions and dependency lock before merging. Before rolling out Desktop
+   1.3.0, verify that the compatible signed Personal Cloud release
+   `cloud-v0.1.0-preview.11` (or a newer signed release supporting Desktop 1.3.0)
+   is published in `openza/personal-cloud`, so first-time setup can install it.
+2. Build with the existing Snap wrappers; the Snap contains no Cloud artifact.
+   Record the package hash and app/CLI channel markers. Keep
    output under ignored `artifacts/snap/`. Check disk and memory headroom; clean
    the Snapcraft/LXD build instance on exit and verify cleanup afterward.
 3. Validate an upgrade in a separate Ubuntu test account or VM with synthetic
@@ -59,8 +62,8 @@ See [artifact staging](personal-cloud-desktop-publish.md),
    promote the same revision to `candidate` and `stable` after channel acceptance.
 5. Update participating Desktop clients before upgrading Cloud. The packaged
    client must support the existing schema-20 deployment and target schema-25
-   quota errors. Older strict parsers are not assumed compatible. The existing
-   installed `Update` flow does not acquire a local development bundle.
+   quota errors. Older strict parsers are not assumed compatible. From 1.3.0
+   the `Update` flow installs the newest signed cloud release this Desktop supports.
 6. Before the Cloud upgrade, approve the exact target and artifact, verify a
    backup, and run target-identity/migration-history preflight. Production database
    writes remain human-executed through the upgrade procedure. Verify readiness,
@@ -156,9 +159,7 @@ dotnet test src/Openza.Tasks.Tests/Openza.Tasks.Tests.csproj -c Release -m:1
 dotnet build src/Openza.Tasks.Desktop/Openza.Tasks.Desktop.csproj -c Release
 bash packaging/snap/test-snap-package.sh
 gitleaks detect --source . --verbose
-bash packaging/snap/build-local-snap.sh \
-  artifacts/snap/openza-tasks.snap \
-  /path/to/openza-personal-cloud-<version>
+bash packaging/snap/build-local-snap.sh artifacts/snap/openza-tasks.snap
 ```
 
 The local build wrapper inspects the package and cleans its Snapcraft build environment on exit. Check available disk space before building and verify that the task build instance has been removed afterward.

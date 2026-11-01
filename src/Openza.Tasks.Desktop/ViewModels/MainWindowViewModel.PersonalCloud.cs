@@ -115,6 +115,12 @@ public sealed partial class MainWindowViewModel
             await RefreshInitialSyncProgressAsync();
             throw;
         }
+        catch (PersonalCloudK0ContractException exception) when (exception.Code == "desktop_update_required")
+        {
+            PersonalCloudStatusText = "Update Openza Desktop";
+            PersonalCloudSummaryText = exception.Message;
+            throw;
+        }
     }
     public System.Collections.ObjectModel.ObservableCollection<Openza.Tasks.Core.Data.PersonalCloudProviderRequestStatus> ProviderRequests { get; } = [];
 
@@ -262,6 +268,7 @@ public sealed partial class MainWindowViewModel
                 "oauth_denied" => "Cloudflare authorization was cancelled. No new setup step was started.",
                 "oauth_state_mismatch" => "Cloudflare authorization did not match this setup attempt. Start again from Openza.",
                 "oauth_revoke_failed" => "Personal Cloud was created, but Cloudflare authorization could not be discarded. Revoke Openza from Cloudflare before retrying.",
+                "release_unavailable" or "release_requires_newer_desktop" or "release_invalid" or "desktop_update_required" => exception.Message,
                 _ => "Personal Cloud setup stopped safely. Choose Connect Cloudflare to resume from the last verified step.",
             };
             return null;
@@ -351,6 +358,7 @@ public sealed partial class MainWindowViewModel
             PersonalCloudSummaryText = exception.Code switch
             {
                 "health_mismatch" => "This Personal Cloud must be updated before this desktop can pair.",
+                "desktop_update_required" => exception.Message,
                 "pending_intents" => "Pending edits or deferred cloud changes must be synced or explicitly resolved before replacing this connection. Your edits have been preserved.",
                 _ => "The Personal Cloud address or one-time pairing code was rejected.",
             };
@@ -416,16 +424,56 @@ public sealed partial class MainWindowViewModel
             });
     }
 
+    private string _personalCloudReleaseText = "Checking for a newer Personal Cloud release…";
+
+    public string PersonalCloudReleaseText
+    {
+        get => _personalCloudReleaseText;
+        private set => SetProperty(ref _personalCloudReleaseText, value);
+    }
+
+    // Cloud releases ship separately from Desktop; Desktop only installs them when asked.
+    public async Task CheckPersonalCloudReleaseAsync(CancellationToken cancellationToken = default)
+    {
+        if (_personalCloudSetup is not IPersonalCloudReleaseStatusService releases) return;
+        PersonalCloudReleaseText = "Checking for a newer Personal Cloud release…";
+        try
+        {
+            var status = await releases.CheckForCloudUpdateAsync(cancellationToken);
+            var installed = _personalCloudSetup.CurrentConnection?.ArtifactVersion;
+            PersonalCloudReleaseText = status switch
+            {
+                { UpdateAvailable: true, AvailableVersion: { } available } => $"Update available: {available} (installed {installed ?? "unknown"}).",
+                { NewerVersionNeedingDesktop: { } newer, RequiredDesktopVersion: { } desktop } => $"Up to date for this Desktop. Personal Cloud {newer} needs Openza Desktop {desktop} or newer.",
+                { AvailableVersion: { } } => $"Up to date ({installed}).",
+                _ => "No signed Personal Cloud release is available yet.",
+            };
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (PersonalCloudK0ContractException exception)
+        {
+            PersonalCloudReleaseText = exception.Message;
+        }
+        catch (Exception)
+        {
+            // Called from the window's Opened handler; a check must never crash the app.
+            PersonalCloudReleaseText = "Couldn't check for a newer Personal Cloud release. Try again later.";
+        }
+    }
+
     public async Task<bool> UpgradePersonalCloudAsync(CancellationToken cancellationToken = default)
     {
         if (_personalCloudSetup is null) return false;
         return await RunManagementAsync(
             "Updating",
-            "Authorize Cloudflare to deploy the version bundled with this Openza build.",
+            "Getting the newest signed Personal Cloud release, then authorize Cloudflare to install it.",
             async () =>
             {
                 var result = await _personalCloudSetup.UpgradeAsync(cancellationToken);
                 PersonalCloudSummaryText = $"Personal Cloud is updated to {result.ArtifactVersion}.";
+                PersonalCloudReleaseText = $"Up to date ({result.ArtifactVersion}).";
             });
     }
 
@@ -485,7 +533,10 @@ public sealed partial class MainWindowViewModel
                 "resource_not_found" => "The Personal Cloud resources were not found in the authorized Cloudflare account.",
                 "account_selection_required" => "Authorize only the Cloudflare account containing this Personal Cloud.",
                 "cloudflare_export_timeout" => "Cloudflare did not finish the backup in time. Your Personal Cloud was not changed.",
-                "migration_mismatch" => "The bundled database migrations differ from this Personal Cloud's history. Use a matching Openza build before updating.",
+                "migration_mismatch" => "This release's database migrations differ from this Personal Cloud's history. Your Personal Cloud was not changed.",
+                "release_unavailable" or "release_requires_newer_desktop" or "release_invalid" or "release_rollback" => exception.Message + " Your Personal Cloud was not changed.",
+                "desktop_update_required" => exception.Message,
+                "operation_in_progress" => exception.Message,
                 _ => "The Personal Cloud action stopped safely. You can try again.",
             };
             return false;
