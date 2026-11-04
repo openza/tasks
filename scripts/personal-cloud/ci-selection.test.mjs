@@ -24,10 +24,28 @@ test('only the authorized same-repository Personal Cloud PR skips Snap and Windo
         : {},
     };
     for (const gate of gates) {
-      assert.equal(runInNewContext(gate, { github }, { timeout: 1000 }), expected,
+      assert.equal(runInNewContext(gate, { github, needs: changes('true') }, { timeout: 1000 }), expected,
         `${eventName} ${headRepository ?? 'main'} ${headRef ?? ''}`);
     }
   }
-  assert.match(workflow, /build-test-linux:\s+runs-on: ubuntu-latest/,
+  assert.match(workflow, /build-test-linux:\s+needs: changes\s+runs-on: ubuntu-latest/,
     'Linux validation must remain unconditional');
+});
+
+const changes = code => ({ changes: { outputs: { code } } });
+
+test('docs-only pull requests skip Snap and Windows but keep the packaging contract', () => {
+  const github = {
+    event_name: 'pull_request',
+    repository: 'openza/tasks',
+    head_ref: 'docs/update',
+    event: { pull_request: { head: { repo: { full_name: 'openza/tasks' } } } },
+  };
+  const jobGates = gates.filter(gate => gate.includes('needs.changes'));
+  assert.equal(jobGates.length, 2, 'Snap build and Windows depend on code changes');
+  for (const gate of jobGates) {
+    assert.equal(runInNewContext(gate, { github, needs: changes('false') }, { timeout: 1000 }), false);
+  }
+  const contract = workflow.match(/- name: Validate Snap packaging contract\n((?:\s+\S.*\n)+?)\s+run: /)[1];
+  assert.doesNotMatch(contract, /needs\.changes/, 'the packaging contract reads docs and must run for them');
 });
