@@ -7,26 +7,29 @@ adoption before they track those updates.
 
 ## Coordinated Desktop and Personal Cloud release plan
 
-### Published version and proposed next release
+### Published version and next release
 
 [Openza Tasks is published on the Snap Store](https://snapcraft.io/openza-tasks).
-Store revision **1** is version **1.1.0**, available on **latest/stable** and
-**latest/edge**, created **2026-09-12 13:07 UTC**, with size **71,716,864 bytes**.
-The [GitHub v1.1.0 Snap asset](https://github.com/openza/tasks/releases/tag/v1.1.0)
-has the same size. Its source tag resolves to
-`f45fbe1314f9e6c767cbc3aefe8b64711e4525e4`, before Personal Cloud was added.
-Equal byte counts do not prove checksum or binary identity.
+Store revision **3** is version **1.3.0**, available on **latest/stable**,
+**latest/candidate** and **latest/edge** (beta follows candidate). It was
+uploaded **2026-11-01 11:32 UTC**, built from tag `v1.3.0`
+(`07331bd855d3991ba26603396ba094b19cd7e5c0`) with .NET runtime 10.0.14, and is
+**72,347,648 bytes**, the same size as the
+[GitHub v1.3.0 Snap asset](https://github.com/openza/tasks/releases/tag/v1.3.0).
+Equal byte counts do not prove checksum or binary identity; use the published
+`.sha256` file.
+
+Earlier revisions: **1** is 1.1.0 (no Personal Cloud) and **2** is 1.2.0
+(bundled Personal Cloud `0.1.0-preview.10`, edge only, never promoted).
 
 For a new installation, use `sudo snap install openza-tasks`. The GitHub asset
-with checksum verification and `--dangerous` is a local-file fallback. Public
-**1.1.0 has no Personal Cloud**; a custom package with the same version string
-may contain different code.
+with checksum verification and `--dangerous` is a local-file fallback.
 
-The proposed next Linux Snap version is **1.2.0**, with planned changes under
+The next Linux Snap version has its planned changes under
 [CHANGELOG Unreleased](../CHANGELOG.md#unreleased). Before release, update the
 Snap version, both .NET publish version properties, AppStream metadata and final
-changelog/tag together. The proposal does not change those version fields.
-Windows package publication remains a separate release lane.
+changelog/tag together. Windows package publication remains a separate release
+lane.
 
 ### Personal Cloud is not bundled
 
