@@ -19,7 +19,7 @@ public sealed class WindowsMsixManifestTests
         var identity = desktop.Root!.Element(ns + "Identity")!;
         foreach (var name in new[] { "Name", "Publisher", "ProcessorArchitecture" })
             Assert.Equal((string?)oldIdentity.Attribute(name), (string?)identity.Attribute(name));
-        Assert.Equal("0.1.1.0", (string?)identity.Attribute("Version"));
+        Assert.Equal("0.1.2.0", (string?)identity.Attribute("Version"));
         Assert.True(Version.Parse((string)identity.Attribute("Version")!) >
             Version.Parse((string)oldIdentity.Attribute("Version")!));
         Assert.Equal(baseline.Root.Element(ns + "Properties")!.ToString(),

@@ -40,7 +40,9 @@ try {
         if (-not (Test-Path (Join-Path $layout $file))) { throw "Self-contained publish is missing $file." }
     }
 
-    $package = Join-Path $build 'Openza.Tasks.Desktop_0.1.1.0_x64.msix'
+    [xml]$manifest = Get-Content (Join-Path $layout 'AppxManifest.xml') -Raw
+    $version = $manifest.Package.Identity.Version
+    $package = Join-Path $build "Openza.Tasks.Desktop_${version}_x64.msix"
     & $makeappx pack /d $layout /p $package /o
     if ($LASTEXITCODE -ne 0) { throw "MSIX packing failed ($LASTEXITCODE)." }
 
