@@ -9,6 +9,41 @@ namespace Openza.Tasks.Tests;
 public sealed class MarkdownTaskParserTests
 {
     [Theory]
+    [InlineData(true, ProjectLifecycleStates.Active)]
+    [InlineData(false, ProjectLifecycleStates.Archived)]
+    public async Task Import_creates_a_new_project_instead_of_reusing_archived_match(bool archived, string status)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var store = new SqliteTaskStore(Path.Combine(directory, "tasks.db"));
+            await store.InitializeAsync();
+            var existing = new ProjectItem { Id = "archived", Name = "Example", IsArchived = archived, Status = status };
+            await store.UpsertProjectAsync(existing);
+            var cloud = new PersonalCloudConnectionProfile
+            {
+                ServiceOrigin = new("https://example.test"), InstanceId = "instance_archived_markdown", DeviceId = "device_archived_markdown",
+                ArtifactVersion = "test", ConnectedAt = DateTimeOffset.UtcNow,
+            };
+            await store.SavePersonalCloudWorkspaceCapabilitiesAsync(cloud.InstanceId, true, true);
+
+            await MarkdownTaskImporter.ImportAsync(store, [new ParsedTask("Imported", false) { ProjectName = "Example" }], SpaceIds.Default, cloud);
+
+            var imported = Assert.Single(await store.GetTasksAsync(TaskQuery.ForMarkdownExport(SpaceIds.Default)));
+            var projects = await store.GetProjectsAsync(includeArchived: true);
+            Assert.Equal(2, projects.Count);
+            Assert.NotEqual(existing.Id, imported.ProjectId);
+            var project = Assert.Single(projects, item => item.Id == imported.ProjectId);
+            Assert.Equal(existing.Name, project.Name);
+            Assert.False(project.IsArchived);
+            Assert.Equal(ProjectLifecycleStates.Active, project.EffectiveStatus);
+            Assert.Equal(ProjectLifecycleStates.Archived, projects.Single(item => item.Id == existing.Id).EffectiveStatus);
+        }
+        finally { Directory.Delete(directory, recursive: true); }
+    }
+
+    [Theory]
     [InlineData(true, TaskWorkflowStatus.Inbox)]
     [InlineData(false, TaskWorkflowStatus.Next)]
     [InlineData(false, TaskWorkflowStatus.Waiting)]

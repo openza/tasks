@@ -17,7 +17,8 @@ public static class MarkdownTaskImporter
             ProjectItem? project = null;
             if (parsed.ProjectName is { } name)
             {
-                project = projects.FirstOrDefault(item => item.Name == name && item.IntegrationId == IntegrationIds.Local);
+                project = projects.FirstOrDefault(item => item.Name == name && item.IntegrationId == IntegrationIds.Local
+                    && item.EffectiveStatus != ProjectLifecycleStates.Archived);
                 if (project is null)
                 {
                     project = new ProjectItem { Id = $"local_{Guid.NewGuid():N}", Name = name, SpaceId = spaceId };
