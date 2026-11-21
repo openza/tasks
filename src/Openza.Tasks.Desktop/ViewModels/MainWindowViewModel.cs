@@ -1131,21 +1131,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 await backupService.CreateBackupAsync(BackupReasons.PreImport);
             }
 
-            var now = DateTimeOffset.UtcNow;
-            foreach (var parsed in parsedTasks)
-            {
-                await _store.UpsertTaskAsync(new TaskItem
-                {
-                    Id = $"local_{Guid.NewGuid():N}",
-                    SpaceId = _currentSpaceId ?? _defaultSpaceId,
-                    IntegrationId = IntegrationIds.Local,
-                    Title = parsed.Title,
-                    Status = parsed.IsCompleted ? TaskItemStatus.Completed : TaskItemStatus.Inbox,
-                    CompletedAt = parsed.IsCompleted ? now : null,
-                    CreatedAt = now,
-                    UpdatedAt = now,
-                });
-            }
+            await MarkdownTaskImporter.ImportAsync(_store, parsedTasks, _currentSpaceId ?? _defaultSpaceId, _personalCloudSetup?.CurrentConnection);
 
             StatusMessage = $"Imported {parsedTasks.Count} task{(parsedTasks.Count == 1 ? string.Empty : "s")}";
             await RefreshAsyncCore();
