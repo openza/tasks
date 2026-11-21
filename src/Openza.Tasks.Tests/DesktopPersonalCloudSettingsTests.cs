@@ -16,6 +16,50 @@ public sealed class DesktopPersonalCloudSettingsTests(EditorTestSession fixture)
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task Stale_card_choice_preserves_edits_refreshes_values_and_requests_another_choice(bool keepDesktop)
+    {
+        await fixture.Session.Dispatch(async () =>
+        {
+            var directory = Path.Combine(Path.GetTempPath(), "openza-stale-conflict", Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(directory);
+            try
+            {
+                var store = new SqliteTaskStore(Path.Combine(directory, "tasks.db"));
+                await store.InitializeAsync();
+                const string instance = "instance_stale_card", device = "device_stale_card";
+                await store.SavePersonalCloudWorkspaceCapabilitiesAsync(instance, true, true);
+                await store.ApplyPersonalCloudChangePageAsync(instance, device, PersonalCloudWorkspaceTests.Page(1,
+                    [PersonalCloudWorkspaceTests.Space()], [PersonalCloudWorkspaceTests.Project()], [PersonalCloudWorkspaceTests.TaskRecord()]));
+                var task = (await store.GetTaskAsync("task_test"))!;
+                var rejected = await store.PatchTaskWithPersonalCloudIntentAsync(task.Id,
+                    new Dictionary<string, object?> { ["title"] = "Shown desktop title" }, task.Revision, instance, device);
+                await store.ParkPersonalCloudTaskConflictAsync(rejected);
+                var origin = new Uri("https://stale-card.example.test/");
+                var profile = new PersonalCloudConnectionProfile { ServiceOrigin = origin, InstanceId = instance, DeviceId = device,
+                    ArtifactVersion = "synthetic", ConnectedAt = DateTimeOffset.UtcNow };
+                var setup = new StubSetupService(new(origin, "worker", "database", "synthetic", origin), profile);
+                var vm = new MainWindowViewModel(store, new InMemoryCredentialStore(), personalCloudSetup: setup);
+                await vm.RefreshPersonalCloudTaskConflictsAsync();
+                var shown = Assert.Single(vm.PersonalCloudTaskConflicts);
+                task = (await store.GetTaskAsync(task.Id))!;
+                await store.PatchTaskWithPersonalCloudIntentAsync(task.Id,
+                    new Dictionary<string, object?> { ["title"] = "Later desktop title" }, task.Revision, instance, device);
+                await vm.ResolvePersonalCloudTaskConflictAsync(shown.TaskId, keepDesktop, shown.RevisionToken);
+                Assert.Equal("Later desktop title", Assert.Single(vm.PersonalCloudTaskConflicts).Title);
+                Assert.NotEqual(shown.RevisionToken, Assert.Single(vm.PersonalCloudTaskConflicts).RevisionToken);
+                Assert.Contains("Review the refreshed card", vm.PersonalCloudSummaryText);
+                Assert.Equal(0, setup.SyncCalls);
+                Assert.True(vm.CanResolvePersonalCloudTaskConflicts);
+                Assert.Empty(await store.GetPendingPersonalCloudOutboxAsync(instance, device));
+            }
+            finally { TestDirectory.Delete(directory); }
+            return true;
+        }, CancellationToken.None);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     [InlineData(null)]
     public async Task Conflict_summary_clears_after_either_resolution_or_sync(bool? keepDesktop)
     {

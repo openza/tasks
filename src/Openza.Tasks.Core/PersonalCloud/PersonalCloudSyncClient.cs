@@ -63,7 +63,8 @@ public sealed partial class PersonalCloudSyncClient(
 
         if (progress is not null) await progress(PersonalCloudInitialSyncPhase.Downloading, cancellationToken).ConfigureAwait(false);
         if (_supportsWorkspace && blockedCode is null && !await store.HasPersonalCloudWorkspaceBaselineAsync(connection.InstanceId, cancellationToken).ConfigureAwait(false) &&
-            (await store.GetPendingPersonalCloudOutboxAsync(connection.InstanceId, connection.DeviceId, cancellationToken).ConfigureAwait(false)).Count == 0)
+            (await store.GetPendingPersonalCloudOutboxAsync(connection.InstanceId, connection.DeviceId, cancellationToken).ConfigureAwait(false)).Count == 0 &&
+            (await store.GetPersonalCloudTaskConflictsAsync(connection.InstanceId, cancellationToken).ConfigureAwait(false)).Count == 0)
         {
             await ReplaceWorkspaceBaselineAsync(access.AccessToken, ReserveBootstrapAttempt, cancellationToken).ConfigureAwait(false);
         }

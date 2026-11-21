@@ -19,12 +19,12 @@ public sealed class TaskApplicationService(
         return await sqlite.GetPersonalCloudTaskConflictsAsync(target.InstanceId, cancellationToken).ConfigureAwait(false);
     }
 
-    public async Task ResolvePersonalCloudTaskConflictAsync(string taskId, bool keepDesktop, CancellationToken cancellationToken = default)
+    public async Task ResolvePersonalCloudTaskConflictAsync(string taskId, bool keepDesktop, string revisionToken, CancellationToken cancellationToken = default)
     {
         using var lease = AcquirePersonalCloudAuthoringLease();
         if (Store is not SqliteTaskStore sqlite || PersonalCloudTarget() is not { } target)
             throw new PersonalCloudK0ContractException("not_connected", "Personal Cloud is not connected.");
-        await sqlite.ResolvePersonalCloudTaskConflictAsync(target.InstanceId, taskId, keepDesktop, cancellationToken).ConfigureAwait(false);
+        await sqlite.ResolvePersonalCloudTaskConflictAsync(target.InstanceId, taskId, keepDesktop, cancellationToken, revisionToken).ConfigureAwait(false);
     }
     public Task<IReadOnlyList<TaskItem>> ListTasksAsync(TaskQuery query, CancellationToken cancellationToken = default) => Store.GetTasksAsync(query, cancellationToken);
     public Task<TaskItem?> GetTaskAsync(string id, CancellationToken cancellationToken = default) => Store.GetTaskAsync(id, cancellationToken);

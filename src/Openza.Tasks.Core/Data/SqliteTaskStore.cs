@@ -2499,6 +2499,7 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
                 baseEntityVersions[root.Id], new { spaceId = targetSpaceId, fields = new { } }, cancellationToken).ConfigureAwait(false);
             foreach (var item in indirectVersions)
                 await SaveIndirectWorkspaceVersionAsync(connection, instanceId, "tasks", item.Id, entry.MutationId, item.Version, cancellationToken).ConfigureAwait(false);
+            await ParkNewTaskMutationAsync(connection, instanceId, deviceId, entry.MutationId, cancellationToken).ConfigureAwait(false);
             foreach (var task in movedTasks)
                 await UpsertTaskCoreAsync(connection, task with { SpaceId = targetSpaceId, ProjectId = null,
                     ParentId = task.Id == root.Id ? null : task.ParentId, UpdatedAt = DateTimeOffset.UtcNow, Revision = task.Revision + 1 }, cancellationToken).ConfigureAwait(false);

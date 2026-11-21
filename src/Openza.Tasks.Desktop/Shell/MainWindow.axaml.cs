@@ -704,13 +704,13 @@ public sealed partial class MainWindow : Window
     private async void OnKeepDesktopConflictClicked(object? sender, RoutedEventArgs e)
     {
         if (sender is Control { DataContext: PersonalCloudTaskConflict conflict })
-            await ViewModel.ResolvePersonalCloudTaskConflictAsync(conflict.TaskId, true);
+            await ViewModel.ResolvePersonalCloudTaskConflictAsync(conflict.TaskId, true, conflict.RevisionToken);
     }
 
     private async void OnUseCloudConflictClicked(object? sender, RoutedEventArgs e)
     {
         if (sender is Control { DataContext: PersonalCloudTaskConflict conflict })
-            await ViewModel.ResolvePersonalCloudTaskConflictAsync(conflict.TaskId, false);
+            await ViewModel.ResolvePersonalCloudTaskConflictAsync(conflict.TaskId, false, conflict.RevisionToken);
     }
 
     private async void OnConnectPersonalCloudClicked(object? sender, RoutedEventArgs e)

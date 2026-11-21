@@ -9,6 +9,110 @@ namespace Openza.Tasks.Tests;
 public sealed partial class PersonalCloudBatchSyncTests
 {
     [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task Dependent_child_edits_park_and_resolve_with_parent_move(bool editAfterParking, bool completeChild)
+    {
+        var (store, handler) = await ConflictStoreAsync();
+        var child = JsonSerializer.SerializeToNode(PersonalCloudWorkspaceTests.TaskRecord("task_child"))!;
+        child["parentId"] = "task_test";
+        await store.ApplyPersonalCloudChangePageAsync(Instance, Device, PersonalCloudWorkspaceTests.Page(2, tasks: [child]));
+        var rejected = await PatchAsync(store, "task_test", "title", "Desktop parent");
+        await store.MoveTaskTreeToSpaceWithPersonalCloudIntentAsync("task_test", "space_destination", "Destination",
+            new Dictionary<string, long> { ["task_test"] = 2, ["task_child"] = 1 }, Instance, Device);
+        if (!editAfterParking) await PatchAsync(store, "task_child", "notes", "Desktop child notes");
+        await store.ParkPersonalCloudTaskConflictAsync(rejected);
+        if (editAfterParking) await PatchAsync(store, "task_child", "notes", "Desktop child notes");
+        if (completeChild)
+            await store.CompleteTaskWithPersonalCloudIntentAsync("task_child", DateTimeOffset.UtcNow,
+                (await store.GetPersonalCloudEntityVersionAsync(Instance, "task_child"))!.Value, Instance, Device);
+        await PatchAsync(store, "task_second", "notes", "Unrelated");
+        Assert.Equal("task_second", Assert.Single(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device)).EntityId);
+        var card = Assert.Single(await store.GetPersonalCloudTaskConflictsAsync(Instance));
+        Assert.False(card.CanKeepDesktop);
+        Assert.Contains(card.Fields, f => f.DesktopValue == "Desktop child notes");
+        handler.CurrentCheckpoint = 3;
+        handler.ChangePageJson = PersonalCloudWorkspaceTests.Page(3, tasks: [CloudTask(), child]);
+        var result = await (await CreateClientAsync(store, handler)).SyncAsync();
+        Assert.Null(result.BlockedCode);
+        Assert.Equal(1, result.PushedMutations);
+        await store.ResolvePersonalCloudTaskConflictAsync(Instance, "task_test", false);
+        Assert.Equal("space_test", (await store.GetTaskAsync("task_child"))!.SpaceId);
+        Assert.Equal("Notes", (await store.GetTaskAsync("task_child"))!.Notes);
+        Assert.False((await store.GetTaskAsync("task_child"))!.IsCompleted);
+        Assert.Equal(1, await store.GetPersonalCloudEntityVersionAsync(Instance, "task_child"));
+        Assert.Empty(await store.GetPersonalCloudTaskConflictsAsync(Instance));
+        await store.EnsureNoPendingPersonalCloudIntentsAsync();
+        await store.CompleteTaskWithPersonalCloudIntentAsync("task_child", DateTimeOffset.UtcNow, 1, Instance, Device);
+        Assert.Equal(2, Assert.Single(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device)).DeviceSequence);
+        result = await (await CreateClientAsync(store, handler)).SyncAsync();
+        Assert.Null(result.BlockedCode);
+        Assert.Equal(1, result.PushedMutations);
+        Assert.Empty(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device));
+        await store.EnsureNoPendingPersonalCloudIntentsAsync();
+    }
+
+    [Fact]
+    public async Task First_workspace_sync_pulls_comparison_records_without_replacing_parked_edits()
+    {
+        var (store, handler) = await ConflictStoreAsync();
+        var rejected = await PatchAsync(store, "task_test", "title", "Desktop title");
+        await store.ParkPersonalCloudTaskConflictAsync(rejected);
+        await using var connection = new SqliteConnection($"Data Source={store.DatabasePath}");
+        await connection.OpenAsync();
+        var command = connection.CreateCommand();
+        command.CommandText = "UPDATE personal_cloud_workspace_capabilities SET hydrated=0";
+        await command.ExecuteNonQueryAsync();
+        handler.WorkspaceBootstrapJson = PersonalCloudK0Codec.Serialize(new
+        {
+            protocolVersion = 1, product = "tasks", checkpoint = 2,
+            snapshot = new { spaces = new[] { PersonalCloudWorkspaceTests.Space() }, projects = new[] { PersonalCloudWorkspaceTests.Project() },
+                tasks = new[] { CloudTask() }, tombstones = Array.Empty<object>(), labels = Array.Empty<object>(),
+                taskLabels = Array.Empty<object>(), sourceDescriptors = Array.Empty<object>(), externalCommands = Array.Empty<object>(),
+                catalog = Array.Empty<object>(), intents = Array.Empty<object>(), routes = Array.Empty<object>() },
+        });
+        handler.CurrentCheckpoint = 2;
+        handler.ChangePageJson = PersonalCloudWorkspaceTests.Page(2, tasks: [CloudTask()]);
+        var result = await (await CreateClientAsync(store, handler)).SyncAsync();
+        Assert.Null(result.BlockedCode);
+        Assert.True(handler.ChangeRequests > 0);
+        Assert.False(await store.HasPersonalCloudWorkspaceBaselineAsync(Instance));
+        Assert.Equal("Desktop title", (await store.GetTaskAsync("task_test"))!.Title);
+        Assert.Equal("Cloud title", Assert.Single(Assert.Single(await store.GetPersonalCloudTaskConflictsAsync(Instance)).Fields).CloudValue);
+        await store.ResolvePersonalCloudTaskConflictAsync(Instance, "task_test", false);
+        await (await CreateClientAsync(store, handler)).SyncAsync();
+        Assert.True(await store.HasPersonalCloudWorkspaceBaselineAsync(Instance));
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task Card_revision_rejects_choices_after_cloud_or_parked_rows_change(bool changeCloud, bool keepDesktop)
+    {
+        var (store, _) = await ConflictStoreAsync();
+        var rejected = await PatchAsync(store, "task_test", "title", "Desktop title");
+        await store.ParkPersonalCloudTaskConflictAsync(rejected);
+        var card = Assert.Single(await store.GetPersonalCloudTaskConflictsAsync(Instance));
+        if (changeCloud)
+            await store.ApplyPersonalCloudChangePageAsync(Instance, Device, PersonalCloudWorkspaceTests.Page(2, tasks: [CloudTask()]));
+        else
+            await PatchAsync(store, "task_test", "title", "Later desktop title");
+        var error = await Assert.ThrowsAsync<PersonalCloudK0ContractException>(() =>
+            store.ResolvePersonalCloudTaskConflictAsync(Instance, card.TaskId, keepDesktop, expectedRevision: card.RevisionToken));
+        Assert.Equal("conflict_changed", error.Code);
+        var refreshed = Assert.Single(await store.GetPersonalCloudTaskConflictsAsync(Instance));
+        Assert.NotEqual(card.RevisionToken, refreshed.RevisionToken);
+        Assert.Equal(changeCloud ? "Desktop title" : "Later desktop title", (await store.GetTaskAsync("task_test"))!.Title);
+        Assert.Empty(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device));
+        await store.ResolvePersonalCloudTaskConflictAsync(Instance, refreshed.TaskId, keepDesktop, expectedRevision: refreshed.RevisionToken);
+        Assert.Empty(await store.GetPersonalCloudTaskConflictsAsync(Instance));
+    }
+
+    [Theory]
     [InlineData(false, null)]
     [InlineData(true, null)]
     [InlineData(false, "provider_rejected")]

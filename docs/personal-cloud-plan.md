@@ -352,6 +352,8 @@ New task operations on an already parked task are parked within their authoring 
 
 Unversioned source refreshes and provider-command confirmations/rejections are never parked: they remain uploadable, including after resequencing, so receipts can settle provider attempts. If the cached cloud task is missing, the cloud-only choice still clears the parked intents, restoring the recorded base when available; without a base, it retains the local task as a recovery copy until a subsequent cloud download. The card explains this fallback.
 
+Edits whose expected versions depend on a parked tree operation are parked with that operation, including edits and completions authored later. Connected task conflicts are presented and discarded together, with dependent field edits shown on the card; tree operations remain cloud-only. Discarding restores every affected task from its cached cloud record and clears the grouped indirect versions. Discarding parked planned-date edits also cancels their queued provider date writes; keeping desktop retains those writes. An initial workspace replacement waits while conflicts remain, but change downloads continue under the overlay rules so comparison records can refresh. Each card carries a revision token covering its parked intents and affected cloud records. A choice is checked against that token inside the resolution transaction; stale choices preserve the edits, refresh the card, and ask the user to choose again.
+
 ## 7. Online-first Web behavior
 
 ### 7.1 Supported experience

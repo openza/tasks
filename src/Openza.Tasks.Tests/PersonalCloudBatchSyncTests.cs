@@ -261,6 +261,7 @@ public sealed partial class PersonalCloudBatchSyncTests : IDisposable
         public string? SingleError { get; set; }
         public string? ConflictEntity { get; set; }
         public string? ChangePageJson { get; set; }
+        public string? WorkspaceBootstrapJson { get; set; }
         public bool StrictSequencing { get; set; }
         public long LastAcceptedSequence { get; private set; }
         public string? ResponseDefect { get; set; }
@@ -319,6 +320,7 @@ public sealed partial class PersonalCloudBatchSyncTests : IDisposable
                 return Json(HttpStatusCode.OK, $$"""{"protocolVersion":1,"product":"tasks","changes":[],"nextCheckpoint":{{CurrentCheckpoint}}}""");
             }
             if (path == "/sync/checkpoints") { CheckpointRequests++; return Json(HttpStatusCode.OK, $$"""{"protocolVersion":1,"product":"tasks","deviceId":"{{Device}}","acknowledgedCheckpoint":{{CurrentCheckpoint}}}"""); }
+            if (path == "/sync/bootstrap" && WorkspaceBootstrapJson is { } bootstrap) return Json(HttpStatusCode.OK, bootstrap);
             if (path is not ("/v1/tasks/mutations/batch" or "/v1/tasks/mutations")) throw new InvalidOperationException(path);
             Assert.Equal("Bearer", request.Headers.Authorization?.Scheme);
             var body = await request.Content!.ReadAsStringAsync(cancellationToken);

@@ -34,18 +34,25 @@ public sealed partial class MainWindowViewModel
             PersonalCloudSummaryText = "This desktop is paired. Sync can continue.";
     }
 
-    public async Task ResolvePersonalCloudTaskConflictAsync(string taskId, bool keepDesktop)
+    public async Task ResolvePersonalCloudTaskConflictAsync(string taskId, bool keepDesktop, string? revisionToken = null)
     {
         if (_isResolvingPersonalCloudTaskConflict) return;
         _isResolvingPersonalCloudTaskConflict = true;
         OnPropertyChanged(nameof(CanResolvePersonalCloudTaskConflicts));
         try
         {
+            revisionToken ??= PersonalCloudTaskConflicts.FirstOrDefault(c => c.TaskId == taskId)?.RevisionToken ?? string.Empty;
             await _syncGate.WaitAsync();
             try
             {
-                await _taskService.ResolvePersonalCloudTaskConflictAsync(taskId, keepDesktop);
+                await _taskService.ResolvePersonalCloudTaskConflictAsync(taskId, keepDesktop, revisionToken);
                 await RefreshPersonalCloudTaskConflictsAsync();
+            }
+            catch (PersonalCloudK0ContractException exception) when (exception.Code == "conflict_changed")
+            {
+                await RefreshPersonalCloudTaskConflictsAsync();
+                PersonalCloudSummaryText = exception.Message;
+                return;
             }
             catch (Exception exception) { PersonalCloudSummaryText = exception.Message; return; }
             finally { _syncGate.Release(); }
