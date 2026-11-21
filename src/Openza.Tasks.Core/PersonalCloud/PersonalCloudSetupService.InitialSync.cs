@@ -134,7 +134,8 @@ public sealed partial class PersonalCloudSetupService
             else
                 await PublishInitialProgressAsync(current, PersonalCloudInitialSyncPhase.Interrupted, "interrupted", cancellationToken).ConfigureAwait(false);
         }
-        return result with { InitialSyncProgress = await GetInitialSyncProgressAsync(cancellationToken).ConfigureAwait(false) };
+        return result with { InitialSyncProgress = await GetInitialSyncProgressAsync(cancellationToken).ConfigureAwait(false),
+            TaskConflictCount = taskStore is null ? 0 : (await taskStore.GetPersonalCloudTaskConflictsAsync(current.InstanceId, cancellationToken).ConfigureAwait(false)).Count };
     }
 
     private async Task PublishInitialProgressAsync(PersonalCloudConnectionProfile current, PersonalCloudInitialSyncPhase phase,

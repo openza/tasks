@@ -429,5 +429,6 @@ public sealed partial class SqliteTaskStore
         append.Parameters.AddWithValue("@h", Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(json))).ToLowerInvariant());
         append.Parameters.AddWithValue("@n", now.ToUnixTimeMilliseconds()); append.Parameters.AddWithValue("@next", checked(sequence + 1));
         await append.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        await ParkNewTaskMutationAsync(connection, instanceId, deviceId, mutationId, cancellationToken).ConfigureAwait(false);
     }
 }

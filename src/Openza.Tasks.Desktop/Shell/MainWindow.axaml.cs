@@ -698,6 +698,19 @@ public sealed partial class MainWindow : Window
         await ViewModel.RefreshTodoistConnectionAsync();
         await ViewModel.RefreshTodoistRoutingRulesAsync();
         await ViewModel.RefreshGitHubConnectionAsync();
+        await ViewModel.RefreshPersonalCloudTaskConflictsAsync();
+    }
+
+    private async void OnKeepDesktopConflictClicked(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Control { DataContext: PersonalCloudTaskConflict conflict })
+            await ViewModel.ResolvePersonalCloudTaskConflictAsync(conflict.TaskId, true, conflict.RevisionToken);
+    }
+
+    private async void OnUseCloudConflictClicked(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Control { DataContext: PersonalCloudTaskConflict conflict })
+            await ViewModel.ResolvePersonalCloudTaskConflictAsync(conflict.TaskId, false, conflict.RevisionToken);
     }
 
     private async void OnConnectPersonalCloudClicked(object? sender, RoutedEventArgs e)

@@ -174,8 +174,8 @@ public sealed partial class PersonalCloudProviderBridge(SqliteTaskStore store, P
             {
                 IntegrationKind = fresh.IntegrationId, ExternalIdHash = SafeIdentity(fresh), SourceUrl = fresh.SourceUrl,
                 Title = fresh.Title, Description = fresh.Description, ProjectName = fresh.SourceProjectName, Priority = fresh.Priority,
-                PlannedOn = fresh.PlannedOn?.ToString("yyyy-MM-dd"), PlannedAt = fresh.PlannedAt is { } planned ? PersonalCloudK0Mapper.FormatTimestamp(planned) : null,
-                DeadlineOn = fresh.DeadlineOn?.ToString("yyyy-MM-dd"), DeadlineAt = fresh.DeadlineAt is { } deadline ? PersonalCloudK0Mapper.FormatTimestamp(deadline) : null,
+                PlannedOn = fresh.PlannedOn?.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture), PlannedAt = fresh.PlannedAt is { } planned ? PersonalCloudK0Mapper.FormatTimestamp(planned) : null,
+                DeadlineOn = fresh.DeadlineOn?.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture), DeadlineAt = fresh.DeadlineAt is { } deadline ? PersonalCloudK0Mapper.FormatTimestamp(deadline) : null,
                 RecurrenceRule = fresh.RecurrenceRule, RefreshedAt = PersonalCloudK0Mapper.FormatTimestamp(snapshot.ObservedAt),
             };
             await store.EnqueuePersonalCloudSourceSnapshotAsync(connection.InstanceId, connection.DeviceId, item.TaskId, safe, cancellationToken).ConfigureAwait(false);

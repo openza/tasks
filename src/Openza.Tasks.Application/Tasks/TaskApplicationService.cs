@@ -12,6 +12,20 @@ public sealed class TaskApplicationService(
     public ITaskStore Store { get; } = store;
 
     public Task InitializeAsync(CancellationToken cancellationToken = default) => Store.InitializeAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<PersonalCloudTaskConflict>> ListPersonalCloudTaskConflictsAsync(CancellationToken cancellationToken = default)
+    {
+        if (Store is not SqliteTaskStore sqlite || PersonalCloudTarget() is not { } target) return [];
+        return await sqlite.GetPersonalCloudTaskConflictsAsync(target.InstanceId, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task ResolvePersonalCloudTaskConflictAsync(string taskId, bool keepDesktop, string revisionToken, CancellationToken cancellationToken = default)
+    {
+        using var lease = AcquirePersonalCloudAuthoringLease();
+        if (Store is not SqliteTaskStore sqlite || PersonalCloudTarget() is not { } target)
+            throw new PersonalCloudK0ContractException("not_connected", "Personal Cloud is not connected.");
+        await sqlite.ResolvePersonalCloudTaskConflictAsync(target.InstanceId, taskId, keepDesktop, cancellationToken, revisionToken).ConfigureAwait(false);
+    }
     public Task<IReadOnlyList<TaskItem>> ListTasksAsync(TaskQuery query, CancellationToken cancellationToken = default) => Store.GetTasksAsync(query, cancellationToken);
     public Task<TaskItem?> GetTaskAsync(string id, CancellationToken cancellationToken = default) => Store.GetTaskAsync(id, cancellationToken);
     public Task<IReadOnlyList<SpaceItem>> ListSpacesAsync(CancellationToken cancellationToken = default) => Store.GetSpacesAsync(cancellationToken: cancellationToken);
