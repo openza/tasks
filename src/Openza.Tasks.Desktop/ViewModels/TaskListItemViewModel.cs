@@ -54,7 +54,7 @@ public sealed class TaskListItemViewModel
         TaskWorkflowStatus.Next when ViewKind != TaskListKind.NextActions => "Next",
         TaskWorkflowStatus.Waiting when ViewKind != TaskListKind.Waiting => "Waiting",
         TaskWorkflowStatus.Someday when ViewKind != TaskListKind.Someday => "Someday",
-        TaskWorkflowStatus.Inbox when ViewKind != TaskListKind.Inbox => "Inbox",
+        TaskWorkflowStatus.Inbox when ViewKind != TaskListKind.Inbox => "Status: Inbox",
         _ => string.Empty,
     };
     public string LabelSummaryText

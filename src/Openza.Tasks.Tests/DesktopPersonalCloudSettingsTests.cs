@@ -362,6 +362,30 @@ public sealed class DesktopPersonalCloudSettingsTests(EditorTestSession fixture)
         Assert.True(service.LastProviderBridge);
     }
 
+    [Fact]
+    public async Task Personal_Cloud_pairing_alone_enables_first_use_sync_until_disconnected()
+    {
+        var origin = new Uri("https://openza-personal-test.workers.dev/");
+        var service = new StubSetupService(new(origin, "worker", "database", "1.2.3", origin));
+        var vm = CreateViewModel(service);
+        var syncAvailability = new List<bool>();
+        vm.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(MainWindowViewModel.HasConnectedTaskApp))
+                syncAvailability.Add(vm.HasConnectedTaskApp);
+        };
+
+        Assert.False(vm.HasConnectedTaskApp);
+        Assert.NotNull(await vm.PairExistingPersonalCloudAsync(origin.AbsoluteUri, "synthetic-pair-code-1234567890", false));
+        Assert.True(vm.HasConnectedTaskApp);
+        Assert.Contains(true, syncAvailability);
+
+        syncAvailability.Clear();
+        Assert.True(await vm.DisconnectPersonalCloudAsync());
+        Assert.False(vm.HasConnectedTaskApp);
+        Assert.Contains(false, syncAvailability);
+    }
+
     [Theory]
     [InlineData("contract")]
     [InlineData("transport")]

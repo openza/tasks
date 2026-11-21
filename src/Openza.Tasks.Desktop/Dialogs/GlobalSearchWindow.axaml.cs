@@ -23,6 +23,9 @@ public sealed partial class GlobalSearchWindow : Window
         InitializeComponent();
         TaskResultsList.ItemsSource = TaskResults;
         ProjectResultsList.ItemsSource = ProjectResults;
+        ScopeSelector.SelectionChanged += (_, _) => ScopeDescription.Text = ScopeSelector.SelectedIndex == 1
+            ? "Find tasks and projects across all spaces."
+            : "Find tasks and projects within the sidebar’s space selection.";
         ScopeSelector.SelectedIndex = 0;
         _ready = true;
     }
