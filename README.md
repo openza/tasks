@@ -84,7 +84,7 @@ Source launches always use the isolated maintainer-only Dev directory. For dispo
 
 Run the matching Dev CLI with `./dev-cli.sh`. See [docs/cli.md](docs/cli.md) for its command contract.
 
-The Linux app currently includes smart lists, Spaces, projects, search, sorting, filtering, grouping, task details, labels, dates and deadlines, subtasks, Markdown import/export, restore points, connected-task intake, Todoist and Microsoft To Do synchronization, optional OneDrive backup, and GitHub issue creation and linking. The Snap bundles Secret Service tooling and accesses the desktop Secret Portal; source runs require the host `libsecret-tools` package before connecting an account.
+The Linux app currently includes smart lists, Spaces, projects, search, sorting, filtering, grouping, task details, labels, dates and deadlines, subtasks, Markdown import/export, restore points, connected-task intake, Todoist and Microsoft To Do synchronization, optional OneDrive backup, and GitHub issue creation and linking. The Snap bundles Secret Service tooling and uses the Secret portal on desktops that provide it. Otherwise, grant keyring access with `sudo snap connect openza-tasks:password-manager-service` and try again. A running keyring (such as GNOME Keyring or KWallet) is required; source runs also require the host `libsecret-tools` package before connecting an account. See [Snap credential guidance](docs/snap-release.md#desktop-keyring-access).
 
 Build the strict Linux Snap from the repository root:
 
@@ -147,7 +147,7 @@ Microsoft To Do and OneDrive backup use Openza's built-in public Microsoft app r
 
 ## Privacy
 
-Openza Tasks does not add telemetry or analytics. Windows uses Credential Locker and a protected MSAL cache. The Linux desktop uses Secret Service, accessed through the Secret Portal in the Snap, for provider tokens, the Microsoft token cache, and backup passphrases. Account identifiers and preferences remain in local settings. Provider sync, GitHub issue creation, and OneDrive backup send data to the selected service when used. See [PRIVACY.md](PRIVACY.md).
+Openza Tasks does not add telemetry or analytics. Windows uses Credential Locker and a protected MSAL cache. The Linux desktop uses libsecret for provider tokens, the Microsoft token cache, and backup passphrases. The Snap prefers the Secret portal where available and otherwise needs the manual keyring connection described above. Account identifiers and preferences remain in local settings. Provider sync, GitHub issue creation, and OneDrive backup send data to the selected service when used. See [PRIVACY.md](PRIVACY.md).
 
 ## License
 
