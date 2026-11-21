@@ -1,12 +1,15 @@
 using Openza.Tasks.Core.Data;
 using Openza.Tasks.Core.Models;
+using Openza.Tasks.Core.PersonalCloud;
 
 namespace Openza.Tasks.Core.Services;
 
 public static class MarkdownTaskImporter
 {
-    public static async Task ImportAsync(ITaskStore store, IReadOnlyList<ParsedTask> tasks, string spaceId)
+    public static async Task ImportAsync(ITaskStore store, IReadOnlyList<ParsedTask> tasks, string spaceId, PersonalCloudConnectionProfile? cloud = null)
     {
+        var cloudStore = cloud is not null ? store as SqliteTaskStore : null;
+        var workspace = cloudStore is not null && await cloudStore.SupportsPersonalCloudWorkspaceAsync(cloud!.InstanceId);
         var projects = (await store.GetProjectsAsync(spaceId, includeArchived: true)).ToList();
         var labels = (await store.GetLabelsAsync()).ToList();
         foreach (var parsed in tasks)
@@ -18,7 +21,10 @@ public static class MarkdownTaskImporter
                 if (project is null)
                 {
                     project = new ProjectItem { Id = $"local_{Guid.NewGuid():N}", Name = name, SpaceId = spaceId };
-                    await store.UpsertProjectAsync(project);
+                    if (workspace)
+                        await cloudStore!.UpsertProjectWithPersonalCloudIntentAsync(project, cloud!.InstanceId, cloud.DeviceId);
+                    else
+                        await store.UpsertProjectAsync(project);
                     projects.Add(project);
                 }
             }
@@ -42,8 +48,14 @@ public static class MarkdownTaskImporter
                 DeadlineOn = parsed.DeadlineOn, Notes = parsed.Notes, WorkflowStatus = parsed.WorkflowStatus,
                 CompletionState = parsed.IsCompleted ? TaskCompletionState.Completed : parsed.CompletionState,
                 CompletedAt = parsed.IsCompleted ? now : null, CreatedAt = now, UpdatedAt = now,
+                Labels = taskLabels,
             };
-            await store.UpsertTaskAsync(task);
+            if (workspace)
+                await cloudStore!.CreateRichTaskWithPersonalCloudIntentAsync(task, cloud!.InstanceId, cloud.DeviceId);
+            else if (cloudStore is not null)
+                await cloudStore.CreateTaskWithPersonalCloudIntentAsync(task, cloud!.InstanceId, cloud.DeviceId);
+            else
+                await store.UpsertTaskAsync(task);
             await store.SetTaskLabelsAsync(task.Id, taskLabels);
         }
     }

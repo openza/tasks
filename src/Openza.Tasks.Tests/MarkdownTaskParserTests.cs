@@ -2,11 +2,48 @@ using Openza.Tasks.Core.Services;
 using Openza.Tasks.Core.Models;
 using Openza.Tasks.Core.Data;
 using System.Text.Json;
+using Openza.Tasks.Core.PersonalCloud;
 
 namespace Openza.Tasks.Tests;
 
 public sealed class MarkdownTaskParserTests
 {
+    [Fact]
+    public async Task Import_records_cloud_project_task_and_label_intent()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var store = new SqliteTaskStore(Path.Combine(directory, "tasks.db"));
+            await store.InitializeAsync();
+            var cloud = new PersonalCloudConnectionProfile
+            {
+                ServiceOrigin = new("https://example.test"), InstanceId = "instance_markdown", DeviceId = "device_markdown",
+                ArtifactVersion = "test", ConnectedAt = DateTimeOffset.UtcNow,
+            };
+            await store.ApplyPersonalCloudChangePageAsync(cloud.InstanceId, cloud.DeviceId,
+                PersonalCloudWorkspaceTests.Page(1, [PersonalCloudWorkspaceTests.Space()]));
+            var task = new ParsedTask("Cloud import", false)
+            {
+                ProjectName = "Imported project", Labels = [new LabelItem { Name = "Imported label", Color = "#123456" }],
+            };
+
+            await MarkdownTaskImporter.ImportAsync(store, [task], "space_test", cloud);
+
+            var imported = Assert.Single(await store.GetTasksAsync(TaskQuery.ForMarkdownExport("space_test")));
+            var entries = await store.GetPendingPersonalCloudOutboxAsync(cloud.InstanceId, cloud.DeviceId);
+            Assert.Equal(imported.ProjectId, Assert.Single(entries, entry => entry.Operation == "project.put").EntityId);
+            var creation = Assert.Single(entries, entry => entry.Operation == "task.createRich");
+            Assert.Equal(imported.Id, creation.EntityId);
+            using var json = JsonDocument.Parse(creation.CanonicalJson);
+            var label = Assert.Single(json.RootElement.GetProperty("payload").GetProperty("task").GetProperty("labels").EnumerateArray());
+            Assert.Equal(Assert.Single(imported.Labels).Id, label.GetProperty("id").GetString());
+            Assert.Equal("Imported label", label.GetProperty("name").GetString());
+        }
+        finally { Directory.Delete(directory, recursive: true); }
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

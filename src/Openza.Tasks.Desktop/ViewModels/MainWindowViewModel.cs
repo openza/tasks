@@ -1128,7 +1128,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 await backupService.CreateBackupAsync(BackupReasons.PreImport);
             }
 
-            await MarkdownTaskImporter.ImportAsync(_store, parsedTasks, _currentSpaceId ?? _defaultSpaceId);
+            await MarkdownTaskImporter.ImportAsync(_store, parsedTasks, _currentSpaceId ?? _defaultSpaceId, _personalCloudSetup?.CurrentConnection);
 
             StatusMessage = $"Imported {parsedTasks.Count} task{(parsedTasks.Count == 1 ? string.Empty : "s")}";
             await RefreshAsyncCore();
