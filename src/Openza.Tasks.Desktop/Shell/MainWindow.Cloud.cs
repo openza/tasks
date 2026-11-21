@@ -31,7 +31,10 @@ public sealed partial class MainWindow
         if (!_initialized || sender is not ToggleSwitch toggle || toggle.IsChecked == ViewModel.OneDriveEnabled) return;
         try { await ViewModel.SetCloudEnabledAsync(toggle.IsChecked == true); }
         catch (Exception exception) { ViewModel.ReportError(exception.Message); }
-        finally { toggle.IsChecked = ViewModel.OneDriveEnabled; }
+        finally
+        {
+            Avalonia.Threading.Dispatcher.UIThread.Post(() => toggle.IsChecked = ViewModel.OneDriveEnabled);
+        }
     }
     private async void OnCloudEncryptionChanged(object? sender, RoutedEventArgs e)
     {

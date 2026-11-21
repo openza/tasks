@@ -15,7 +15,7 @@ public sealed class SignInWindow : Window
     {
         Title = title; Width = 540; Height = 380; MinWidth = 480; MinHeight = 340;
         ShowInTaskbar = false; WindowStartupLocation = WindowStartupLocation.CenterOwner;
-        var message = new TextBlock { Text = "Preparing sign-in…", TextWrapping = TextWrapping.Wrap };
+        var message = new SelectableTextBlock { Text = "Preparing sign-in…", TextWrapping = TextWrapping.Wrap };
         var codeText = new TextBox { IsReadOnly = true, FontSize = 24 };
         var open = new Button { Content = "Open sign-in page", IsEnabled = false };
         var copy = new Button { Content = "Copy code", IsEnabled = false };

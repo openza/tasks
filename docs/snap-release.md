@@ -5,6 +5,42 @@ It contains the Avalonia desktop app and the `openza` CLI. Store installations
 track a release channel and receive Snap refreshes; local sideloads need Store
 adoption before they track those updates.
 
+## Desktop keyring access
+
+The strict Snap stores provider tokens, the Microsoft token cache, and backup
+passphrases through libsecret (`secret-tool`). It prefers the XDG Secret portal
+on desktops whose xdg-desktop-portal backend exposes
+`org.freedesktop.portal.Secret` (including stock Ubuntu GNOME). No manual
+keyring connection is needed on those desktops.
+
+On desktops without a Secret portal backend, such as KDE Plasma 5 or minimal
+sessions, libsecret falls back to the Secret Service D-Bus API. The
+`password-manager-service` plug is not auto-connected. If it is not connected,
+grant access, then try again:
+
+```sh
+sudo snap connect openza-tasks:password-manager-service
+```
+
+For a parallel install, replace `openza-tasks` with its instance name (the app
+uses `SNAP_INSTANCE_NAME`, falling back to `SNAP_NAME`). If no keyring service
+is available, install or start a Secret Service provider such as GNOME Keyring
+or KWallet; on desktops without a Secret portal, also run the command above if
+the plug is not connected. If an AppArmor denial persists with the plug already
+connected, investigate the retained `secret-tool` error details rather than
+repeating the connection command. Bare AccessDenied errors can also mean a
+keyring prompt was dismissed; they do not establish a missing connection.
+
+### Store auto-connect request
+
+File the following request on <https://forum.snapcraft.io> in **store-requests**.
+This is a request to file, not an existing approval:
+
+> Please grant auto-connect of `password-manager-service` for `openza-tasks`.
+> Openza Tasks stores provider tokens and the backup passphrase via libsecret.
+> The Secret portal is preferred and used where available; this plug is the
+> fallback for desktops without a Secret portal backend, such as KDE Plasma 5.
+
 ## Coordinated Desktop and Personal Cloud release plan
 
 ### Published version and next release

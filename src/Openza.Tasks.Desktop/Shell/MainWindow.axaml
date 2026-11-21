@@ -102,15 +102,16 @@
                     Classes="space-picker"
                     Grid.Row="5"
                     Height="36"
+                    HorizontalContentAlignment="Stretch"
                     Margin="8,4"
                     ItemsSource="{Binding SpaceItems}"
                     SelectedItem="{Binding SelectedSpace}"
                     SelectionChanged="OnSpaceSelectionChanged">
                     <ComboBox.ItemTemplate>
                         <DataTemplate>
-                            <Grid ColumnDefinitions="26,*" ColumnSpacing="10">
+                            <Grid MaxWidth="280" ColumnDefinitions="Auto,*" ColumnSpacing="10" HorizontalAlignment="Stretch">
                                 <ic:FluentIcon Icon="FolderOpen" FontSize="18" />
-                                <TextBlock Grid.Column="1" Classes="nav-label" VerticalAlignment="Center" Text="{Binding Title}" />
+                                <TextBlock Grid.Column="1" Classes="nav-label" VerticalAlignment="Center" Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
                             </Grid>
                         </DataTemplate>
                     </ComboBox.ItemTemplate>
@@ -130,19 +131,21 @@
                     <ic:FluentIcon Icon="FolderOpen" FontSize="18" />
                     <Button.Flyout>
                         <Flyout Placement="RightEdgeAlignedBottom">
-                            <ItemsControl MinWidth="180" ItemsSource="{Binding SpaceItems}">
+                            <ItemsControl MinWidth="180" MaxWidth="320" ItemsSource="{Binding SpaceItems}">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>
                                         <Button
                                             MinWidth="180"
+                                            MaxWidth="320"
                                             Classes="menu-row"
+                                            ContentTemplate="{x:Null}"
                                             Padding="12,8"
-                                            HorizontalContentAlignment="Left"
+                                            HorizontalContentAlignment="Stretch"
                                             Click="OnCompactSpaceSelected">
-                                            <StackPanel Orientation="Horizontal" Spacing="10">
+                                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
                                                 <ic:FluentIcon Icon="FolderOpen" FontSize="17" />
-                                                <TextBlock Text="{Binding Title}" />
-                                            </StackPanel>
+                                                <TextBlock Grid.Column="1" Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
+                                            </Grid>
                                         </Button>
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
@@ -847,7 +850,7 @@
                         <ToggleSwitch AutomationProperties.Name="Automatic OneDrive backup" Content="Automatic OneDrive backup" IsChecked="{Binding OneDriveEnabled, Mode=OneWay}" IsCheckedChanged="OnCloudEnabledChanged"/>
                         <ToggleSwitch AutomationProperties.Name="Encrypt backups with a passphrase" Content="Encrypt backups with a passphrase" IsChecked="{Binding OneDriveEncrypted, Mode=OneWay}" IsCheckedChanged="OnCloudEncryptionChanged"/>
                         <WrapPanel><Button Margin="0,0,8,8" Content="Change passphrase" Click="OnChangeCloudPassphraseClicked"/><Button Margin="0,0,8,8" Content="Back up now" IsEnabled="{Binding OneDriveEnabled}" Click="OnUploadCloudClicked"/><Button Content="Refresh backups" Click="OnRefreshCloudClicked"/></WrapPanel>
-                        <TextBlock Text="{Binding CloudStatus}" TextWrapping="Wrap"/>
+                        <SelectableTextBlock Text="{Binding CloudStatus}" TextWrapping="Wrap"/>
                         <ListBox AutomationProperties.Name="OneDrive backups" MaxHeight="220" ItemsSource="{Binding CloudBackups}" SelectedItem="{Binding SelectedCloudBackup}"><ListBox.ItemTemplate><DataTemplate><StackPanel><TextBlock Text="{Binding DisplayName}"/><TextBlock Text="{Binding CreatedAt}"/><TextBlock Text="{Binding EncryptionMode}"/></StackPanel></DataTemplate></ListBox.ItemTemplate></ListBox>
                         <Button IsEnabled="{Binding SelectedCloudBackup, Converter={x:Static ObjectConverters.IsNotNull}}" Content="Restore selected cloud backup" Click="OnRestoreCloudClicked"/>
                     </StackPanel></Border>
@@ -858,7 +861,8 @@
                             <StackPanel Grid.Column="1" Spacing="4">
                                 <TextBlock FontWeight="SemiBold" Text="Openza Tasks"/>
                                 <TextBlock Foreground="{DynamicResource OpenzaTextSecondaryBrush}" Text="A local-first task app under the Openza umbrella."/>
-                                <TextBlock Margin="0,6,0,0" Foreground="{DynamicResource OpenzaTextSecondaryBrush}" Text="{Binding AppVersion, StringFormat='Version {0}'}"/>
+                                <TextBlock Margin="0,6,0,0" Foreground="{DynamicResource OpenzaTextSecondaryBrush}" Text="{Binding AppVersion, StringFormat='App version: {0}'}"/>
+                                <TextBlock Foreground="{DynamicResource OpenzaTextSecondaryBrush}" Text="{Binding PackageVersionText}"/>
                                 <TextBlock Foreground="{DynamicResource OpenzaTextSecondaryBrush}" Text="Local data format: V1"/>
                                 <TextBlock Foreground="{DynamicResource OpenzaTextTertiaryBrush}" Text="Maintainer contact: deependra@solanky.dev" TextWrapping="Wrap"/>
                             </StackPanel>
@@ -871,7 +875,9 @@
                 <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="10">
                     <ProgressBar Width="72" Height="4" VerticalAlignment="Center" IsIndeterminate="True" IsVisible="{Binding IsBusy}"/>
                     <ic:FluentIcon Grid.Column="1" Icon="Warning" FontSize="17" VerticalAlignment="Center" IsVisible="{Binding IsStatusMessagePersistent}" />
-                    <TextBlock Grid.Column="2" VerticalAlignment="Center" FontSize="12" Text="{Binding StatusMessage}" TextWrapping="Wrap"/>
+                    <ScrollViewer Grid.Column="2" MaxHeight="240" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                        <SelectableTextBlock VerticalAlignment="Center" FontSize="12" Text="{Binding StatusMessage}" TextWrapping="Wrap"/>
+                    </ScrollViewer>
                     <Button Grid.Column="3" Width="36" Height="36" Padding="0" Classes="quiet" AutomationProperties.Name="Dismiss notification" Click="OnDismissStatusClicked" IsVisible="{Binding IsStatusMessagePersistent}" ToolTip.Tip="Dismiss"><ic:FluentIcon Icon="DismissCircle" FontSize="15" /></Button>
                 </Grid>
             </Border>
