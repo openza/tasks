@@ -4,6 +4,7 @@ using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Openza.Tasks.Core.Data;
 using Openza.Tasks.Core.Models;
@@ -39,21 +40,28 @@ public sealed partial class DesktopControlBehaviorTests
     [Fact]
     public Task Group_header_blank_right_side_collapses_and_expands_tasks() => Run(async context =>
     {
+        // Submit the initial search binding so its debounce cannot recycle a pressed header.
+        Dispatcher.UIThread.RunJobs();
+        context.Window.FindControl<TextBox>("SearchBox")!.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter });
+        await Until(() => !context.Vm.IsBusy && !context.Vm.IsUpdatingDetails);
         context.Vm.GroupIndex = 3;
         await context.Vm.ApplyListOptionsAsync();
         await Until(() => !context.Vm.IsBusy && !context.Vm.IsUpdatingDetails);
-        // Let the bound grouping selector finish refreshing the virtualized rows.
-        await Task.Delay(150);
         var list = context.Window.FindControl<ListBox>("TaskList")!;
-        context.Window.UpdateLayout();
-        Button Header() => list.GetVisualDescendants().OfType<Button>().First(b => b.DataContext is TaskListEntryViewModel { IsHeader: true } && b.IsVisible);
+        var groupKey = context.Vm.TaskEntries.First(entry => entry.IsHeader).GroupKey;
+        Button Header()
+        {
+            var header = context.Vm.TaskEntries.Single(entry => entry.IsHeader && entry.GroupKey == groupKey);
+            list.ScrollIntoView(header);
+            context.Window.UpdateLayout();
+            return list.GetVisualDescendants().OfType<Button>().Single(b => ReferenceEquals(b.DataContext, header) && AutomationProperties.GetName(b) == header.GroupTitle);
+        }
         var before = context.Vm.TaskEntries.Count;
+        context.Window.UpdateLayout();
         Assert.True(Header().Bounds.Width >= list.Bounds.Width - 30, "Group headers must fill the row up to the list's scrollbar gutter.");
         await PointerClick(context.Window, Header, rightInset: 100);
         await Until(() => context.Vm.TaskEntries.Count < before);
         await Until(() => !context.Vm.IsBusy && !context.Vm.IsUpdatingDetails);
-        await Task.Delay(100);
-        context.Window.UpdateLayout();
         await PointerClick(context.Window, Header, rightInset: 100);
         await Until(() => context.Vm.TaskEntries.Count == before);
     });
@@ -147,6 +155,10 @@ public sealed partial class DesktopControlBehaviorTests
         AvaloniaHeadlessPlatform.ForceRenderTimerTick();
         // Resolve virtualized rows after rendering, which may recycle their controls.
         var target = findTarget();
+        target.BringIntoView();
+        window.UpdateLayout();
+        AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+        target = findTarget();
         var point = target.TranslatePoint(new Point((rowWidth ?? target.Bounds.Width) - rightInset, target.Bounds.Height / 2), window)!.Value;
         var hit = window.InputHitTest(point) as Visual;
         Assert.True(hit == target || hit?.GetVisualAncestors().Contains(target) == true,
