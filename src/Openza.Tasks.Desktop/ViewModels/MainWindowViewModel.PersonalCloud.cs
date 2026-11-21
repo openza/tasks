@@ -306,6 +306,13 @@ public sealed partial class MainWindowViewModel
         bool providerBridge,
         CancellationToken cancellationToken = default)
     {
+        if (string.IsNullOrWhiteSpace(pairingGrant))
+        {
+            PersonalCloudStatusText = "Needs attention";
+            PersonalCloudSummaryText = "Enter the pairing code.";
+            return null;
+        }
+
         if (_personalCloudSetup?.IsConfigured != true ||
             !Uri.TryCreate(serviceAddress.Trim(), UriKind.Absolute, out var serviceOrigin))
         {

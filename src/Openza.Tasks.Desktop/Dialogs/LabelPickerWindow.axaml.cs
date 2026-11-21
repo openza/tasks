@@ -1,6 +1,8 @@
 using System.Collections.ObjectModel;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.VisualTree;
 
 namespace Openza.Tasks.Desktop.Dialogs;
 
@@ -23,6 +25,7 @@ public sealed partial class LabelPickerWindow : Window
             .Select(label => new LabelChoice(label, selected.Contains(label)))
             .ToList();
         LabelsList.ItemsSource = FilteredChoices;
+        LabelsList.AddHandler(KeyDownEvent, OnLabelKeyDown, RoutingStrategies.Tunnel);
         RefreshChoices();
     }
 
@@ -31,6 +34,17 @@ public sealed partial class LabelPickerWindow : Window
     private void OnOpened(object? sender, EventArgs e) => SearchBox.Focus();
 
     private void OnSearchChanged(object? sender, TextChangedEventArgs e) => RefreshChoices();
+
+    private void OnLabelKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Space || e.Source is not Control source) return;
+        if (source is CheckBox || source.FindAncestorOfType<CheckBox>() is not null) return;
+        var row = source as ListBoxItem ?? source.FindAncestorOfType<ListBoxItem>();
+        var checkbox = row?.GetVisualDescendants().OfType<CheckBox>().FirstOrDefault();
+        if (checkbox is null) return;
+        checkbox.SetCurrentValue(CheckBox.IsCheckedProperty, checkbox.IsChecked != true);
+        e.Handled = true;
+    }
 
     private void RefreshChoices()
     {

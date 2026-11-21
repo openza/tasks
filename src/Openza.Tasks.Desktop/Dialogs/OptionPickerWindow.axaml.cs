@@ -14,6 +14,7 @@ public sealed partial class OptionPickerWindow : Window
     public OptionPickerWindow(string title, string description, IReadOnlyList<PickerOption> options, string? selectedId)
     {
         InitializeComponent();
+        OptionsList.AddHandler(KeyDownEvent, OnOptionKeyDown, RoutingStrategies.Tunnel);
         Title = title;
         TitleText.Text = title;
         DescriptionText.Text = description;
@@ -25,6 +26,13 @@ public sealed partial class OptionPickerWindow : Window
     private void OnOpened(object? sender, EventArgs e) => OptionsList.Focus();
 
     private void OnOptionDoubleTapped(object? sender, TappedEventArgs e) => Complete();
+
+    private void OnOptionKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter) return;
+        e.Handled = true;
+        Complete();
+    }
 
     private void OnCancelClicked(object? sender, RoutedEventArgs e) => Close(null);
 
