@@ -1,0 +1,8 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# Review each PR once when it is ready, not on every push, to stay within the free plan's hourly review limit.
+# Ask for another review with `@coderabbitai review` (new commits) or `@coderabbitai full review`.
+reviews:
+  auto_review:
+    enabled: true
+    drafts: false
+    auto_incremental_review: false
