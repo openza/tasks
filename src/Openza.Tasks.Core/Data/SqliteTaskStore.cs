@@ -1050,6 +1050,7 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
             throw new InvalidOperationException("The Personal Cloud device sequence could not be advanced atomically.");
         }
 
+        await ParkNewTaskMutationAsync(connection, instanceId, deviceId, mutationId, cancellationToken).ConfigureAwait(false);
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return new PersonalCloudK1OutboxEntry
         {
@@ -1524,6 +1525,7 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
             throw new InvalidOperationException("The Personal Cloud device sequence could not be advanced atomically.");
         }
 
+        await ParkNewTaskMutationAsync(connection, instanceId, deviceId, mutationId, cancellationToken).ConfigureAwait(false);
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return new PersonalCloudK1OutboxEntry
         {
@@ -1683,6 +1685,7 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
             throw new InvalidOperationException("The Personal Cloud device sequence could not be advanced atomically.");
         }
 
+        await ParkNewTaskMutationAsync(connection, instanceId, deviceId, mutationId, cancellationToken).ConfigureAwait(false);
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return new PersonalCloudK1OutboxEntry
         {
@@ -1841,6 +1844,7 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
             throw new InvalidOperationException("The Personal Cloud device sequence could not be advanced atomically.");
         }
 
+        await ParkNewTaskMutationAsync(connection, instanceId, deviceId, mutationId, cancellationToken).ConfigureAwait(false);
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return new PersonalCloudK1OutboxEntry
         {
@@ -1978,6 +1982,7 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
         if (await advance.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
             throw new InvalidOperationException("The Personal Cloud device sequence could not be advanced atomically.");
 
+        await ParkNewTaskMutationAsync(connection, instanceId, deviceId, mutationId, cancellationToken).ConfigureAwait(false);
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return new PersonalCloudK1OutboxEntry
         {
@@ -2080,6 +2085,7 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
         advance.Parameters.AddWithValue("@s", sequence);
         if (await advance.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
             throw new InvalidOperationException("The Personal Cloud device sequence could not advance atomically.");
+        await ParkNewTaskMutationAsync(connection, instanceId, deviceId, mutationId, cancellationToken).ConfigureAwait(false);
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return new PersonalCloudK1OutboxEntry
         {
@@ -2204,6 +2210,7 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
         if (await advanceSequenceCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
             throw new InvalidOperationException("The Personal Cloud device sequence could not be advanced atomically.");
 
+        await ParkNewTaskMutationAsync(connection, instanceId, deviceId, mutationId, cancellationToken).ConfigureAwait(false);
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return new PersonalCloudK1OutboxEntry
         {
@@ -2330,6 +2337,7 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
         if (await advanceSequenceCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
             throw new InvalidOperationException("The Personal Cloud device sequence could not be advanced atomically.");
 
+        await ParkNewTaskMutationAsync(connection, instanceId, deviceId, mutationId, cancellationToken).ConfigureAwait(false);
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return new PersonalCloudK1OutboxEntry
         {
@@ -2385,6 +2393,7 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
         var advance=connection.CreateCommand();advance.CommandText="UPDATE personal_cloud_device_state SET next_device_sequence=@n WHERE instance_id=@i AND device_id=@d AND next_device_sequence=@s";
         advance.Parameters.AddWithValue("@n",checked(deviceSequence+1));advance.Parameters.AddWithValue("@i",instanceId);advance.Parameters.AddWithValue("@d",deviceId);advance.Parameters.AddWithValue("@s",deviceSequence);
         if(await advance.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false)!=1)throw new InvalidOperationException("The device sequence could not advance.");
+        await ParkNewTaskMutationAsync(connection, instanceId, deviceId, mutationId, cancellationToken).ConfigureAwait(false);
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return new PersonalCloudK1OutboxEntry{LocalSequence=localSequence,MutationId=mutationId,Product="tasks",InstanceId=instanceId,DeviceId=deviceId,DeviceSequence=deviceSequence,Operation="task.delete",EntityId=taskId,CanonicalJson=json,CanonicalHash=hash,CreatedAt=normalized};
     }
@@ -2418,6 +2427,7 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
           VALUES(@m,'tasks',@i,@d,@q,@o,@e,@j,@h,@a) RETURNING local_sequence
           """;outbox.Parameters.AddWithValue("@m",mutationId);outbox.Parameters.AddWithValue("@i",instanceId);outbox.Parameters.AddWithValue("@d",deviceId);outbox.Parameters.AddWithValue("@q",sequence);outbox.Parameters.AddWithValue("@o",operation);outbox.Parameters.AddWithValue("@e",taskId);outbox.Parameters.AddWithValue("@j",json);outbox.Parameters.AddWithValue("@h",hash);outbox.Parameters.AddWithValue("@a",now.ToUnixTimeMilliseconds());var localSequence=Convert.ToInt64(await outbox.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false));
         var advance=connection.CreateCommand();advance.CommandText="UPDATE personal_cloud_device_state SET next_device_sequence=@next WHERE instance_id=@i AND device_id=@d AND next_device_sequence=@q";advance.Parameters.AddWithValue("@next",sequence+1);advance.Parameters.AddWithValue("@i",instanceId);advance.Parameters.AddWithValue("@d",deviceId);advance.Parameters.AddWithValue("@q",sequence);if(await advance.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false)!=1)throw new InvalidOperationException("The device sequence could not advance.");
+        await ParkNewTaskMutationAsync(connection, instanceId, deviceId, mutationId, cancellationToken).ConfigureAwait(false);
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);return new PersonalCloudK1OutboxEntry{LocalSequence=localSequence,MutationId=mutationId,Product="tasks",InstanceId=instanceId,DeviceId=deviceId,DeviceSequence=sequence,Operation=operation,EntityId=taskId,CanonicalJson=json,CanonicalHash=hash,CreatedAt=now};
     }
 
@@ -2624,6 +2634,8 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
         if (await advance.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
             throw new InvalidOperationException("The Personal Cloud device sequence could not be advanced atomically.");
 
+        foreach (var entry in entries)
+            await ParkNewTaskMutationAsync(connection, instanceId, deviceId, entry.MutationId, cancellationToken).ConfigureAwait(false);
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return entries;
     }
@@ -4624,6 +4636,13 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
             command.CommandText = await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
             await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
+        using (var source = typeof(SqliteTaskStore).Assembly.GetManifestResourceStream("Openza.Tasks.Core.Data.Migrations.0012_personal_cloud_task_conflicts.sql")
+            ?? throw new InvalidOperationException("The task conflicts migration script is missing."))
+        using (var reader = new StreamReader(source))
+        {
+            command.CommandText = await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
+            await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
         await ExecutePragmaAsync(connection, $"PRAGMA user_version = {CurrentSchemaVersion}", cancellationToken).ConfigureAwait(false);
     }
 
@@ -5729,6 +5748,8 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
           canonical_json TEXT NOT NULL,
           base_record_json TEXT
         );
+        CREATE INDEX IF NOT EXISTS ix_personal_cloud_task_conflicts_entity
+          ON personal_cloud_task_conflicts(instance_id, entity_id);
 
         CREATE TABLE IF NOT EXISTS personal_cloud_checkpoints (
           instance_id TEXT NOT NULL,

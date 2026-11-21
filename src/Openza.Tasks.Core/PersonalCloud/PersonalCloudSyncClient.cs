@@ -32,7 +32,6 @@ public sealed partial class PersonalCloudSyncClient(
         // Negotiation is scoped to this pass, including retries on the same client.
         _batchCapabilityKnown = false;
         _catchupReportRejected = false;
-        await store.ParkAdditionalPersonalCloudTaskEditsAsync(connection.InstanceId, connection.DeviceId, cancellationToken).ConfigureAwait(false);
         var pending = await store.GetPendingPersonalCloudOutboxAsync(connection.InstanceId, connection.DeviceId, cancellationToken).ConfigureAwait(false);
         await DiscoverCapabilitiesAsync(cancellationToken).ConfigureAwait(false);
         var prefix = await SelectBudgetPrefixAsync(pending, cancellationToken).ConfigureAwait(false);

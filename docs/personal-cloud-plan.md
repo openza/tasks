@@ -348,6 +348,8 @@ Desktop workspace field edits (`task.patch` and legacy `task.updateOpenzaFields`
 
 After downloading changes, desktop compares each locally assigned field (including implicit date/exact-time clearing) with the latest cloud record. It retries only when every field already equals the desktop value, or a known base proves the cloud did not change it. Otherwise Settings → Personal Cloud → Sync conflicts presents both values. “Keep this desktop's version” rebases only the edited fields at the current cloud version; “Use cloud version” discards the parked intents. Neither choice overwrites unedited cloud fields. Later cloud edits can produce a new conflict rather than being overwritten silently. Unsupported semantic intents parked behind a field edit remain preserved and require using the cloud version; completion/tree and relationship conflicts are not automatically rebased.
 
+New task operations on an already parked task are parked within their authoring transaction, before they can be uploaded. Sync never sweeps possibly delivered rows into conflicts. Automatic resolution skips tasks with pending uploads. Cards explain parked semantic operations and disable desktop replay when it would replay unsupported operations, change a provider-owned title, or select a cloud project that is missing, deleted, archived, or in another Space. In those cases the cloud-only choice explicitly discards all parked desktop changes. A real upload block and the task-conflict notice are both shown.
+
 ## 7. Online-first Web behavior
 
 ### 7.1 Supported experience

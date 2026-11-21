@@ -44,9 +44,28 @@ public sealed class DesktopPersonalCloudSettingsTests(EditorTestSession fixture)
                 Assert.Contains("1 task(s) have conflicting edits", vm.PersonalCloudSummaryText);
                 await vm.RunTodoistSyncAsync();
                 Assert.Contains("1 task(s) have conflicting edits", vm.PersonalCloudSummaryText);
+                service.SyncAction = _ => Task.FromResult(new PersonalCloudSyncResult(0, 0, 2) { BlockedCode = "sequence_gap", TaskConflictCount = 1 });
+                await vm.RunTodoistSyncAsync();
+                Assert.Contains("sync blocked (sequence_gap)", vm.PersonalCloudSummaryText);
+                Assert.Contains("1 task(s) have conflicting edits", vm.PersonalCloudSummaryText);
+                Assert.Contains("sync blocked (sequence_gap)", vm.LastSyncResult);
+                Assert.Contains("1 task(s) have conflicting edits", vm.LastSyncResult);
+                Assert.DoesNotContain("Other changes can still sync", vm.PersonalCloudSummaryText);
+                service.SyncAction = null;
 
                 if (keepDesktop is { } choice)
+                {
+                    var release = new TaskCompletionSource<PersonalCloudSyncResult>();
+                    service.SyncAction = _ => release.Task;
+                    var resolving = vm.ResolvePersonalCloudTaskConflictAsync(task.Id, choice);
+                    Assert.False(vm.CanResolvePersonalCloudTaskConflicts);
                     await vm.ResolvePersonalCloudTaskConflictAsync(task.Id, choice);
+                    release.SetResult(new PersonalCloudSyncResult(1, 1, 2));
+                    await resolving;
+                    service.SyncAction = null;
+                    Assert.True(vm.CanResolvePersonalCloudTaskConflicts);
+                    Assert.Equal(3, service.SyncCalls);
+                }
                 else
                 {
                     service.SyncAction = async _ =>
@@ -90,6 +109,8 @@ public sealed class DesktopPersonalCloudSettingsTests(EditorTestSession fixture)
             var cloud = System.Text.Json.JsonSerializer.SerializeToNode(PersonalCloudWorkspaceTests.TaskRecord(version: 2))!;
             cloud["title"] = "Cloud title"; cloud["notes"] = "Cloud notes";
             await store.ApplyPersonalCloudChangePageAsync(instance, device, PersonalCloudWorkspaceTests.Page(2, tasks: [cloud]));
+            if (!keepDesktop)
+                await store.CompleteTaskWithPersonalCloudIntentAsync("task_test", DateTimeOffset.UtcNow, 2, instance, device);
             var origin = new Uri("https://ui-conflict.example.test/");
             var profile = new PersonalCloudConnectionProfile { ServiceOrigin = origin, InstanceId = instance, DeviceId = device, ArtifactVersion = "synthetic", ConnectedAt = DateTimeOffset.UtcNow };
             var service = new StubSetupService(new(origin, "worker", "database", "synthetic", origin), profile);
@@ -116,6 +137,13 @@ public sealed class DesktopPersonalCloudSettingsTests(EditorTestSession fixture)
                     frame.Save(screenshot, new Avalonia.Media.Imaging.PngBitmapEncoderOptions());
                 }
                 var button = settings.GetVisualDescendants().OfType<Button>().Single(b => Equals(b.Content, keepDesktop ? "Keep this desktop's version" : "Use cloud version"));
+                Assert.Contains("Desktop title", Avalonia.Automation.AutomationProperties.GetName(button));
+                if (!keepDesktop)
+                {
+                    var keep = settings.GetVisualDescendants().OfType<Button>().Single(b => Equals(b.Content, "Keep this desktop's version"));
+                    Assert.False(keep.IsEnabled);
+                    Assert.Contains(texts, text => text is not null && text.Contains("Complete task") && text.Contains("discards all parked desktop changes"));
+                }
                 button.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
                 while (vm.HasPersonalCloudTaskConflicts || service.SyncCalls == 0 || vm.IsSyncing) await Task.Delay(10, deadline.Token);
                 Assert.Equal(1, service.SyncCalls);

@@ -7,3 +7,5 @@ CREATE TABLE IF NOT EXISTS personal_cloud_task_conflicts (
     canonical_json TEXT NOT NULL,
     base_record_json TEXT
 );
+CREATE INDEX IF NOT EXISTS ix_personal_cloud_task_conflicts_entity
+    ON personal_cloud_task_conflicts(instance_id, entity_id);

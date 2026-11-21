@@ -1675,7 +1675,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             var personalCloudError = result.PersonalCloudError;
             if (result.CloudAttempted)
             {
-                await RefreshInitialSyncProgressAsync();
+                await RefreshPersonalCloudSyncResultAsync(personalCloud);
                 if (personalCloudError is not null)
                 {
                     await MarkWindowsCloudRecoveryAsync(result.PersonalCloudErrorCode);
@@ -1708,9 +1708,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 ? $"{IntegrationIds.DisplayName(summary.Provider)} synced · {summary.TasksAdded} new, {summary.TasksUpdated} updated, {summary.CompletionsSynced} completions, {summary.DateUpdatesSynced} date changes"
                 : $"{IntegrationIds.DisplayName(summary.Provider)} sync failed: {summary.Error}").ToList();
             if (personalCloud is not null)
-                resultMessages.Add(personalCloud.TaskConflictCount > 0 ? TaskConflictSummary(personalCloud.TaskConflictCount) : personalCloud.InitialSyncProgress is { IsComplete: false } initialProgress ? initialProgress.Summary : personalCloud.BlockedCode is null
-                    ? $"Personal Cloud synced · {personalCloud.PushedMutations} uploaded, {personalCloud.PulledChanges} downloaded"
-                    : $"Personal Cloud sync blocked ({personalCloud.BlockedCode}) · {personalCloud.PulledChanges} downloaded. Pending edits are preserved and require resolution.");
+                resultMessages.Add(CloudSyncSummary(personalCloud, $"Personal Cloud synced · {personalCloud.PushedMutations} uploaded, {personalCloud.PulledChanges} downloaded"));
             if (personalCloudError is not null)
                 resultMessages.Add(_cloudDispatchStatus is { IsPaused: true } pause ? pause.Summary : $"Personal Cloud sync failed: {personalCloudError}");
             if (bridgeResult is not null) resultMessages.Add(bridgeResult.Summary);

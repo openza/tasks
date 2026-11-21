@@ -71,6 +71,7 @@ public sealed partial class SqliteTaskStore
         foreach (var (name, value) in new (string, object)[] { ("@m", mutationId), ("@i", instanceId), ("@d", deviceId), ("@q", sequence), ("@o", operation), ("@e", entityId), ("@j", json), ("@h", hash), ("@a", now.ToUnixTimeMilliseconds()) }) command.Parameters.AddWithValue(name, value);
         var localSequence = Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false));
         await WorkspaceExecuteAsync(connection, "UPDATE personal_cloud_device_state SET next_device_sequence=@q WHERE instance_id=@i AND device_id=@d", cancellationToken, ("@q", checked(sequence + 1)), ("@i", instanceId), ("@d", deviceId)).ConfigureAwait(false);
+        await ParkNewTaskMutationAsync(connection, instanceId, deviceId, mutationId, cancellationToken).ConfigureAwait(false);
         return new() { LocalSequence = localSequence, MutationId = mutationId, Product = "tasks", InstanceId = instanceId, DeviceId = deviceId,
             DeviceSequence = sequence, Operation = operation, EntityId = entityId, CanonicalJson = json, CanonicalHash = hash, CreatedAt = now };
     }
@@ -235,10 +236,6 @@ public sealed partial class SqliteTaskStore
         if (fields.TryGetValue("workflowStatus", out var requestedStatus) && requestedStatus is not ("none" or "inbox" or "next" or "waiting" or "someday")) throw PersonalCloudWorkspaceCodec.Invalid();
         await UpsertTaskCoreAsync(connection, updated with { UpdatedAt = DateTimeOffset.UtcNow, Revision = updated.Revision + 1 }, cancellationToken).ConfigureAwait(false);
         var entry = await AppendWorkspaceMutationAsync(connection, instanceId, deviceId, "task.patch", taskId, version, new { fields }, cancellationToken).ConfigureAwait(false);
-        var parked = connection.CreateCommand(); parked.CommandText = "SELECT COUNT(*) FROM personal_cloud_task_conflicts WHERE instance_id=@i AND entity_id=@e";
-        parked.Parameters.AddWithValue("@i", instanceId); parked.Parameters.AddWithValue("@e", taskId);
-        if (Convert.ToInt64(await parked.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)) > 0)
-            await ParkTaskConflictAsync(connection, instanceId, deviceId, taskId, entry.DeviceSequence, cancellationToken).ConfigureAwait(false);
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return entry;
     }

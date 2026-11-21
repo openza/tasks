@@ -703,17 +703,18 @@
                     <Border Padding="20" Classes="settings-card" IsVisible="{Binding HasPersonalCloudTaskConflicts}">
                         <StackPanel Spacing="12">
                             <TextBlock FontWeight="SemiBold" Text="Sync conflicts"/>
-                            <TextBlock Text="Choose which edits to keep for each task. Other tasks continue syncing." TextWrapping="Wrap"/>
+                            <TextBlock Text="Choose which edits to keep for each task. Check sync status above for any upload blocks." TextWrapping="Wrap"/>
                             <ItemsControl ItemsSource="{Binding PersonalCloudTaskConflicts}">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>
                                         <StackPanel Margin="0,8" Spacing="10">
                                             <TextBlock FontWeight="SemiBold" Text="{Binding Title}" TextWrapping="Wrap"/>
+                                            <TextBlock Text="{Binding ResolutionNotice}" TextWrapping="Wrap"/>
                                             <ItemsControl ItemsSource="{Binding Fields}">
                                                 <ItemsControl.ItemTemplate>
                                                     <DataTemplate>
                                                         <StackPanel Margin="0,4" Spacing="3">
-                                                            <TextBlock FontWeight="SemiBold" Text="{Binding Name}"/>
+                                                            <TextBlock FontWeight="SemiBold" Text="{Binding DisplayName}"/>
                                                             <TextBlock Text="This desktop:"/>
                                                             <TextBlock Text="{Binding DesktopValue}" TextWrapping="Wrap"/>
                                                             <TextBlock Text="Cloud:"/>
@@ -722,9 +723,9 @@
                                                     </DataTemplate>
                                                 </ItemsControl.ItemTemplate>
                                             </ItemsControl>
-                                            <WrapPanel>
-                                                <Button Margin="0,0,8,8" Click="OnKeepDesktopConflictClicked" Content="Keep this desktop's version"/>
-                                                <Button Margin="0,0,8,8" Click="OnUseCloudConflictClicked" Content="Use cloud version"/>
+                                            <WrapPanel IsEnabled="{Binding $parent[Window].DataContext.CanResolvePersonalCloudTaskConflicts}">
+                                                <Button Margin="0,0,8,8" Click="OnKeepDesktopConflictClicked" Content="Keep this desktop's version" IsEnabled="{Binding CanKeepDesktop}" AutomationProperties.Name="{Binding Title, StringFormat='Keep desktop version of {0}'}"/>
+                                                <Button Margin="0,0,8,8" Click="OnUseCloudConflictClicked" Content="Use cloud version" AutomationProperties.Name="{Binding Title, StringFormat='Use cloud version of {0}'}"/>
                                             </WrapPanel>
                                         </StackPanel>
                                     </DataTemplate>
