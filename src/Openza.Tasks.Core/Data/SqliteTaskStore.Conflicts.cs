@@ -48,17 +48,12 @@ public sealed partial class SqliteTaskStore
         var indirect = await ReadConflictIndirectTasksAsync(connection, instanceId, cancellationToken).ConfigureAwait(false);
         var affected = new HashSet<string>(StringComparer.Ordinal) { entityId };
         var parkedIds = new HashSet<string>(StringComparer.Ordinal);
-        bool expanded;
-        do
+        foreach (var row in tail.Where(r => r.Operation.StartsWith("task.", StringComparison.Ordinal)))
         {
-            expanded = false;
-            foreach (var row in tail.Where(r => r.Operation.StartsWith("task.", StringComparison.Ordinal) && !parkedIds.Contains(r.Id)))
-            {
-                var targets = indirect.GetValueOrDefault(row.Id) ?? [];
-                if (!affected.Contains(row.Entity) && !targets.Any(affected.Contains)) continue;
-                parkedIds.Add(row.Id); affected.Add(row.Entity); affected.UnionWith(targets); expanded = true;
-            }
-        } while (expanded);
+            var targets = indirect.GetValueOrDefault(row.Id) ?? [];
+            if (!affected.Contains(row.Entity) && !targets.Any(affected.Contains)) continue;
+            parkedIds.Add(row.Id); affected.Add(row.Entity); affected.UnionWith(targets);
+        }
         foreach (var row in tail.Where(r => parkedIds.Contains(r.Id)))
         {
             var cloud = await ReadWorkspaceRecordAsync(connection, instanceId, "tasks", row.Entity, cancellationToken).ConfigureAwait(false);

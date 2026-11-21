@@ -9,6 +9,34 @@ namespace Openza.Tasks.Tests;
 public sealed partial class PersonalCloudBatchSyncTests
 {
     [Fact]
+    public async Task Child_edit_before_parked_move_uploads_and_survives_discarding_the_move()
+    {
+        var (store, handler) = await ConflictStoreAsync();
+        var child = JsonSerializer.SerializeToNode(PersonalCloudWorkspaceTests.TaskRecord("task_child"))!;
+        child["parentId"] = "task_test";
+        await store.ApplyPersonalCloudChangePageAsync(Instance, Device, PersonalCloudWorkspaceTests.Page(2, tasks: [child]));
+        var rejected = await PatchAsync(store, "task_test", "title", "Desktop parent");
+        await PatchAsync(store, "task_child", "notes", "Independent child notes");
+        await store.MoveTaskTreeToSpaceWithPersonalCloudIntentAsync("task_test", "space_destination", "Destination",
+            new Dictionary<string, long> { ["task_test"] = 2, ["task_child"] = 2 }, Instance, Device);
+        await store.ParkPersonalCloudTaskConflictAsync(rejected);
+        Assert.Equal("task_child", Assert.Single(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device)).EntityId);
+        child["entityVersion"] = 2; child["notes"] = "Independent child notes";
+        handler.CurrentCheckpoint = 3;
+        handler.ChangePageJson = PersonalCloudWorkspaceTests.Page(3, tasks: [CloudTask(), child]);
+        var result = await (await CreateClientAsync(store, handler)).SyncAsync();
+        Assert.Null(result.BlockedCode);
+        Assert.Equal(1, result.PushedMutations);
+        var card = Assert.Single(await store.GetPersonalCloudTaskConflictsAsync(Instance));
+        await store.ResolvePersonalCloudTaskConflictAsync(Instance, card.TaskId, false, expectedRevision: card.RevisionToken);
+        var restored = (await store.GetTaskAsync("task_child"))!;
+        Assert.Equal("Independent child notes", restored.Notes);
+        Assert.Equal("space_test", restored.SpaceId);
+        Assert.Empty(await store.GetPersonalCloudTaskConflictsAsync(Instance));
+        await store.EnsureNoPendingPersonalCloudIntentsAsync();
+    }
+
+    [Fact]
     public async Task Project_deletion_stays_uploadable_and_task_conflict_can_resolve_after_its_echo()
     {
         var (store, handler) = await ConflictStoreAsync();
