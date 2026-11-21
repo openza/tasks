@@ -8,6 +8,15 @@ namespace Openza.Tasks.Tests;
 
 public sealed class MarkdownTaskParserTests
 {
+    [Fact]
+    public void Parse_export_defaults_to_low_without_consumed_priority_metadata()
+    {
+        var task = Assert.Single(MarkdownTaskParser.Parse("# Openza Tasks Export\n- [ ] Review Priority: handling"));
+
+        Assert.Equal("Review Priority: handling", task.Title);
+        Assert.Equal(4, task.Priority);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

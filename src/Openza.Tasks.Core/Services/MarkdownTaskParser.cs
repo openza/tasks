@@ -73,7 +73,6 @@ public static partial class MarkdownTaskParser
                 tasks.Add(task with
                 {
                     ProjectName = project,
-                    Priority = exported && task.Priority == 2 && !line.Contains("Priority:", StringComparison.Ordinal) ? 4 : task.Priority,
                     Labels = task.Labels.Select(label => exportedLabels.FirstOrDefault(item => item.Name.Replace(' ', '_') == label.Name.Replace(' ', '_')) ?? label).ToArray(),
                 });
                 metadataTarget = tasks.Count - 1;
@@ -111,7 +110,7 @@ public static partial class MarkdownTaskParser
                 string.Equals(match.Groups["state"].Value, "x", StringComparison.OrdinalIgnoreCase));
         }
 
-        var priority = 2;
+        var priority = 4;
         DateOnly? date = null, deadline = null;
         var labels = new List<LabelItem>();
         var tags = Regex.Match(title, @"(?: @[^\s]+)+$");
