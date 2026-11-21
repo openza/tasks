@@ -162,7 +162,7 @@ public sealed partial class WindowsContinuityIntegrationTests
     {
         Directory.CreateDirectory(_root);
         await File.WriteAllTextAsync(Path.Combine(_root, "settings.json"), "{}");
-        var store = new SqliteTaskStore(Path.Combine(_root, "openza-tasks.db"));
+        var store = new SqliteTaskStore(Path.Combine(_root, "openza_tasks.db"));
         await store.InitializeAsync();
         var platform = Platform;
         var profile = new PersonalCloudConnectionProfile { ServiceOrigin = new("https://example.invalid/"), InstanceId = "instance-composed",
