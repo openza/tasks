@@ -17,6 +17,8 @@ public static partial class MarkdownTaskParser
         }
 
         var tasks = new List<ParsedTask>();
+        int? metadataTarget = null;
+        var continuingNotes = false;
         string? project = null;
         var exported = markdown.StartsWith("# Openza Tasks Export", StringComparison.Ordinal);
         var exportedLabels = exported
@@ -27,7 +29,7 @@ public static partial class MarkdownTaskParser
         {
             if (exported && line.StartsWith("### ", StringComparison.Ordinal))
                 project = Unescape(line[4..].Trim()) is var name && name != "No Project" ? name : null;
-            if (tasks.Count > 0 && line.StartsWith("  <!-- openza-task:", StringComparison.Ordinal) && line.TrimEnd().EndsWith(" -->", StringComparison.Ordinal))
+            if (metadataTarget is { } target && line.StartsWith("  <!-- openza-task:", StringComparison.Ordinal) && line.TrimEnd().EndsWith(" -->", StringComparison.Ordinal))
             {
                 try
                 {
@@ -36,8 +38,8 @@ public static partial class MarkdownTaskParser
                         && data.Labels is not null && data.Labels.All(label => label is not null && !string.IsNullOrWhiteSpace(label.Name))
                         && Enum.IsDefined(data.WorkflowStatus) && Enum.IsDefined(data.CompletionState))
                     {
-                        var isCompleted = tasks[^1].IsCompleted;
-                        tasks[^1] = data with
+                        var isCompleted = tasks[target].IsCompleted;
+                        tasks[target] = data with
                         {
                             IsCompleted = isCompleted,
                             CompletionState = isCompleted ? TaskCompletionState.Completed
@@ -46,13 +48,25 @@ public static partial class MarkdownTaskParser
                     }
                 }
                 catch (JsonException) { }
+                metadataTarget = null;
+                continuingNotes = false;
                 continue;
             }
-            if (tasks.Count > 0 && line.StartsWith("  - _", StringComparison.Ordinal) && line.TrimEnd().EndsWith('_'))
+            if (metadataTarget is { } notesTarget && (line.StartsWith("  - _", StringComparison.Ordinal)
+                || continuingNotes && line.StartsWith("    ", StringComparison.Ordinal)))
             {
-                tasks[^1] = tasks[^1] with { Notes = Unescape(line.TrimEnd()[5..^1]) };
+                var notes = line.TrimEnd()[(continuingNotes ? 4 : 5)..];
+                var closed = notes.EndsWith('_');
+                if (closed) notes = notes[..^1];
+                tasks[notesTarget] = tasks[notesTarget] with
+                {
+                    Notes = (continuingNotes ? tasks[notesTarget].Notes + "\n" : string.Empty) + Unescape(notes),
+                };
+                continuingNotes = !closed;
                 continue;
             }
+            metadataTarget = null;
+            continuingNotes = false;
             var task = ParseLine(line, exported);
             if (task is not null)
             {
@@ -62,6 +76,7 @@ public static partial class MarkdownTaskParser
                     Priority = exported && task.Priority == 2 && !line.Contains("Priority:", StringComparison.Ordinal) ? 4 : task.Priority,
                     Labels = task.Labels.Select(label => exportedLabels.FirstOrDefault(item => item.Name.Replace(' ', '_') == label.Name.Replace(' ', '_')) ?? label).ToArray(),
                 });
+                metadataTarget = tasks.Count - 1;
             }
         }
 

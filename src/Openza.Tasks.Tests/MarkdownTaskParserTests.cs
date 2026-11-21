@@ -8,6 +8,22 @@ namespace Openza.Tasks.Tests;
 
 public sealed class MarkdownTaskParserTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Parse_rejected_checkbox_cannot_attach_notes_or_metadata_to_previous_task(bool comment)
+    {
+        var exported = MarkdownExporter.Export([new TaskItem { Title = "Rejected task", Notes = "Wrong notes" }], [], []);
+        var metadata = exported.Split('\n').Single(line => line.StartsWith("  <!-- openza-task:", StringComparison.Ordinal));
+        var markdown = "# Openza Tasks Export\n- [ ] Keep me\n- [ ] " + new string('a', 10_001)
+            + "\n" + (comment ? metadata : "  - _Wrong notes_");
+
+        var task = Assert.Single(MarkdownTaskParser.Parse(markdown));
+
+        Assert.Equal("Keep me", task.Title);
+        Assert.Null(task.Notes);
+    }
+
     [Fact]
     public async Task Import_records_cloud_project_task_and_label_intent()
     {
