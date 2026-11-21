@@ -448,7 +448,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         private set => SetProperty(ref _todoistConnectionText, value);
     }
 
-    public bool HasConnectedTaskApp => IsTodoistConnected || _preferencesStore.Load().MicrosoftToDoAccount is not null;
+    public bool HasConnectedTaskApp => IsPersonalCloudConnected || IsTodoistConnected || _preferencesStore.Load().MicrosoftToDoAccount is not null;
 
     private bool IsTodoistConnected
     {
