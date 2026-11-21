@@ -1,10 +1,69 @@
 using Openza.Tasks.Core.PersonalCloud;
+using Openza.Tasks.Core.Data;
 using Openza.Tasks.Desktop.Services.Continuity;
 
 namespace Openza.Tasks.Desktop.ViewModels;
 
 public sealed partial class MainWindowViewModel
 {
+    public System.Collections.ObjectModel.ObservableCollection<PersonalCloudTaskConflict> PersonalCloudTaskConflicts { get; } = [];
+    public bool HasPersonalCloudTaskConflicts => PersonalCloudTaskConflicts.Count > 0;
+    private static string TaskConflictSummary(int count, bool canSync = true) => $"{count} task(s) have conflicting edits. Choose a version in Settings → Personal Cloud → Sync conflicts." + (canSync ? " Other changes can still sync." : "");
+    private string? _personalCloudBlockedCode;
+    private string CurrentTaskConflictSummary(int count) =>
+        _personalCloudBlockedCode is { } code ? $"Personal Cloud sync blocked ({code}). " + TaskConflictSummary(count, false) :
+        _initialSyncProgress is { IsComplete: false } progress ? progress.Summary + " " + TaskConflictSummary(count, false) : TaskConflictSummary(count);
+    private static string CloudSyncSummary(PersonalCloudSyncResult result, string success)
+    {
+        var summary = result.BlockedCode is { } code ? $"Personal Cloud sync blocked ({code}). Pending edits are preserved." :
+            result.InitialSyncProgress is { IsComplete: false } progress ? progress.Summary : success;
+        return result.TaskConflictCount > 0 ? summary + " " + TaskConflictSummary(result.TaskConflictCount, result.BlockedCode is null && result.InitialSyncProgress is not { IsComplete: false }) : summary;
+    }
+    private bool _isResolvingPersonalCloudTaskConflict;
+    public bool CanResolvePersonalCloudTaskConflicts => !_isResolvingPersonalCloudTaskConflict;
+
+    public async Task RefreshPersonalCloudTaskConflictsAsync()
+    {
+        var conflicts = await _taskService.ListPersonalCloudTaskConflictsAsync();
+        var hadConflicts = HasPersonalCloudTaskConflicts;
+        PersonalCloudTaskConflicts.Clear();
+        foreach (var conflict in conflicts) PersonalCloudTaskConflicts.Add(conflict);
+        OnPropertyChanged(nameof(HasPersonalCloudTaskConflicts));
+        if (conflicts.Count > 0) PersonalCloudSummaryText = CurrentTaskConflictSummary(conflicts.Count);
+        else if (hadConflicts && IsPersonalCloudConnected)
+            PersonalCloudSummaryText = "This desktop is paired. Sync can continue.";
+    }
+
+    public async Task ResolvePersonalCloudTaskConflictAsync(string taskId, bool keepDesktop, string? revisionToken = null)
+    {
+        if (_isResolvingPersonalCloudTaskConflict) return;
+        _isResolvingPersonalCloudTaskConflict = true;
+        OnPropertyChanged(nameof(CanResolvePersonalCloudTaskConflicts));
+        try
+        {
+            revisionToken ??= PersonalCloudTaskConflicts.FirstOrDefault(c => c.TaskId == taskId)?.RevisionToken ?? string.Empty;
+            await _syncGate.WaitAsync();
+            try
+            {
+                await _taskService.ResolvePersonalCloudTaskConflictAsync(taskId, keepDesktop, revisionToken);
+                await RefreshPersonalCloudTaskConflictsAsync();
+            }
+            catch (PersonalCloudK0ContractException exception) when (exception.Code == "conflict_changed")
+            {
+                await RefreshPersonalCloudTaskConflictsAsync();
+                PersonalCloudSummaryText = exception.Message;
+                return;
+            }
+            catch (Exception exception) { PersonalCloudSummaryText = exception.Message; return; }
+            finally { _syncGate.Release(); }
+            await RunTodoistSyncAsync();
+        }
+        finally
+        {
+            _isResolvingPersonalCloudTaskConflict = false;
+            OnPropertyChanged(nameof(CanResolvePersonalCloudTaskConflicts));
+        }
+    }
     private PersonalCloudInitialSyncProgress? _initialSyncProgress;
     private bool _isManagingPersonalCloud;
     private bool _isPairingInitialSync;
@@ -36,7 +95,8 @@ public sealed partial class MainWindowViewModel
         OnPropertyChanged(nameof(InitialSyncSummary));
         PersonalCloudStatusText = pause.BlocksReads ? "Paused" : "Uploads paused";
         PersonalCloudSummaryText = pause.Summary + (pause.CatchupTelemetryUnknown
-            ? " Current catch-up status is unknown; large web changes remain deferred until it is saved and confirmed." : "");
+            ? " Current catch-up status is unknown; large web changes remain deferred until it is saved and confirmed." : "") +
+            (HasPersonalCloudTaskConflicts ? " " + TaskConflictSummary(PersonalCloudTaskConflicts.Count, false) : "");
     }
 
     private void ApplyInitialSyncProgress(PersonalCloudInitialSyncProgress progress)
@@ -66,6 +126,7 @@ public sealed partial class MainWindowViewModel
 
     private async Task RefreshInitialSyncProgressAsync()
     {
+        await RefreshPersonalCloudTaskConflictsAsync();
         if (SessionCloudNotice is { } notice)
         {
             PersonalCloudStatusText = "Paused";
@@ -99,6 +160,7 @@ public sealed partial class MainWindowViewModel
         }
         if (_cloudDispatchStatus is { CatchupTelemetryUnknown: true })
             PersonalCloudSummaryText = "Current catch-up status could not be saved or confirmed. Backlog uploads are held; downloads and local work remain available within cloud limits. Retry Sync after restoring local storage or connectivity.";
+        else if (HasPersonalCloudTaskConflicts) PersonalCloudSummaryText = CurrentTaskConflictSummary(PersonalCloudTaskConflicts.Count);
     }
 
     private async Task<PersonalCloudSyncResult> SyncPersonalCloudWithProgressAsync(CancellationToken cancellationToken = default)
@@ -106,8 +168,7 @@ public sealed partial class MainWindowViewModel
         try
         {
             var result = await _personalCloudSetup!.SyncAsync(cancellationToken);
-            await RefreshInitialSyncProgressAsync();
-            if (result.InitialSyncProgress is { } progress) ApplyInitialSyncProgress(progress);
+            await RefreshPersonalCloudSyncResultAsync(result);
             return result;
         }
         catch (PersonalCloudK0ContractException exception) when (exception.DispatchStatus is not null)
@@ -121,6 +182,22 @@ public sealed partial class MainWindowViewModel
             PersonalCloudSummaryText = exception.Message;
             throw;
         }
+    }
+    private async Task RefreshPersonalCloudSyncResultAsync(PersonalCloudSyncResult? result)
+    {
+        if (result is not null)
+        {
+            _personalCloudBlockedCode = result.BlockedCode;
+            if (result.InitialSyncProgress is { } progress) ApplyInitialSyncProgress(progress);
+        }
+        await RefreshInitialSyncProgressAsync();
+        if (result?.BlockedCode is not null)
+        {
+            PersonalCloudStatusText = "Sync blocked";
+            PersonalCloudSummaryText = CloudSyncSummary(result, string.Empty);
+        }
+        else if (result is not null && PersonalCloudStatusText == "Sync blocked")
+            PersonalCloudStatusText = "Connected";
     }
     public System.Collections.ObjectModel.ObservableCollection<Openza.Tasks.Core.Data.PersonalCloudProviderRequestStatus> ProviderRequests { get; } = [];
 
@@ -238,11 +315,9 @@ public sealed partial class MainWindowViewModel
                     PersonalCloudSummaryText = "Your cloud is ready. Initial sync was interrupted. Retry Sync; no new setup is needed.";
                 return result;
             }
-            PersonalCloudStatusText = "Connected";
-            PersonalCloudSummaryText = sync.BlockedCode is null
-                ? $"This desktop is paired with {result.ServiceOrigin.Host}. Cloud connection verified at checkpoint {sync.Checkpoint}."
-                : $"This desktop is paired. Sync is blocked ({sync.BlockedCode}); pending edits are preserved and require resolution.";
+            PersonalCloudStatusText = sync.BlockedCode is null ? "Connected" : "Sync blocked";
             if (sync.InitialSyncProgress is { } progressState) ApplyInitialSyncProgress(progressState);
+            PersonalCloudSummaryText = CloudSyncSummary(sync, $"This desktop is paired with {result.ServiceOrigin.Host}. Cloud connection verified at checkpoint {sync.Checkpoint}.");
             PersonalCloudActionText = "Manage Personal Cloud";
             NotifyPersonalCloudConnectionChanged();
             return result;
@@ -346,11 +421,9 @@ public sealed partial class MainWindowViewModel
             PersonalCloudActionText = "Manage Personal Cloud";
             NotifyPersonalCloudConnectionChanged();
             var sync = await SyncPersonalCloudWithProgressAsync(cancellationToken);
-            PersonalCloudStatusText = "Connected";
-            PersonalCloudSummaryText = sync.BlockedCode is null
-                ? $"This desktop is paired with {connection.ServiceOrigin.Host}. Cloud connection verified at checkpoint {sync.Checkpoint}."
-                : $"This desktop is paired. Sync is blocked ({sync.BlockedCode}); pending edits are preserved and require resolution.";
+            PersonalCloudStatusText = sync.BlockedCode is null ? "Connected" : "Sync blocked";
             if (sync.InitialSyncProgress is { } progressState) ApplyInitialSyncProgress(progressState);
+            PersonalCloudSummaryText = CloudSyncSummary(sync, $"This desktop is paired with {connection.ServiceOrigin.Host}. Cloud connection verified at checkpoint {sync.Checkpoint}.");
             PersonalCloudActionText = "Manage Personal Cloud";
             NotifyPersonalCloudConnectionChanged();
             return connection;

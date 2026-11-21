@@ -48,6 +48,8 @@ public sealed partial class PersonalCloudSyncClient
                 }
                 if (receipt.ErrorCode is { } code)
                 {
+                    if (code == "version_conflict" && await store.ParkPersonalCloudTaskConflictAsync(value.Items[receipt.Receipts.Count], cancellationToken).ConfigureAwait(false))
+                        return await PushAfterParkingAsync(pushed, accessToken, cancellationToken).ConfigureAwait(false);
                     if (code == "fanout_bound_exceeded")
                     {
                         await RememberStaleFanoutAsync(value.Items[receipt.Receipts.Count], cancellationToken).ConfigureAwait(false);
@@ -77,13 +79,27 @@ public sealed partial class PersonalCloudSyncClient
                 return (pushed, exception.Code);
             }
             catch (PersonalCloudK0ContractException exception) when (IsPermanentMutationRejection(exception.Code))
-            { return (pushed, exception.Code); }
+            {
+                if (exception.Code == "version_conflict" && await store.ParkPersonalCloudTaskConflictAsync(mutation, cancellationToken).ConfigureAwait(false))
+                    return await PushAfterParkingAsync(pushed, accessToken, cancellationToken).ConfigureAwait(false);
+                return (pushed, exception.Code);
+            }
             SqliteTaskStore.ValidatePersonalCloudMutationReceipt(mutation, receiptJson);
             await store.AcknowledgePersonalCloudMutationAsync(connection.InstanceId, connection.DeviceId, receiptJson, cancellationToken).ConfigureAwait(false);
             pushed++;
             if (progress is not null) await progress(PersonalCloudInitialSyncPhase.Uploading, cancellationToken).ConfigureAwait(false);
         }
         return (pushed, null);
+    }
+
+    private async Task<(int Pushed, string? Blocked)> PushAfterParkingAsync(int pushed, string accessToken, CancellationToken cancellationToken)
+    {
+        var pending = await store.GetPendingPersonalCloudOutboxAsync(connection.InstanceId, connection.DeviceId, cancellationToken).ConfigureAwait(false);
+        var prefix = await SelectBudgetPrefixAsync(pending, cancellationToken).ConfigureAwait(false);
+        var rest = await PushPendingAsync(prefix.Items, accessToken, cancellationToken).ConfigureAwait(false);
+        if (rest.Blocked is null && prefix.PauseAfter && PersonalCloudDispatchHttp.PolicyFor(http) is { } dispatch)
+            return (pushed + rest.Pushed, (await dispatch.PauseBudgetAsync(connection.ServiceOrigin, prefix.OversizedUnits, cancellationToken).ConfigureAwait(false)).Code);
+        return (pushed + rest.Pushed, rest.Blocked);
     }
 
     internal async Task DiscoverCapabilitiesAsync(CancellationToken cancellationToken)

@@ -259,6 +259,11 @@ public sealed partial class PersonalCloudBatchSyncTests : IDisposable
         public HttpStatusCode? RouteStatus { get; set; }
         public string? PartialFailure { get; set; }
         public string? SingleError { get; set; }
+        public string? ConflictEntity { get; set; }
+        public string? ChangePageJson { get; set; }
+        public string? WorkspaceBootstrapJson { get; set; }
+        public bool StrictSequencing { get; set; }
+        public long LastAcceptedSequence { get; private set; }
         public string? ResponseDefect { get; set; }
         public bool LoseResponse { get; set; }
         public DateTimeOffset? ResponseDate { get; set; }
@@ -308,8 +313,14 @@ public sealed partial class PersonalCloudBatchSyncTests : IDisposable
                 return Json(HttpStatusCode.OK, JsonSerializer.Serialize(new { protocolVersion = 1, accepted,
                     reportSequence = CatchupServerSequence, updatedAt = "2026-10-20T01:00:00.000Z" }));
             }
-            if (path == "/sync/changes") { ChangeRequests++; if (OnChanges is not null) await OnChanges(); return Json(HttpStatusCode.OK, $$"""{"protocolVersion":1,"product":"tasks","changes":[],"nextCheckpoint":{{CurrentCheckpoint}}}"""); }
+            if (path == "/sync/changes")
+            {
+                ChangeRequests++; if (OnChanges is not null) await OnChanges();
+                if (ChangePageJson is { } page) { ChangePageJson = null; return Json(HttpStatusCode.OK, page); }
+                return Json(HttpStatusCode.OK, $$"""{"protocolVersion":1,"product":"tasks","changes":[],"nextCheckpoint":{{CurrentCheckpoint}}}""");
+            }
             if (path == "/sync/checkpoints") { CheckpointRequests++; return Json(HttpStatusCode.OK, $$"""{"protocolVersion":1,"product":"tasks","deviceId":"{{Device}}","acknowledgedCheckpoint":{{CurrentCheckpoint}}}"""); }
+            if (path == "/sync/bootstrap" && WorkspaceBootstrapJson is { } bootstrap) return Json(HttpStatusCode.OK, bootstrap);
             if (path is not ("/v1/tasks/mutations/batch" or "/v1/tasks/mutations")) throw new InvalidOperationException(path);
             Assert.Equal("Bearer", request.Headers.Authorization?.Scheme);
             var body = await request.Content!.ReadAsStringAsync(cancellationToken);
@@ -322,6 +333,8 @@ public sealed partial class PersonalCloudBatchSyncTests : IDisposable
                 if (FanoutRejections-- > 0) return Json(HttpStatusCode.Conflict,
                     """{"protocolVersion":1,"product":"tasks","error":{"code":"fanout_bound_exceeded","message":"Synthetic","retryable":true,"requestId":"request_synthetic"}}""");
                 if (SingleError is { } code) return Json(HttpStatusCode.Conflict, JsonSerializer.Serialize(new { error = new { code } }));
+                if (document.RootElement.GetProperty("entityId").GetString() == ConflictEntity)
+                    return Json(HttpStatusCode.Conflict, """{"error":{"code":"version_conflict"}}""");
                 return Json(HttpStatusCode.Created, JsonSerializer.Serialize(Accept(document.RootElement)));
             }
             BatchPosts++;
@@ -336,7 +349,11 @@ public sealed partial class PersonalCloudBatchSyncTests : IDisposable
             Assert.True(BatchBytes[^1] <= MaxBytes);
             for (var index = 1; index < mutations.Length; index++)
                 Assert.Equal(mutations[index - 1].GetProperty("deviceSequence").GetInt64() + 1, mutations[index].GetProperty("deviceSequence").GetInt64());
-            var receipts = mutations.Take(PartialFailure is null ? mutations.Length : 1).Select(Accept).ToList();
+            var failure = PartialFailure;
+            var acceptCount = failure is null ? mutations.Length : 1;
+            var conflictIndex = Array.FindIndex(mutations, m => m.GetProperty("entityId").GetString() == ConflictEntity);
+            if (conflictIndex >= 0) { failure = "version_conflict"; acceptCount = conflictIndex; }
+            var receipts = mutations.Take(acceptCount).Select(Accept).ToList();
             if (LoseResponse) throw new HttpRequestException("Synthetic lost response after durable commit");
             if (ResponseDefect == "order") receipts.Reverse();
             if (ResponseDefect == "version")
@@ -351,10 +368,10 @@ public sealed partial class PersonalCloudBatchSyncTests : IDisposable
                 ["protocolVersion"] = ResponseDefect == "protocol" ? 2 : 1, ["product"] = "tasks",
                 ["instanceId"] = ResponseDefect == "instance" ? "wrong" : Instance, ["receipts"] = receipts,
                 ["processedCount"] = ResponseDefect == "count" ? 0 : receipts.Count,
-                ["stoppedAt"] = PartialFailure is not null ? receipts.Count : ResponseDefect == "stopped" ? 0 : null,
-                ["error"] = PartialFailure is null ? null : new Dictionary<string, object?>
+                ["stoppedAt"] = failure is not null ? receipts.Count : ResponseDefect == "stopped" ? 0 : null,
+                ["error"] = failure is null ? null : new Dictionary<string, object?>
                 {
-                    ["code"] = PartialFailure, ["message"] = "Synthetic", ["retryable"] = PartialFailure is "sync_failed" or "daily_quota_exceeded", ["requestId"] = "request_synthetic",
+                    ["code"] = failure, ["message"] = "Synthetic", ["retryable"] = failure is "sync_failed" or "daily_quota_exceeded", ["requestId"] = "request_synthetic",
                 },
             };
             if (PartialFailure == "daily_quota_exceeded")
@@ -369,6 +386,11 @@ public sealed partial class PersonalCloudBatchSyncTests : IDisposable
             Envelopes.Add(mutation.GetRawText());
             var id = mutation.GetProperty("mutationId").GetString()!;
             var duplicate = _receipts.ContainsKey(id);
+            if (StrictSequencing && !duplicate)
+            {
+                Assert.Equal(LastAcceptedSequence + 1, mutation.GetProperty("deviceSequence").GetInt64());
+                LastAcceptedSequence++;
+            }
             if (duplicate) DuplicateReceipts++;
             var receipt = new { protocolVersion = 1, product = "tasks", mutationId = id, outcome = duplicate ? "duplicate" : "accepted",
                 entityId = mutation.GetProperty("entityId").GetString(), entityVersion = mutation.GetProperty("baseEntityVersion").ValueKind == JsonValueKind.Null ? 1 : mutation.GetProperty("baseEntityVersion").GetInt64() + 1,

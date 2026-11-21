@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json.Serialization;
 
 namespace Openza.Tasks.Core.PersonalCloud;
@@ -121,7 +122,7 @@ public static class PersonalCloudNotesDeadlineCodec
         PersonalCloudK0Codec.ValidateIdentifier(mutation.EntityId, nameof(mutation.EntityId));
         PersonalCloudK0Codec.ValidateTimestamp(mutation.ClientCreatedAt, nameof(mutation.ClientCreatedAt));
         if (mutation is PersonalCloudTaskDeadlineOnUpdateMutation deadline && deadline.Payload.DeadlineOn is { } value &&
-            !DateOnly.TryParseExact(value, "yyyy-MM-dd", out _))
+            !DateOnly.TryParseExact(value, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out _))
             throw new PersonalCloudK0ContractException("invalid_request", "The deadline date is invalid.");
         return mutation;
     }
@@ -132,7 +133,7 @@ public static class PersonalCloudNotesDeadlineCodec
     public static void ValidateChange(PersonalCloudTaskDeadlineOnUpdatedChange change)
     {
         ValidateChangeEnvelope(change, change.Payload.Task.Id, change.ServerAcceptedAt);
-        if (change.Payload.Task.DeadlineOn is { } value && !DateOnly.TryParseExact(value, "yyyy-MM-dd", out _))
+        if (change.Payload.Task.DeadlineOn is { } value && !DateOnly.TryParseExact(value, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out _))
             throw new PersonalCloudK0ContractException("invalid_request", "The deadline date is invalid.");
     }
 

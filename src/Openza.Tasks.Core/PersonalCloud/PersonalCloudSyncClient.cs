@@ -8,6 +8,7 @@ namespace Openza.Tasks.Core.PersonalCloud;
 
 public sealed record PersonalCloudSyncResult(int PushedMutations, int PulledChanges, long Checkpoint)
 {
+    public int TaskConflictCount { get; init; }
     public string? BlockedCode { get; init; }
     public PersonalCloudInitialSyncProgress? InitialSyncProgress { get; init; }
 }
@@ -62,7 +63,8 @@ public sealed partial class PersonalCloudSyncClient(
 
         if (progress is not null) await progress(PersonalCloudInitialSyncPhase.Downloading, cancellationToken).ConfigureAwait(false);
         if (_supportsWorkspace && blockedCode is null && !await store.HasPersonalCloudWorkspaceBaselineAsync(connection.InstanceId, cancellationToken).ConfigureAwait(false) &&
-            (await store.GetPendingPersonalCloudOutboxAsync(connection.InstanceId, connection.DeviceId, cancellationToken).ConfigureAwait(false)).Count == 0)
+            (await store.GetPendingPersonalCloudOutboxAsync(connection.InstanceId, connection.DeviceId, cancellationToken).ConfigureAwait(false)).Count == 0 &&
+            (await store.GetPersonalCloudTaskConflictsAsync(connection.InstanceId, cancellationToken).ConfigureAwait(false)).Count == 0)
         {
             await ReplaceWorkspaceBaselineAsync(access.AccessToken, ReserveBootstrapAttempt, cancellationToken).ConfigureAwait(false);
         }
@@ -139,12 +141,14 @@ public sealed partial class PersonalCloudSyncClient(
             }
         }
 
+        await store.AutoResolvePersonalCloudTaskConflictsAsync(connection.InstanceId, cancellationToken).ConfigureAwait(false);
+        var conflicts = await store.GetPersonalCloudTaskConflictsAsync(connection.InstanceId, cancellationToken).ConfigureAwait(false);
         if (await store.GetDeferredPersonalCloudChangeCountAsync(connection.InstanceId, cancellationToken).ConfigureAwait(false) > 0)
             blockedCode ??= "pending_changes";
         if (blockedCode == "fanout_bound_exceeded" && PersonalCloudDispatchHttp.PolicyFor(http) is { } retryPolicy)
             await retryPolicy.RecordFailureAsync(connection.ServiceOrigin, cancellationToken).ConfigureAwait(false);
         await ReportCatchupStatusAsync(cancellationToken).ConfigureAwait(false);
-        return new PersonalCloudSyncResult(pushed, pulled, checkpoint) { BlockedCode = blockedCode };
+        return new PersonalCloudSyncResult(pushed, pulled, checkpoint) { BlockedCode = blockedCode, TaskConflictCount = conflicts.Count };
     }
 
     private HttpRequestMessage CreateAuthorizedRequest(HttpMethod method, string path, string accessToken)
