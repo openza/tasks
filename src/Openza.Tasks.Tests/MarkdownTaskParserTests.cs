@@ -8,6 +8,70 @@ namespace Openza.Tasks.Tests;
 
 public sealed class MarkdownTaskParserTests
 {
+    [Theory]
+    [InlineData(true, TaskWorkflowStatus.Inbox)]
+    [InlineData(false, TaskWorkflowStatus.Next)]
+    public async Task Import_legacy_cloud_preserves_rich_tasks_for_full_sync_staging(bool completed, TaskWorkflowStatus status)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var store = new SqliteTaskStore(Path.Combine(directory, "tasks.db"));
+            await store.InitializeAsync();
+            var cloud = new PersonalCloudConnectionProfile
+            {
+                ServiceOrigin = new("https://example.test"), InstanceId = "instance_legacy_markdown", DeviceId = "device_legacy_markdown",
+                ArtifactVersion = "test", ConnectedAt = DateTimeOffset.UtcNow,
+            };
+            Assert.False(await store.SupportsPersonalCloudWorkspaceAsync(cloud.InstanceId));
+            var original = new TaskItem
+            {
+                Title = "Legacy cloud import", WorkflowStatus = status,
+                CompletionState = completed ? TaskCompletionState.Completed : TaskCompletionState.Open,
+                Notes = "Keep legacy notes", Priority = 3, PlannedOn = new(2027, 6, 15), DeadlineOn = new(2027, 6, 20),
+                ProjectId = "project", Labels = [new LabelItem { Name = "Legacy label" }],
+            };
+            var markdown = MarkdownExporter.Export([original], [new ProjectItem { Id = "project", Name = "Legacy project" }], original.Labels);
+
+            await MarkdownTaskImporter.ImportAsync(store, MarkdownTaskParser.Parse(markdown), SpaceIds.Default, cloud);
+
+            var imported = Assert.Single(await store.GetTasksAsync(TaskQuery.ForMarkdownExport(SpaceIds.Default)));
+            Assert.Equal(original.Title, imported.Title);
+            Assert.Equal(original.CompletionState, imported.CompletionState);
+            Assert.Equal(status, imported.WorkflowStatus);
+            Assert.Equal(original.Notes, imported.Notes);
+            Assert.Equal(original.Priority, imported.Priority);
+            Assert.Equal(original.PlannedOn, imported.PlannedOn);
+            Assert.Equal(original.DeadlineOn, imported.DeadlineOn);
+            Assert.Equal(Assert.Single(await store.GetProjectsAsync()).Id, imported.ProjectId);
+            Assert.Equal("Legacy label", Assert.Single(imported.Labels).Name);
+            Assert.Empty(await store.GetPendingPersonalCloudOutboxAsync(cloud.InstanceId, cloud.DeviceId));
+
+            Assert.True(await store.StageUnpublishedTasksForPersonalCloudAsync(cloud.InstanceId, cloud.DeviceId) > 0);
+            var entries = await store.GetPendingPersonalCloudOutboxAsync(cloud.InstanceId, cloud.DeviceId);
+            Assert.All(entries, entry => Assert.Equal(imported.Id, entry.EntityId));
+            var creation = Assert.Single(entries, entry => entry.Operation == "task.create");
+            using var json = JsonDocument.Parse(creation.CanonicalJson);
+            var task = json.RootElement.GetProperty("payload").GetProperty("task");
+            Assert.Equal("open", task.GetProperty("completionState").GetString());
+            Assert.Equal("inbox", task.GetProperty("workflowStatus").GetString());
+            Assert.Single(entries, entry => entry.Operation == "task.setProject");
+            Assert.Single(entries, entry => entry.Operation == "task.addLabel");
+            foreach (var field in new[] { "notes", "priority", "plannedOn", "deadlineOn" }.Concat(status == TaskWorkflowStatus.Inbox ? [] : new[] { "workflowStatus" }))
+            {
+                Assert.Single(entries, entry =>
+                {
+                    using var mutation = JsonDocument.Parse(entry.CanonicalJson);
+                    return mutation.RootElement.GetProperty("payload").TryGetProperty("fields", out var fields) && fields.TryGetProperty(field, out _);
+                });
+            }
+            Assert.Equal(completed ? 1 : 0, entries.Count(entry => entry.Operation == "task.complete"));
+            Assert.Equal(0, await store.StageUnpublishedTasksForPersonalCloudAsync(cloud.InstanceId, cloud.DeviceId));
+        }
+        finally { Directory.Delete(directory, recursive: true); }
+    }
+
     [Fact]
     public void Export_import_preserves_blank_lines_between_note_paragraphs()
     {

@@ -52,8 +52,6 @@ public static class MarkdownTaskImporter
             };
             if (workspace)
                 await cloudStore!.CreateRichTaskWithPersonalCloudIntentAsync(task, cloud!.InstanceId, cloud.DeviceId);
-            else if (cloudStore is not null)
-                await cloudStore.CreateTaskWithPersonalCloudIntentAsync(task, cloud!.InstanceId, cloud.DeviceId);
             else
                 await store.UpsertTaskAsync(task);
         }
