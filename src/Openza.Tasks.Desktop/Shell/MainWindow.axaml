@@ -102,16 +102,17 @@
                     Classes="space-picker"
                     Grid.Row="5"
                     Height="36"
+                    HorizontalContentAlignment="Stretch"
                     Margin="8,4"
                     ItemsSource="{Binding SpaceItems}"
                     SelectedItem="{Binding SelectedSpace}"
                     SelectionChanged="OnSpaceSelectionChanged">
                     <ComboBox.ItemTemplate>
                         <DataTemplate>
-                            <Grid ColumnDefinitions="26,*" ColumnSpacing="10">
+                            <StackPanel Orientation="Horizontal" Spacing="10">
                                 <ic:FluentIcon Icon="FolderOpen" FontSize="18" />
-                                <TextBlock Grid.Column="1" Classes="nav-label" VerticalAlignment="Center" Text="{Binding Title}" />
-                            </Grid>
+                                <TextBlock Classes="nav-label" VerticalAlignment="Center" Text="{Binding Title}" />
+                            </StackPanel>
                         </DataTemplate>
                     </ComboBox.ItemTemplate>
                 </ComboBox>
@@ -136,6 +137,7 @@
                                         <Button
                                             MinWidth="180"
                                             Classes="menu-row"
+                                            ContentTemplate="{x:Null}"
                                             Padding="12,8"
                                             HorizontalContentAlignment="Left"
                                             Click="OnCompactSpaceSelected">
@@ -825,7 +827,8 @@
                             <StackPanel Grid.Column="1" Spacing="4">
                                 <TextBlock FontWeight="SemiBold" Text="Openza Tasks"/>
                                 <TextBlock Foreground="{DynamicResource OpenzaTextSecondaryBrush}" Text="A local-first task app under the Openza umbrella."/>
-                                <TextBlock Margin="0,6,0,0" Foreground="{DynamicResource OpenzaTextSecondaryBrush}" Text="{Binding AppVersion, StringFormat='Version {0}'}"/>
+                                <TextBlock Margin="0,6,0,0" Foreground="{DynamicResource OpenzaTextSecondaryBrush}" Text="{Binding AppVersion, StringFormat='App version: {0}'}"/>
+                                <TextBlock Foreground="{DynamicResource OpenzaTextSecondaryBrush}" Text="{Binding PackageVersionText}"/>
                                 <TextBlock Foreground="{DynamicResource OpenzaTextSecondaryBrush}" Text="Local data format: V1"/>
                                 <TextBlock Foreground="{DynamicResource OpenzaTextTertiaryBrush}" Text="Maintainer contact: deependra@solanky.dev" TextWrapping="Wrap"/>
                             </StackPanel>
