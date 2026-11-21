@@ -183,24 +183,29 @@ public sealed partial class SqliteTaskStore
                 fields.Add(new(field.Key,
                     await DisplayConflictFieldValueAsync(connection, instanceId, field.Key, field.Value, cancellationToken).ConfigureAwait(false),
                     await DisplayConflictFieldValueAsync(connection, instanceId, field.Key, c.Cloud?[field.Key], cancellationToken).ConfigureAwait(false)));
+            var dependentOperations = new List<string>();
             foreach (var dependent in c.Dependents)
+            {
+                var title = dependent.Fields["title"]?.GetValue<string>() ?? dependent.Cloud?["title"]?.GetValue<string>() ?? dependent.Base?["title"]?.GetValue<string>() ?? dependent.Id;
+                dependentOperations.AddRange(dependent.Operations.Select(operation => $"{OperationLabel(operation)}: {title}"));
                 foreach (var field in dependent.Fields)
                 {
-                    var title = dependent.Fields["title"]?.GetValue<string>() ?? dependent.Cloud?["title"]?.GetValue<string>() ?? dependent.Id;
                     var label = new PersonalCloudConflictField(field.Key, "", "").DisplayName;
                     fields.Add(new($"{title} — {label}",
                         await DisplayConflictFieldValueAsync(connection, instanceId, field.Key, field.Value, cancellationToken).ConfigureAwait(false),
                         await DisplayConflictFieldValueAsync(connection, instanceId, field.Key, dependent.Cloud?[field.Key], cancellationToken).ConfigureAwait(false)));
                 }
+            }
             var reason = await ConflictReplayRestrictionAsync(connection, instanceId, c, cancellationToken).ConfigureAwait(false);
             result.Add(new(c.Id, c.Fields["title"]?.GetValue<string>() ?? c.Cloud?["title"]?.GetValue<string>() ?? c.Id, fields)
             {
                 RevisionToken = c.RevisionToken,
                 CanKeepDesktop = reason is null,
-                ResolutionNotice = c.Cloud is null
+                ResolutionNotice = (c.Cloud is null
                     ? "No cached cloud record is available. Use cloud version discards the parked changes and restores the last known base when available; otherwise the local task is kept as a recovery copy until the next cloud download."
                     : reason is not null ? reason + " Only Use cloud version is available; it discards all parked desktop changes for this task."
-                    : fields.Count == 0 ? "These field values already match the cloud. Choose a version to clear the parked changes." : string.Empty,
+                    : fields.Count == 0 ? "These field values already match the cloud. Choose a version to clear the parked changes." : string.Empty)
+                    + (dependentOperations.Count == 0 ? string.Empty : " Use cloud version also discards: " + string.Join("; ", dependentOperations) + "."),
             });
         }
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);

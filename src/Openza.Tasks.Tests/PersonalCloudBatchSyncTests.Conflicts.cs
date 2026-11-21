@@ -9,6 +9,27 @@ namespace Openza.Tasks.Tests;
 public sealed partial class PersonalCloudBatchSyncTests
 {
     [Fact]
+    public async Task Dependent_completion_is_named_on_the_card_before_cloud_choice_discards_it()
+    {
+        var (store, _) = await ConflictStoreAsync();
+        var child = JsonSerializer.SerializeToNode(PersonalCloudWorkspaceTests.TaskRecord("task_child"))!;
+        child["title"] = "Child to complete"; child["parentId"] = "task_test";
+        await store.ApplyPersonalCloudChangePageAsync(Instance, Device, PersonalCloudWorkspaceTests.Page(2, tasks: [child]));
+        var rejected = await PatchAsync(store, "task_test", "title", "Desktop parent");
+        await store.MoveTaskTreeToSpaceWithPersonalCloudIntentAsync("task_test", "space_destination", "Destination",
+            new Dictionary<string, long> { ["task_test"] = 2, ["task_child"] = 1 }, Instance, Device);
+        await store.ParkPersonalCloudTaskConflictAsync(rejected);
+        await store.CompleteTaskWithPersonalCloudIntentAsync("task_child", DateTimeOffset.UtcNow,
+            (await store.GetPersonalCloudEntityVersionAsync(Instance, "task_child"))!.Value, Instance, Device);
+        var card = Assert.Single(await store.GetPersonalCloudTaskConflictsAsync(Instance));
+        Assert.Contains("Complete task: Child to complete", card.ResolutionNotice);
+        Assert.False(card.CanKeepDesktop);
+        await store.ResolvePersonalCloudTaskConflictAsync(Instance, card.TaskId, false, expectedRevision: card.RevisionToken);
+        Assert.False((await store.GetTaskAsync("task_child"))!.IsCompleted);
+        Assert.Empty(await store.GetPersonalCloudTaskConflictsAsync(Instance));
+    }
+
+    [Fact]
     public async Task Child_edit_before_parked_move_uploads_and_survives_discarding_the_move()
     {
         var (store, handler) = await ConflictStoreAsync();
