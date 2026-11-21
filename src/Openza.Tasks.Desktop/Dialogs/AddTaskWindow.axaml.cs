@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
@@ -9,11 +10,18 @@ namespace Openza.Tasks.Desktop.Dialogs;
 public sealed partial class AddTaskWindow : Window
 {
     private readonly ObservableCollection<string> _selectedLabels = [];
+    private readonly double _preferredMinHeight;
+    private readonly double _preferredMaxHeight;
 
     public AddTaskWindow()
     {
         InitializeComponent();
         SelectedLabelChips.ItemsSource = _selectedLabels;
+        _preferredMinHeight = MinHeight;
+        _preferredMaxHeight = MaxHeight;
+        Resized += OnWorkingAreaChanged;
+        PositionChanged += (_, _) => UpdateWorkingArea(reposition: false);
+        ScalingChanged += OnWorkingAreaChanged;
     }
 
     public AddTaskWindow(MainWindowViewModel viewModel)
@@ -38,10 +46,40 @@ public sealed partial class AddTaskWindow : Window
         }
     }
 
-    private void OnOpened(object? sender, EventArgs e) => TitleBox.Focus();
+    private void OnOpened(object? sender, EventArgs e)
+    {
+        var screens = Screens;
+        screens.Changed += OnWorkingAreaChanged;
+        Closed += (_, _) => screens.Changed -= OnWorkingAreaChanged;
+        UpdateWorkingArea();
+        TitleBox.Focus();
+    }
     private void OnCancelClicked(object? sender, RoutedEventArgs e) => Close(null);
     private void OnCreateClicked(object? sender, RoutedEventArgs e) => Complete(false);
     private void OnCreateAndOpenClicked(object? sender, RoutedEventArgs e) => Complete(true);
+
+    private void OnWorkingAreaChanged(object? sender, EventArgs e) => UpdateWorkingArea();
+
+    private void UpdateWorkingArea(bool reposition = true)
+    {
+        if (!IsVisible || PlatformImpl is null || Screens.ScreenFromWindow(this) is not { } screen) return;
+        var workingArea = screen.WorkingArea;
+        if (workingArea.Height <= 0) return;
+
+        var clientHeight = ClientSize.Height;
+        var frameHeight = FrameSize?.Height ?? clientHeight;
+        var decorationHeight = Math.Max(0, frameHeight - clientHeight);
+        var maxHeight = Math.Clamp(Math.Floor(workingArea.Height / DesktopScaling - decorationHeight), 1, _preferredMaxHeight);
+        MinHeight = Math.Min(_preferredMinHeight, maxHeight);
+        MaxHeight = maxHeight;
+
+        if (!reposition) return;
+        var frameHeightInPixels = (int)Math.Ceiling(frameHeight * DesktopScaling);
+        var maxY = Math.Max(workingArea.Y, workingArea.Bottom - frameHeightInPixels);
+        var position = Position;
+        var y = Math.Clamp(position.Y, workingArea.Y, maxY);
+        if (y != position.Y) Position = new PixelPoint(position.X, y);
+    }
 
     private void OnTitleTextChanged(object? sender, TextChangedEventArgs e)
     {

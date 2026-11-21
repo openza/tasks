@@ -47,29 +47,32 @@ public sealed partial class ProjectPickerWindow : Window
     {
         var selectedId = (ProjectsList.SelectedItem as PickerOption)?.Id ?? _selectedProjectId;
         var query = SearchBox.Text?.Trim() ?? string.Empty;
+        var exact = FindExactProject(query);
         var filtered = _projects
             .Where(project => string.IsNullOrWhiteSpace(query) ||
                 project.Title.Contains(query, StringComparison.CurrentCultureIgnoreCase))
             .OrderBy(project => string.IsNullOrWhiteSpace(project.Id) ? 0 : 1)
+            .ThenByDescending(project => project == exact)
             .ThenBy(project => project.Title, StringComparer.CurrentCultureIgnoreCase)
             .Take(30)
             .ToArray();
         ProjectsList.ItemsSource = filtered;
-        ProjectsList.SelectedItem = filtered.FirstOrDefault(project =>
+        ProjectsList.SelectedItem = exact ?? filtered.FirstOrDefault(project =>
                 string.Equals(project.Id, selectedId, StringComparison.Ordinal))
             ?? filtered.FirstOrDefault();
 
-        var canCreate = !string.IsNullOrWhiteSpace(query) &&
-            !_projects.Any(project => string.Equals(project.Title, query, StringComparison.CurrentCultureIgnoreCase));
+        var canCreate = !string.IsNullOrWhiteSpace(query) && exact is null;
         CreateProjectButton.IsVisible = canCreate;
         CreateProjectButton.Content = canCreate ? $"Create project \"{query}\"" : "Create project";
     }
 
+    private PickerOption? FindExactProject(string query) => _projects.FirstOrDefault(project =>
+        project.Id.Length > 0 && string.Equals(project.Title, query, StringComparison.CurrentCultureIgnoreCase));
+
     private void CompleteFromSearch()
     {
         var query = SearchBox.Text?.Trim() ?? string.Empty;
-        var exact = _projects.FirstOrDefault(project =>
-            string.Equals(project.Title, query, StringComparison.CurrentCultureIgnoreCase));
+        var exact = FindExactProject(query);
         if (exact is not null)
         {
             Close(ProjectPickerResult.Select(exact.Id));

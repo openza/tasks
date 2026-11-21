@@ -6,5 +6,5 @@ public sealed class ProjectOptionViewModel(ProjectItem? project)
 {
     public ProjectItem? Project { get; } = project;
     public string? ProjectId => Project?.Id;
-    public string Title => Project?.Name ?? "Inbox (no project)";
+    public string Title => Project?.Name ?? "No project";
 }

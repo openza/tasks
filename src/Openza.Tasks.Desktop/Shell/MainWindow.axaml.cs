@@ -659,13 +659,23 @@ public sealed partial class MainWindow : Window
         await ViewModel.RunTodoistSyncAsync();
     }
 
-    private async void OnSettingsClicked(object? sender, RoutedEventArgs e)
+    private async void OnSettingsClicked(object? sender, RoutedEventArgs e) => await OpenSettingsAsync();
+
+    private async void OnAppConnectionsClicked(object? sender, RoutedEventArgs e) =>
+        await OpenSettingsAsync(showAppConnections: true);
+
+    private async Task OpenSettingsAsync(bool showAppConnections = false)
     {
         if (!await ViewModel.SaveSelectedAsync()) return;
         await ViewModel.SaveLastViewAsync("Settings");
         TaskWorkspace.IsVisible = false;
         SyncWorkspace.IsVisible = false;
         SettingsWorkspace.IsVisible = true;
+        if (showAppConnections)
+        {
+            // A previously expanded Todoist form can push the other choices out of view.
+            TodoistSettingsExpander.IsExpanded = false;
+        }
         UpdateWorkspaceNavigation();
         _connectedPaneOpen = false;
         ViewModel.LoadRestorePoints();
@@ -676,6 +686,15 @@ public sealed partial class MainWindow : Window
             "Dark" => 2,
             _ => 0,
         };
+        if (showAppConnections)
+        {
+            // Wait for the shown Settings pane to finish restoring its previous scroll position.
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                if (SettingsWorkspace.IsVisible)
+                    SettingsWorkspace.Offset = new Vector(0, AppConnectionsHeading.Bounds.Y);
+            }, DispatcherPriority.Background);
+        }
         await ViewModel.RefreshTodoistConnectionAsync();
         await ViewModel.RefreshTodoistRoutingRulesAsync();
         await ViewModel.RefreshGitHubConnectionAsync();

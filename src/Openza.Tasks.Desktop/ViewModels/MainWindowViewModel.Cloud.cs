@@ -30,7 +30,11 @@ public sealed partial class MainWindowViewModel
             await _preferencesStore.UpdateAsync(preferences => feature == "todo"
                 ? preferences with { MicrosoftToDoAccount = access.Account }
                 : preferences with { OneDriveAccount = access.Account });
-            if (feature == "todo") await _store.SetIntegrationConfiguredAsync(IntegrationIds.MicrosoftToDo, true);
+            if (feature == "todo")
+            {
+                await _store.SetIntegrationConfiguredAsync(IntegrationIds.MicrosoftToDo, true);
+                OnPropertyChanged(nameof(HasConnectedTaskApp));
+            }
             OnPropertyChanged(nameof(MicrosoftConnectionText));
             OnPropertyChanged(nameof(OneDriveConnectionText));
             StatusMessage = "Microsoft account connected";
@@ -49,6 +53,7 @@ public sealed partial class MainWindowViewModel
             await _store.SetIntegrationConfiguredAsync(IntegrationIds.MicrosoftToDo, false);
             await _store.SetIntegrationActiveAsync(IntegrationIds.MicrosoftToDo, false);
             OnPropertyChanged(nameof(MicrosoftConnectionText));
+            OnPropertyChanged(nameof(HasConnectedTaskApp));
             StatusMessage = "Microsoft To Do disconnected; existing tasks remain";
         });
     }
