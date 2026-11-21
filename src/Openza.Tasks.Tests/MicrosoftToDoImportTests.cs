@@ -54,6 +54,32 @@ public sealed class MicrosoftToDoImportTests : IDisposable
     }
 
     [Fact]
+    public async Task Personal_cloud_queues_local_projects_before_tasks_and_does_not_queue_duplicates()
+    {
+        var store = await CreateStoreAsync();
+        var cloud = new PersonalCloudConnectionProfile
+        {
+            InstanceId = "instance_import",
+            DeviceId = "device_import",
+            ArtifactVersion = "1.0.0",
+            ServiceOrigin = new Uri("https://example.invalid"),
+            ConnectedAt = DateTimeOffset.UtcNow,
+        };
+        await store.SavePersonalCloudWorkspaceCapabilitiesAsync(cloud.InstanceId, workspace: true, providerCatalog: false);
+        using var http = new HttpClient(new GraphHandler());
+        var service = new MicrosoftToDoImportService(store, new Resolver(new MicrosoftToDoProvider(http, "example-token")));
+
+        Assert.Equal(new(2, 2), await service.ImportAsync(SpaceIds.Default, () => cloud));
+
+        var pending = await store.GetPendingPersonalCloudOutboxAsync(cloud.InstanceId, cloud.DeviceId);
+        Assert.Equal(new[] { "project.put", "project.put", "task.createRich", "task.createRich", "task.complete" },
+            pending.Select(entry => entry.Operation));
+        Assert.Equal(pending[3].EntityId, pending[4].EntityId);
+        Assert.Equal(new(0, 0), await service.ImportAsync(SpaceIds.Default, () => cloud));
+        Assert.Equal(pending, await store.GetPendingPersonalCloudOutboxAsync(cloud.InstanceId, cloud.DeviceId));
+    }
+
+    [Fact]
     public async Task Graph_failure_on_a_later_page_does_not_import_any_partial_data()
     {
         var store = await CreateStoreAsync();
