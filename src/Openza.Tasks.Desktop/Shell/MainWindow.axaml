@@ -109,10 +109,10 @@
                     SelectionChanged="OnSpaceSelectionChanged">
                     <ComboBox.ItemTemplate>
                         <DataTemplate>
-                            <StackPanel Orientation="Horizontal" Spacing="10">
+                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10" HorizontalAlignment="Stretch">
                                 <ic:FluentIcon Icon="FolderOpen" FontSize="18" />
-                                <TextBlock Classes="nav-label" VerticalAlignment="Center" Text="{Binding Title}" />
-                            </StackPanel>
+                                <TextBlock Grid.Column="1" Classes="nav-label" VerticalAlignment="Center" Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
+                            </Grid>
                         </DataTemplate>
                     </ComboBox.ItemTemplate>
                 </ComboBox>

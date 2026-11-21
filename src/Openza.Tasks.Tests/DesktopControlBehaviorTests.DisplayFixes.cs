@@ -1,5 +1,6 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using Avalonia.Media;
 using Avalonia.VisualTree;
 using Openza.Tasks.Core.Data;
 using Openza.Tasks.Core.Models;
@@ -20,7 +21,6 @@ public sealed partial class DesktopControlBehaviorTests
         Assert.Equal("Change project", dialog.Title);
         SaveFrame(dialog, $"{prefix}_1_project");
         dialog.Close();
-        SaveFrame(context.Window, $"{prefix}_2_space");
         var picker = context.Window.FindControl<ComboBox>("SpacePicker")!;
         var selectedTitle = picker.GetVisualDescendants().OfType<TextBlock>().Single(text => text.Text == context.Vm.SelectedSpace!.Title);
         Assert.True(selectedTitle.Bounds.Width >= selectedTitle.DesiredSize.Width);
@@ -43,7 +43,38 @@ public sealed partial class DesktopControlBehaviorTests
         await context.Store.UpsertTaskAsync(new TaskItem { Id = "done", Title = "Completed example", Status = TaskItemStatus.Completed, WorkflowStatus = TaskWorkflowStatus.Next });
         await context.Vm.SelectNavigationAsync(context.Vm.NavigationItems.Single(item => item.Kind == TaskListKind.Completed));
         await Task.Delay(80);
+        context.Window.UpdateLayout();
+        var completedRow = context.Window.FindControl<ListBox>("TaskList")!.GetVisualDescendants().OfType<Border>()
+            .Single(row => row.Classes.Contains("task-row") && row.IsEffectivelyVisible
+                && row.DataContext is TaskListEntryViewModel { Task.Task.Id: "done" });
+        var renderedText = completedRow.GetVisualDescendants().OfType<TextBlock>()
+            .Select(text => text.Text).Where(text => text is not null).ToArray();
+        Assert.Contains("Completed example", renderedText);
+        Assert.DoesNotContain(renderedText, text => text == "Next" || text!.Contains("· Next", StringComparison.Ordinal));
         SaveFrame(context.Window, $"{prefix}_5_completed");
+    });
+
+    [Theory]
+    [InlineData("A", false)]
+    [InlineData("Work", false)]
+    [InlineData("A long Space name for planning projects across the whole team", true)]
+    public Task Space_picker_constrains_long_names_without_clipping_short_names(string name, bool trimmed) => Run(async context =>
+    {
+        await context.Vm.RenameSpaceAsync(context.Vm.SelectedSpace!, name);
+        await Task.Delay(80);
+        context.Window.UpdateLayout();
+        var picker = context.Window.FindControl<ComboBox>("SpacePicker")!;
+        var title = picker.GetVisualDescendants().OfType<TextBlock>().Single(text => text.Text == name);
+        var content = (Grid)title.Parent!;
+        Assert.Equal(TextTrimming.CharacterEllipsis, title.TextTrimming);
+        Assert.InRange(title.Bounds.Width, 1, content.Bounds.Width);
+        Assert.InRange(title.DesiredSize.Width, 1, content.Bounds.Width);
+        Assert.True(content.Bounds.Width < picker.Bounds.Width);
+        var naturalTitle = new TextBlock { Text = name, FontFamily = title.FontFamily, FontSize = title.FontSize, FontWeight = title.FontWeight };
+        naturalTitle.Measure(new(double.PositiveInfinity, double.PositiveInfinity));
+        if (trimmed) Assert.True(title.Bounds.Width < naturalTitle.DesiredSize.Width);
+        else Assert.True(title.Bounds.Width >= naturalTitle.DesiredSize.Width);
+        if (name != "A") SaveFrame(context.Window, trimmed ? "after_2_space_long" : "after_2_space");
     });
 
     [Theory]
