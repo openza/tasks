@@ -7,16 +7,17 @@ public sealed class SecretToolCredentialStoreTests
 {
     [Theory]
     [InlineData("save", "secret-tool: An AppArmor policy prevents this sender from sending this message", null)]
-    [InlineData("save", "org.freedesktop.DBus.Error.AccessDenied", "openza-tasks_test")]
-    [InlineData("remove", "org.freedesktop.DBus.Error.AccessDenied", "")]
+    [InlineData("save", "secret-tool: An AppArmor policy prevents this sender from sending this message", "openza-tasks_test")]
+    [InlineData("remove", "secret-tool: An AppArmor policy prevents this sender from sending this message", "")]
     public async Task SnapDeniedErrorsExplainConnection(string operation, string error, string? instance)
     {
-        var store = Create(2, "", error, "openza-tasks", instance);
+        var store = Create(1, "", error, "openza-tasks", instance);
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => Run(store, operation));
-        Assert.Contains("desktop does not provide the Secret portal", exception.Message);
+        Assert.Contains("If password-manager-service is not connected", exception.Message);
+        Assert.Contains("If it is already connected", exception.Message);
         Assert.Contains($"sudo snap connect {(string.IsNullOrEmpty(instance) ? "openza-tasks" : instance)}:password-manager-service", exception.Message);
         Assert.Contains("try again", exception.Message);
-        Assert.DoesNotContain(error, exception.Message);
+        Assert.Contains($"Details: {error}", exception.Message);
     }
 
     [Theory]
@@ -24,22 +25,22 @@ public sealed class SecretToolCredentialStoreTests
     [InlineData("remove")]
     public async Task SnapMissingKeyringExplainsInstallation(string operation)
     {
-        var store = Create(2, "", "secret-tool: The name org.freedesktop.secrets was not provided by any .service files", "openza-tasks");
+        const string error = "secret-tool: The name org.freedesktop.secrets was not provided by any .service files";
+        var store = Create(1, "", error, "openza-tasks");
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => Run(store, operation));
         Assert.Contains("GNOME Keyring or KWallet", exception.Message);
         Assert.Contains("Install or start one", exception.Message);
         Assert.Contains("If your desktop has no Secret portal", exception.Message);
         Assert.Contains("sudo snap connect openza-tasks:password-manager-service", exception.Message);
+        Assert.Contains($"Details: {error}", exception.Message);
     }
 
     [Theory]
     [InlineData("secret-tool: AppArmor AccessDenied")]
     [InlineData("secret-tool: The name org.freedesktop.secrets was not provided by any .service files")]
-    public async Task SnapLookupFailuresStayQuietAndRemoveToleratesExitOne(string error)
+    public async Task SnapLookupFailuresStayQuiet(string error)
     {
         Assert.Null(await Create(1, "", error, "openza-tasks").GetAsync("key"));
-        Assert.Null(await Create(2, "", error, "openza-tasks").GetAsync("key"));
-        await Create(1, "", error, "openza-tasks").RemoveAsync("key");
     }
 
     [Theory]
@@ -52,7 +53,8 @@ public sealed class SecretToolCredentialStoreTests
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => store.SaveAsync("key", "value"));
         Assert.Equal($"Could not save the credential: {error}", exception.Message);
         Assert.Null(await store.GetAsync("key"));
-        await store.RemoveAsync("key");
+        exception = await Assert.ThrowsAsync<InvalidOperationException>(() => store.RemoveAsync("key"));
+        Assert.Equal($"Could not remove the credential: {error}", exception.Message);
     }
 
     [Fact]
@@ -73,10 +75,23 @@ public sealed class SecretToolCredentialStoreTests
     [Fact]
     public async Task UnknownSnapErrorsKeepExistingBehavior()
     {
-        var store = Create(2, "", "other failure", "openza-tasks");
+        var store = Create(1, "", "other failure", "openza-tasks");
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => store.RemoveAsync("key"));
         Assert.Equal("Could not remove the credential: other failure", exception.Message);
         Assert.Null(await store.GetAsync("key"));
+    }
+
+    [Theory]
+    [InlineData("save", "secret-tool: org.freedesktop.DBus.Error.AccessDenied: User dismissed the prompt")]
+    [InlineData("remove", "secret-tool: org.freedesktop.DBus.Error.AccessDenied: User dismissed the prompt")]
+    [InlineData("remove", "secret-tool: Could not connect: No such file or directory\n")]
+    public async Task OtherErrorsRetainDetailsWithoutConnectionAdvice(string operation, string error)
+    {
+        var store = Create(1, "", error, "openza-tasks");
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => Run(store, operation));
+        Assert.Contains(error.Trim(), exception.Message);
+        Assert.DoesNotContain("snap connect", exception.Message);
+        Assert.DoesNotContain("Secret portal", exception.Message);
     }
 
     private static Task Run(SecretToolCredentialStore store, string operation) => operation switch

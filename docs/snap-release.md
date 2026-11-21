@@ -15,8 +15,8 @@ keyring connection is needed on those desktops.
 
 On desktops without a Secret portal backend, such as KDE Plasma 5 or minimal
 sessions, libsecret falls back to the Secret Service D-Bus API. The
-`password-manager-service` plug is not auto-connected. Grant access, then try
-again:
+`password-manager-service` plug is not auto-connected. If it is not connected,
+grant access, then try again:
 
 ```sh
 sudo snap connect openza-tasks:password-manager-service
@@ -25,7 +25,11 @@ sudo snap connect openza-tasks:password-manager-service
 For a parallel install, replace `openza-tasks` with its instance name (the app
 uses `SNAP_INSTANCE_NAME`, falling back to `SNAP_NAME`). If no keyring service
 is available, install or start a Secret Service provider such as GNOME Keyring
-or KWallet; on desktops without a Secret portal, also run the command above.
+or KWallet; on desktops without a Secret portal, also run the command above if
+the plug is not connected. If an AppArmor denial persists with the plug already
+connected, investigate the retained `secret-tool` error details rather than
+repeating the connection command. Bare AccessDenied errors can also mean a
+keyring prompt was dismissed; they do not establish a missing connection.
 
 ### Store auto-connect request
 

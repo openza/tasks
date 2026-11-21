@@ -57,7 +57,7 @@ public sealed class SecretToolCredentialStore : ICredentialStore
             ["clear", ApplicationAttribute, _applicationValue, KeyAttribute, key],
             null,
             cancellationToken);
-        if (result.ExitCode is not 0 and not 1)
+        if (result.ExitCode != 1 || !string.IsNullOrWhiteSpace(result.StandardError))
         {
             EnsureSuccess(result, "remove the credential");
         }
@@ -113,19 +113,18 @@ public sealed class SecretToolCredentialStore : ICredentialStore
         var instance = NullIfEmpty(_environment("SNAP_INSTANCE_NAME")) ?? snapName;
         var command = $"sudo snap connect {instance}:password-manager-service";
         string? guidance = null;
-        if (error.Contains("AppArmor", StringComparison.OrdinalIgnoreCase) ||
-            error.Contains("AccessDenied", StringComparison.OrdinalIgnoreCase))
+        if (error.Contains("AppArmor", StringComparison.OrdinalIgnoreCase))
         {
-            guidance = $"Your desktop does not provide the Secret portal, so this Snap needs keyring access. Run:\n\n{command}\n\nThen try again.";
+            guidance = $"Keyring access was blocked by AppArmor. On desktops without a Secret portal, this Snap needs Secret Service access. If password-manager-service is not connected, run:\n\n{command}\n\nThen try again. If it is already connected, the denial needs further investigation.";
         }
         else if (error.Contains("org.freedesktop.secrets", StringComparison.OrdinalIgnoreCase) &&
                  (error.Contains("was not provided by any .service files", StringComparison.OrdinalIgnoreCase) ||
                   error.Contains("ServiceUnknown", StringComparison.OrdinalIgnoreCase)))
         {
-            guidance = $"No keyring (Secret Service, such as GNOME Keyring or KWallet) is running or available. Install or start one. If your desktop has no Secret portal, also run:\n\n{command}\n\nThen try again.";
+            guidance = $"No keyring (Secret Service, such as GNOME Keyring or KWallet) is running or available. Install or start one. If your desktop has no Secret portal and password-manager-service is not connected, run:\n\n{command}\n\nThen try again.";
         }
 
-        if (guidance is not null) throw new InvalidOperationException($"Could not {operation}: {guidance}");
+        if (guidance is not null) throw new InvalidOperationException($"Could not {operation}: {guidance}\n\nDetails: {error}");
     }
 
     private void EnsureSuccess(ProcessResult result, string operation)
