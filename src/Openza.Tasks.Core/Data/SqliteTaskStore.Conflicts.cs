@@ -52,7 +52,7 @@ public sealed partial class SqliteTaskStore
         do
         {
             expanded = false;
-            foreach (var row in tail.Where(r => !IsUnversionedProviderOperation(r.Operation) && !parkedIds.Contains(r.Id)))
+            foreach (var row in tail.Where(r => r.Operation.StartsWith("task.", StringComparison.Ordinal) && !parkedIds.Contains(r.Id)))
             {
                 var targets = indirect.GetValueOrDefault(row.Id) ?? [];
                 if (!affected.Contains(row.Entity) && !targets.Any(affected.Contains)) continue;
@@ -84,9 +84,6 @@ public sealed partial class SqliteTaskStore
         }
         await WorkspaceExecuteAsync(connection, "UPDATE personal_cloud_device_state SET next_device_sequence=@q WHERE instance_id=@i AND device_id=@d", cancellationToken, ("@q", next), ("@i", instanceId), ("@d", deviceId)).ConfigureAwait(false);
     }
-
-    private static bool IsUnversionedProviderOperation(string operation) =>
-        operation is "source.refreshSnapshot" or "externalCommand.confirm" or "externalCommand.reject";
 
     private sealed record ConflictState(string Id, string DeviceId, JsonObject? Base, JsonObject? Cloud, JsonObject Fields, bool Supported, IReadOnlyList<string> Operations)
     {
@@ -249,7 +246,12 @@ public sealed partial class SqliteTaskStore
     private static async Task<bool> HasConflictUploadsAsync(SqliteConnection connection, string instanceId, IReadOnlyList<string> taskIds, CancellationToken cancellationToken)
     {
         var command = connection.CreateCommand();
-        command.CommandText = "SELECT EXISTS(SELECT 1 FROM personal_cloud_outbox WHERE instance_id=@i AND entity_id IN(SELECT value FROM json_each(@ids)) AND acknowledged_at IS NULL)";
+        command.CommandText = """
+            SELECT EXISTS(SELECT 1 FROM personal_cloud_outbox o WHERE o.instance_id=@i AND o.acknowledged_at IS NULL
+              AND (o.entity_id IN(SELECT value FROM json_each(@ids))
+                OR EXISTS(SELECT 1 FROM personal_cloud_workspace_indirect_versions v WHERE v.mutation_id=o.mutation_id
+                  AND v.instance_id=@i AND v.kind='tasks' AND v.entity_id IN(SELECT value FROM json_each(@ids)))))
+            """;
         command.Parameters.AddWithValue("@i", instanceId); command.Parameters.AddWithValue("@ids", JsonSerializer.Serialize(taskIds));
         return Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)) != 0;
     }

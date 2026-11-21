@@ -8,6 +8,32 @@ namespace Openza.Tasks.Tests;
 
 public sealed partial class PersonalCloudBatchSyncTests
 {
+    [Fact]
+    public async Task Project_deletion_stays_uploadable_and_task_conflict_can_resolve_after_its_echo()
+    {
+        var (store, handler) = await ConflictStoreAsync();
+        var rejected = await PatchAsync(store, "task_test", "title", "Desktop title");
+        await store.DeleteProjectWithPersonalCloudIntentAsync("project_test", Instance, Device);
+        await store.ParkPersonalCloudTaskConflictAsync(rejected);
+        Assert.Equal("project.delete", Assert.Single(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device)).Operation);
+        var card = Assert.Single(await store.GetPersonalCloudTaskConflictsAsync(Instance));
+        var pending = await Assert.ThrowsAsync<PersonalCloudK0ContractException>(() =>
+            store.ResolvePersonalCloudTaskConflictAsync(Instance, card.TaskId, false, expectedRevision: card.RevisionToken));
+        Assert.Equal("pending_intents", pending.Code);
+        var cloud = JsonSerializer.SerializeToNode(CloudTask(version: 3))!;
+        cloud["projectId"] = null;
+        handler.CurrentCheckpoint = 2;
+        handler.ChangePageJson = PersonalCloudWorkspaceTests.Page(2, projects: [PersonalCloudWorkspaceTests.Project(2, "2026-10-14T00:00:00.000Z")], tasks: [cloud]);
+        var result = await (await CreateClientAsync(store, handler)).SyncAsync();
+        Assert.Null(result.BlockedCode);
+        Assert.Equal(1, result.PushedMutations);
+        card = Assert.Single(await store.GetPersonalCloudTaskConflictsAsync(Instance));
+        await store.ResolvePersonalCloudTaskConflictAsync(Instance, card.TaskId, false, expectedRevision: card.RevisionToken);
+        Assert.Null((await store.GetTaskAsync("task_test"))!.ProjectId);
+        Assert.Empty(await store.GetPersonalCloudTaskConflictsAsync(Instance));
+        await store.EnsureNoPendingPersonalCloudIntentsAsync();
+    }
+
     [Theory]
     [InlineData(false, false)]
     [InlineData(true, false)]
