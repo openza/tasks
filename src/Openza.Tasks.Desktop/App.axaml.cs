@@ -44,6 +44,7 @@ public sealed partial class App : Avalonia.Application
                 {
                     Title = DesktopDataPaths.Runtime.DisplayName,
                 };
+                desktop.MainWindow.Opened += (_, _) => WindowsContinuityHost.AttachReadyWindow(desktop.MainWindow);
                 desktop.Exit += (_, _) => { _runtimeLease?.Dispose(); WindowsContinuityHost.Close(); };
             }
         }
