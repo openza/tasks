@@ -24,9 +24,11 @@ public sealed partial class WindowsContinuityIntegrationTests(EditorTestSession 
     {
         var platform = Platform;
         var original = await SeedAsync();
-        var database = await File.ReadAllBytesAsync(Path.Combine(_root, "openza-tasks.db"));
+        var database = await File.ReadAllBytesAsync(Path.Combine(_root, "openza_tasks.db"));
         using var session = new WindowsContinuitySession(platform);
         await PrepareAsync(session, platform);
+        Assert.Equal(Path.Combine(_root, "openza_tasks.db"), session.Data.Runtime.DatabasePath);
+        Assert.False(File.Exists(Path.Combine(_root, "openza-tasks.db")));
         Assert.Equal(original, await File.ReadAllTextAsync(Path.Combine(_root, "settings.json")));
         Assert.Equal(original, await File.ReadAllTextAsync(Path.Combine(Archive, "settings.json")));
         Assert.Equal(database, await File.ReadAllBytesAsync(session.Data.Runtime.DatabasePath));
@@ -47,6 +49,76 @@ public sealed partial class WindowsContinuityIntegrationTests(EditorTestSession 
         var applied = await File.ReadAllBytesAsync(session.SettingsPath);
         await PrepareAsync(session, platform);
         Assert.Equal(applied, await File.ReadAllBytesAsync(session.SettingsPath));
+    }
+
+    [Fact]
+    public async Task June_database_wal_is_fingerprinted_and_included_in_online_backup()
+    {
+        await SeedAsync();
+        using var writer = new SqliteConnection($"Data Source={Path.Combine(_root, "openza_tasks.db")};Pooling=False");
+        await writer.OpenAsync();
+        using var command = writer.CreateCommand();
+        command.CommandText = "PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0; INSERT INTO tasks VALUES('wal-task','Retained WAL task');";
+        await command.ExecuteNonQueryAsync();
+        static byte[] Snapshot(string path)
+        {
+            using var source = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            using var copy = new MemoryStream();
+            source.CopyTo(copy);
+            return copy.ToArray();
+        }
+        var database = Snapshot(Path.Combine(_root, "openza_tasks.db"));
+        var wal = Snapshot(Path.Combine(_root, "openza_tasks.db-wal"));
+        await writer.CloseAsync();
+        await File.WriteAllBytesAsync(Path.Combine(_root, "openza_tasks.db"), database);
+        await File.WriteAllBytesAsync(Path.Combine(_root, "openza_tasks.db-wal"), wal);
+        Assert.True(File.Exists(Path.Combine(_root, "openza_tasks.db-wal")));
+        var platform = Platform;
+        using var session = new WindowsContinuitySession(platform);
+        await PrepareAsync(session, platform);
+        using var plan = JsonDocument.Parse(await File.ReadAllTextAsync(Path.Combine(Archive, "plan.json")));
+        var inputs = plan.RootElement.GetProperty("Inputs");
+        Assert.Equal(JsonValueKind.String, inputs.GetProperty("openza_tasks.db").ValueKind);
+        Assert.Equal(JsonValueKind.String, inputs.GetProperty("openza_tasks.db-wal").ValueKind);
+        Assert.False(inputs.TryGetProperty("openza-tasks.db", out _));
+        Assert.Equal(JsonValueKind.String, plan.RootElement.GetProperty("DatabaseBackupHash").ValueKind);
+        foreach (var path in new[] { session.Data.Runtime.DatabasePath, Path.Combine(Archive, "original.db") })
+        {
+            using var db = new SqliteConnection($"Data Source={path};Mode=ReadOnly;Pooling=False");
+            await db.OpenAsync();
+            using var query = db.CreateCommand();
+            query.CommandText = "SELECT title FROM tasks WHERE id='wal-task'";
+            Assert.Equal("Retained WAL task", await query.ExecuteScalarAsync());
+        }
+        Assert.False(File.Exists(Path.Combine(_root, "openza-tasks.db")));
+    }
+
+    [Fact]
+    public async Task Empty_package_records_missing_June_database_without_creating_another_store()
+    {
+        var platform = Platform;
+        using var session = new WindowsContinuitySession(platform);
+        await PrepareAsync(session, platform);
+        using var plan = JsonDocument.Parse(await File.ReadAllTextAsync(Path.Combine(Archive, "plan.json")));
+        Assert.Equal(JsonValueKind.Null, plan.RootElement.GetProperty("Inputs").GetProperty("openza_tasks.db").ValueKind);
+        Assert.Equal(JsonValueKind.Null, plan.RootElement.GetProperty("DatabaseBackupHash").ValueKind);
+        Assert.False(File.Exists(session.Data.Runtime.DatabasePath));
+        Assert.False(File.Exists(Path.Combine(_root, "openza-tasks.db")));
+    }
+
+    [Fact]
+    public async Task Corrupt_June_database_stops_before_completion_and_is_not_replaced_with_empty_store()
+    {
+        Directory.CreateDirectory(_root);
+        var path = Path.Combine(_root, "openza_tasks.db");
+        await File.WriteAllTextAsync(path, "synthetic corrupt database");
+        var platform = Platform;
+        using var session = new WindowsContinuitySession(platform);
+        await Assert.ThrowsAsync<SqliteException>(() => PrepareAsync(session, platform));
+        Assert.Equal("synthetic corrupt database", await File.ReadAllTextAsync(path));
+        Assert.False(File.Exists(Path.Combine(Archive, "complete.json")));
+        Assert.False(File.Exists(session.SettingsPath));
+        Assert.False(File.Exists(Path.Combine(_root, "openza-tasks.db")));
     }
 
     [Theory]
@@ -462,7 +534,7 @@ public sealed partial class WindowsContinuityIntegrationTests(EditorTestSession 
     {
         Directory.CreateDirectory(_root);
         await File.WriteAllTextAsync(Path.Combine(_root, "settings.json"), original);
-        using var db = new SqliteConnection($"Data Source={Path.Combine(_root, "openza-tasks.db")};Pooling=False");
+        using var db = new SqliteConnection($"Data Source={Path.Combine(_root, "openza_tasks.db")};Pooling=False");
         await db.OpenAsync();
         using var command = db.CreateCommand();
         command.CommandText = """
@@ -484,7 +556,7 @@ public sealed partial class WindowsContinuityIntegrationTests(EditorTestSession 
         };
         await new JsonPersonalCloudConnectionStore(Path.Combine(_root, "personal-cloud-connection.json")).SaveAsync(profile);
         platform.Legacy.Values[CloudKey(profile)] = CloudCredential(profile);
-        using var db = new SqliteConnection($"Data Source={Path.Combine(_root, "openza-tasks.db")};Pooling=False");
+        using var db = new SqliteConnection($"Data Source={Path.Combine(_root, "openza_tasks.db")};Pooling=False");
         await db.OpenAsync();
         using var command = db.CreateCommand();
         command.CommandText = "INSERT INTO personal_cloud_device_state VALUES('instance-test','device-test',4); INSERT INTO personal_cloud_checkpoints VALUES('instance-test','device-test',8);";

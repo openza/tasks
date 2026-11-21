@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Openza.Tasks.Application.Runtime;
+using Openza.Tasks.Core.Migration;
 using Openza.Tasks.Core.PersonalCloud;
 using Openza.Tasks.Core.Services;
 
@@ -13,7 +14,9 @@ public sealed class WindowsContinuityCoordinator
 {
     public const string CloudRecoveryNotice = "Personal Cloud sync is paused. Open Sync or Settings to recover the saved pairing or export/restore a safety copy. Local tasks and pending operations remain; legacy identity will not be re-imported.";
     private const string ArchiveName = "windows-continuity-v1";
-    private static readonly string[] Inputs = ["settings.json", "personal-cloud-connection.json", "personal-cloud-provisioning.json", "msal-cache.bin", "openza-tasks.db", "openza-tasks.db-wal"];
+    private const string DatabaseName = AppDataPaths.DatabaseFileName;
+    private const string DatabaseWalName = DatabaseName + "-wal";
+    private static readonly string[] Inputs = ["settings.json", "personal-cloud-connection.json", "personal-cloud-provisioning.json", "msal-cache.bin", DatabaseName, DatabaseWalName];
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };
     private sealed record Plan(int Version, string FamilyName, Dictionary<string, string?> Inputs, string? DatabaseBackupHash);
     private sealed record Completion(int Version, string SettingsHash);
@@ -42,7 +45,7 @@ public sealed class WindowsContinuityCoordinator
             ?? throw Stop("The transition journal is invalid. Its original files were retained.");
         if (plan.Version != 1 || plan.FamilyName != session.Package.FamilyName || plan.Inputs.Count != Inputs.Length || Inputs.Any(name => !plan.Inputs.ContainsKey(name)))
             throw Stop("The transition journal does not match this package. No source state was replaced.");
-        foreach (var name in Inputs.Where(name => name is not ("openza-tasks.db" or "openza-tasks.db-wal")))
+        foreach (var name in Inputs.Where(name => name is not (DatabaseName or DatabaseWalName)))
             if (plan.Inputs[name] is { } hash && Hash(await ReadAsync(Path.Combine(archive, name), cancellationToken).ConfigureAwait(false)) != hash)
                 throw Stop("A retained original file failed verification. Recover the transition archive before continuing.");
         if (plan.DatabaseBackupHash is { } backupHash && Hash(await ReadAsync(Path.Combine(archive, "original.db"), cancellationToken).ConfigureAwait(false)) != backupHash)
@@ -130,11 +133,11 @@ public sealed class WindowsContinuityCoordinator
         var before = await FingerprintAsync(root, cancellationToken).ConfigureAwait(false);
         var stage = Path.Combine(root, $".windows-continuity-stage-{Guid.NewGuid():N}");
         PrivateFilePermissions.EnsureDirectory(stage);
-        foreach (var name in Inputs.Where(name => name is not ("openza-tasks.db" or "openza-tasks.db-wal")))
+        foreach (var name in Inputs.Where(name => name is not (DatabaseName or DatabaseWalName)))
             if (before[name] is not null)
                 await WriteImmutableAsync(Path.Combine(stage, name), await ReadAsync(Path.Combine(root, name), cancellationToken).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
         string? backupHash = null;
-        if (before["openza-tasks.db"] is not null)
+        if (before[DatabaseName] is not null)
         {
             using var source = ReadOnlyDatabase(session.Data.Runtime.DatabasePath);
             await source.OpenAsync(cancellationToken).ConfigureAwait(false);

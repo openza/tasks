@@ -1,4 +1,5 @@
 using Openza.Tasks.Application.Runtime;
+using Openza.Tasks.Core.Migration;
 
 namespace Openza.Tasks.Application.Continuity;
 
@@ -35,6 +36,7 @@ public sealed class WindowsPackageDataContext
         {
             Channel = channel,
             DataDirectory = Path.GetFullPath(packageLocalFolder),
+            DatabaseFileName = AppDataPaths.DatabaseFileName,
         });
     }
 }

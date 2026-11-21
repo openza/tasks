@@ -94,6 +94,7 @@ TestResults/
 *.nupkg
 
 # MSIX / Store packaging
+/artifacts/msix/
 AppPackages/
 BundleArtifacts/
 *.appx

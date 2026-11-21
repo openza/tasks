@@ -15,7 +15,8 @@ public sealed record OpenzaRuntimeContext
     // on one machine never share saved credentials.
     public string? CredentialScope { get; init; }
 
-    public string DatabasePath => Path.Combine(DataDirectory, "openza-tasks.db");
+    internal string DatabaseFileName { get; init; } = "openza-tasks.db";
+    public string DatabasePath => Path.Combine(DataDirectory, DatabaseFileName);
     public string RestorePointDirectory => Path.Combine(DataDirectory, "restore-points");
     public string SettingsPath => Path.Combine(DataDirectory, "settings.json");
     public string RuntimeLockPath => Path.Combine(GetCoordinationLockDirectory(), $"{StableHash(Path.GetFullPath(DataDirectory))}.lock");

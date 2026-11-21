@@ -14,23 +14,24 @@ namespace Openza.Tasks.Desktop;
 public sealed partial class App : Avalonia.Application
 {
     private ChannelRuntimeLease? _runtimeLease;
+    private DesktopThemeController? _themeController;
     public override void Initialize()
     {
         AvaloniaXamlLoader.Load(this);
+        _themeController = new DesktopThemeController(this);
     }
+
+    public void SetThemePreference(string? theme) => _themeController?.SetPreference(theme);
 
     public override void OnFrameworkInitializationCompleted()
     {
+        if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime lifetime)
+            lifetime.Exit += (_, _) => _themeController?.Dispose();
         try
         {
             WindowsContinuityHost.Prepare();
             var preferences = new DesktopPreferencesStore().Load();
-            RequestedThemeVariant = preferences.Theme switch
-            {
-                "Light" => ThemeVariant.Light,
-                "Dark" => ThemeVariant.Dark,
-                _ => ThemeVariant.Default,
-            };
+            SetThemePreference(preferences.Theme);
 
             if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
             {
@@ -44,6 +45,7 @@ public sealed partial class App : Avalonia.Application
                 {
                     Title = DesktopDataPaths.Runtime.DisplayName,
                 };
+                desktop.MainWindow.Opened += (_, _) => WindowsContinuityHost.AttachReadyWindow(desktop.MainWindow);
                 desktop.Exit += (_, _) => { _runtimeLease?.Dispose(); WindowsContinuityHost.Close(); };
             }
         }

@@ -5,17 +5,16 @@ releases or maintenance. Keep the project as the final Store baseline and
 continuity reference. Existing Store users remain on that release until a future
 Avalonia replacement passes acceptance.
 
-Linux Snap is the sole current focus for the coming weeks/months, until Linux is
-stable. All Windows work is parked, including Avalonia Windows packaging, MSIX,
-native testing, Store replacement and continuity policy decisions. Resume only
-when the maintainer explicitly asks. This document retains the existing Dev-gated
-implementation and future acceptance requirements as reference.
+Linux Snap and Windows (Avalonia MSIX replacing the WinUI Store app) are both
+active development and delivery targets. WinUI remains frozen as the continuity
+baseline with no new WinUI releases. Continuity stays Dev-gated until the
+transition gates pass; Preview/Production installation or replacement and Store
+release still require maintainer approval.
 
 Keep Core, Application and Desktop code cross-platform and Windows-compatible,
 with OS-specific behavior behind platform services. The optional Windows CI job
 builds Avalonia and runs smoke tests on code PRs and pushes to main, and runs the
-full shared suite weekly and on manual dispatch. It is a nonblocking early warning
-only; do not block Linux work on it or act on its results unless explicitly requested.
+full shared suite weekly and on manual dispatch. It is a nonblocking early warning only.
 It does not build WinUI or establish native package acceptance. Linux build/tests
 and Snap validation remain required.
 
@@ -122,14 +121,30 @@ checks; native UI/package acceptance remains separate.
 
 | Lane | Required identity | Agreed version lane | Baseline WinUI manifest |
 | --- | --- | --- | --- |
-| Dev | Openza.OpenzaTasks.Dev | 0.0.N.0 | 0.1.0.0 |
+| Dev | Openza.OpenzaTasks.Dev | 0.1.N.0 (from 0.1.1.0) | 0.1.0.0 |
 | Preview | Openza.OpenzaTasks.Preview | 0.N.B.0 | 0.2.3.0 |
 | Production | Openza.OpenzaTasks | 1.N.P.0 | 1.1.0.0 |
 
-These are source manifest values, not installed or latest Store versions. The Dev
-manifest differs from its intended lane; resolve increasing update eligibility
-before packaging without silently lowering a version. Preserve publisher/name
+Dev uses `0.1.N.0` from `0.1.1.0` so Avalonia can upgrade the June WinUI Dev
+baseline `0.1.0.0` without lowering its version.
+These are source manifest values, not installed or latest Store versions. Preserve publisher/name
 association, architecture and OS constraints; keep private Store metadata out of Git.
+
+### Dev MSIX packaging
+
+On Windows with .NET 10 and Windows SDK `makeappx.exe` on PATH, run
+`./scripts/windows/package-msix.ps1`. It publishes self-contained .NET and Windows
+App SDK binaries into a unique layout under ignored `artifacts/msix/`, then packs
+the Avalonia Dev manifest. Other channels are rejected. The application ID `App`,
+publisher, architecture, display names and assets match the June WinUI Dev package.
+
+For optional local signing, supply `-CertificatePath` and a SecureString
+`-CertificatePassword` (for example, obtained with `Read-Host -AsSecureString`).
+Signing also requires `signtool.exe` on PATH; explicit `-MakeAppxPath` and
+`-SignToolPath` overrides are available. Use an approved certificate matching
+`CN=Openza`; keep certificates and passwords outside the repository. The script
+never installs or launches a package. Native launch, package LocalFolder access
+and upgrade acceptance still require a separately authorized installed Dev test.
 
 ## Native package validation
 

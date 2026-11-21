@@ -118,9 +118,8 @@ dotnet build Openza.Tasks.Desktop.csproj -c Release --no-restore
 
 CI requires Linux build/tests and Snap validation. The optional Windows job builds
 Avalonia and runs smoke tests on code PRs and pushes to main; it runs the full suite
-weekly and on manual dispatch. Do not block Linux work on it or act on its results
-unless the maintainer explicitly asks. It does not build WinUI. Retain the existing
-continuity Dev gate and future package/vault/sign-in
+weekly and on manual dispatch. It is nonblocking and does not build WinUI. Retain
+the existing continuity Dev gate and future package/vault/sign-in
 acceptance requirements. Keep Core, Application and Desktop code cross-platform,
 with OS-specific behavior behind platform services.
 

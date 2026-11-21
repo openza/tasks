@@ -27,7 +27,7 @@ replacement passes acceptance.
   [transition plan](windows-transition.md).
 - CI requires Linux build/tests and Snap validation. Optional Windows CI runs an
   Avalonia build and smoke tests on code PRs and pushes to main, and the full suite
-  weekly or on manual dispatch. Do not act on its results unless explicitly asked.
+  weekly or on manual dispatch. Neither run proves native package acceptance.
 
 ## Release and validation work
 
