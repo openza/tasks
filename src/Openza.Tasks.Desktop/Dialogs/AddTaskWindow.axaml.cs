@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
@@ -42,6 +43,16 @@ public sealed partial class AddTaskWindow : Window
     private void OnCancelClicked(object? sender, RoutedEventArgs e) => Close(null);
     private void OnCreateClicked(object? sender, RoutedEventArgs e) => Complete(false);
     private void OnCreateAndOpenClicked(object? sender, RoutedEventArgs e) => Complete(true);
+
+    private void OnSizeChanged(object? sender, SizeChangedEventArgs e)
+    {
+        if (!IsVisible || Screens.ScreenFromWindow(this) is not { } screen) return;
+        var frame = FrameSize ?? e.NewSize;
+        var height = (int)Math.Ceiling(frame.Height * DesktopScaling);
+        var top = screen.WorkingArea.Y;
+        var bottom = Math.Max(top, screen.WorkingArea.Bottom - height);
+        Position = new PixelPoint(Position.X, Math.Clamp(Position.Y, top, bottom));
+    }
 
     private void OnTitleTextChanged(object? sender, TextChangedEventArgs e)
     {

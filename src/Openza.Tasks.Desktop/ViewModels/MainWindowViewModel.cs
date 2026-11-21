@@ -64,7 +64,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private string _projectSearchText = string.Empty;
     private int _projectFilterIndex;
     private string _pageTitle = "Inbox";
-    private string _pageSubtitle = "Capture first. Organize when it helps.";
+    private string _pageSubtitle = SubtitleFor(TaskListKind.Inbox);
     private string _statusMessage = "Ready";
     private bool _isStatusMessagePersistent;
     private bool _isBusy;
@@ -82,6 +82,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private readonly List<ConnectedTaskViewModel> _allConnectedTasks = [];
     private string _todoistToken = string.Empty;
     private string _todoistConnectionText = "Not connected.";
+    private bool _isTodoistConnected;
     private int _priorityFilterIndex;
     private int _repeatFilterIndex;
     private int _groupIndex;
@@ -445,6 +446,18 @@ public sealed partial class MainWindowViewModel : ObservableObject
     {
         get => _todoistConnectionText;
         private set => SetProperty(ref _todoistConnectionText, value);
+    }
+
+    public bool HasConnectedTaskApp => IsTodoistConnected || _preferencesStore.Load().MicrosoftToDoAccount is not null;
+
+    private bool IsTodoistConnected
+    {
+        get => _isTodoistConnected;
+        set
+        {
+            if (SetProperty(ref _isTodoistConnected, value))
+                OnPropertyChanged(nameof(HasConnectedTaskApp));
+        }
     }
 
     public int PriorityFilterIndex
@@ -1259,12 +1272,14 @@ public sealed partial class MainWindowViewModel : ObservableObject
         try
         {
             var token = await _credentials.GetAsync(TodoistTokenKey);
-            TodoistConnectionText = string.IsNullOrWhiteSpace(token)
-                ? "Not connected."
-                : $"Connected securely through {CredentialStoreDisplayName}.";
+            IsTodoistConnected = !string.IsNullOrWhiteSpace(token);
+            TodoistConnectionText = IsTodoistConnected
+                ? $"Connected securely through {CredentialStoreDisplayName}."
+                : "Not connected.";
         }
         catch (Exception exception)
         {
+            IsTodoistConnected = false;
             TodoistConnectionText = exception.Message;
         }
     }
@@ -1590,6 +1605,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             await _store.SetIntegrationConfiguredAsync(IntegrationIds.Todoist, true);
             await _store.SetIntegrationActiveAsync(IntegrationIds.Todoist, true);
             TodoistToken = string.Empty;
+            IsTodoistConnected = true;
             TodoistConnectionText = $"Connected securely through {CredentialStoreDisplayName}.";
             StatusMessage = "Todoist connected";
         });
@@ -1604,6 +1620,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             await _credentials.RemoveAsync(TodoistTokenKey);
             await _store.SetIntegrationConfiguredAsync(IntegrationIds.Todoist, false);
             await _store.SetIntegrationActiveAsync(IntegrationIds.Todoist, false);
+            IsTodoistConnected = false;
             TodoistConnectionText = "Not connected.";
             StatusMessage = "Todoist disconnected; imported tasks remain local";
         });
@@ -2572,7 +2589,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
         BuildTaskEntries(projects);
         OnPropertyChanged(nameof(HasNoTasks));
-        PageSubtitle = $"{Tasks.Count} task{(Tasks.Count == 1 ? string.Empty : "s")}";
+        var taskCountText = $"{Tasks.Count} task{(Tasks.Count == 1 ? string.Empty : "s")}";
+        PageSubtitle = viewKind == TaskListKind.Inbox ? $"{taskCountText} · {SubtitleFor(viewKind)}" : taskCountText;
 
         UpdateNavigationCounts(snapshot.Counts);
         _spaceTaskCount = snapshot.Counts.All;
@@ -3199,6 +3217,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     private static string SubtitleFor(TaskListKind kind) => kind switch
     {
+        TaskListKind.Inbox => "Inbox status, no project",
         TaskListKind.Today => "Everything that needs your attention today.",
         TaskListKind.Calendar => "Open tasks with dates and deadlines.",
         TaskListKind.Overdue => "Open tasks whose dates have passed.",

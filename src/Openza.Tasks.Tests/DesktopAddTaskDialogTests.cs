@@ -1,5 +1,6 @@
 using Avalonia.Controls;
 using Avalonia.Headless;
+using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.VisualTree;
 using Openza.Tasks.Core.Credentials;
@@ -33,12 +34,31 @@ public sealed class DesktopAddTaskDialogTests(EditorTestSession fixture)
                 var create = dialog.GetVisualDescendants().OfType<Button>().Single(button => Equals(button.Content, "Create and open"));
                 create.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 Assert.True(dialog.FindControl<TextBlock>("TitleValidation")!.IsVisible);
+                Assert.False(dialog.FindControl<Expander>("PlanningExpander")!.IsExpanded);
+                dialog.FindControl<TextBox>("TitleBox")!.Text = "  Quick capture  ";
+                dialog.FindControl<TextBox>("TitleBox")!.Focus();
+                dialog.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+                var quickDraft = await result;
+                Assert.NotNull(quickDraft);
+                Assert.Equal("Quick capture", quickDraft.Title);
+                Assert.Equal(0, quickDraft.StatusIndex);
+                Assert.Equal(2, quickDraft.PriorityIndex);
+                Assert.Null(quickDraft.PlannedDate);
+                Assert.Empty(quickDraft.Notes);
+                Assert.False(quickDraft.OpenAfterCreate);
+
+                dialog = new AddTaskWindow(vm);
+                result = dialog.ShowDialog<AddTaskDraft?>(owner);
+                dialog.FindControl<Expander>("PlanningExpander")!.IsExpanded = true;
+                dialog.UpdateLayout();
+                create = dialog.GetVisualDescendants().OfType<Button>().Single(button => Equals(button.Content, "Create and open"));
                 dialog.FindControl<TextBox>("TitleBox")!.Text = "Desktop dialog parity ✓";
                 dialog.FindControl<TextBox>("NotesBox")!.Text = "Synthetic dialog notes\nनमस्ते";
                 dialog.FindControl<ComboBox>("StatusPicker")!.SelectedIndex = 1;
                 dialog.FindControl<ComboBox>("PriorityPicker")!.SelectedIndex = 0;
                 dialog.FindControl<CalendarDatePicker>("DatePicker")!.SelectedDate = new DateTime(2026, 10, 19);
                 dialog.FindControl<AutoCompleteBox>("LabelsBox")!.Text = "review, desktop, REVIEW";
+                dialog.FindControl<Expander>("PlanningExpander")!.IsExpanded = false;
                 create.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 var draft = await result;
                 Assert.NotNull(draft);
@@ -46,6 +66,7 @@ public sealed class DesktopAddTaskDialogTests(EditorTestSession fixture)
                 await vm.CreateTaskAsync(draft);
                 var task = Assert.Single(await store.GetTasksAsync(new TaskQuery { Kind = TaskListKind.Open }));
                 Assert.Equal("Desktop dialog parity ✓", task.Title);
+                Assert.Equal("Synthetic dialog notes\nनमस्ते", task.Notes);
                 Assert.Equal(1, task.Priority);
                 Assert.Equal(new DateOnly(2026, 10, 19), task.PlannedOn);
                 Assert.Equal(2, task.Labels.Count);

@@ -25,10 +25,11 @@ public sealed class DesktopLayoutTests(EditorTestSession fixture)
     {
         await fixture.Session.Dispatch(() =>
         {
-            var window = new AddTaskWindow { Width = width, Height = height };
+            var window = new AddTaskWindow { Width = width, Height = height, SizeToContent = SizeToContent.Manual };
             try
             {
                 window.Show();
+                window.FindControl<Expander>("PlanningExpander")!.IsExpanded = true;
                 window.UpdateLayout();
                 var date = window.FindControl<CalendarDatePicker>("DatePicker")!;
                 var position = date.TranslatePoint(default, window)!.Value;
@@ -49,6 +50,7 @@ public sealed class DesktopLayoutTests(EditorTestSession fixture)
     [Theory]
     [InlineData(920)]
     [InlineData(1200)]
+    [InlineData(1280)]
     [InlineData(1440)]
     [InlineData(1600)]
     public async Task Opening_task_details_preserves_a_usable_workspace(double width)
@@ -59,11 +61,11 @@ public sealed class DesktopLayoutTests(EditorTestSession fixture)
             var store = new SqliteTaskStore(Path.Combine(directory, "tasks.db"));
             await store.InitializeAsync();
             await store.UpsertProjectAsync(new ProjectItem { Id = "project", Name = "Design review" });
-            await store.UpsertTaskAsync(new TaskItem { Id = "task", Title = "Review a long task title without losing the editor or task list", ProjectId = "project" });
+            await store.UpsertTaskAsync(new TaskItem { Id = "task", Title = "Review a long task title without losing the editor or task list", ProjectId = "project", Notes = "Start with the workshop agenda.\nConfirm the speakers and send the draft." });
             var preferences = new DesktopPreferencesStore(Path.Combine(directory, "settings.json"));
             await preferences.SaveAsync(new() { AutomaticSyncEnabled = false, AutomaticRestorePointsEnabled = false, ShowGetStarted = false });
             var vm = new MainWindowViewModel(store, new InMemoryCredentialStore(), preferencesStore: preferences);
-            var window = new MainWindow(vm) { Width = width, Height = 760, WindowState = WindowState.Normal };
+            var window = new MainWindow(vm) { Width = width, Height = 720, WindowState = WindowState.Normal };
             try
             {
                 window.Show();
@@ -87,6 +89,26 @@ public sealed class DesktopLayoutTests(EditorTestSession fixture)
                     Assert.True(list.Bounds.Width >= 420, $"Task list was squeezed to {list.Bounds.Width}.");
                 }
                 else Assert.False(list.IsVisible);
+
+                var notes = window.FindControl<TextBox>("DetailNotesBox")!;
+                var viewport = notes.GetVisualAncestors().OfType<ScrollViewer>().First();
+                var notesTop = notes.TranslatePoint(default, viewport)!.Value.Y;
+                Assert.InRange(notesTop, 0, viewport.Viewport.Height - 40);
+                Assert.StartsWith("Start with the workshop agenda.", notes.Text);
+                vm.DetailNotes = string.Empty;
+                window.UpdateLayout();
+                Assert.InRange(notes.Bounds.Height, 32, 60);
+                vm.DetailNotes = string.Join("\n", Enumerable.Range(1, 80).Select(i => $"Workshop planning line {i}"));
+                window.UpdateLayout();
+                var notesScroll = notes.GetVisualDescendants().OfType<ScrollViewer>().Single();
+                Assert.True(notesScroll.Extent.Height > notesScroll.Viewport.Height);
+                Assert.InRange(notes.TranslatePoint(default, viewport)!.Value.Y, 0, viewport.Viewport.Height - 40);
+                notes.Focus();
+                window.KeyPressQwerty(PhysicalKey.End, RawInputModifiers.Control);
+                window.KeyReleaseQwerty(PhysicalKey.End, RawInputModifiers.Control);
+                await Task.Delay(50);
+                window.UpdateLayout();
+                Assert.True(notesScroll.Offset.Y > 0, "The end of a long note must be reachable inside the bounded editor.");
 
                 window.FindControl<Button>("SyncNavigationButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 await WaitForAsync(() => window.FindControl<ScrollViewer>("SyncWorkspace")!.IsVisible);

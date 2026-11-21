@@ -166,15 +166,25 @@ public sealed class DesktopParityTests : IDisposable
     }
 
     [Fact]
-    public async Task Startup_sync_status_recognizes_stored_Todoist_credentials_without_opening_Settings()
+    public async Task First_use_sync_requires_a_connected_task_app()
     {
         var store = await StoreAsync();
         var credentials = new InMemoryCredentialStore();
         await credentials.SaveAsync("todoist-token", "test-token");
-        var vm = new MainWindowViewModel(store, credentials);
+        var vm = new MainWindowViewModel(store, credentials, microsoftAuth: new StubMicrosoftAuth());
         await vm.SetAutomaticRestorePointsAsync(false);
         await vm.InitializeAsync();
         Assert.DoesNotContain("Not connected", vm.TodoistConnectionText);
+        Assert.True(vm.HasConnectedTaskApp);
+
+        await vm.DisconnectTodoistAsync();
+        Assert.False(vm.HasConnectedTaskApp);
+        await vm.ConnectMicrosoftAsync("backup", _ => Task.CompletedTask, CancellationToken.None);
+        Assert.False(vm.HasConnectedTaskApp);
+        await vm.ConnectMicrosoftAsync("todo", _ => Task.CompletedTask, CancellationToken.None);
+        Assert.True(vm.HasConnectedTaskApp);
+        await vm.DisconnectMicrosoftAsync();
+        Assert.False(vm.HasConnectedTaskApp);
     }
 
     private sealed class StubMicrosoftAuth : IDesktopMicrosoftAuthService

@@ -10,8 +10,9 @@ adoption before they track those updates.
 ### Published version and next release
 
 [Openza Tasks is published on the Snap Store](https://snapcraft.io/openza-tasks).
-Store revision **3** is version **1.3.0**, available on **latest/stable**,
-**latest/candidate** and **latest/edge** (beta follows candidate). It was
+Checked on **21 November 2026**, Canonical's public Snap API reports amd64
+Store revision **3**, version **1.3.0**, on **latest/stable**,
+**latest/candidate** and **latest/edge**. It was
 uploaded **2026-11-01 11:32 UTC**, built from tag `v1.3.0`
 (`07331bd855d3991ba26603396ba094b19cd7e5c0`) with .NET runtime 10.0.14, and is
 **72,347,648 bytes**, the same size as the
@@ -24,6 +25,25 @@ Earlier revisions: **1** is 1.1.0 (no Personal Cloud) and **2** is 1.2.0
 
 For a new installation, use `sudo snap install openza-tasks`. The GitHub asset
 with checksum verification and `--dangerous` is a local-file fallback.
+
+Personal Cloud's **preview** maturity is independent of the Snap release channel;
+it does not require `edge`. Desktop 1.3.0's release notes and setup source describe
+installing separately signed cloud releases. The published
+[`cloud-v0.1.0-preview.11`](https://github.com/openza/personal-cloud/releases/tag/cloud-v0.1.0-preview.11)
+metadata declares `minDesktopVersion: 1.3.0`. This is release/source evidence, not
+an installed-Snap setup or authenticated cloud acceptance test. Store channel
+metadata alone does not establish feature behavior or an owner's deployed cloud
+version.
+
+When updating installation guidance, recheck current channels with
+`snap info openza-tasks` or Canonical's
+`https://api.snapcraft.io/v2/snaps/info/openza-tasks` endpoint (headers
+`Snap-Device-Series: 16`, `Snap-Device-Architecture: amd64`). Verify feature
+availability against the relevant Desktop release and compatible cloud release,
+not just a channel's version label. Keep the README and public install/Personal
+Cloud guides aligned; the website sources live in
+[`openza/website`](https://github.com/openza/website), not this repository or
+`openza/personal-cloud`.
 
 The next Linux Snap version has its planned changes under
 [CHANGELOG Unreleased](../CHANGELOG.md#unreleased). Before release, update the

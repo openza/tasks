@@ -13,7 +13,7 @@
     <Grid RowDefinitions="Auto,Auto,*,Auto,Auto">
         <StackPanel Margin="24,22,24,14" Spacing="4">
             <TextBlock Classes="dialog-title" Text="Change project" />
-            <TextBlock Foreground="{DynamicResource OpenzaTextSecondaryBrush}" Text="Choose where this task belongs." TextWrapping="Wrap" />
+            <TextBlock Foreground="{DynamicResource OpenzaTextSecondaryBrush}" Text="Changing the project keeps the task’s status. The Inbox list only shows open Inbox-status tasks without a project." TextWrapping="Wrap" />
         </StackPanel>
         <TextBox
             x:Name="SearchBox"
@@ -33,7 +33,7 @@
                 <DataTemplate>
                     <StackPanel Margin="8,7" Spacing="3">
                         <TextBlock FontWeight="SemiBold" Text="{Binding Title}" TextWrapping="Wrap" />
-                        <TextBlock FontSize="12" Foreground="{DynamicResource OpenzaTextSecondaryBrush}" Text="{Binding Subtitle}" TextWrapping="Wrap" IsVisible="{Binding Subtitle, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                        <TextBlock FontSize="12" Foreground="{DynamicResource OpenzaTextSecondaryBrush}" Text="Leave this task unassigned" IsVisible="{Binding Id, Converter={x:Static StringConverters.IsNullOrEmpty}}" />
                     </StackPanel>
                 </DataTemplate>
             </ListBox.ItemTemplate>

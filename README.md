@@ -35,24 +35,33 @@ The primary Linux download is the strict Snap from the
 sudo snap install openza-tasks
 ```
 
-The `stable` channel has **1.1.0** (no Personal Cloud). Version **1.3.0**, with
-the Personal Cloud preview, is tested on the `edge` channel first:
+Use `stable` for normal installations. Checked on **21 November 2026**, the
+Snap Store's amd64 `stable`, `candidate`, and `edge` channels all publish
+**1.3.0, revision 3**. Check current channel versions before choosing a different
+channel:
 
 ```bash
-sudo snap install openza-tasks --edge
+snap info openza-tasks
 ```
+
+**Personal Cloud remains an optional preview feature; that does not require the
+Snap `edge` channel.** The [1.3.0 release](https://github.com/openza/tasks/releases/tag/v1.3.0)
+supports setup and updates from separately published, signed
+[Personal Cloud releases](https://github.com/openza/personal-cloud/releases).
+Start in desktop Settings → Personal Cloud. Feature maturity, the Snap release
+channel, and the version deployed in your own Cloudflare account are separate.
 
 See the [release plan](docs/snap-release.md). Existing local sideload users should
 read the [Store adoption plan](docs/snap-release.md#sideload-to-store-transition)
 before changing their installation.
 
-The [GitHub v1.1.0 release](https://github.com/openza/tasks/releases/tag/v1.1.0)
-remains an explicit local-file fallback. Download its `.snap` and matching
+The [GitHub v1.3.0 release](https://github.com/openza/tasks/releases/tag/v1.3.0)
+provides a local-file fallback. Download its `.snap` and matching
 `.sha256` asset, verify the download, then install only if that fallback is wanted:
 
 ```bash
-sha256sum --check openza-tasks_1.1.0_amd64.snap.sha256
-sudo snap install ./openza-tasks_1.1.0_amd64.snap --dangerous
+sha256sum --check openza-tasks_1.3.0_amd64.snap.sha256
+sudo snap install ./openza-tasks_1.3.0_amd64.snap --dangerous
 ```
 
 Snap uses `--dangerous` for a local package installed without a Snap Store
