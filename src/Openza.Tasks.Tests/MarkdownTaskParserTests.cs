@@ -10,6 +10,55 @@ namespace Openza.Tasks.Tests;
 public sealed class MarkdownTaskParserTests
 {
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Import_cloud_reuses_case_insensitive_label_ids(bool workspace)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var store = new SqliteTaskStore(Path.Combine(directory, "tasks.db"));
+            await store.InitializeAsync();
+            var cloud = new PersonalCloudConnectionProfile
+            {
+                ServiceOrigin = new("https://example.test"), InstanceId = "instance_labels_markdown", DeviceId = "device_labels_markdown",
+                ArtifactVersion = "test", ConnectedAt = DateTimeOffset.UtcNow,
+            };
+            if (workspace) await store.SavePersonalCloudWorkspaceCapabilitiesAsync(cloud.InstanceId, true, true);
+            var existing = new LabelItem { Id = "existing_work", Name = "Work" };
+            await store.UpsertLabelAsync(existing);
+            await MarkdownTaskImporter.ImportAsync(store,
+                [new ParsedTask("First", false) { Labels = [new LabelItem { Name = "work" }, new LabelItem { Name = "Focus" }] },
+                 new ParsedTask("Second", false) { Labels = [new LabelItem { Name = "WORK" }, new LabelItem { Name = "focus" }] }],
+                SpaceIds.Default, cloud);
+
+            var labels = await store.GetLabelsAsync();
+            Assert.Equal(2, labels.Count);
+            var focus = Assert.Single(labels, label => label.Name == "Focus");
+            var tasks = await store.GetTasksAsync(TaskQuery.ForMarkdownExport(SpaceIds.Default));
+            Assert.Equal(2, tasks.Count);
+            Assert.All(tasks, task => Assert.Equal(new[] { existing.Id, focus.Id }.Order(), task.Labels.Select(label => label.Id).Order()));
+            var entries = await store.GetPendingPersonalCloudOutboxAsync(cloud.InstanceId, cloud.DeviceId);
+            foreach (var task in tasks)
+            {
+                var ids = new List<string>();
+                foreach (var entry in entries.Where(entry => entry.EntityId == task.Id))
+                {
+                    using var json = JsonDocument.Parse(entry.CanonicalJson);
+                    var payload = json.RootElement.GetProperty("payload");
+                    if (entry.Operation == "task.createRich")
+                        ids.AddRange(payload.GetProperty("task").GetProperty("labels").EnumerateArray().Select(label => label.GetProperty("id").GetString()!));
+                    else if (entry.Operation == "task.addLabel")
+                        ids.Add(payload.GetProperty("label").GetProperty("id").GetString()!);
+                }
+                Assert.Equal(new[] { existing.Id, focus.Id }.Order(), ids.Order());
+            }
+        }
+        finally { Directory.Delete(directory, recursive: true); }
+    }
+
+    [Theory]
     [InlineData("task.updateOpenzaFields")]
     [InlineData("task.complete")]
     public async Task Import_legacy_cloud_rolls_back_task_and_all_intents_on_failure(string operation)

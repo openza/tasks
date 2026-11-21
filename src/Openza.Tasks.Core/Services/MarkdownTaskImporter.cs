@@ -32,7 +32,8 @@ public static class MarkdownTaskImporter
             var taskLabels = new List<LabelItem>();
             foreach (var imported in parsed.Labels)
             {
-                var label = labels.FirstOrDefault(item => item.Name == imported.Name && item.IntegrationId == IntegrationIds.Local);
+                var label = labels.FirstOrDefault(item => string.Equals(item.Name, imported.Name, StringComparison.OrdinalIgnoreCase)
+                    && item.IntegrationId == IntegrationIds.Local);
                 if (label is null)
                 {
                     label = new LabelItem { Id = $"local_{Guid.NewGuid():N}", Name = imported.Name, Color = imported.Color };
