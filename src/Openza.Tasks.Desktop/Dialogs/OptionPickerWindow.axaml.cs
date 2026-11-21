@@ -1,6 +1,7 @@
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.VisualTree;
 
 namespace Openza.Tasks.Desktop.Dialogs;
 
@@ -30,6 +31,11 @@ public sealed partial class OptionPickerWindow : Window
     private void OnOptionKeyDown(object? sender, KeyEventArgs e)
     {
         if (e.Key != Key.Enter) return;
+        if (e.Source is Control source)
+        {
+            var row = source as ListBoxItem ?? source.FindAncestorOfType<ListBoxItem>();
+            if (row is not null) OptionsList.SelectedItem = OptionsList.ItemFromContainer(row);
+        }
         e.Handled = true;
         Complete();
     }

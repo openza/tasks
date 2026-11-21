@@ -10,6 +10,44 @@ namespace Openza.Tasks.Tests;
 
 public sealed partial class DesktopControlBehaviorTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public Task Labels_picker_held_space_toggles_once_per_press(bool focusCheckbox) => Run(async context =>
+    {
+        var dialog = new LabelPickerWindow(["Example label"], []);
+        var result = dialog.ShowDialog<string?>(context.Window);
+        dialog.UpdateLayout();
+        var box = dialog.GetVisualDescendants().OfType<CheckBox>().Single();
+        var row = dialog.FindControl<ListBox>("LabelsList")!.GetVisualDescendants().OfType<ListBoxItem>().Single();
+        Assert.True(focusCheckbox ? box.Focus() : row.Focus());
+        foreach (var expected in new[] { true, false })
+        {
+            for (var repeat = 0; repeat < 4; repeat++)
+                dialog.KeyPressQwerty(PhysicalKey.Space, RawInputModifiers.None);
+            dialog.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+            Assert.Equal(expected, box.IsChecked);
+            Assert.Equal(expected, ((LabelChoice)box.DataContext!).IsSelected);
+        }
+        Click(dialog, "Apply");
+        Assert.Equal(string.Empty, await result);
+    });
+
+    [Fact]
+    public Task Space_picker_enter_confirms_focused_row_instead_of_previous_selection() => Run(async context =>
+    {
+        var dialog = new OptionPickerWindow("Move to Space", "Select a destination.", [new("a", "A"), new("b", "B")], "a");
+        var result = dialog.ShowDialog<string?>(context.Window);
+        dialog.UpdateLayout();
+        var list = dialog.FindControl<ListBox>("OptionsList")!;
+        var row = list.GetVisualDescendants().OfType<ListBoxItem>().Single(item => item.DataContext is PickerOption { Id: "b" });
+        Assert.True(row.Focus());
+        Assert.Equal("a", Assert.IsType<PickerOption>(list.SelectedItem).Id);
+        dialog.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+        Assert.True(result.IsCompleted);
+        Assert.Equal("b", await result);
+    });
+
     [Fact]
     public Task Labels_picker_space_toggles_focused_checkbox() => Run(async context =>
     {
