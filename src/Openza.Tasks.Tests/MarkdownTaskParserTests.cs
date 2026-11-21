@@ -11,7 +11,8 @@ public sealed class MarkdownTaskParserTests
     [Theory]
     [InlineData(true, TaskWorkflowStatus.Inbox)]
     [InlineData(false, TaskWorkflowStatus.Next)]
-    public async Task Import_legacy_cloud_preserves_rich_tasks_for_full_sync_staging(bool completed, TaskWorkflowStatus status)
+    [InlineData(false, TaskWorkflowStatus.Waiting)]
+    public async Task Import_legacy_cloud_records_rich_task_intents_immediately(bool completed, TaskWorkflowStatus status)
     {
         var directory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
@@ -46,9 +47,6 @@ public sealed class MarkdownTaskParserTests
             Assert.Equal(original.DeadlineOn, imported.DeadlineOn);
             Assert.Equal(Assert.Single(await store.GetProjectsAsync()).Id, imported.ProjectId);
             Assert.Equal("Legacy label", Assert.Single(imported.Labels).Name);
-            Assert.Empty(await store.GetPendingPersonalCloudOutboxAsync(cloud.InstanceId, cloud.DeviceId));
-
-            Assert.True(await store.StageUnpublishedTasksForPersonalCloudAsync(cloud.InstanceId, cloud.DeviceId) > 0);
             var entries = await store.GetPendingPersonalCloudOutboxAsync(cloud.InstanceId, cloud.DeviceId);
             Assert.All(entries, entry => Assert.Equal(imported.Id, entry.EntityId));
             var creation = Assert.Single(entries, entry => entry.Operation == "task.create");

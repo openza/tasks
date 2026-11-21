@@ -52,8 +52,46 @@ public static class MarkdownTaskImporter
             };
             if (workspace)
                 await cloudStore!.CreateRichTaskWithPersonalCloudIntentAsync(task, cloud!.InstanceId, cloud.DeviceId);
+            else if (cloudStore is not null)
+                await CreateLegacyCloudTaskAsync(cloudStore, task, project, cloud!);
             else
                 await store.UpsertTaskAsync(task);
         }
+    }
+
+    private static async Task CreateLegacyCloudTaskAsync(SqliteTaskStore store, TaskItem task, ProjectItem? project, PersonalCloudConnectionProfile cloud)
+    {
+        var baseline = task with
+        {
+            SpaceId = SpaceIds.Default, ProjectId = null, Notes = null, Priority = 2,
+            WorkflowStatus = TaskWorkflowStatus.Inbox, CompletionState = TaskCompletionState.Open,
+            CompletedAt = null, PlannedOn = null, DeadlineOn = null, Labels = [],
+        };
+        await store.CreateTaskWithPersonalCloudIntentAsync(baseline, cloud.InstanceId, cloud.DeviceId);
+        var version = 1L;
+        if (task.SpaceId != baseline.SpaceId)
+        {
+            var space = (await store.GetSpacesAsync()).Single(item => item.Id == task.SpaceId);
+            await store.MoveTaskTreeToSpaceWithPersonalCloudIntentAsync(task.Id, space.Id, space.Name,
+                new Dictionary<string, long> { [task.Id] = version++ }, cloud.InstanceId, cloud.DeviceId);
+        }
+        if (project is not null)
+            await store.MutateTaskRelationshipWithPersonalCloudIntentAsync(task.Id, "task.setProject", project.Id, project.Name, version++, cloud.InstanceId, cloud.DeviceId);
+        foreach (var label in task.Labels)
+            await store.MutateTaskRelationshipWithPersonalCloudIntentAsync(task.Id, "task.addLabel", label.Id, label.Name, version++, cloud.InstanceId, cloud.DeviceId);
+        if (task.WorkflowStatus != baseline.WorkflowStatus)
+            await store.UpdateTaskWorkflowStatusWithPersonalCloudIntentAsync(task.Id, task.WorkflowStatus, version++, cloud.InstanceId, cloud.DeviceId);
+        if (task.Priority != baseline.Priority)
+            await store.UpdateTaskPriorityWithPersonalCloudIntentAsync(task.Id, task.Priority, version++, cloud.InstanceId, cloud.DeviceId);
+        if (task.PlannedOn is not null)
+            await store.UpdateTaskPlannedOnWithPersonalCloudIntentAsync(task.Id, task.PlannedOn, version++, cloud.InstanceId, cloud.DeviceId);
+        if (task.Notes is not null)
+            await store.UpdateTaskNotesWithPersonalCloudIntentAsync(task.Id, task.Notes, version++, cloud.InstanceId, cloud.DeviceId);
+        if (task.DeadlineOn is not null)
+            await store.UpdateTaskDeadlineOnWithPersonalCloudIntentAsync(task.Id, task.DeadlineOn, version++, cloud.InstanceId, cloud.DeviceId);
+        if (task.IsCompleted)
+            await store.CompleteTaskWithPersonalCloudIntentAsync(task.Id, task.CompletedAt!.Value, version, cloud.InstanceId, cloud.DeviceId);
+        else if (task.CompletionState == TaskCompletionState.Cancelled)
+            await store.UpsertTaskAsync((await store.GetTaskAsync(task.Id))! with { CompletionState = TaskCompletionState.Cancelled });
     }
 }
