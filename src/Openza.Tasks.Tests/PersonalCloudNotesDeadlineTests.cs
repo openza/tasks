@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.Data.Sqlite;
 using Openza.Tasks.Core.Data;
 using Openza.Tasks.Core.PersonalCloud;
@@ -10,9 +11,15 @@ public sealed class PersonalCloudNotesDeadlineTests : IDisposable
     private const string InstanceId = "instance_00000000000000000000000000000001";
     private const string DeviceId = "device_notes_replica_0000000000000001";
 
-    [Fact]
-    public async Task Replica_and_bootstrap_preserve_notes_and_deadline()
+    [Theory]
+    [InlineData("en-US")]
+    [InlineData("ar-SA")]
+    [InlineData("th-TH")]
+    [InlineData("fa-IR")]
+    [InlineData("he-IL")]
+    public async Task Replica_and_bootstrap_preserve_notes_and_deadline(string cultureName)
     {
+        using var culture = new CultureScope(cultureName);
         Directory.CreateDirectory(_directory);
         var store = new SqliteTaskStore(Path.Combine(_directory, "replica.db"));
         await store.InitializeAsync();
@@ -37,6 +44,59 @@ public sealed class PersonalCloudNotesDeadlineTests : IDisposable
         Assert.NotNull(boot);
         Assert.Equal("From bootstrap", boot.Notes);
         Assert.Equal(new DateOnly(2026, 9, 23), boot.DeadlineOn);
+    }
+
+    [Theory]
+    [InlineData("ar-SA")]
+    [InlineData("th-TH")]
+    [InlineData("fa-IR")]
+    [InlineData("he-IL")]
+    public void Deadline_codec_uses_Gregorian_dates(string cultureName)
+    {
+        using var culture = new CultureScope(cultureName);
+        foreach (var deadline in new string?[] { "2027-06-20", "2028-02-29", null, "", "2027-02-29", "2027-13-01" })
+        {
+            var change = new PersonalCloudTaskDeadlineOnUpdatedChange
+            {
+                ProtocolVersion = 1, Product = "tasks", ChangeSeq = 1, MutationId = "deadline-update",
+                Operation = "task.updatedOpenzaFields", EntityKind = "task", EntityId = "notes-task",
+                EntityVersion = 2, ServerAcceptedAt = "2026-09-15T05:30:03.000Z",
+                Payload = new(new("notes-task", deadline)),
+            };
+            PersonalCloudTaskDeadlineOnUpdateMutation CreateMutation() =>
+                PersonalCloudNotesDeadlineCodec.CreateDeadlineOnMutation(InstanceId, DeviceId,
+                    "deadline-update", 1, "notes-task", 1, deadline, "2026-09-15T05:30:00.000Z");
+            if (deadline is null or "2027-06-20" or "2028-02-29")
+            {
+                var mutation = CreateMutation();
+                Assert.Equal(deadline, PersonalCloudNotesDeadlineCodec.ParseDeadlineOnMutation(
+                    PersonalCloudK0Codec.Serialize(mutation), InstanceId).Payload.DeadlineOn);
+                PersonalCloudNotesDeadlineCodec.ValidateChange(change);
+            }
+            else
+            {
+                Assert.Throws<PersonalCloudK0ContractException>(() => CreateMutation());
+                Assert.Throws<PersonalCloudK0ContractException>(() => PersonalCloudNotesDeadlineCodec.ValidateChange(change));
+            }
+        }
+    }
+
+    private sealed class CultureScope : IDisposable
+    {
+        private readonly CultureInfo _culture = CultureInfo.CurrentCulture;
+        private readonly CultureInfo _uiCulture = CultureInfo.CurrentUICulture;
+
+        public CultureScope(string name)
+        {
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(name);
+            CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo(name);
+        }
+
+        public void Dispose()
+        {
+            CultureInfo.CurrentCulture = _culture;
+            CultureInfo.CurrentUICulture = _uiCulture;
+        }
     }
 
     public void Dispose()
