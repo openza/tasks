@@ -58,6 +58,8 @@
     </ResourceDictionary.ThemeDictionaries>
 
     <Thickness x:Key="OpenzaPagePadding">28</Thickness>
+    <Thickness x:Key="OpenzaSelectionBorderThickness">0</Thickness>
+    <SolidColorBrush x:Key="OpenzaSelectionBorderBrush" Color="Transparent" />
     <!-- Fluent applies this resource directly inside its TextBox template. -->
     <x:Double x:Key="TextControlPlaceholderOpacity">1</x:Double>
     <Thickness x:Key="OpenzaPanePadding">24</Thickness>

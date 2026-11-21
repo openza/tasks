@@ -24,6 +24,7 @@ public sealed class NativeWindowsContinuityPlatform : IWindowsContinuityPlatform
     public IDisposable AcquireSourceExclusion()
     {
         var instance = AppInstance.FindOrRegisterForKey("Openza.Tasks.Main");
+        WindowsActivationDiagnostics.Write($"source exclusion owner={instance.ProcessId} current={instance.IsCurrent}");
         if (!instance.IsCurrent)
             throw new WindowsContinuityException("Close the other Openza Tasks Dev window before retrying the transition. No data was changed.");
         return new Registration(instance);

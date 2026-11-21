@@ -13,7 +13,32 @@ public static class WindowsContinuityHost
     public const bool IsEnabled = false;
 #endif
     private static IWindowsContinuityPlatform? _platform = null;
+#if OPENZA_WINDOWS_CONTINUITY_DEV
+    private static WindowsActivationCoordinator? _activation;
+#endif
+    private static IDisposable? _activationRegistration;
+    public static Exception? StartupFailure { private get; set; }
     public static WindowsContinuitySession? Session { get; private set; }
+
+    public static bool TryRedirectActivation()
+    {
+#if OPENZA_WINDOWS_CONTINUITY_DEV
+        return WindowsActivationCoordinator.RegisterAndRedirect(() =>
+        {
+            new NativeWindowsContinuityPlatform().GetCurrentPackage().ValidateDev();
+            return new NativeWindowsActivationPlatform();
+        }, out _activation);
+#else
+        return false;
+#endif
+    }
+
+    public static void AttachReadyWindow(Window window)
+    {
+#if OPENZA_WINDOWS_CONTINUITY_DEV
+        _activationRegistration = _activation?.AttachReadyWindow(new NativeWindowsActivationWindow(window));
+#endif
+    }
 
     public static WindowsContinuitySession? Resolve(OpenzaChannel channel, string? devOverride)
     {
@@ -29,6 +54,7 @@ public static class WindowsContinuityHost
 
     public static void Prepare()
     {
+        if (StartupFailure is { } failure) throw failure;
         // Resolve DesktopDataPaths before checking Session. No native work in normal
         // cross-platform builds; Windows failures never fall back to another profile.
         _ = DesktopDataPaths.Runtime;
@@ -39,6 +65,8 @@ public static class WindowsContinuityHost
 
     public static void Close()
     {
+        _activationRegistration?.Dispose();
+        _activationRegistration = null;
         Session?.Dispose();
         Session = null;
     }

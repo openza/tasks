@@ -20,7 +20,9 @@ public sealed class WindowsContinuityTests : IDisposable
         OpenzaChannel channel, string name, string credentialNamespace)
     {
         var context = WindowsPackageDataContext.FromLocalFolder(channel, name, Path.Combine(_directory, "LocalState"));
-        Assert.Equal(Path.Combine(_directory, "LocalState", "openza-tasks.db"), context.Runtime.DatabasePath);
+        Assert.Equal(Path.Combine(_directory, "LocalState", "openza_tasks.db"), context.Runtime.DatabasePath);
+        Assert.Equal(Path.Combine(_directory, "LocalState", "openza-tasks.db"),
+            OpenzaRuntimeContext.Create(OpenzaChannel.Dev, Path.Combine(_directory, "LocalState")).DatabasePath);
         Assert.Equal(Path.Combine(_directory, "LocalState", "settings.json"), context.Runtime.SettingsPath);
         Assert.Equal(Path.Combine(_directory, "LocalState", "restore-points"), context.Runtime.RestorePointDirectory);
         Assert.Equal(Path.Combine(_directory, "LocalState", "personal-cloud-provisioning.json"), context.ProvisioningPath);

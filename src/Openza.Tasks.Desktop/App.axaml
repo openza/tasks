@@ -151,6 +151,8 @@
             <Setter Property="BorderThickness" Value="0" />
         </Style>
         <Style Selector="Button.nav-command.active">
+            <Setter Property="BorderBrush" Value="{DynamicResource OpenzaSelectionBorderBrush}" />
+            <Setter Property="BorderThickness" Value="{DynamicResource OpenzaSelectionBorderThickness}" />
             <Setter Property="Background" Value="{DynamicResource OpenzaNavSelectedBrush}" />
             <Setter Property="FontWeight" Value="SemiBold" />
         </Style>

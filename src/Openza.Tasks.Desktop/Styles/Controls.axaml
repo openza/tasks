@@ -57,6 +57,7 @@
         <Setter Property="Foreground" Value="{DynamicResource OpenzaTextPrimaryBrush}" />
     </Style>
     <Style Selector="TextBox">
+        <Setter Property="SelectionForegroundBrush" Value="{DynamicResource OpenzaTextSelectionForegroundBrush}" />
         <Setter Property="VerticalContentAlignment" Value="Center" />
         <Setter Property="PlaceholderForeground" Value="{DynamicResource OpenzaTextTertiaryBrush}" />
     </Style>
@@ -90,6 +91,8 @@
         <Setter Property="BorderBrush" Value="{DynamicResource OpenzaBorderBrush}" />
     </Style>
     <Style Selector="ListBoxItem:selected /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="BorderBrush" Value="{DynamicResource OpenzaSelectionBorderBrush}" />
+        <Setter Property="BorderThickness" Value="{DynamicResource OpenzaSelectionBorderThickness}" />
         <Setter Property="Background" Value="{DynamicResource OpenzaRowSelectedBrush}" />
         <Setter Property="Foreground" Value="{DynamicResource OpenzaTextPrimaryBrush}" />
     </Style>
