@@ -16,6 +16,7 @@ public sealed class RuntimeIsolationTests : IDisposable
     public RuntimeIsolationTests() => Directory.CreateDirectory(_directory);
 
     [Fact]
+    [Trait("Category", "WindowsSmoke")]
     public void Channels_use_distinct_data_and_credential_namespaces()
     {
         var production = OpenzaRuntimeContext.Create(OpenzaChannel.Production);
@@ -37,6 +38,7 @@ public sealed class RuntimeIsolationTests : IDisposable
     }
 
     [Fact]
+    [Trait("Category", "WindowsSmoke")]
     public void Isolated_dev_data_directories_use_separate_stable_credential_namespaces()
     {
         var first = OpenzaRuntimeContext.Create(OpenzaChannel.Dev, Path.Combine(_directory, "first"));
@@ -141,6 +143,7 @@ public sealed class RuntimeIsolationTests : IDisposable
     }
 
     [Fact]
+    [Trait("Category", "WindowsSmoke")]
     public void Maintenance_seed_lock_is_exclusive()
     {
         var context = new OpenzaRuntimeContext { Channel = OpenzaChannel.Dev, DataDirectory = Path.Combine(_directory, "locked") };
@@ -151,6 +154,7 @@ public sealed class RuntimeIsolationTests : IDisposable
     }
 
     [Fact]
+    [Trait("Category", "WindowsSmoke")]
     public void Provider_sync_lease_serializes_same_provider_only()
     {
         var context = new OpenzaRuntimeContext

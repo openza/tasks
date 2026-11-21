@@ -554,6 +554,7 @@ public sealed partial class CliContractTests : IDisposable
     }
 
     [Fact]
+    [Trait("Category", "WindowsSmoke")]
     public async Task Sync_cli_reports_the_documented_platform_restriction_on_windows()
     {
         if (!OperatingSystem.IsWindows()) return;
