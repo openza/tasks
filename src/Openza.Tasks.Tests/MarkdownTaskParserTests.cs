@@ -101,7 +101,7 @@ public sealed class MarkdownTaskParserTests
     }
 
     [Fact]
-    public async Task Import_legacy_cloud_keeps_cancelled_task_open_to_match_create_intent()
+    public async Task Import_legacy_cloud_rejects_entire_batch_with_cancelled_task_before_writes()
     {
         var directory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
@@ -116,18 +116,51 @@ public sealed class MarkdownTaskParserTests
             };
             Assert.False(await store.SupportsPersonalCloudWorkspaceAsync(cloud.InstanceId));
             var original = new TaskItem { Title = "Cancelled", CompletionState = TaskCompletionState.Cancelled, Priority = 2 };
-            var markdown = MarkdownExporter.Export([original], [], []);
+            var first = new TaskItem { Title = "Open first", ProjectId = "project", Labels = [new LabelItem { Name = "New label" }] };
+            var markdown = MarkdownExporter.Export([first, original], [new ProjectItem { Id = "project", Name = "New project" }], first.Labels);
+            var parsed = MarkdownTaskParser.Parse(markdown).OrderBy(task => task.CompletionState == TaskCompletionState.Cancelled).ToArray();
 
-            await MarkdownTaskImporter.ImportAsync(store, MarkdownTaskParser.Parse(markdown), SpaceIds.Default, cloud);
+            var error = await Assert.ThrowsAsync<InvalidOperationException>(() => MarkdownTaskImporter.ImportAsync(store, parsed, SpaceIds.Default, cloud));
 
-            var imported = Assert.Single(await store.GetTasksAsync(TaskQuery.ForMarkdownExport(SpaceIds.Default)));
-            Assert.Equal(TaskCompletionState.Open, imported.CompletionState);
-            Assert.Null(imported.CompletedAt);
-            var entry = Assert.Single(await store.GetPendingPersonalCloudOutboxAsync(cloud.InstanceId, cloud.DeviceId));
-            Assert.Equal("task.create", entry.Operation);
-            Assert.Equal(imported.Id, entry.EntityId);
-            using var json = JsonDocument.Parse(entry.CanonicalJson);
-            Assert.Equal("open", json.RootElement.GetProperty("payload").GetProperty("task").GetProperty("completionState").GetString());
+            Assert.Contains("Cancelled tasks can't be imported while connected to a Personal Cloud that doesn't support workspace sync;", error.Message);
+            Assert.Empty(await store.GetTasksAsync(TaskQuery.ForMarkdownExport(SpaceIds.Default)));
+            Assert.Empty(await store.GetProjectsAsync(includeArchived: true));
+            Assert.Empty(await store.GetLabelsAsync());
+            Assert.Empty(await store.GetPendingPersonalCloudOutboxAsync(cloud.InstanceId, cloud.DeviceId));
+        }
+        finally { Directory.Delete(directory, recursive: true); }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Import_nonlegacy_cancelled_behavior_is_unchanged(bool workspace)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var store = new SqliteTaskStore(Path.Combine(directory, "tasks.db"));
+            await store.InitializeAsync();
+            var cloud = new PersonalCloudConnectionProfile
+            {
+                ServiceOrigin = new("https://example.test"), InstanceId = "instance_workspace_cancelled", DeviceId = "device_workspace_cancelled",
+                ArtifactVersion = "test", ConnectedAt = DateTimeOffset.UtcNow,
+            };
+            if (workspace) await store.SavePersonalCloudWorkspaceCapabilitiesAsync(cloud.InstanceId, true, true);
+
+            var parsed = new ParsedTask("Cancelled", false) { CompletionState = TaskCompletionState.Cancelled };
+            if (workspace)
+            {
+                await Assert.ThrowsAsync<PersonalCloudK0ContractException>(() => MarkdownTaskImporter.ImportAsync(store, [parsed], SpaceIds.Default, cloud));
+                Assert.Empty(await store.GetTasksAsync(TaskQuery.ForMarkdownExport(SpaceIds.Default)));
+                Assert.Empty(await store.GetPendingPersonalCloudOutboxAsync(cloud.InstanceId, cloud.DeviceId));
+            }
+            else
+            {
+                await MarkdownTaskImporter.ImportAsync(store, [parsed], SpaceIds.Default);
+                Assert.Equal(TaskCompletionState.Cancelled, Assert.Single(await store.GetTasksAsync(TaskQuery.ForMarkdownExport(SpaceIds.Default))).CompletionState);
+            }
         }
         finally { Directory.Delete(directory, recursive: true); }
     }
