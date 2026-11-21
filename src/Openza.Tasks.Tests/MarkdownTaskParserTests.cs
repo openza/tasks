@@ -2,6 +2,7 @@ using Openza.Tasks.Core.Services;
 using Openza.Tasks.Core.Models;
 using Openza.Tasks.Core.Data;
 using System.Text.Json;
+using System.Globalization;
 using Microsoft.Data.Sqlite;
 using Openza.Tasks.Core.PersonalCloud;
 
@@ -9,6 +10,50 @@ namespace Openza.Tasks.Tests;
 
 public sealed class MarkdownTaskParserTests
 {
+    [Fact]
+    public async Task Import_legacy_cloud_accepts_gregorian_deadline_under_ar_SA_culture()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        var originalCulture = CultureInfo.CurrentCulture;
+        var originalUICulture = CultureInfo.CurrentUICulture;
+        try
+        {
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("ar-SA");
+            CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo("ar-SA");
+            var store = new SqliteTaskStore(Path.Combine(directory, "tasks.db"));
+            await store.InitializeAsync();
+            var cloud = new PersonalCloudConnectionProfile
+            {
+                ServiceOrigin = new("https://example.test"), InstanceId = "instance_ar_sa_markdown", DeviceId = "device_ar_sa_markdown",
+                ArtifactVersion = "test", ConnectedAt = DateTimeOffset.UtcNow,
+            };
+            Assert.False(await store.SupportsPersonalCloudWorkspaceAsync(cloud.InstanceId));
+            var original = new TaskItem { Title = "Gregorian deadline", DeadlineOn = new DateOnly(2027, 6, 20) };
+            var markdown = MarkdownExporter.Export([original], [], []);
+
+            await MarkdownTaskImporter.ImportAsync(store, MarkdownTaskParser.Parse(markdown), SpaceIds.Default, cloud);
+
+            var imported = Assert.Single(await store.GetTasksAsync(TaskQuery.ForMarkdownExport(SpaceIds.Default)));
+            Assert.Equal(original.DeadlineOn, imported.DeadlineOn);
+            var entries = await store.GetPendingPersonalCloudOutboxAsync(cloud.InstanceId, cloud.DeviceId);
+            var deadline = Assert.Single(entries, entry =>
+            {
+                using var json = JsonDocument.Parse(entry.CanonicalJson);
+                return entry.Operation == "task.updateOpenzaFields" && json.RootElement.GetProperty("payload").TryGetProperty("deadlineOn", out _);
+            });
+            Assert.Equal(imported.Id, deadline.EntityId);
+            using var mutation = JsonDocument.Parse(deadline.CanonicalJson);
+            Assert.Equal("2027-06-20", mutation.RootElement.GetProperty("payload").GetProperty("deadlineOn").GetString());
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = originalCulture;
+            CultureInfo.CurrentUICulture = originalUICulture;
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     [Theory]
     [InlineData(false, IntegrationIds.Local)]
     [InlineData(true, IntegrationIds.Local)]
