@@ -180,6 +180,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
         ?? "unknown";
 
     public string AppVersion => CurrentAppVersion;
+    public string PackageVersionText => InstalledPackageVersion.GetMsixVersion() is { } version
+        ? $"MSIX package version: {version}"
+        : "MSIX package: Not packaged";
 
     internal DesktopPreferencesStore PreferencesStore => _preferencesStore;
 
