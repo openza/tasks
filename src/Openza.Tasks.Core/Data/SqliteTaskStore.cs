@@ -3624,6 +3624,29 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
         await ResolveAndUpsertLabelCoreAsync(connection, label, cancellationToken, preserveExistingId: false).ConfigureAwait(false);
     }
 
+    public async Task<LabelItem> ResolveAndUpsertLabelAsync(LabelItem label, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        var id = await ResolveAndUpsertLabelCoreAsync(connection, label, cancellationToken, preserveExistingId: false).ConfigureAwait(false);
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT id, external_id, integration_id, provider_connection_id, name, color, description, sort_order,
+                   is_favorite, provider_metadata, created_at
+            FROM labels WHERE id = @id
+            """;
+        command.Parameters.AddWithValue("@id", id);
+        LabelItem resolved;
+        await using (var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+        {
+            if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                throw new InvalidOperationException("The resolved label could not be loaded.");
+            resolved = ReadLabel(reader);
+        }
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return resolved;
+    }
+
     public async Task SetTaskLabelsAsync(string taskId, IReadOnlyList<LabelItem> labels, CancellationToken cancellationToken = default)
     {
         await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);

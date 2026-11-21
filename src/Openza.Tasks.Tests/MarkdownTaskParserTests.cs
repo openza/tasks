@@ -10,9 +10,11 @@ namespace Openza.Tasks.Tests;
 public sealed class MarkdownTaskParserTests
 {
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task Import_cloud_reuses_case_insensitive_label_ids(bool workspace)
+    [InlineData(false, IntegrationIds.Local)]
+    [InlineData(true, IntegrationIds.Local)]
+    [InlineData(false, IntegrationIds.Todoist)]
+    [InlineData(true, IntegrationIds.Todoist)]
+    public async Task Import_cloud_reuses_case_insensitive_label_ids(bool workspace, string integrationId)
     {
         var directory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
@@ -26,7 +28,7 @@ public sealed class MarkdownTaskParserTests
                 ArtifactVersion = "test", ConnectedAt = DateTimeOffset.UtcNow,
             };
             if (workspace) await store.SavePersonalCloudWorkspaceCapabilitiesAsync(cloud.InstanceId, true, true);
-            var existing = new LabelItem { Id = "existing_work", Name = "Work" };
+            var existing = new LabelItem { Id = "existing_work", Name = "Work", IntegrationId = integrationId, ExternalId = "work" };
             await store.UpsertLabelAsync(existing);
             await MarkdownTaskImporter.ImportAsync(store,
                 [new ParsedTask("First", false) { Labels = [new LabelItem { Name = "work" }, new LabelItem { Name = "Focus" }] },
@@ -34,7 +36,8 @@ public sealed class MarkdownTaskParserTests
                 SpaceIds.Default, cloud);
 
             var labels = await store.GetLabelsAsync();
-            Assert.Equal(2, labels.Count);
+            Assert.Equal(integrationId == IntegrationIds.Local ? 2 : 1, labels.Count);
+            Assert.Equal(existing.Id, Assert.Single(await store.GetProviderLabelsAsync(integrationId), label => label.Name == "Work").Id);
             var focus = Assert.Single(labels, label => label.Name == "Focus");
             var tasks = await store.GetTasksAsync(TaskQuery.ForMarkdownExport(SpaceIds.Default));
             Assert.Equal(2, tasks.Count);

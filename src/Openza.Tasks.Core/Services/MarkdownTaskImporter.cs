@@ -34,8 +34,15 @@ public static class MarkdownTaskImporter
             var taskLabels = new List<LabelItem>();
             foreach (var imported in parsed.Labels)
             {
-                var label = labels.FirstOrDefault(item => string.Equals(item.Name, imported.Name, StringComparison.OrdinalIgnoreCase)
-                    && item.IntegrationId == IntegrationIds.Local);
+                if (store is SqliteTaskStore sqliteStore)
+                {
+                    taskLabels.Add(await sqliteStore.ResolveAndUpsertLabelAsync(new LabelItem
+                    {
+                        Id = $"local_{Guid.NewGuid():N}", Name = imported.Name, Color = imported.Color,
+                    }));
+                    continue;
+                }
+                var label = labels.FirstOrDefault(item => string.Equals(item.Name, imported.Name, StringComparison.OrdinalIgnoreCase));
                 if (label is null)
                 {
                     label = new LabelItem { Id = $"local_{Guid.NewGuid():N}", Name = imported.Name, Color = imported.Color };
