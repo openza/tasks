@@ -47,6 +47,7 @@ public sealed class MarkdownTaskParserTests
                 ServiceOrigin = new("https://example.test"), InstanceId = "instance_markdown", DeviceId = "device_markdown",
                 ArtifactVersion = "test", ConnectedAt = DateTimeOffset.UtcNow,
             };
+            await store.SavePersonalCloudWorkspaceCapabilitiesAsync(cloud.InstanceId, true, true);
             await store.ApplyPersonalCloudChangePageAsync(cloud.InstanceId, cloud.DeviceId,
                 PersonalCloudWorkspaceTests.Page(1, [PersonalCloudWorkspaceTests.Space()]));
             var task = new ParsedTask("Cloud import", false)
