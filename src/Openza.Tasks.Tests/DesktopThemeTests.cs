@@ -19,6 +19,61 @@ public sealed class DesktopThemeTests(EditorTestSession fixture)
         Colors.White, Colors.White, Colors.Black, Colors.Gray);
 
     [Theory]
+    [InlineData(PlatformThemeVariant.Dark)]
+    [InlineData(PlatformThemeVariant.Light)]
+    public void Fallback_selection_palette_is_distinct_from_normal_text(PlatformThemeVariant theme)
+    {
+        var colors = HighContrastColors.ReadFallback(new() { ThemeVariant = theme });
+        Assert.NotEqual(colors.Foreground, colors.Highlight);
+        Assert.NotEqual(colors.Highlight, colors.HighlightText);
+        Assert.NotEqual(colors.Background, colors.Foreground);
+    }
+
+    [Theory]
+    [InlineData(PlatformThemeVariant.Dark)]
+    [InlineData(PlatformThemeVariant.Light)]
+    public async Task Prompt_selection_uses_highlight_text_and_restores_normal_foreground(PlatformThemeVariant theme)
+    {
+        await fixture.Session.Dispatch(() =>
+        {
+            var application = Avalonia.Application.Current!;
+            var original = application.RequestedThemeVariant;
+            using var controller = new DesktopThemeController(application, HighContrastColors.ReadFallback);
+            var dialog = new TextPromptWindow("Selection", "Selected value");
+            try
+            {
+                controller.SetPreference("Light");
+                controller.UpdateColors(new());
+                dialog.Show();
+                Dispatcher.UIThread.RunJobs();
+                var value = dialog.FindControl<TextBox>("ValueBox")!;
+                var normalForeground = value.SelectionForegroundBrush;
+                var normalBackground = value.SelectionBrush;
+                Assert.Null(normalForeground);
+                Assert.Equal(value.Text!.Length, Math.Abs(value.SelectionEnd - value.SelectionStart));
+
+                var values = new PlatformColorValues { ThemeVariant = theme, ContrastPreference = ColorContrastPreference.High };
+                var colors = HighContrastColors.ReadFallback(values);
+                controller.UpdateColors(values);
+                Dispatcher.UIThread.RunJobs();
+                Assert.Equal(colors.Highlight, Assert.IsAssignableFrom<ISolidColorBrush>(value.SelectionBrush).Color);
+                Assert.Equal(colors.HighlightText, Assert.IsAssignableFrom<ISolidColorBrush>(value.SelectionForegroundBrush).Color);
+
+                controller.UpdateColors(new());
+                Dispatcher.UIThread.RunJobs();
+                Assert.Equal(normalForeground, value.SelectionForegroundBrush);
+                Assert.Equal(normalBackground, value.SelectionBrush);
+            }
+            finally
+            {
+                dialog.Close();
+                application.RequestedThemeVariant = original;
+            }
+            return true;
+        }, CancellationToken.None);
+    }
+
+    [Theory]
     [InlineData("Dark", false)]
     [InlineData("Light", true)]
     [InlineData(null, true)]

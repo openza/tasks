@@ -16,10 +16,16 @@ public sealed record HighContrastColors(Color Background, Color Foreground, Colo
         if (OperatingSystem.IsWindows())
             return new(ReadSystemColor(5), ReadSystemColor(8), ReadSystemColor(13),
                 ReadSystemColor(14), ReadSystemColor(15), ReadSystemColor(18), ReadSystemColor(17));
+        return ReadFallback(values);
+    }
+
+    public static HighContrastColors ReadFallback(PlatformColorValues values)
+    {
         var dark = values.ThemeVariant == PlatformThemeVariant.Dark;
         var background = dark ? Colors.Black : Colors.White;
         var foreground = dark ? Colors.White : Colors.Black;
-        return new(background, foreground, foreground, background, background, foreground, foreground);
+        var highlight = dark ? Colors.Yellow : Colors.Navy;
+        return new(background, foreground, highlight, background, background, foreground, foreground);
     }
 
     private static Color ReadSystemColor(int index)
@@ -156,6 +162,7 @@ public sealed class DesktopThemeController : IDisposable
         Brushes(colors.Foreground, "ComboBoxDropDownBorderBrush", "FlyoutBorderThemeBrush", "MenuFlyoutPresenterBorderBrush",
             "ToolTipBorderBrush", "ToolTipForeground", "ToggleSwitchContentForeground", "MenuFlyoutItemKeyboardAcceleratorTextForeground");
         Brushes(colors.Highlight, "TextControlSelectionHighlightColor");
+        Brushes(colors.HighlightText, "OpenzaTextSelectionForegroundBrush");
         Brushes(colors.Foreground, "SystemControlForegroundBaseHighBrush", "SystemControlForegroundBaseMediumBrush",
             "SystemControlForegroundBaseMediumHighBrush", "SystemControlHighlightAltBaseHighBrush",
             "SystemControlHighlightBaseHighBrush", "SystemControlFocusVisualPrimaryBrush");

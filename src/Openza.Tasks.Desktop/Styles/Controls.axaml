@@ -57,6 +57,7 @@
         <Setter Property="Foreground" Value="{DynamicResource OpenzaTextPrimaryBrush}" />
     </Style>
     <Style Selector="TextBox">
+        <Setter Property="SelectionForegroundBrush" Value="{DynamicResource OpenzaTextSelectionForegroundBrush}" />
         <Setter Property="VerticalContentAlignment" Value="Center" />
         <Setter Property="PlaceholderForeground" Value="{DynamicResource OpenzaTextTertiaryBrush}" />
     </Style>
