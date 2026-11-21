@@ -4,6 +4,7 @@ using Avalonia.Headless;
 using Avalonia.Interactivity;
 using Avalonia.Input;
 using Avalonia.Styling;
+using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Openza.Tasks.Core.Credentials;
 using Openza.Tasks.Core.Data;
@@ -44,6 +45,40 @@ public sealed class DesktopLayoutTests(EditorTestSession fixture)
             }
             finally { window.Close(); }
             return Task.FromResult(true);
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task Expanded_capture_keeps_actions_inside_the_scaled_working_area()
+    {
+        await fixture.Session.Dispatch(async () =>
+        {
+            var window = new AddTaskWindow();
+            try
+            {
+                window.Show();
+                var workingArea = window.Screens.ScreenFromWindow(window)!.WorkingArea;
+                window.SetRenderScaling(workingArea.Height / 420d);
+                window.FindControl<Expander>("PlanningExpander")!.IsExpanded = true;
+                window.FindControl<TextBox>("NotesBox")!.Text = string.Join("\n", Enumerable.Repeat("Planning notes", 30));
+                window.UpdateLayout();
+                await Dispatcher.UIThread.InvokeAsync(window.UpdateLayout, DispatcherPriority.Background);
+
+                Assert.Equal(SizeToContent.Height, window.SizeToContent);
+                Assert.InRange(window.MaxHeight, 419, 420);
+                Assert.InRange(window.Position.Y, workingArea.Y, workingArea.Bottom);
+                foreach (var button in window.GetVisualDescendants().OfType<Button>()
+                    .Where(button => button.Content is "Cancel" or "Create" or "Create and open"))
+                {
+                    var bottom = window.PointToScreen(button.TranslatePoint(new Point(0, button.Bounds.Height), window)!.Value);
+                    Assert.InRange(bottom.Y, workingArea.Y, workingArea.Bottom);
+                }
+
+                window.SetRenderScaling(1);
+                Assert.Equal(660, window.MaxHeight);
+            }
+            finally { window.Close(); }
+            return true;
         }, CancellationToken.None);
     }
 
