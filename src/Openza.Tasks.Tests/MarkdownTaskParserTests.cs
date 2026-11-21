@@ -151,6 +151,36 @@ public sealed class MarkdownTaskParserTests
         Assert.Equal(original.Notes, Assert.Single(MarkdownTaskParser.Parse(withoutComment)).Notes);
     }
 
+    [Theory]
+    [InlineData("\n")]
+    [InlineData("\r\n")]
+    public void Parse_preserves_trimmed_blank_note_lines_and_metadata(string newline)
+    {
+        var original = new TaskItem { Title = "Paragraphs", Notes = "First\n\nSecond", WorkflowStatus = TaskWorkflowStatus.Next };
+        var markdown = string.Join(newline, MarkdownExporter.Export([original], [], []).Split('\n').Select(line => line.TrimEnd()));
+
+        var imported = Assert.Single(MarkdownTaskParser.Parse(markdown));
+
+        Assert.Equal(original.Notes, imported.Notes);
+        Assert.Equal(original.WorkflowStatus, imported.WorkflowStatus);
+        var withoutComment = string.Join(newline, markdown.Split('\n').Where(line => !line.StartsWith("  <!-- openza-task:", StringComparison.Ordinal)));
+        Assert.Equal(original.Notes, Assert.Single(MarkdownTaskParser.Parse(withoutComment)).Notes);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("- [ ] Next task")]
+    [InlineData("Unrelated text")]
+    public void Parse_discards_pending_blank_lines_when_notes_do_not_continue(string nextLine)
+    {
+        var markdown = "# Openza Tasks Export\r\n- [ ] Paragraphs\r\n  - _First\r\n\r\n \t\r\n" + nextLine;
+
+        var tasks = MarkdownTaskParser.Parse(markdown);
+
+        Assert.Equal("First", tasks[0].Notes);
+        Assert.Equal(nextLine.StartsWith("- [ ]", StringComparison.Ordinal) ? 2 : 1, tasks.Count);
+    }
+
     [Fact]
     public void Parse_export_defaults_to_low_without_consumed_priority_metadata()
     {

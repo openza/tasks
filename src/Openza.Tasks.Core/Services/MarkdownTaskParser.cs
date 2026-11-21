@@ -19,6 +19,7 @@ public static partial class MarkdownTaskParser
         var tasks = new List<ParsedTask>();
         int? metadataTarget = null;
         var continuingNotes = false;
+        var pendingBlankNoteLines = 0;
         string? project = null;
         var exported = markdown.StartsWith("# Openza Tasks Export", StringComparison.Ordinal);
         var exportedLabels = exported
@@ -50,6 +51,12 @@ public static partial class MarkdownTaskParser
                 catch (JsonException) { }
                 metadataTarget = null;
                 continuingNotes = false;
+                pendingBlankNoteLines = 0;
+                continue;
+            }
+            if (continuingNotes && string.IsNullOrWhiteSpace(line))
+            {
+                pendingBlankNoteLines++;
                 continue;
             }
             if (metadataTarget is { } notesTarget && (line.StartsWith("  - _", StringComparison.Ordinal)
@@ -60,13 +67,15 @@ public static partial class MarkdownTaskParser
                 if (closed) notes = notes[..^1];
                 tasks[notesTarget] = tasks[notesTarget] with
                 {
-                    Notes = (continuingNotes ? tasks[notesTarget].Notes + "\n" : string.Empty) + Unescape(notes),
+                    Notes = (continuingNotes ? tasks[notesTarget].Notes + new string('\n', pendingBlankNoteLines + 1) : string.Empty) + Unescape(notes),
                 };
+                pendingBlankNoteLines = 0;
                 continuingNotes = !closed;
                 continue;
             }
             metadataTarget = null;
             continuingNotes = false;
+            pendingBlankNoteLines = 0;
             var task = ParseLine(line, exported);
             if (task is not null)
             {
