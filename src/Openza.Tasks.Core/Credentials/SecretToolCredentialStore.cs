@@ -47,7 +47,6 @@ public sealed class SecretToolCredentialStore : ICredentialStore
             ["lookup", ApplicationAttribute, _applicationValue, KeyAttribute, key],
             null,
             cancellationToken);
-        ThrowIfSnapKeyringError(result, "read the credential");
         return result.ExitCode == 0 ? NullIfEmpty(result.StandardOutput) : null;
     }
 
@@ -58,7 +57,6 @@ public sealed class SecretToolCredentialStore : ICredentialStore
             ["clear", ApplicationAttribute, _applicationValue, KeyAttribute, key],
             null,
             cancellationToken);
-        ThrowIfSnapKeyringError(result, "remove the credential");
         if (result.ExitCode is not 0 and not 1)
         {
             EnsureSuccess(result, "remove the credential");

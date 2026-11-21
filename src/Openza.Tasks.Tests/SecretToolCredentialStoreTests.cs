@@ -7,11 +7,11 @@ public sealed class SecretToolCredentialStoreTests
 {
     [Theory]
     [InlineData("save", "secret-tool: An AppArmor policy prevents this sender from sending this message", null)]
-    [InlineData("lookup", "org.freedesktop.DBus.Error.AccessDenied", "openza-tasks_test")]
+    [InlineData("save", "org.freedesktop.DBus.Error.AccessDenied", "openza-tasks_test")]
     [InlineData("remove", "org.freedesktop.DBus.Error.AccessDenied", "")]
     public async Task SnapDeniedErrorsExplainConnection(string operation, string error, string? instance)
     {
-        var store = Create(1, "", error, "openza-tasks", instance);
+        var store = Create(2, "", error, "openza-tasks", instance);
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => Run(store, operation));
         Assert.Contains("desktop does not provide the Secret portal", exception.Message);
         Assert.Contains($"sudo snap connect {(string.IsNullOrEmpty(instance) ? "openza-tasks" : instance)}:password-manager-service", exception.Message);
@@ -21,16 +21,25 @@ public sealed class SecretToolCredentialStoreTests
 
     [Theory]
     [InlineData("save")]
-    [InlineData("lookup")]
     [InlineData("remove")]
     public async Task SnapMissingKeyringExplainsInstallation(string operation)
     {
-        var store = Create(1, "", "secret-tool: The name org.freedesktop.secrets was not provided by any .service files", "openza-tasks");
+        var store = Create(2, "", "secret-tool: The name org.freedesktop.secrets was not provided by any .service files", "openza-tasks");
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => Run(store, operation));
         Assert.Contains("GNOME Keyring or KWallet", exception.Message);
         Assert.Contains("Install or start one", exception.Message);
         Assert.Contains("If your desktop has no Secret portal", exception.Message);
         Assert.Contains("sudo snap connect openza-tasks:password-manager-service", exception.Message);
+    }
+
+    [Theory]
+    [InlineData("secret-tool: AppArmor AccessDenied")]
+    [InlineData("secret-tool: The name org.freedesktop.secrets was not provided by any .service files")]
+    public async Task SnapLookupFailuresStayQuietAndRemoveToleratesExitOne(string error)
+    {
+        Assert.Null(await Create(1, "", error, "openza-tasks").GetAsync("key"));
+        Assert.Null(await Create(2, "", error, "openza-tasks").GetAsync("key"));
+        await Create(1, "", error, "openza-tasks").RemoveAsync("key");
     }
 
     [Theory]
