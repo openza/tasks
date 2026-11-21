@@ -56,7 +56,7 @@ public static partial class MarkdownTaskParser
                 || continuingNotes && line.StartsWith("    ", StringComparison.Ordinal)))
             {
                 var notes = line.TrimEnd()[(continuingNotes ? 4 : 5)..];
-                var closed = notes.EndsWith('_');
+                var closed = Regex.IsMatch(notes, @"(?<!\\)(?:\\\\)*_$");
                 if (closed) notes = notes[..^1];
                 tasks[notesTarget] = tasks[notesTarget] with
                 {
