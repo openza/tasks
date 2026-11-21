@@ -1609,12 +1609,7 @@ public sealed partial class MainWindow : Window
             2 => "Dark",
             _ => "System",
         };
-        Avalonia.Application.Current.RequestedThemeVariant = theme switch
-        {
-            "Light" => ThemeVariant.Light,
-            "Dark" => ThemeVariant.Dark,
-            _ => ThemeVariant.Default,
-        };
+        if (Avalonia.Application.Current is App app) app.SetThemePreference(theme);
         await _preferencesStore.UpdateAsync(preferences => preferences with { Theme = theme });
     }
 

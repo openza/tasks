@@ -90,6 +90,8 @@
         <Setter Property="BorderBrush" Value="{DynamicResource OpenzaBorderBrush}" />
     </Style>
     <Style Selector="ListBoxItem:selected /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="BorderBrush" Value="{DynamicResource OpenzaSelectionBorderBrush}" />
+        <Setter Property="BorderThickness" Value="{DynamicResource OpenzaSelectionBorderThickness}" />
         <Setter Property="Background" Value="{DynamicResource OpenzaRowSelectedBrush}" />
         <Setter Property="Foreground" Value="{DynamicResource OpenzaTextPrimaryBrush}" />
     </Style>
