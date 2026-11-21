@@ -56,7 +56,6 @@ public static class MarkdownTaskImporter
                 await cloudStore.CreateTaskWithPersonalCloudIntentAsync(task, cloud!.InstanceId, cloud.DeviceId);
             else
                 await store.UpsertTaskAsync(task);
-            await store.SetTaskLabelsAsync(task.Id, taskLabels);
         }
     }
 }
