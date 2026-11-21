@@ -145,7 +145,9 @@ public sealed class MarkdownTaskParserTests
                 Assert.Equal(original.Notes, imported.Notes);
                 Assert.Equal(status, imported.WorkflowStatus);
                 Assert.Equal(state, imported.CompletionState);
-                Assert.Equal(project.Name, (await store.GetProjectsAsync()).Single().Name);
+                var importedProject = Assert.Single(await store.GetProjectsAsync());
+                Assert.Equal(project.Name, importedProject.Name);
+                Assert.Equal(importedProject.Id, imported.ProjectId);
                 Assert.Equal(label.Name, Assert.Single(imported.Labels).Name);
                 Assert.Equal(label.Color, imported.Labels[0].Color);
                 await store.DeleteTaskAsync(imported.Id);
