@@ -9,6 +9,20 @@ namespace Openza.Tasks.Tests;
 public sealed class MarkdownTaskParserTests
 {
     [Fact]
+    public void Export_import_preserves_blank_lines_between_note_paragraphs()
+    {
+        var original = new TaskItem { Title = "Paragraphs", Notes = "First paragraph\n\nSecond paragraph" };
+        var markdown = MarkdownExporter.Export([original], [], []);
+
+        var imported = Assert.Single(MarkdownTaskParser.Parse(markdown));
+
+        Assert.Equal(original.Title, imported.Title);
+        Assert.Equal(original.Notes, imported.Notes);
+        var withoutComment = string.Join('\n', markdown.Split('\n').Where(line => !line.StartsWith("  <!-- openza-task:", StringComparison.Ordinal)));
+        Assert.Equal(original.Notes, Assert.Single(MarkdownTaskParser.Parse(withoutComment)).Notes);
+    }
+
+    [Fact]
     public void Parse_export_defaults_to_low_without_consumed_priority_metadata()
     {
         var task = Assert.Single(MarkdownTaskParser.Parse("# Openza Tasks Export\n- [ ] Review Priority: handling"));

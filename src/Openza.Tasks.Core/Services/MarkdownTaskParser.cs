@@ -55,7 +55,7 @@ public static partial class MarkdownTaskParser
             if (metadataTarget is { } notesTarget && (line.StartsWith("  - _", StringComparison.Ordinal)
                 || continuingNotes && line.StartsWith("    ", StringComparison.Ordinal)))
             {
-                var notes = line.TrimEnd()[(continuingNotes ? 4 : 5)..];
+                var notes = line[(continuingNotes ? 4 : 5)..].TrimEnd();
                 var closed = Regex.IsMatch(notes, @"(?<!\\)(?:\\\\)*_$");
                 if (closed) notes = notes[..^1];
                 tasks[notesTarget] = tasks[notesTarget] with
