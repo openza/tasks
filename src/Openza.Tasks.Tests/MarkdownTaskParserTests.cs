@@ -63,7 +63,7 @@ public sealed class MarkdownTaskParserTests
                 Assert.Single(entries, entry =>
                 {
                     using var mutation = JsonDocument.Parse(entry.CanonicalJson);
-                    return mutation.RootElement.GetProperty("payload").TryGetProperty("fields", out var fields) && fields.TryGetProperty(field, out _);
+                    return entry.Operation == "task.updateOpenzaFields" && mutation.RootElement.GetProperty("payload").TryGetProperty(field, out _);
                 });
             }
             Assert.Equal(completed ? 1 : 0, entries.Count(entry => entry.Operation == "task.complete"));
