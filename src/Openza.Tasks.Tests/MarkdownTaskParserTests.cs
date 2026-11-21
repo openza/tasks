@@ -100,8 +100,10 @@ public sealed class MarkdownTaskParserTests
         finally { Directory.Delete(directory, recursive: true); }
     }
 
-    [Fact]
-    public async Task Import_legacy_cloud_rejects_entire_batch_with_cancelled_task_before_writes()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Import_cloud_rejects_entire_batch_with_cancelled_task_before_writes(bool workspace)
     {
         var directory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
@@ -114,7 +116,8 @@ public sealed class MarkdownTaskParserTests
                 ServiceOrigin = new("https://example.test"), InstanceId = "instance_cancelled_markdown", DeviceId = "device_cancelled_markdown",
                 ArtifactVersion = "test", ConnectedAt = DateTimeOffset.UtcNow,
             };
-            Assert.False(await store.SupportsPersonalCloudWorkspaceAsync(cloud.InstanceId));
+            if (workspace) await store.SavePersonalCloudWorkspaceCapabilitiesAsync(cloud.InstanceId, true, true);
+            Assert.Equal(workspace, await store.SupportsPersonalCloudWorkspaceAsync(cloud.InstanceId));
             var original = new TaskItem { Title = "Cancelled", CompletionState = TaskCompletionState.Cancelled, Priority = 2 };
             var first = new TaskItem { Title = "Open first", ProjectId = "project", Labels = [new LabelItem { Name = "New label" }] };
             var markdown = MarkdownExporter.Export([first, original], [new ProjectItem { Id = "project", Name = "New project" }], first.Labels);
@@ -122,7 +125,7 @@ public sealed class MarkdownTaskParserTests
 
             var error = await Assert.ThrowsAsync<InvalidOperationException>(() => MarkdownTaskImporter.ImportAsync(store, parsed, SpaceIds.Default, cloud));
 
-            Assert.Contains("Cancelled tasks can't be imported while connected to a Personal Cloud that doesn't support workspace sync;", error.Message);
+            Assert.Equal("Cancelled tasks can't be imported while connected to Personal Cloud; disconnect Personal Cloud before importing this file, or remove the cancelled tasks.", error.Message);
             Assert.Empty(await store.GetTasksAsync(TaskQuery.ForMarkdownExport(SpaceIds.Default)));
             Assert.Empty(await store.GetProjectsAsync(includeArchived: true));
             Assert.Empty(await store.GetLabelsAsync());
@@ -131,10 +134,8 @@ public sealed class MarkdownTaskParserTests
         finally { Directory.Delete(directory, recursive: true); }
     }
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task Import_nonlegacy_cancelled_behavior_is_unchanged(bool workspace)
+    [Fact]
+    public async Task Import_without_cloud_preserves_cancelled_tasks()
     {
         var directory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
@@ -142,25 +143,9 @@ public sealed class MarkdownTaskParserTests
         {
             var store = new SqliteTaskStore(Path.Combine(directory, "tasks.db"));
             await store.InitializeAsync();
-            var cloud = new PersonalCloudConnectionProfile
-            {
-                ServiceOrigin = new("https://example.test"), InstanceId = "instance_workspace_cancelled", DeviceId = "device_workspace_cancelled",
-                ArtifactVersion = "test", ConnectedAt = DateTimeOffset.UtcNow,
-            };
-            if (workspace) await store.SavePersonalCloudWorkspaceCapabilitiesAsync(cloud.InstanceId, true, true);
-
             var parsed = new ParsedTask("Cancelled", false) { CompletionState = TaskCompletionState.Cancelled };
-            if (workspace)
-            {
-                await Assert.ThrowsAsync<PersonalCloudK0ContractException>(() => MarkdownTaskImporter.ImportAsync(store, [parsed], SpaceIds.Default, cloud));
-                Assert.Empty(await store.GetTasksAsync(TaskQuery.ForMarkdownExport(SpaceIds.Default)));
-                Assert.Empty(await store.GetPendingPersonalCloudOutboxAsync(cloud.InstanceId, cloud.DeviceId));
-            }
-            else
-            {
-                await MarkdownTaskImporter.ImportAsync(store, [parsed], SpaceIds.Default);
-                Assert.Equal(TaskCompletionState.Cancelled, Assert.Single(await store.GetTasksAsync(TaskQuery.ForMarkdownExport(SpaceIds.Default))).CompletionState);
-            }
+            await MarkdownTaskImporter.ImportAsync(store, [parsed], SpaceIds.Default);
+            Assert.Equal(TaskCompletionState.Cancelled, Assert.Single(await store.GetTasksAsync(TaskQuery.ForMarkdownExport(SpaceIds.Default))).CompletionState);
         }
         finally { Directory.Delete(directory, recursive: true); }
     }

@@ -8,10 +8,10 @@ public static class MarkdownTaskImporter
 {
     public static async Task ImportAsync(ITaskStore store, IReadOnlyList<ParsedTask> tasks, string spaceId, PersonalCloudConnectionProfile? cloud = null)
     {
+        if (cloud is not null && tasks.Any(task => task.CompletionState == TaskCompletionState.Cancelled))
+            throw new InvalidOperationException("Cancelled tasks can't be imported while connected to Personal Cloud; disconnect Personal Cloud before importing this file, or remove the cancelled tasks.");
         var cloudStore = cloud is not null ? store as SqliteTaskStore : null;
         var workspace = cloudStore is not null && await cloudStore.SupportsPersonalCloudWorkspaceAsync(cloud!.InstanceId);
-        if (cloud is not null && !workspace && tasks.Any(task => task.CompletionState == TaskCompletionState.Cancelled))
-            throw new InvalidOperationException("Cancelled tasks can't be imported while connected to a Personal Cloud that doesn't support workspace sync; disconnect Personal Cloud before importing this file, or remove the cancelled tasks.");
         var projects = (await store.GetProjectsAsync(spaceId, includeArchived: true)).ToList();
         var labels = (await store.GetLabelsAsync()).ToList();
         foreach (var parsed in tasks)
