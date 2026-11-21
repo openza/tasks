@@ -21,6 +21,8 @@ User guide: [openza.org/tasks](https://openza.org/tasks/)
 - **Markdown import/export** - import GFM checkboxes and export tasks grouped by project
 - **Clean local database** - Store V1 starts fresh with planner-ready local data
 
+To move off Microsoft To Do in the Avalonia app, connect your account in Settings and choose **Import local copies**. Lists become projects in the current Space (or the default Space when viewing all Spaces), and tasks are copied with their notes, deadlines, priority and completion state. The copies can be edited or completed without changing Microsoft To Do. Importing again in the same Space skips existing copies; it does not import checklist steps, reminders, recurrence, attachments, categories or sharing.
+
 ## Download
 
 Openza Tasks V1 is live on the Microsoft Store:

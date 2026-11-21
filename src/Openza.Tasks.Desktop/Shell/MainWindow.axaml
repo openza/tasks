@@ -746,6 +746,8 @@
                     <Border Padding="20" Classes="settings-card"><StackPanel Spacing="10">
                         <TextBlock FontWeight="SemiBold" Text="Microsoft To Do"/><TextBlock Text="{Binding MicrosoftConnectionText}"/>
                         <StackPanel Orientation="Horizontal" Spacing="8"><Button Content="Connect / change account" Click="OnConnectMicrosoftClicked"/><Button Content="Disconnect" Click="OnDisconnectMicrosoftClicked"/></StackPanel>
+                        <TextBlock Text="One-time import: copy lists and tasks into Openza without keeping them linked to Microsoft To Do." TextWrapping="Wrap" Foreground="{DynamicResource OpenzaTextSecondaryBrush}"/>
+                        <Button Content="Import local copies…" Click="OnImportMicrosoftToDoClicked" IsEnabled="{Binding CanImportMicrosoftToDo}"/>
                     </StackPanel></Border>
 
                     <Border Classes="settings-card">

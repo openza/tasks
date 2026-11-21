@@ -24,6 +24,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private readonly ICredentialStore _credentials;
     private readonly HttpClient _httpClient = new();
     private readonly ConnectedSyncApplicationService _connectedSync;
+    private readonly IConnectedSyncProviderResolver _syncProviderResolver;
     private readonly IDesktopMicrosoftAuthService _microsoftAuth;
     private readonly Func<string, ISyncProvider> _microsoftSyncProviderFactory;
     private readonly CloudBackupService? _cloudService;
@@ -150,10 +151,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
         _todoistSyncProviderFactory = todoistSyncProviderFactory ?? (token => new TodoistProvider(_httpClient, token));
         _todoistMoveProviderFactory = todoistMoveProviderFactory ??
             ((token, connectionId) => new TodoistProvider(_httpClient, token, connectionId));
-        _connectedSync = new ConnectedSyncApplicationService(store,
-            new DesktopSyncProviderResolver(_credentials, _preferencesStore, _microsoftAuth,
-                _todoistSyncProviderFactory, _microsoftSyncProviderFactory),
-            DesktopDataPaths.Runtime, _personalCloudSetup);
+        _syncProviderResolver = new DesktopSyncProviderResolver(_credentials, _preferencesStore, _microsoftAuth,
+            _todoistSyncProviderFactory, _microsoftSyncProviderFactory);
+        _connectedSync = new ConnectedSyncApplicationService(store, _syncProviderResolver, DesktopDataPaths.Runtime, _personalCloudSetup);
         _backupService = new Lazy<BackupService?>(() => backupService ?? (store is SqliteTaskStore sqliteStore
             ? new BackupService(
                 sqliteStore.DatabasePath,
@@ -633,6 +633,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             if (_isBusy == value) return;
             _isBusy = value;
             OnPropertyChanged();
+            OnPropertyChanged(nameof(CanImportMicrosoftToDo));
         }
     }
 
@@ -644,6 +645,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             if (SetProperty(ref _isSyncing, value))
             {
                 OnPropertyChanged(nameof(IsBusy));
+                OnPropertyChanged(nameof(CanImportMicrosoftToDo));
                 OnPropertyChanged(nameof(CanRetryInitialSync));
             }
         }

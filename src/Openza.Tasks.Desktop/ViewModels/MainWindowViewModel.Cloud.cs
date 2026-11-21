@@ -1,4 +1,7 @@
 using System.Collections.ObjectModel;
+using Openza.Tasks.Application.Runtime;
+using Openza.Tasks.Application.Sync;
+using Openza.Tasks.Core.Data;
 using Openza.Tasks.Core.Models;
 using Openza.Tasks.Core.Services;
 using Openza.Tasks.Desktop.Services;
@@ -15,6 +18,7 @@ public sealed partial class MainWindowViewModel
     public CloudBackupInfo? SelectedCloudBackup { get => _selectedCloudBackup; set => SetProperty(ref _selectedCloudBackup, value); }
     public string CloudStatus { get => _cloudStatus; private set => SetProperty(ref _cloudStatus, value); }
     public string MicrosoftConnectionText => _preferencesStore.Load().MicrosoftToDoAccount?.Username ?? "Not connected.";
+    public bool CanImportMicrosoftToDo => !IsBusy && SessionCloudNotice is null && _preferencesStore.Load().MicrosoftToDoAccount is not null;
     public string OneDriveConnectionText => _preferencesStore.Load().OneDriveAccount?.Username ?? "Not connected.";
     public bool OneDriveEnabled => _preferencesStore.Load().OneDriveEnabled;
     public bool OneDriveEncrypted => _preferencesStore.Load().OneDriveEncrypted;
@@ -32,6 +36,7 @@ public sealed partial class MainWindowViewModel
                 : preferences with { OneDriveAccount = access.Account });
             if (feature == "todo") await _store.SetIntegrationConfiguredAsync(IntegrationIds.MicrosoftToDo, true);
             OnPropertyChanged(nameof(MicrosoftConnectionText));
+            OnPropertyChanged(nameof(CanImportMicrosoftToDo));
             OnPropertyChanged(nameof(OneDriveConnectionText));
             StatusMessage = "Microsoft account connected";
         }
@@ -49,8 +54,34 @@ public sealed partial class MainWindowViewModel
             await _store.SetIntegrationConfiguredAsync(IntegrationIds.MicrosoftToDo, false);
             await _store.SetIntegrationActiveAsync(IntegrationIds.MicrosoftToDo, false);
             OnPropertyChanged(nameof(MicrosoftConnectionText));
+            OnPropertyChanged(nameof(CanImportMicrosoftToDo));
             StatusMessage = "Microsoft To Do disconnected; existing tasks remain";
         });
+    }
+
+    public async Task ImportMicrosoftToDoAsync()
+    {
+        if (!AllowSessionCloudAccess() || !CanImportMicrosoftToDo || _store is not SqliteTaskStore sqlite) return;
+        if (!await _syncGate.WaitAsync(0)) return;
+        try
+        {
+            var spaceId = _currentSpaceId ?? _defaultSpaceId;
+            await RunBusyAsync(async () =>
+            {
+                StatusMessage = "Importing Microsoft To Do…";
+                var result = await Task.Run(async () =>
+                {
+                    using var lease = ChannelRuntimeLease.AcquireDatabaseRead(DesktopDataPaths.Runtime);
+                    return await new MicrosoftToDoImportService(sqlite, _syncProviderResolver)
+                        .ImportAsync(spaceId, () => _personalCloudSetup?.CurrentConnection);
+                });
+                await RefreshAsyncCore(preserveEditor: true);
+                StatusMessage = result is { ProjectsAdded: 0, TasksAdded: 0 }
+                    ? "No new Microsoft To Do lists or tasks to import."
+                    : $"Imported {result.ProjectsAdded} lists and {result.TasksAdded} tasks from Microsoft To Do.";
+            });
+        }
+        finally { _syncGate.Release(); }
     }
 
     private string BackupFlavor => DesktopDataPaths.Runtime.Channel.ToString().ToLowerInvariant();

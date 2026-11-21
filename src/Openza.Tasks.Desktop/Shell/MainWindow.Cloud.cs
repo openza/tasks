@@ -20,6 +20,14 @@ public sealed partial class MainWindow
         if (await new ConfirmWindow("Disconnect Microsoft To Do?", "Existing tasks remain in Openza.", "Disconnect", true).ShowDialog<bool>(this))
             await ViewModel.DisconnectMicrosoftAsync();
     }
+    private async void OnImportMicrosoftToDoClicked(object? sender, RoutedEventArgs e)
+    {
+        var destination = ViewModel.SelectedSpace?.Space?.Name is { } space ? $"“{space}”" : "your default Space";
+        if (await new ConfirmWindow("Import local copies from Microsoft To Do?",
+                $"Copy lists as Openza projects and tasks as editable local copies in {destination}. Existing copies are not overwritten, and nothing changes in Microsoft To Do.\n\nChecklist steps, reminders, recurrence, attachments, categories and sharing aren’t copied.",
+                "Import local copies", showCancel: true).ShowDialog<bool>(this))
+            await ViewModel.ImportMicrosoftToDoAsync();
+    }
     private async void OnConnectOneDriveClicked(object? sender, RoutedEventArgs e)
     {
         if (await new SignInWindow("Choose OneDrive account", (show, cancellation) =>

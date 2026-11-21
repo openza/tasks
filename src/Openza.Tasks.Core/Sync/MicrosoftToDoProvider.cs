@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using Openza.Tasks.Core.Models;
 
@@ -24,7 +25,8 @@ public sealed class MicrosoftToDoProvider(HttpClient httpClient, string accessTo
         {
             if (list.ExternalId is not null)
             {
-                tasks.AddRange(await FetchTasksAsync(list.ExternalId, categories, cancellationToken).ConfigureAwait(false));
+                await foreach (var task in FetchPagesAsync($"/me/todo/lists/{Uri.EscapeDataString(list.ExternalId)}/tasks?$top=100", cancellationToken).ConfigureAwait(false))
+                    tasks.Add(MapTask(task, list.ExternalId, categories, providerConnectionId));
             }
         }
 
@@ -43,18 +45,12 @@ public sealed class MicrosoftToDoProvider(HttpClient httpClient, string accessTo
 
     private async Task<IReadOnlyList<ProjectItem>> FetchListsAsync(CancellationToken cancellationToken)
     {
-        using var request = CreateRequest(HttpMethod.Get, "/me/todo/lists");
-        using var document = await SendJsonAsync(request, cancellationToken).ConfigureAwait(false);
-        if (!document.RootElement.TryGetProperty("value", out var value))
+        var lists = new List<ProjectItem>();
+        await foreach (var list in FetchPagesAsync("/me/todo/lists", cancellationToken).ConfigureAwait(false))
         {
-            return [];
-        }
-
-        return value.EnumerateArray().Select(list =>
-        {
-            var id = GetString(list, "id") ?? Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture);
+            var id = ReadId(list);
             var wellKnown = GetString(list, "wellknownListName");
-            return new ProjectItem
+            lists.Add(new ProjectItem
             {
                 Id = $"mstodo_{id}",
                 ExternalId = id,
@@ -65,8 +61,10 @@ public sealed class MicrosoftToDoProvider(HttpClient httpClient, string accessTo
                 IsFavorite = GetBool(list, "isOwner"),
                 ProviderMetadataJson = list.GetRawText(),
                 CreatedAt = DateTimeOffset.UtcNow,
-            };
-        }).ToList();
+            });
+        }
+
+        return lists;
     }
 
     private async Task<IReadOnlyList<LabelItem>> FetchCategoriesAsync(CancellationToken cancellationToken)
@@ -98,36 +96,47 @@ public sealed class MicrosoftToDoProvider(HttpClient httpClient, string accessTo
                 })
                 .ToList();
         }
-        catch
+        catch when (!cancellationToken.IsCancellationRequested)
         {
             return [];
         }
     }
 
-    private async Task<IReadOnlyList<TaskItem>> FetchTasksAsync(string listId, IReadOnlyDictionary<string, LabelItem> categories, CancellationToken cancellationToken)
+    private async IAsyncEnumerable<JsonElement> FetchPagesAsync(string path, [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        var tasks = new List<TaskItem>();
-        string? nextPath = $"/me/todo/lists/{listId}/tasks?$top=100";
+        var pages = new HashSet<string>(StringComparer.Ordinal);
+        string? nextPath = path;
         while (nextPath is not null)
         {
+            if (!pages.Add(nextPath))
+                throw new InvalidDataException("Microsoft To Do returned a repeated page link.");
+
             using var request = CreateRequest(HttpMethod.Get, nextPath);
             using var document = await SendJsonAsync(request, cancellationToken).ConfigureAwait(false);
-            if (document.RootElement.TryGetProperty("value", out var value))
+            if (!document.RootElement.TryGetProperty("value", out var value) || value.ValueKind != JsonValueKind.Array)
+                throw new InvalidDataException("Microsoft To Do did not return a list of items.");
+
+            foreach (var item in value.EnumerateArray())
+                yield return item;
+
+            nextPath = null;
+            if (document.RootElement.TryGetProperty("@odata.nextLink", out var next) && next.ValueKind != JsonValueKind.Null)
             {
-                tasks.AddRange(value.EnumerateArray().Select(task => MapTask(task, listId, categories, providerConnectionId)));
+                var url = next.GetString();
+                if (url is null || !url.StartsWith(BaseUrl + "/", StringComparison.Ordinal))
+                    throw new InvalidDataException("Microsoft To Do returned an unexpected page link.");
+
+                nextPath = url[BaseUrl.Length..];
             }
-
-            nextPath = document.RootElement.TryGetProperty("@odata.nextLink", out var next)
-                ? next.GetString()?.Replace(BaseUrl, string.Empty, StringComparison.Ordinal)
-                : null;
         }
-
-        return tasks;
     }
+
+    private static string ReadId(JsonElement item) =>
+        GetString(item, "id") is { Length: > 0 } id ? id : throw new InvalidDataException("A Microsoft To Do item is missing its ID.");
 
     private static TaskItem MapTask(JsonElement task, string listId, IReadOnlyDictionary<string, LabelItem> categories, string providerConnectionId)
     {
-        var id = GetString(task, "id") ?? Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture);
+        var id = ReadId(task);
         var due = ParseGraphDate(task, "dueDateTime");
         var status = GetString(task, "status");
         return new TaskItem
