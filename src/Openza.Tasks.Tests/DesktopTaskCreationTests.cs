@@ -217,7 +217,7 @@ public sealed class DesktopTaskCreationTests : IDisposable
         Assert.False(item.HasPriority);
         Assert.Equal(string.Empty, item.PriorityText);
         Assert.Contains("Long project name", item.MetadataText);
-        Assert.Contains("Inbox", item.MetadataText);
+        Assert.Contains("Status: Inbox", item.MetadataText);
         Assert.Contains("@alpha, @beta +1", item.MetadataText);
         Assert.Contains("2/5 subtasks", item.MetadataText);
         Assert.DoesNotContain("@gamma", item.MetadataText);

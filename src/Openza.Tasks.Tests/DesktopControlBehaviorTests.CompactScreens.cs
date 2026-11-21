@@ -52,6 +52,7 @@ public sealed partial class DesktopControlBehaviorTests
             dialog.RequestedThemeVariant = theme;
             if (dialog.CanResize)
             {
+                dialog.SizeToContent = SizeToContent.Manual;
                 dialog.Width = Math.Max(400, dialog.MinWidth);
                 dialog.Height = Math.Max(340, dialog.MinHeight);
             }
@@ -66,6 +67,7 @@ public sealed partial class DesktopControlBehaviorTests
             if (dialog is AddTaskWindow)
             {
                 Click(dialog, "Create");
+                dialog.FindControl<Expander>("PlanningExpander")!.IsExpanded = true;
                 var labels = dialog.FindControl<AutoCompleteBox>("LabelsBox")!;
                 labels.Text = longName + longName;
                 labels.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter });
@@ -127,6 +129,55 @@ public sealed partial class DesktopControlBehaviorTests
             failures.Add("Sign-in error pushes Close outside the window.");
         signIn.Close();
         Assert.True(failures.Count == 0, string.Join(Environment.NewLine, failures));
+    });
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public Task Connect_apps_reveals_provider_choices_after_Settings_was_scrolled(bool todoistWasExpanded) => Run(async context =>
+    {
+        var window = context.Window;
+        window.Width = 920;
+        window.Height = 600;
+        var navigation = window.FindControl<ListBox>("NavigationList")!;
+        var inbox = context.Vm.NavigationItems.Single(item => item.Kind == TaskListKind.Inbox);
+        var settings = window.FindControl<ScrollViewer>("SettingsWorkspace")!;
+        var gettingStarted = window.FindControl<Border>("GetStartedPanel")!;
+        await context.Preferences.UpdateAsync(preferences => preferences with { ShowGetStarted = true });
+        await context.Vm.CreateSpaceAsync("Empty setup space");
+        await context.Vm.SelectSpaceAsync(context.Vm.SpaceItems.Single(item => item.Title == "Empty setup space"));
+        navigation.SelectedItem = inbox;
+        await Until(() => gettingStarted.IsEffectivelyVisible);
+        Assert.False(FindButton(gettingStarted, "Sync").IsEffectivelyVisible);
+        Assert.True(FindButton(gettingStarted, "Add task").IsEffectivelyVisible);
+
+        window.FindControl<Button>("SettingsNavigationButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await Until(() => settings.IsVisible && !context.Vm.IsBusy);
+        settings.UpdateLayout();
+        var todoist = settings.GetVisualDescendants().OfType<Expander>()
+            .Single(control => AutomationProperties.GetName(control) == "Todoist integration");
+        var heading = window.FindControl<StackPanel>("AppConnectionsHeading")!;
+        todoist.IsExpanded = todoistWasExpanded;
+        settings.UpdateLayout();
+        settings.Offset = new Vector(0, settings.Extent.Height - settings.Viewport.Height);
+        settings.UpdateLayout();
+        Assert.True(todoist.TranslatePoint(default, settings)!.Value.Y < 0);
+
+        navigation.SelectedItem = context.Vm.NavigationItems.Single(item => item.Kind == TaskListKind.Open);
+        await Until(() => !settings.IsVisible && !context.Vm.IsBusy);
+        navigation.SelectedItem = inbox;
+        await Until(() => gettingStarted.IsEffectivelyVisible && !context.Vm.IsBusy);
+        Click(gettingStarted, "Connect apps");
+        await Until(() => settings.IsVisible && !context.Vm.IsBusy &&
+            heading.TranslatePoint(default, settings) is { Y: >= 0 });
+        settings.UpdateLayout();
+
+        var microsoftHeading = settings.GetVisualDescendants().OfType<TextBlock>().Single(block => block.Text == "Microsoft To Do");
+        var microsoftConnect = FindButton((Control)microsoftHeading.Parent!, "Connect / change account");
+        foreach (var choice in new Control[] { heading, todoist, microsoftConnect })
+        {
+            Assert.InRange(choice.TranslatePoint(default, settings)!.Value.Y, 0, settings.Viewport.Height - choice.Bounds.Height);
+        }
     });
 
     [Theory]

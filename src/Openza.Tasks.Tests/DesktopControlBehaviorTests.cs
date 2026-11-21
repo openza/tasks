@@ -168,7 +168,7 @@ public sealed partial class DesktopControlBehaviorTests(EditorTestSession fixtur
     [Fact]
     public Task Project_picker_filters_selects_existing_and_creates_new_without_duplicates() => Run(async context =>
     {
-        var options = new[] { new PickerOption("", "Inbox"), new PickerOption("project", "Release") };
+        var options = new[] { new PickerOption("", new ProjectOptionViewModel(null).Title), new PickerOption("project", "Release") };
         var dialog = new ProjectPickerWindow(options, "project");
         var result = dialog.ShowDialog<ProjectPickerResult?>(context.Window);
         dialog.FindControl<TextBox>("SearchBox")!.Text = "Release";
@@ -178,11 +178,43 @@ public sealed partial class DesktopControlBehaviorTests(EditorTestSession fixtur
         Assert.Equal("project", (await result)!.ProjectId);
         dialog = new ProjectPickerWindow(options, "project");
         result = dialog.ShowDialog<ProjectPickerResult?>(context.Window);
-        dialog.FindControl<TextBox>("SearchBox")!.Text = " New project ✓ ";
-        await Until(() => dialog.FindControl<ListBox>("ProjectsList")!.ItemCount == 0);
-        Assert.Empty(dialog.FindControl<ListBox>("ProjectsList")!.Items);
+        dialog.FindControl<TextBox>("SearchBox")!.Text = " No project ";
+        await Until(() => dialog.FindControl<ListBox>("ProjectsList")!.ItemCount == 1);
+        Assert.True(dialog.FindControl<Button>("CreateProjectButton")!.IsVisible);
         dialog.FindControl<Button>("CreateProjectButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-        Assert.Equal("New project ✓", (await result)!.NewProjectName);
+        Assert.Equal("No project", (await result)!.NewProjectName);
+    });
+
+    [Fact]
+    public Task Project_picker_distinguishes_no_project_from_real_project_names() => Run(async context =>
+    {
+        var options = new[]
+        {
+            new PickerOption("", new ProjectOptionViewModel(null).Title),
+            new PickerOption("exact", "No project"),
+            new PickerOption("partial", "No project backlog"),
+            new PickerOption("inbox", "Inbox"),
+        };
+        var dialog = new ProjectPickerWindow(options, null);
+        var result = dialog.ShowDialog<ProjectPickerResult?>(context.Window);
+        var search = dialog.FindControl<TextBox>("SearchBox")!;
+        var list = dialog.FindControl<ListBox>("ProjectsList")!;
+        search.Text = "Inbox";
+        await Until(() => list.ItemCount == 1);
+        Assert.Equal("inbox", Assert.IsType<PickerOption>(list.SelectedItem).Id);
+        search.Text = " NO PROJECT ";
+        await Until(() => list.ItemCount == 3);
+        Assert.Equal(new[] { "", "exact", "partial" }, list.Items.Cast<PickerOption>().Select(option => option.Id));
+        Assert.Equal("exact", Assert.IsType<PickerOption>(list.SelectedItem).Id);
+        Assert.False(dialog.FindControl<Button>("CreateProjectButton")!.IsVisible);
+        search.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter });
+        Assert.Equal("exact", (await result)!.ProjectId);
+
+        dialog = new ProjectPickerWindow(options, "exact");
+        result = dialog.ShowDialog<ProjectPickerResult?>(context.Window);
+        dialog.FindControl<ListBox>("ProjectsList")!.SelectedItem = options[0];
+        Click(dialog, "Choose");
+        Assert.Equal(string.Empty, (await result)!.ProjectId);
     });
 
     [Fact]
@@ -240,15 +272,23 @@ public sealed partial class DesktopControlBehaviorTests(EditorTestSession fixtur
         });
         var result = dialog.ShowDialog<GlobalSearchResult?>(context.Window);
         var input = dialog.FindControl<TextBox>("SearchBox")!;
+        var scope = dialog.FindControl<ComboBox>("ScopeSelector")!;
+        var description = dialog.FindControl<TextBlock>("ScopeDescription")!;
+        Assert.Equal("Find tasks and projects within the sidebar’s space selection.", description.Text);
         input.Text = "failure";
         await Until(() => dialog.FindControl<TextBlock>("ResultStatus")!.Text!.StartsWith("Search failed"));
+        Assert.Contains(("failure", false, false), calls);
         Assert.False(dialog.FindControl<Button>("OpenResultButton")!.IsEnabled);
         input.Text = "none"; await Until(() => dialog.FindControl<TextBlock>("ResultStatus")!.Text == "No matching tasks or projects.");
         input.Text = "Found ✓";
-        dialog.FindControl<ComboBox>("ScopeSelector")!.SelectedIndex = 1;
+        scope.SelectedIndex = 1;
+        Assert.Equal("Find tasks and projects across all spaces.", description.Text);
         dialog.FindControl<CheckBox>("IncludeCompletedBox")!.IsChecked = true;
         Click(dialog, "Search");
         await Until(() => calls.Contains(("Found ✓", true, true)));
+        scope.SelectedIndex = 0;
+        Assert.Equal("Find tasks and projects within the sidebar’s space selection.", description.Text);
+        await Until(() => calls.Contains(("Found ✓", false, true)));
         Click(dialog, "Open selected"); Assert.Equal("Found ✓", (await result)!.Title);
     });
 

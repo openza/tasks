@@ -8,21 +8,6 @@ namespace Openza.Tasks.Desktop.Shell;
 
 public sealed partial class MainWindow
 {
-    private bool? _organizeIsNarrow;
-    private void OnOrganizeSizeChanged(object? sender, SizeChangedEventArgs e)
-    {
-        if (sender is not Grid grid) return;
-        var narrow = e.NewSize.Width < 400;
-        if (_organizeIsNarrow == narrow) return;
-        _organizeIsNarrow = narrow;
-        grid.ColumnDefinitions = new ColumnDefinitions(narrow ? "*" : "*,*");
-        grid.RowDefinitions = new RowDefinitions(narrow ? "Auto,Auto,Auto,Auto,Auto,Auto" : "Auto,Auto,Auto");
-        for (var index = 0; index < grid.Children.Count; index++)
-        {
-            Grid.SetRow(grid.Children[index], narrow ? index : index / 2);
-            Grid.SetColumn(grid.Children[index], narrow ? 0 : index % 2);
-        }
-    }
     private async void OnAutomaticRestorePointsChanged(object? sender, RoutedEventArgs e)
     {
         if (_initialized && sender is ToggleSwitch toggle)

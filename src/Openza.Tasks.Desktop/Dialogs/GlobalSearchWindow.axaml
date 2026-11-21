@@ -13,7 +13,7 @@
     <Grid Margin="24" RowDefinitions="Auto,Auto,Auto,*,Auto" RowSpacing="14">
         <StackPanel Spacing="4">
             <TextBlock Classes="dialog-title" Text="Search" />
-            <TextBlock Foreground="{DynamicResource OpenzaTextSecondaryBrush}" Text="Find tasks and projects across every space." />
+            <TextBlock x:Name="ScopeDescription" Foreground="{DynamicResource OpenzaTextSecondaryBrush}" TextWrapping="Wrap" />
         </StackPanel>
         <Grid Grid.Row="1" ColumnDefinitions="*,Auto" ColumnSpacing="8">
             <TextBox x:Name="SearchBox" AutomationProperties.Name="Search tasks and projects" PlaceholderText="Search tasks and projects" KeyDown="OnSearchKeyDown" TextChanged="OnSearchTextChanged" />

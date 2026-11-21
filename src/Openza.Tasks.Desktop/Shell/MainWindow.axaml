@@ -276,8 +276,13 @@
                             </StackPanel>
                             <Border x:Name="GetStartedPanel" Grid.Row="2" Grid.ColumnSpan="2" Margin="0,12,0,0" Padding="12" Classes="settings-card" IsVisible="{Binding IsGetStartedVisible}">
                                 <StackPanel Spacing="8"><TextBlock FontWeight="SemiBold" Text="Get started with Openza Tasks"/>
-                                    <TextBlock Text="Capture a task, connect an app, or sync your tasks." TextWrapping="Wrap"/>
-                                    <WrapPanel><Button Margin="0,0,8,4" Content="Add task" Click="OnAddTaskClicked"/><Button Margin="0,0,8,4" Content="Connect apps" Click="OnSettingsClicked"/><Button Margin="0,0,8,4" Content="Sync" Click="OnSyncClicked"/><Button Content="Dismiss" Click="OnDismissGetStartedClicked"/></WrapPanel>
+                                    <TextBlock Text="Add a task here or connect an app to bring in tasks." TextWrapping="Wrap"/>
+                                    <WrapPanel>
+                                        <Button Margin="0,0,8,4" Content="Add task" Click="OnAddTaskClicked"/>
+                                        <Button Margin="0,0,8,4" Content="Connect apps" Click="OnAppConnectionsClicked"/>
+                                        <Button Margin="0,0,8,4" Content="Sync" Click="OnSyncClicked" IsVisible="{Binding HasConnectedTaskApp}" IsEnabled="{Binding !IsSyncing}"/>
+                                        <Button Content="Dismiss" Click="OnDismissGetStartedClicked"/>
+                                    </WrapPanel>
                                 </StackPanel>
                             </Border>
                             <Border x:Name="InitialSyncBanner" Grid.Row="3" Grid.ColumnSpan="2" Margin="0,12,0,0" Padding="12" Classes="settings-card" IsVisible="{Binding HasActiveInitialSyncProgress}">
@@ -295,8 +300,8 @@
                                 Height="36"
                                 MinWidth="0"
                                 HorizontalAlignment="Left"
-                                AutomationProperties.Name="Search tasks"
-                                PlaceholderText="Search tasks"
+                                AutomationProperties.Name="Search this list"
+                                PlaceholderText="Search this list"
                                 Text="{Binding SearchText, Mode=TwoWay}"
                                 TextChanged="OnTaskSearchTextChanged"
                                 KeyDown="OnSearchKeyDown" />
@@ -481,20 +486,23 @@
                                 </Grid>
                             </Border>
                             <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
-                                <StackPanel Margin="28,26,28,34" Spacing="24">
-                                    <StackPanel Spacing="12">
-                                        <TextBlock FontSize="16" FontWeight="SemiBold" Text="Organize" />
-                                    <Grid x:Name="OrganizeFields" ColumnDefinitions="*,*" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="28" RowSpacing="10" SizeChanged="OnOrganizeSizeChanged">
-                                        <StackPanel Classes="field-row"><TextBlock Classes="field-label" Text="Status" /><ComboBox AutomationProperties.Name="Task status" SelectedIndex="{Binding DetailStatusIndex, Mode=TwoWay}" SelectionChanged="OnDetailEditorSelectionChanged"><ComboBoxItem Content="Inbox"/><ComboBoxItem Content="Next"/><ComboBoxItem Content="Waiting For"/><ComboBoxItem Content="Someday"/><ComboBoxItem Content="Completed"/><ComboBoxItem Content="None"/></ComboBox></StackPanel>
-                                        <StackPanel Grid.Column="1" Classes="field-row">
-                                            <TextBlock Classes="field-label" Text="Project"/>
-                                            <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" AutomationProperties.Name="Find or create project" Click="OnDetailProjectPickerClicked" Content="{Binding DetailProject.Title}" />
-                                        </StackPanel>
-                                        <StackPanel Grid.Row="1" Classes="field-row"><TextBlock Classes="field-label" Text="Date"/><CalendarDatePicker x:Name="DetailDatePicker" AutomationProperties.Name="Task date" HorizontalAlignment="Stretch" PlaceholderText="Choose a date" SelectedDate="{Binding DetailCalendarDate, Mode=TwoWay}" SelectedDateChanged="OnDetailDateChanged"/></StackPanel>
-                                        <StackPanel Grid.Row="1" Grid.Column="1" Classes="field-row"><TextBlock Classes="field-label" Text="Deadline"/><CalendarDatePicker x:Name="DetailDeadlinePicker" AutomationProperties.Name="Task deadline" HorizontalAlignment="Stretch" PlaceholderText="Choose a deadline" SelectedDate="{Binding DetailCalendarDeadline, Mode=TwoWay}" SelectedDateChanged="OnDetailDateChanged"/></StackPanel>
-                                        <StackPanel Grid.Row="2" Classes="field-row"><TextBlock Classes="field-label" Text="Priority"/><ComboBox AutomationProperties.Name="Task priority" SelectedIndex="{Binding DetailPriorityIndex, Mode=TwoWay}" SelectionChanged="OnDetailEditorSelectionChanged"><ComboBoxItem Content="Urgent"/><ComboBoxItem Content="High"/><ComboBoxItem Content="Normal"/><ComboBoxItem Content="Low"/></ComboBox></StackPanel>
-                                        <StackPanel Grid.Row="2" Grid.Column="1" Classes="field-row">
-                                            <TextBlock Classes="field-label" Text="Labels"/>
+                                <StackPanel Margin="24,16,24,24" Spacing="18">
+                                    <Grid x:Name="OrganizeFields" ColumnDefinitions="72,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="12" RowSpacing="6">
+                                        <TextBlock Classes="field-label" VerticalAlignment="Center" Text="Status" />
+                                        <ComboBox Grid.Column="1" AutomationProperties.Name="Task status" SelectedIndex="{Binding DetailStatusIndex, Mode=TwoWay}" SelectionChanged="OnDetailEditorSelectionChanged"><ComboBoxItem Content="Inbox"/><ComboBoxItem Content="Next"/><ComboBoxItem Content="Waiting For"/><ComboBoxItem Content="Someday"/><ComboBoxItem Content="Completed"/><ComboBoxItem Content="None"/></ComboBox>
+                                        <TextBlock Grid.Row="1" Classes="field-label" VerticalAlignment="Center" Text="Project"/>
+                                        <Button Grid.Row="1" Grid.Column="1" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" AutomationProperties.Name="Find or create project" Click="OnDetailProjectPickerClicked" ToolTip.Tip="{Binding DetailProject.Title}">
+                                            <TextBlock Text="{Binding DetailProject.Title}" TextTrimming="CharacterEllipsis" />
+                                        </Button>
+                                        <TextBlock Grid.Row="2" Classes="field-label" VerticalAlignment="Center" Text="Date"/>
+                                        <CalendarDatePicker Grid.Row="2" Grid.Column="1" x:Name="DetailDatePicker" AutomationProperties.Name="Task date" HorizontalAlignment="Stretch" PlaceholderText="Choose a date" SelectedDate="{Binding DetailCalendarDate, Mode=TwoWay}" SelectedDateChanged="OnDetailDateChanged"/>
+                                        <TextBlock Grid.Row="3" Classes="field-label" VerticalAlignment="Center" Text="Deadline"/>
+                                        <CalendarDatePicker Grid.Row="3" Grid.Column="1" x:Name="DetailDeadlinePicker" AutomationProperties.Name="Task deadline" HorizontalAlignment="Stretch" PlaceholderText="Choose a deadline" SelectedDate="{Binding DetailCalendarDeadline, Mode=TwoWay}" SelectedDateChanged="OnDetailDateChanged"/>
+                                        <TextBlock Grid.Row="4" Classes="field-label" VerticalAlignment="Center" Text="Priority"/>
+                                        <ComboBox Grid.Row="4" Grid.Column="1" AutomationProperties.Name="Task priority" SelectedIndex="{Binding DetailPriorityIndex, Mode=TwoWay}" SelectionChanged="OnDetailEditorSelectionChanged"><ComboBoxItem Content="Urgent"/><ComboBoxItem Content="High"/><ComboBoxItem Content="Normal"/><ComboBoxItem Content="Low"/></ComboBox>
+                                        <TextBlock Grid.Row="5" Classes="field-label" VerticalAlignment="Top" Margin="0,8,0,0" Text="Labels"/>
+                                        <StackPanel Grid.Row="5" Grid.Column="1" Spacing="4">
+                                            <ScrollViewer MaxHeight="64" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                                             <ItemsControl ItemsSource="{Binding DetailLabelItems}">
                                                 <ItemsControl.ItemsPanel>
                                                     <ItemsPanelTemplate><WrapPanel Orientation="Horizontal"/></ItemsPanelTemplate>
@@ -517,6 +525,7 @@
                                                     </DataTemplate>
                                                 </ItemsControl.ItemTemplate>
                                             </ItemsControl>
+                                            </ScrollViewer>
                                             <AutoCompleteBox AutomationProperties.Name="Task labels"
                                                 x:Name="DetailLabelsBox"
                                                 ItemsSource="{Binding LabelSuggestions}"
@@ -528,8 +537,17 @@
                                                 SelectionChanged="OnDetailLabelSelectionChanged"/>
                                         </StackPanel>
                                     </Grid>
+                                    <StackPanel Spacing="8">
+                                        <TextBlock FontSize="16" FontWeight="SemiBold" Text="Notes"/>
+                                        <TextBox x:Name="DetailNotesBox"
+                                            AutomationProperties.Name="Task notes"
+                                            MinHeight="36" MaxHeight="240"
+                                            PlaceholderText="Add notes…" AcceptsReturn="True"
+                                            VerticalContentAlignment="Top"
+                                            ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                            Text="{Binding DetailNotes, Mode=TwoWay}" TextWrapping="Wrap"
+                                            LostFocus="OnDetailEditorLostFocus"/>
                                     </StackPanel>
-                                    <StackPanel Spacing="8"><TextBlock FontSize="16" FontWeight="SemiBold" Text="Notes"/><TextBox AutomationProperties.Name="Task notes" MinHeight="150" AcceptsReturn="True" VerticalContentAlignment="Top" Text="{Binding DetailNotes, Mode=TwoWay}" TextWrapping="Wrap" LostFocus="OnDetailEditorLostFocus"/></StackPanel>
                                     <Border IsVisible="{Binding HasSourceDateMismatch}" Padding="12" Background="{DynamicResource OpenzaElevatedSurfaceBrush}" BorderBrush="{DynamicResource OpenzaBorderBrush}" BorderThickness="1" CornerRadius="7">
                                         <StackPanel Spacing="10">
                                             <StackPanel Spacing="3">
@@ -684,8 +702,14 @@
                     </Border>
                     <Border Padding="20" Classes="settings-card"><Grid ColumnDefinitions="32,*,Auto" ColumnSpacing="14"><ic:FluentIcon Icon="ArrowSync" FontSize="21"/><StackPanel Grid.Column="1"><TextBlock FontWeight="SemiBold" Text="Automatic sync"/><TextBlock Foreground="{DynamicResource OpenzaTextSecondaryBrush}" Text="Refresh connected apps every five minutes while Openza Tasks is running."/></StackPanel><ToggleSwitch AutomationProperties.Name="Automatic sync" x:Name="AutomaticSyncToggle" Grid.Column="2" OnContent="On" OffContent="Off" IsCheckedChanged="OnAutomaticSyncChanged"/></Grid></Border>
 
+                    <StackPanel x:Name="AppConnectionsHeading" Spacing="6">
+                        <TextBlock Classes="section-title" Text="App connections"/>
+                        <TextBlock Foreground="{DynamicResource OpenzaTextSecondaryBrush}" TextWrapping="Wrap"
+                                   Text="For Todoist and Microsoft To Do, completing or reopening a linked task updates the original in that app on the next sync. Your Openza notes, labels, priority, project, and status stay in Openza."/>
+                    </StackPanel>
+
                     <Border Classes="settings-card">
-                        <Expander AutomationProperties.Name="Todoist integration" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                        <Expander x:Name="TodoistSettingsExpander" AutomationProperties.Name="Todoist integration" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
                             <Expander.Header>
                                 <Grid Margin="8,2" ColumnDefinitions="32,*,Auto" ColumnSpacing="14">
                                     <ic:FluentIcon Icon="CheckmarkCircle" FontSize="21"/>

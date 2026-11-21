@@ -201,6 +201,12 @@ public sealed partial class MainWindowViewModel
     public bool CanConnectPersonalCloud => _personalCloudSetup?.IsConfigured == true && !IsConnectingPersonalCloud;
     public bool IsPersonalCloudConnected => _personalCloudSetup?.CurrentConnection is not null;
 
+    private void NotifyPersonalCloudConnectionChanged()
+    {
+        OnPropertyChanged(nameof(IsPersonalCloudConnected));
+        OnPropertyChanged(nameof(HasConnectedTaskApp));
+    }
+
     public async Task<PersonalCloudProvisioningResult?> ConnectPersonalCloudAsync(
         CancellationToken cancellationToken = default,
         IProgress<PersonalCloudSetupProgress>? progress = null)
@@ -222,7 +228,7 @@ public sealed partial class MainWindowViewModel
             PersonalCloudStatusText = "Initial sync";
             PersonalCloudSummaryText = "Your cloud is ready. Your existing tasks are now syncing.";
             PersonalCloudActionText = "Manage Personal Cloud";
-            OnPropertyChanged(nameof(IsPersonalCloudConnected));
+            NotifyPersonalCloudConnectionChanged();
             PersonalCloudSyncResult sync;
             try { sync = await SyncPersonalCloudWithProgressAsync(cancellationToken); }
             catch
@@ -238,7 +244,7 @@ public sealed partial class MainWindowViewModel
                 : $"This desktop is paired. Sync is blocked ({sync.BlockedCode}); pending edits are preserved and require resolution.";
             if (sync.InitialSyncProgress is { } progressState) ApplyInitialSyncProgress(progressState);
             PersonalCloudActionText = "Manage Personal Cloud";
-            OnPropertyChanged(nameof(IsPersonalCloudConnected));
+            NotifyPersonalCloudConnectionChanged();
             return result;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -331,7 +337,7 @@ public sealed partial class MainWindowViewModel
             PersonalCloudStatusText = "Initial sync";
             PersonalCloudSummaryText = "This desktop is paired. Your existing tasks are now syncing.";
             PersonalCloudActionText = "Manage Personal Cloud";
-            OnPropertyChanged(nameof(IsPersonalCloudConnected));
+            NotifyPersonalCloudConnectionChanged();
             var sync = await SyncPersonalCloudWithProgressAsync(cancellationToken);
             PersonalCloudStatusText = "Connected";
             PersonalCloudSummaryText = sync.BlockedCode is null
@@ -339,7 +345,7 @@ public sealed partial class MainWindowViewModel
                 : $"This desktop is paired. Sync is blocked ({sync.BlockedCode}); pending edits are preserved and require resolution.";
             if (sync.InitialSyncProgress is { } progressState) ApplyInitialSyncProgress(progressState);
             PersonalCloudActionText = "Manage Personal Cloud";
-            OnPropertyChanged(nameof(IsPersonalCloudConnected));
+            NotifyPersonalCloudConnectionChanged();
             return connection;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -385,13 +391,13 @@ public sealed partial class MainWindowViewModel
             PersonalCloudStatusText = "Paused";
             PersonalCloudSummaryText = pause.Summary;
             PersonalCloudActionText = "Manage Personal Cloud";
-            OnPropertyChanged(nameof(IsPersonalCloudConnected));
+            NotifyPersonalCloudConnectionChanged();
             return connection;
         }
         PersonalCloudStatusText = "Needs attention";
         PersonalCloudSummaryText = "This desktop is paired, but its first sync did not finish. Retry Sync; no new pairing code is needed.";
         PersonalCloudActionText = "Manage Personal Cloud";
-        OnPropertyChanged(nameof(IsPersonalCloudConnected));
+        NotifyPersonalCloudConnectionChanged();
         if (_initialSyncProgress is { } progress) ApplyInitialSyncProgress(progress);
         return connection;
     }
@@ -566,7 +572,7 @@ public sealed partial class MainWindowViewModel
         PersonalCloudStatusText = "Not connected";
         PersonalCloudSummaryText = summary;
         PersonalCloudActionText = "Set up Personal Cloud";
-        OnPropertyChanged(nameof(IsPersonalCloudConnected));
+        NotifyPersonalCloudConnectionChanged();
     }
 
     private static Task OpenUriAsync(Uri uri, CancellationToken cancellationToken)
