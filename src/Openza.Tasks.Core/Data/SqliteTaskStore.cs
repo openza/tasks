@@ -1172,9 +1172,33 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
     {
         if (await SupportsPersonalCloudWorkspaceAsync(instanceId, cancellationToken).ConfigureAwait(false))
             return await StagePersonalCloudWorkspaceSeedAsync(instanceId, deviceId, cancellationToken).ConfigureAwait(false);
+        return await StageLegacyTasksAsync(null, instanceId, deviceId, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task CreateLegacyRichTaskWithPersonalCloudIntentAsync(TaskItem task, string instanceId, string deviceId, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(task);
+        if (task.IntegrationId != IntegrationIds.Local || task.CompletionState == TaskCompletionState.Cancelled)
+            throw new PersonalCloudK0ContractException("invalid_request", "Legacy rich creation requires an open or completed local task.");
+        await StageLegacyTasksAsync(task, instanceId, deviceId, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<int> StageLegacyTasksAsync(TaskItem? createdTask, string instanceId, string deviceId, CancellationToken cancellationToken)
+    {
         await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-        var tasks = (await ReadTasksAsync(connection, cancellationToken).ConfigureAwait(false))
+        if (createdTask is not null)
+        {
+            var check = connection.CreateCommand();
+            check.CommandText = "SELECT EXISTS(SELECT 1 FROM tasks WHERE id=@id)";
+            check.Parameters.AddWithValue("@id", createdTask.Id);
+            if (Convert.ToInt64(await check.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)) != 0 ||
+                await ReadPersonalCloudEntityVersionAsync(connection, instanceId, createdTask.Id, cancellationToken).ConfigureAwait(false) is not null)
+                throw new PersonalCloudK0ContractException("entity_exists", "A task with this ID already exists.");
+            await UpsertTaskCoreAsync(connection, createdTask, cancellationToken).ConfigureAwait(false);
+            await SetTaskLabelsCoreAsync(connection, createdTask.Id, createdTask.Labels, cancellationToken).ConfigureAwait(false);
+        }
+        var tasks = (createdTask is null ? await ReadTasksAsync(connection, cancellationToken).ConfigureAwait(false) : new[] { createdTask })
             .Where(task => task.IntegrationId == IntegrationIds.Local)
             .ToList();
 
@@ -1391,7 +1415,16 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
         advance.Parameters.AddWithValue("@d", deviceId);
         if (await advance.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
             throw new InvalidOperationException("The Personal Cloud device sequence could not be advanced.");
-        await SealInitialSyncSeedAsync(connection, instanceId, deviceId, cancellationToken).ConfigureAwait(false);
+        if (createdTask is null)
+            await SealInitialSyncSeedAsync(connection, instanceId, deviceId, cancellationToken).ConfigureAwait(false);
+        else
+        {
+            var revision = connection.CreateCommand();
+            revision.CommandText = "UPDATE tasks SET revision=@revision WHERE id=@id";
+            revision.Parameters.AddWithValue("@revision", createdTask.Revision + staged - 1);
+            revision.Parameters.AddWithValue("@id", createdTask.Id);
+            await revision.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return staged;
     }
@@ -3606,6 +3639,29 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
     {
         await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         await ResolveAndUpsertLabelCoreAsync(connection, label, cancellationToken, preserveExistingId: false).ConfigureAwait(false);
+    }
+
+    public async Task<LabelItem> ResolveAndUpsertLabelAsync(LabelItem label, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        var id = await ResolveAndUpsertLabelCoreAsync(connection, label, cancellationToken, preserveExistingId: false).ConfigureAwait(false);
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT id, external_id, integration_id, provider_connection_id, name, color, description, sort_order,
+                   is_favorite, provider_metadata, created_at
+            FROM labels WHERE id = @id
+            """;
+        command.Parameters.AddWithValue("@id", id);
+        LabelItem resolved;
+        await using (var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+        {
+            if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                throw new InvalidOperationException("The resolved label could not be loaded.");
+            resolved = ReadLabel(reader);
+        }
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return resolved;
     }
 
     public async Task SetTaskLabelsAsync(string taskId, IReadOnlyList<LabelItem> labels, CancellationToken cancellationToken = default)
