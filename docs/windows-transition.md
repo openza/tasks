@@ -5,16 +5,15 @@ releases or maintenance. Keep the project as the final Store baseline and
 continuity reference. Existing Store users remain on that release until a future
 Avalonia replacement passes acceptance.
 
-Linux Snap is the sole current focus for the coming weeks/months, until Linux is
-stable. All Windows work is parked, including Avalonia Windows packaging, MSIX,
-native testing, Store replacement and continuity policy decisions. Resume only
-when the maintainer explicitly asks. This document retains the existing Dev-gated
-implementation and future acceptance requirements as reference.
+Linux Snap and Windows (Avalonia MSIX replacing the WinUI Store app) are both
+active development and delivery targets. WinUI remains frozen as the continuity
+baseline with no new WinUI releases. Continuity stays Dev-gated until the
+transition gates pass; Preview/Production installation or replacement and Store
+release still require maintainer approval.
 
 Keep Core, Application and Desktop code cross-platform and Windows-compatible,
 with OS-specific behavior behind platform services. The optional Windows CI job
-builds Avalonia and runs the shared suite as a nonblocking early warning only; do
-not block Linux work on it or act on its results unless explicitly requested.
+builds Avalonia and runs the shared suite as a nonblocking early warning only.
 It does not build WinUI or establish native package acceptance. Linux build/tests
 and Snap validation remain required.
 
