@@ -109,7 +109,7 @@
                     SelectionChanged="OnSpaceSelectionChanged">
                     <ComboBox.ItemTemplate>
                         <DataTemplate>
-                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10" HorizontalAlignment="Stretch">
+                            <Grid MaxWidth="280" ColumnDefinitions="Auto,*" ColumnSpacing="10" HorizontalAlignment="Stretch">
                                 <ic:FluentIcon Icon="FolderOpen" FontSize="18" />
                                 <TextBlock Grid.Column="1" Classes="nav-label" VerticalAlignment="Center" Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
                             </Grid>
@@ -131,20 +131,21 @@
                     <ic:FluentIcon Icon="FolderOpen" FontSize="18" />
                     <Button.Flyout>
                         <Flyout Placement="RightEdgeAlignedBottom">
-                            <ItemsControl MinWidth="180" ItemsSource="{Binding SpaceItems}">
+                            <ItemsControl MinWidth="180" MaxWidth="320" ItemsSource="{Binding SpaceItems}">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>
                                         <Button
                                             MinWidth="180"
+                                            MaxWidth="320"
                                             Classes="menu-row"
                                             ContentTemplate="{x:Null}"
                                             Padding="12,8"
-                                            HorizontalContentAlignment="Left"
+                                            HorizontalContentAlignment="Stretch"
                                             Click="OnCompactSpaceSelected">
-                                            <StackPanel Orientation="Horizontal" Spacing="10">
+                                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
                                                 <ic:FluentIcon Icon="FolderOpen" FontSize="17" />
-                                                <TextBlock Text="{Binding Title}" />
-                                            </StackPanel>
+                                                <TextBlock Grid.Column="1" Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
+                                            </Grid>
                                         </Button>
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>

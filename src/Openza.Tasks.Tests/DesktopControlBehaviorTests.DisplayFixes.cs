@@ -1,4 +1,5 @@
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.VisualTree;
@@ -76,6 +77,46 @@ public sealed partial class DesktopControlBehaviorTests
         else Assert.True(title.Bounds.Width >= naturalTitle.DesiredSize.Width);
         if (name != "A") SaveFrame(context.Window, trimmed ? "after_2_space_long" : "after_2_space");
     });
+
+    [Fact]
+    public Task Long_space_names_trim_in_dropdown_and_collapsed_menu() => Run(async context =>
+    {
+        const string name = "Northern Operations and International Delivery Coordination";
+        await context.Vm.RenameSpaceAsync(context.Vm.SelectedSpace!, name);
+        var picker = context.Window.FindControl<ComboBox>("SpacePicker")!;
+        picker.IsDropDownOpen = true;
+        await Task.Delay(80);
+        context.Window.UpdateLayout();
+        var popup = picker.GetVisualDescendants().OfType<Popup>().Single();
+        var dropdownTitle = popup.Child!.GetVisualDescendants().OfType<TextBlock>().Single(text => text.Text == name);
+        AssertTrimmed(dropdownTitle);
+        picker.IsDropDownOpen = false;
+        context.Window.FindControl<Button>("NavigationCollapseButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        var compact = context.Window.FindControl<Button>("CompactSpacePickerButton")!;
+        compact.Flyout!.ShowAt(compact);
+        await Task.Delay(80);
+        context.Window.UpdateLayout();
+        var menu = (ItemsControl)((Flyout)compact.Flyout).Content!;
+        var row = menu.GetVisualDescendants().OfType<Button>()
+            .Single(button => button.DataContext is SpaceNavigationItemViewModel { Title: name });
+        var title = row.GetVisualDescendants().OfType<TextBlock>().Single(text => text.Text == name);
+        AssertTrimmed(title);
+        Assert.True(title.Bounds.Width < row.Bounds.Width);
+        Assert.InRange(row.Bounds.Width, 1, 320);
+        SaveFrame(context.Window, "after_3_space_menu_long");
+        compact.Flyout.Hide();
+    });
+
+    private static void AssertTrimmed(TextBlock title)
+    {
+        Assert.Equal(TextTrimming.CharacterEllipsis, title.TextTrimming);
+        var content = (Grid)title.Parent!;
+        Assert.InRange(title.Bounds.Width, 1, content.Bounds.Width);
+        Assert.InRange(title.DesiredSize.Width, 1, content.Bounds.Width);
+        var naturalTitle = new TextBlock { Text = title.Text, FontFamily = title.FontFamily, FontSize = title.FontSize, FontWeight = title.FontWeight };
+        naturalTitle.Measure(new(double.PositiveInfinity, double.PositiveInfinity));
+        Assert.True(title.Bounds.Width < naturalTitle.DesiredSize.Width);
+    }
 
     [Theory]
     [InlineData(TaskWorkflowStatus.Next)]
