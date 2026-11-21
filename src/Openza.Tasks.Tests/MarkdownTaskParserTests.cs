@@ -7,6 +7,22 @@ namespace Openza.Tasks.Tests;
 public sealed class MarkdownTaskParserTests
 {
     [Theory]
+    [InlineData("Call @alex")]
+    [InlineData("Review (Priority: Normal, Date: 2027-06-15, Deadline: 2027-06-20) @work")]
+    [InlineData("Keep \\*literal\\* (Priority: High)")]
+    public void Parse_plain_checklist_preserves_title_text(string title)
+    {
+        var task = Assert.Single(MarkdownTaskParser.Parse("- [ ] " + title));
+
+        Assert.Equal(title, task.Title);
+        Assert.Empty(task.Labels);
+        Assert.Equal(2, task.Priority);
+        Assert.Null(task.PlannedOn);
+        Assert.Null(task.DeadlineOn);
+        Assert.Equal(title, MarkdownTaskParser.ParseLine("- [ ] " + title)!.Title);
+    }
+
+    [Theory]
     [InlineData(1)]
     [InlineData(2)]
     [InlineData(3)]

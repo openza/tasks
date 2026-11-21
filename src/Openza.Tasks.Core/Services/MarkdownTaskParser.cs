@@ -45,7 +45,7 @@ public static partial class MarkdownTaskParser
                 tasks[^1] = tasks[^1] with { Notes = Unescape(line.TrimEnd()[5..^1]) };
                 continue;
             }
-            var task = ParseLine(line);
+            var task = ParseLine(line, exported);
             if (task is not null)
             {
                 tasks.Add(task with
@@ -60,7 +60,9 @@ public static partial class MarkdownTaskParser
         return tasks;
     }
 
-    public static ParsedTask? ParseLine(string line)
+    public static ParsedTask? ParseLine(string line) => ParseLine(line, exported: false);
+
+    private static ParsedTask? ParseLine(string line, bool exported)
     {
         if (line.Length > MaxLineLength)
         {
@@ -77,6 +79,13 @@ public static partial class MarkdownTaskParser
         if (title.Length == 0)
         {
             return null;
+        }
+
+        if (!exported)
+        {
+            return new ParsedTask(
+                title.Length > 500 ? title[..500] : title,
+                string.Equals(match.Groups["state"].Value, "x", StringComparison.OrdinalIgnoreCase));
         }
 
         var priority = 2;
