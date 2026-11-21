@@ -2,12 +2,55 @@ using Openza.Tasks.Core.Services;
 using Openza.Tasks.Core.Models;
 using Openza.Tasks.Core.Data;
 using System.Text.Json;
+using Microsoft.Data.Sqlite;
 using Openza.Tasks.Core.PersonalCloud;
 
 namespace Openza.Tasks.Tests;
 
 public sealed class MarkdownTaskParserTests
 {
+    [Theory]
+    [InlineData("task.updateOpenzaFields")]
+    [InlineData("task.complete")]
+    public async Task Import_legacy_cloud_rolls_back_task_and_all_intents_on_failure(string operation)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var store = new SqliteTaskStore(Path.Combine(directory, "tasks.db"));
+            await store.InitializeAsync();
+            var cloud = new PersonalCloudConnectionProfile
+            {
+                ServiceOrigin = new("https://example.test"), InstanceId = "instance_atomic_markdown", DeviceId = "device_atomic_markdown",
+                ArtifactVersion = "test", ConnectedAt = DateTimeOffset.UtcNow,
+            };
+            await using var connection = new SqliteConnection($"Data Source={store.DatabasePath};Pooling=False");
+            await connection.OpenAsync();
+            var command = connection.CreateCommand();
+            command.CommandText = $"CREATE TRIGGER fail_import BEFORE INSERT ON personal_cloud_outbox WHEN NEW.operation='{operation}' BEGIN SELECT RAISE(ABORT, 'injected import failure'); END";
+            await command.ExecuteNonQueryAsync();
+            var parsed = new ParsedTask("Atomic", true) { Notes = "Notes", WorkflowStatus = TaskWorkflowStatus.Next, Priority = 3 };
+
+            var error = await Assert.ThrowsAsync<SqliteException>(() => MarkdownTaskImporter.ImportAsync(store, [parsed], SpaceIds.Default, cloud));
+
+            Assert.Contains("injected import failure", error.Message);
+            Assert.Empty(await store.GetTasksAsync(TaskQuery.ForMarkdownExport(SpaceIds.Default)));
+            Assert.Empty(await store.GetPendingPersonalCloudOutboxAsync(cloud.InstanceId, cloud.DeviceId));
+            command.CommandText = "DROP TRIGGER fail_import";
+            await command.ExecuteNonQueryAsync();
+            await MarkdownTaskImporter.ImportAsync(store, [parsed], SpaceIds.Default, cloud);
+            var imported = Assert.Single(await store.GetTasksAsync(TaskQuery.ForMarkdownExport(SpaceIds.Default)));
+            Assert.Equal(TaskCompletionState.Completed, imported.CompletionState);
+            var entries = await store.GetPendingPersonalCloudOutboxAsync(cloud.InstanceId, cloud.DeviceId);
+            Assert.Equal(Enumerable.Range(1, entries.Count).Select(value => (long)value), entries.Select(entry => entry.DeviceSequence));
+            Assert.Equal("task.create", entries[0].Operation);
+            Assert.Equal("task.complete", entries[^1].Operation);
+            Assert.Equal(entries.Count - 1, imported.Revision);
+        }
+        finally { Directory.Delete(directory, recursive: true); }
+    }
+
     [Fact]
     public async Task Import_legacy_cloud_keeps_cancelled_task_open_to_match_create_intent()
     {
