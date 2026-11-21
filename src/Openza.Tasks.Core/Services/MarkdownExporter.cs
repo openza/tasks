@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 using Openza.Tasks.Core.Models;
 
 namespace Openza.Tasks.Core.Services;
@@ -41,7 +42,7 @@ public static class MarkdownExporter
 
             foreach (var task in group.OrderBy(t => t.IsCompleted).ThenBy(t => t.Priority).ThenBy(t => t.PlannedMoment ?? t.DeadlineMoment))
             {
-                WriteTask(buffer, task);
+                WriteTask(buffer, task, group.Key is null ? null : projectName);
             }
 
             buffer.AppendLine();
@@ -69,7 +70,7 @@ public static class MarkdownExporter
         return buffer.ToString();
     }
 
-    private static void WriteTask(StringBuilder buffer, TaskItem task)
+    private static void WriteTask(StringBuilder buffer, TaskItem task, string? projectName)
     {
         var metadata = new List<string>();
         if (task.Priority != 4)
@@ -96,7 +97,7 @@ public static class MarkdownExporter
         var labelTags = string.Join(' ', task.Labels.Select(l => $"@{l.Name.Replace(' ', '_')}"));
         buffer.Append("- ");
         buffer.Append(task.IsCompleted ? "[x] " : "[ ] ");
-        buffer.Append(Escape(task.Title));
+        buffer.Append(Escape(task.Title).ReplaceLineEndings(" "));
         if (metadata.Count > 0)
         {
             buffer.Append(" (");
@@ -114,8 +115,17 @@ public static class MarkdownExporter
 
         if (!string.IsNullOrWhiteSpace(task.Notes))
         {
-            buffer.AppendLine($"  - _{Escape(task.Notes)}_");
+            buffer.AppendLine($"  - _{Escape(task.Notes).ReplaceLineEndings("\n    ")}_");
         }
+
+        var data = new ParsedTask(task.Title, task.IsCompleted)
+        {
+            Priority = task.Priority, PlannedOn = task.PlannedOn, DeadlineOn = task.DeadlineOn,
+            Notes = task.Notes, ProjectName = projectName, WorkflowStatus = task.WorkflowStatus,
+            CompletionState = task.CompletionState,
+            Labels = task.Labels.Select(label => new LabelItem { Name = label.Name, Color = label.Color }).ToArray(),
+        };
+        buffer.AppendLine($"  <!-- openza-task:{JsonSerializer.Serialize(data)} -->");
     }
 
     private static string Escape(string text) =>
