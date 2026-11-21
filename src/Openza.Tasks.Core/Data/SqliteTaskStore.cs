@@ -10,7 +10,7 @@ namespace Openza.Tasks.Core.Data;
 
 public sealed partial class SqliteTaskStore(string databasePath, bool readOnly = false, TimeProvider? timeProvider = null) : ITaskStore
 {
-    public const int CurrentSchemaVersion = 11;
+    public const int CurrentSchemaVersion = 12;
     public const int MinimumReadOnlySchemaVersion = 5;
 
     private sealed record ParentTaskContext(string Id, string SpaceId, string? ProjectId, TaskWorkflowStatus WorkflowStatus);
@@ -1144,6 +1144,7 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
         var hasLegacyCompletions = await TableExistsAsync(connection, "pending_completions", cancellationToken).ConfigureAwait(false);
         var command = connection.CreateCommand();
         command.CommandText = "SELECT (SELECT COUNT(*) FROM personal_cloud_outbox WHERE product='tasks' AND acknowledged_at IS NULL)" +
+            (await TableExistsAsync(connection, "personal_cloud_task_conflicts", cancellationToken).ConfigureAwait(false) ? " + (SELECT COUNT(*) FROM personal_cloud_task_conflicts)" : "") +
             (hasCatalogActions ? " + (SELECT COUNT(*) FROM personal_cloud_provider_intent_actions WHERE phase!='settled')" : "") +
             (hasDeferredTable ? " + (SELECT COUNT(*) FROM personal_cloud_deferred_changes)" : "") +
             (hasBridgeTable ? " + (SELECT COUNT(*) FROM personal_cloud_provider_attempts WHERE state NOT IN ('settled','cancelled'))" : "") +
@@ -2738,7 +2739,9 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
             SELECT operation, canonical_json
             FROM personal_cloud_outbox
             WHERE instance_id = @instance_id AND product = @product AND entity_id = @entity_id
-            ORDER BY device_sequence
+            UNION ALL
+            SELECT json_extract(canonical_json,'$.operation'), canonical_json FROM personal_cloud_task_conflicts
+            WHERE instance_id = @instance_id AND entity_id = @entity_id
             """;
         outboxCommand.Parameters.AddWithValue("@instance_id", instanceId);
         outboxCommand.Parameters.AddWithValue("@product", PersonalCloudK0Protocol.TasksProduct);
@@ -2894,9 +2897,10 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
 
         var pendingEntity = connection.CreateCommand();
         pendingEntity.CommandText = """
-            SELECT COUNT(*) FROM personal_cloud_outbox
+            SELECT (SELECT COUNT(*) FROM personal_cloud_outbox
             WHERE instance_id=@i AND product='tasks' AND entity_id=@e AND acknowledged_at IS NULL
-              AND operation NOT IN ('source.refreshSnapshot','externalCommand.confirm','externalCommand.reject')
+              AND operation NOT IN ('source.refreshSnapshot','externalCommand.confirm','externalCommand.reject'))
+              + (SELECT COUNT(*) FROM personal_cloud_task_conflicts WHERE instance_id=@i AND entity_id=@e)
             """;
         pendingEntity.Parameters.AddWithValue("@i", instanceId);
         pendingEntity.Parameters.AddWithValue("@e", change.EntityId);
@@ -5714,6 +5718,16 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
           created_at INTEGER NOT NULL,
           acknowledged_at INTEGER,
           UNIQUE (instance_id, device_id, device_sequence)
+        );
+
+        CREATE TABLE IF NOT EXISTS personal_cloud_task_conflicts (
+          mutation_id TEXT PRIMARY KEY,
+          instance_id TEXT NOT NULL,
+          device_id TEXT NOT NULL,
+          entity_id TEXT NOT NULL,
+          device_sequence INTEGER NOT NULL,
+          canonical_json TEXT NOT NULL,
+          base_record_json TEXT
         );
 
         CREATE TABLE IF NOT EXISTS personal_cloud_checkpoints (

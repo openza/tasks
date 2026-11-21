@@ -11,6 +11,7 @@ These contracts state the intended product meanings. Current behavior, exception
 - Completing preserves the task and its recurrence definition; reopening makes it open again. Neither action silently chooses another workflow status.
 - Date means intended work; Deadline means the outcome's latest acceptable day/time. Scheduled work, recurrence and reminders need their own explicit meanings.
 - Personal Cloud is optional reconciliation. Provider credentials stay on desktop; cloud task data is access-controlled, not end-to-end encrypted.
+- Conflicting Personal Cloud task field edits stay on this desktop without holding unrelated uploads. Disjoint changes merge only when the confirmed base proves it safe (or both sides agree). For differing values, Settings → Personal Cloud → Sync conflicts lets the user keep this desktop's edited fields or use the cloud version; unedited cloud fields are preserved.
 - Recovery preserves local work and pending intent. Package-local restore points are recovery aids; durable backup means OneDrive app-folder backup or explicit export. Restoring SQLite does not restore credentials or a cloud deployment.
 
 ## Current behavior and decided Inbox contract

@@ -1,10 +1,36 @@
 using Openza.Tasks.Core.PersonalCloud;
+using Openza.Tasks.Core.Data;
 using Openza.Tasks.Desktop.Services.Continuity;
 
 namespace Openza.Tasks.Desktop.ViewModels;
 
 public sealed partial class MainWindowViewModel
 {
+    public System.Collections.ObjectModel.ObservableCollection<PersonalCloudTaskConflict> PersonalCloudTaskConflicts { get; } = [];
+    public bool HasPersonalCloudTaskConflicts => PersonalCloudTaskConflicts.Count > 0;
+    private static string TaskConflictSummary(int count) => $"{count} task(s) have conflicting edits. Choose a version in Settings → Personal Cloud → Sync conflicts. Other changes can still sync.";
+
+    public async Task RefreshPersonalCloudTaskConflictsAsync()
+    {
+        var conflicts = await _taskService.ListPersonalCloudTaskConflictsAsync();
+        PersonalCloudTaskConflicts.Clear();
+        foreach (var conflict in conflicts) PersonalCloudTaskConflicts.Add(conflict);
+        OnPropertyChanged(nameof(HasPersonalCloudTaskConflicts));
+        if (conflicts.Count > 0) PersonalCloudSummaryText = TaskConflictSummary(conflicts.Count);
+    }
+
+    public async Task ResolvePersonalCloudTaskConflictAsync(string taskId, bool keepDesktop)
+    {
+        await _syncGate.WaitAsync();
+        try
+        {
+            await _taskService.ResolvePersonalCloudTaskConflictAsync(taskId, keepDesktop);
+            await RefreshPersonalCloudTaskConflictsAsync();
+        }
+        catch (Exception exception) { PersonalCloudSummaryText = exception.Message; return; }
+        finally { _syncGate.Release(); }
+        await RunTodoistSyncAsync();
+    }
     private PersonalCloudInitialSyncProgress? _initialSyncProgress;
     private bool _isManagingPersonalCloud;
     private bool _isPairingInitialSync;
@@ -66,6 +92,7 @@ public sealed partial class MainWindowViewModel
 
     private async Task RefreshInitialSyncProgressAsync()
     {
+        await RefreshPersonalCloudTaskConflictsAsync();
         if (SessionCloudNotice is { } notice)
         {
             PersonalCloudStatusText = "Paused";
@@ -99,6 +126,7 @@ public sealed partial class MainWindowViewModel
         }
         if (_cloudDispatchStatus is { CatchupTelemetryUnknown: true })
             PersonalCloudSummaryText = "Current catch-up status could not be saved or confirmed. Backlog uploads are held; downloads and local work remain available within cloud limits. Retry Sync after restoring local storage or connectivity.";
+        else if (HasPersonalCloudTaskConflicts) PersonalCloudSummaryText = TaskConflictSummary(PersonalCloudTaskConflicts.Count);
     }
 
     private async Task<PersonalCloudSyncResult> SyncPersonalCloudWithProgressAsync(CancellationToken cancellationToken = default)
@@ -239,7 +267,7 @@ public sealed partial class MainWindowViewModel
                 return result;
             }
             PersonalCloudStatusText = "Connected";
-            PersonalCloudSummaryText = sync.BlockedCode is null
+            PersonalCloudSummaryText = sync.TaskConflictCount > 0 ? TaskConflictSummary(sync.TaskConflictCount) : sync.BlockedCode is null
                 ? $"This desktop is paired with {result.ServiceOrigin.Host}. Cloud connection verified at checkpoint {sync.Checkpoint}."
                 : $"This desktop is paired. Sync is blocked ({sync.BlockedCode}); pending edits are preserved and require resolution.";
             if (sync.InitialSyncProgress is { } progressState) ApplyInitialSyncProgress(progressState);
@@ -340,7 +368,7 @@ public sealed partial class MainWindowViewModel
             NotifyPersonalCloudConnectionChanged();
             var sync = await SyncPersonalCloudWithProgressAsync(cancellationToken);
             PersonalCloudStatusText = "Connected";
-            PersonalCloudSummaryText = sync.BlockedCode is null
+            PersonalCloudSummaryText = sync.TaskConflictCount > 0 ? TaskConflictSummary(sync.TaskConflictCount) : sync.BlockedCode is null
                 ? $"This desktop is paired with {connection.ServiceOrigin.Host}. Cloud connection verified at checkpoint {sync.Checkpoint}."
                 : $"This desktop is paired. Sync is blocked ({sync.BlockedCode}); pending edits are preserved and require resolution.";
             if (sync.InitialSyncProgress is { } progressState) ApplyInitialSyncProgress(progressState);

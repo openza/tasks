@@ -1708,7 +1708,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 ? $"{IntegrationIds.DisplayName(summary.Provider)} synced · {summary.TasksAdded} new, {summary.TasksUpdated} updated, {summary.CompletionsSynced} completions, {summary.DateUpdatesSynced} date changes"
                 : $"{IntegrationIds.DisplayName(summary.Provider)} sync failed: {summary.Error}").ToList();
             if (personalCloud is not null)
-                resultMessages.Add(personalCloud.InitialSyncProgress is { IsComplete: false } initialProgress ? initialProgress.Summary : personalCloud.BlockedCode is null
+                resultMessages.Add(personalCloud.TaskConflictCount > 0 ? TaskConflictSummary(personalCloud.TaskConflictCount) : personalCloud.InitialSyncProgress is { IsComplete: false } initialProgress ? initialProgress.Summary : personalCloud.BlockedCode is null
                     ? $"Personal Cloud synced · {personalCloud.PushedMutations} uploaded, {personalCloud.PulledChanges} downloaded"
                     : $"Personal Cloud sync blocked ({personalCloud.BlockedCode}) · {personalCloud.PulledChanges} downloaded. Pending edits are preserved and require resolution.");
             if (personalCloudError is not null)

@@ -700,6 +700,38 @@
                             </StackPanel>
                         </Grid>
                     </Border>
+                    <Border Padding="20" Classes="settings-card" IsVisible="{Binding HasPersonalCloudTaskConflicts}">
+                        <StackPanel Spacing="12">
+                            <TextBlock FontWeight="SemiBold" Text="Sync conflicts"/>
+                            <TextBlock Text="Choose which edits to keep for each task. Other tasks continue syncing." TextWrapping="Wrap"/>
+                            <ItemsControl ItemsSource="{Binding PersonalCloudTaskConflicts}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Margin="0,8" Spacing="10">
+                                            <TextBlock FontWeight="SemiBold" Text="{Binding Title}" TextWrapping="Wrap"/>
+                                            <ItemsControl ItemsSource="{Binding Fields}">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <StackPanel Margin="0,4" Spacing="3">
+                                                            <TextBlock FontWeight="SemiBold" Text="{Binding Name}"/>
+                                                            <TextBlock Text="This desktop:"/>
+                                                            <TextBlock Text="{Binding DesktopValue}" TextWrapping="Wrap"/>
+                                                            <TextBlock Text="Cloud:"/>
+                                                            <TextBlock Text="{Binding CloudValue}" TextWrapping="Wrap"/>
+                                                        </StackPanel>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                            <WrapPanel>
+                                                <Button Margin="0,0,8,8" Click="OnKeepDesktopConflictClicked" Content="Keep this desktop's version"/>
+                                                <Button Margin="0,0,8,8" Click="OnUseCloudConflictClicked" Content="Use cloud version"/>
+                                            </WrapPanel>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </Border>
                     <Border Padding="20" Classes="settings-card"><Grid ColumnDefinitions="32,*,Auto" ColumnSpacing="14"><ic:FluentIcon Icon="ArrowSync" FontSize="21"/><StackPanel Grid.Column="1"><TextBlock FontWeight="SemiBold" Text="Automatic sync"/><TextBlock Foreground="{DynamicResource OpenzaTextSecondaryBrush}" Text="Refresh connected apps every five minutes while Openza Tasks is running."/></StackPanel><ToggleSwitch AutomationProperties.Name="Automatic sync" x:Name="AutomaticSyncToggle" Grid.Column="2" OnContent="On" OffContent="Off" IsCheckedChanged="OnAutomaticSyncChanged"/></Grid></Border>
 
                     <StackPanel x:Name="AppConnectionsHeading" Spacing="6">

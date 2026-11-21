@@ -344,6 +344,10 @@ Conflicts are classified, not flattened into one generic error:
 
 The Web and desktop UIs should usually resolve conflicts automatically by refetching and replaying a still-valid semantic intent. They ask the user only when two meaningful values cannot be preserved or the requested parent no longer exists.
 
+Desktop workspace field edits (`task.patch` and legacy `task.updateOpenzaFields`) rejected with `version_conflict` are parked durably, together with subsequent pending intents for that task. The confirmed base record is retained only when its version matches the rejected envelope. Parking and renumbering the remaining device queue are one SQLite transaction: the rejected sequence has not been accepted, so unrelated mutations can reuse a contiguous sequence with new mutation IDs and canonical hashes. Confirmed envelopes are never rewritten. Parked intents remain local overlays and prevent connection/replica replacement.
+
+After downloading changes, desktop compares each locally assigned field (including implicit date/exact-time clearing) with the latest cloud record. It retries only when every field already equals the desktop value, or a known base proves the cloud did not change it. Otherwise Settings → Personal Cloud → Sync conflicts presents both values. “Keep this desktop's version” rebases only the edited fields at the current cloud version; “Use cloud version” discards the parked intents. Neither choice overwrites unedited cloud fields. Later cloud edits can produce a new conflict rather than being overwritten silently. Unsupported semantic intents parked behind a field edit remain preserved and require using the cloud version; completion/tree and relationship conflicts are not automatically rebased.
+
 ## 7. Online-first Web behavior
 
 ### 7.1 Supported experience

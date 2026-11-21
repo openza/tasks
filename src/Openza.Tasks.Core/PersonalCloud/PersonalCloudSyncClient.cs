@@ -8,6 +8,7 @@ namespace Openza.Tasks.Core.PersonalCloud;
 
 public sealed record PersonalCloudSyncResult(int PushedMutations, int PulledChanges, long Checkpoint)
 {
+    public int TaskConflictCount { get; init; }
     public string? BlockedCode { get; init; }
     public PersonalCloudInitialSyncProgress? InitialSyncProgress { get; init; }
 }
@@ -31,6 +32,7 @@ public sealed partial class PersonalCloudSyncClient(
         // Negotiation is scoped to this pass, including retries on the same client.
         _batchCapabilityKnown = false;
         _catchupReportRejected = false;
+        await store.ParkAdditionalPersonalCloudTaskEditsAsync(connection.InstanceId, connection.DeviceId, cancellationToken).ConfigureAwait(false);
         var pending = await store.GetPendingPersonalCloudOutboxAsync(connection.InstanceId, connection.DeviceId, cancellationToken).ConfigureAwait(false);
         await DiscoverCapabilitiesAsync(cancellationToken).ConfigureAwait(false);
         var prefix = await SelectBudgetPrefixAsync(pending, cancellationToken).ConfigureAwait(false);
@@ -139,12 +141,14 @@ public sealed partial class PersonalCloudSyncClient(
             }
         }
 
+        await store.AutoResolvePersonalCloudTaskConflictsAsync(connection.InstanceId, cancellationToken).ConfigureAwait(false);
+        var conflicts = await store.GetPersonalCloudTaskConflictsAsync(connection.InstanceId, cancellationToken).ConfigureAwait(false);
         if (await store.GetDeferredPersonalCloudChangeCountAsync(connection.InstanceId, cancellationToken).ConfigureAwait(false) > 0)
             blockedCode ??= "pending_changes";
         if (blockedCode == "fanout_bound_exceeded" && PersonalCloudDispatchHttp.PolicyFor(http) is { } retryPolicy)
             await retryPolicy.RecordFailureAsync(connection.ServiceOrigin, cancellationToken).ConfigureAwait(false);
         await ReportCatchupStatusAsync(cancellationToken).ConfigureAwait(false);
-        return new PersonalCloudSyncResult(pushed, pulled, checkpoint) { BlockedCode = blockedCode };
+        return new PersonalCloudSyncResult(pushed, pulled, checkpoint) { BlockedCode = blockedCode, TaskConflictCount = conflicts.Count };
     }
 
     private HttpRequestMessage CreateAuthorizedRequest(HttpMethod method, string path, string accessToken)

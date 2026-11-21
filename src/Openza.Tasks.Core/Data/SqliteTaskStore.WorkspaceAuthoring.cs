@@ -22,7 +22,7 @@ public sealed partial class SqliteTaskStore
         var value = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
         long? version = value is null or DBNull ? null : Convert.ToInt64(value);
         command = connection.CreateCommand();
-        command.CommandText = "SELECT canonical_json FROM personal_cloud_outbox WHERE instance_id=@i AND entity_id=@e ORDER BY device_sequence";
+        command.CommandText = "SELECT canonical_json FROM personal_cloud_outbox WHERE instance_id=@i AND entity_id=@e UNION ALL SELECT canonical_json FROM personal_cloud_task_conflicts WHERE instance_id=@i AND entity_id=@e";
         command.Parameters.AddWithValue("@i", instanceId); command.Parameters.AddWithValue("@e", id);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
@@ -235,6 +235,10 @@ public sealed partial class SqliteTaskStore
         if (fields.TryGetValue("workflowStatus", out var requestedStatus) && requestedStatus is not ("none" or "inbox" or "next" or "waiting" or "someday")) throw PersonalCloudWorkspaceCodec.Invalid();
         await UpsertTaskCoreAsync(connection, updated with { UpdatedAt = DateTimeOffset.UtcNow, Revision = updated.Revision + 1 }, cancellationToken).ConfigureAwait(false);
         var entry = await AppendWorkspaceMutationAsync(connection, instanceId, deviceId, "task.patch", taskId, version, new { fields }, cancellationToken).ConfigureAwait(false);
+        var parked = connection.CreateCommand(); parked.CommandText = "SELECT COUNT(*) FROM personal_cloud_task_conflicts WHERE instance_id=@i AND entity_id=@e";
+        parked.Parameters.AddWithValue("@i", instanceId); parked.Parameters.AddWithValue("@e", taskId);
+        if (Convert.ToInt64(await parked.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)) > 0)
+            await ParkTaskConflictAsync(connection, instanceId, deviceId, taskId, entry.DeviceSequence, cancellationToken).ConfigureAwait(false);
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return entry;
     }
