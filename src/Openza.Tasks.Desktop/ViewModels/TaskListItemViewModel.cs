@@ -49,7 +49,7 @@ public sealed class TaskListItemViewModel
         2 => "High",
         _ => "",
     };
-    public string StatusText => Task.WorkflowStatus switch
+    public string StatusText => Task.IsCompleted ? string.Empty : Task.WorkflowStatus switch
     {
         TaskWorkflowStatus.Next when ViewKind != TaskListKind.NextActions => "Next",
         TaskWorkflowStatus.Waiting when ViewKind != TaskListKind.Waiting => "Waiting",
