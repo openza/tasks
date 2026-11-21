@@ -4,6 +4,43 @@ namespace Openza.Tasks.Tests;
 
 public sealed class WindowsContinuityActivationTests
 {
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Startup_registers_on_lifetime_caller_thread_and_only_redirects_on_worker(bool owner)
+    {
+        var callerThread = Environment.CurrentManagedThreadId;
+        var registrationThread = 0;
+        var redirectThread = 0;
+        var platform = new FakePlatform
+        {
+            IsCurrentOwner = owner,
+            Ready = true,
+            Redirect = () => { redirectThread = Environment.CurrentManagedThreadId; return Task.CompletedTask; },
+        };
+        var redirected = WindowsActivationCoordinator.RegisterAndRedirect(() =>
+        {
+            registrationThread = Environment.CurrentManagedThreadId;
+            return platform;
+        }, out var coordinator);
+        Assert.Equal(callerThread, registrationThread);
+        Assert.Equal(!owner, redirected);
+        if (owner) Assert.Equal(0, redirectThread);
+        else Assert.NotEqual(callerThread, redirectThread);
+        Assert.NotNull(coordinator);
+        Assert.False(platform.ReadyPublished);
+    }
+
+    [Fact]
+    public void Startup_preserves_unsafe_owner_failure_without_redirecting_or_publishing_readiness()
+    {
+        var platform = new FakePlatform();
+        Assert.Throws<WindowsContinuityException>(() =>
+            WindowsActivationCoordinator.RegisterAndRedirect(() => platform, out _));
+        Assert.Equal(0, platform.Redirects);
+        Assert.False(platform.ReadyPublished);
+    }
+
     [Fact]
     public async Task Primary_launch_continues_without_publishing_readiness_or_redirecting()
     {

@@ -23,12 +23,11 @@ public static class WindowsContinuityHost
     public static bool TryRedirectActivation()
     {
 #if OPENZA_WINDOWS_CONTINUITY_DEV
-        return Task.Run(async () =>
+        return WindowsActivationCoordinator.RegisterAndRedirect(() =>
         {
             new NativeWindowsContinuityPlatform().GetCurrentPackage().ValidateDev();
-            _activation = new WindowsActivationCoordinator(new NativeWindowsActivationPlatform());
-            return await _activation.RedirectIfSecondaryAsync().ConfigureAwait(false);
-        }).GetAwaiter().GetResult();
+            return new NativeWindowsActivationPlatform();
+        }, out _activation);
 #else
         return false;
 #endif

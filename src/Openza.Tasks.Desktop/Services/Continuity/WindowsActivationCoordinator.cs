@@ -18,6 +18,14 @@ public interface IWindowsActivationWindow
 
 public sealed class WindowsActivationCoordinator(IWindowsActivationPlatform platform)
 {
+    public static bool RegisterAndRedirect(Func<IWindowsActivationPlatform> registerPlatform,
+        out WindowsActivationCoordinator coordinator)
+    {
+        // AppInstance key ownership is tied to the registering thread.
+        coordinator = new WindowsActivationCoordinator(registerPlatform());
+        return Task.Run(coordinator.RedirectIfSecondaryAsync).GetAwaiter().GetResult();
+    }
+
     public async Task<bool> RedirectIfSecondaryAsync()
     {
         if (platform.IsCurrentOwner) return false;
