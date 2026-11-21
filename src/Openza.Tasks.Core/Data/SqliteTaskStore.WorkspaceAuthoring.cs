@@ -14,7 +14,7 @@ public sealed partial class SqliteTaskStore
         return version.ValueKind == JsonValueKind.Null ? 1 : checked(version.GetInt64() + 1);
     }
 
-    private static async Task<long?> WorkspaceVersionAsync(SqliteConnection connection, string instanceId, string kind, string id, CancellationToken cancellationToken)
+    private static async Task<long?> WorkspaceVersionAsync(SqliteConnection connection, string instanceId, string kind, string id, CancellationToken cancellationToken, bool includeParked = true)
     {
         var command = connection.CreateCommand();
         command.CommandText = "SELECT entity_version FROM personal_cloud_workspace_records WHERE instance_id=@i AND kind=@k AND entity_id=@e";
@@ -22,7 +22,8 @@ public sealed partial class SqliteTaskStore
         var value = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
         long? version = value is null or DBNull ? null : Convert.ToInt64(value);
         command = connection.CreateCommand();
-        command.CommandText = "SELECT canonical_json FROM personal_cloud_outbox WHERE instance_id=@i AND entity_id=@e ORDER BY device_sequence";
+        command.CommandText = "SELECT canonical_json FROM personal_cloud_outbox WHERE instance_id=@i AND entity_id=@e"
+            + (includeParked ? " UNION ALL SELECT canonical_json FROM personal_cloud_task_conflicts WHERE instance_id=@i AND entity_id=@e" : string.Empty);
         command.Parameters.AddWithValue("@i", instanceId); command.Parameters.AddWithValue("@e", id);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
@@ -30,23 +31,32 @@ public sealed partial class SqliteTaskStore
             var candidate = WorkspaceMutationVersion(reader.GetString(0));
             version = version is null ? candidate : Math.Max(version.Value, candidate);
         }
-        return await WithIndirectWorkspaceVersionAsync(connection, instanceId, kind, id, version, cancellationToken).ConfigureAwait(false);
+        return await WithIndirectWorkspaceVersionAsync(connection, instanceId, kind, id, version, cancellationToken, includeParked).ConfigureAwait(false);
     }
 
     private static async Task<long?> WithIndirectWorkspaceVersionAsync(SqliteConnection connection, string instanceId, string kind,
-        string id, long? version, CancellationToken cancellationToken)
+        string id, long? version, CancellationToken cancellationToken, bool includeParked = true)
     {
         var command = connection.CreateCommand();
-        command.CommandText = "SELECT MAX(entity_version) FROM personal_cloud_workspace_indirect_versions WHERE instance_id=@i AND kind=@k AND entity_id=@e";
+        command.CommandText = "SELECT MAX(entity_version) FROM personal_cloud_workspace_indirect_versions v WHERE instance_id=@i AND kind=@k AND entity_id=@e"
+            + (includeParked ? string.Empty : " AND EXISTS(SELECT 1 FROM personal_cloud_outbox o WHERE o.instance_id=v.instance_id AND o.mutation_id=v.mutation_id)");
         command.Parameters.AddWithValue("@i", instanceId); command.Parameters.AddWithValue("@k", kind); command.Parameters.AddWithValue("@e", id);
         var value = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
         return value is null or DBNull ? version : Math.Max(version ?? 0, Convert.ToInt64(value));
     }
 
-    private static Task SaveIndirectWorkspaceVersionAsync(SqliteConnection connection, string instanceId, string kind, string id,
-        string mutationId, long version, CancellationToken cancellationToken) => WorkspaceExecuteAsync(connection,
-        "INSERT INTO personal_cloud_workspace_indirect_versions(instance_id,kind,entity_id,mutation_id,entity_version) VALUES(@i,@k,@e,@m,@v)",
-        cancellationToken, ("@i", instanceId), ("@k", kind), ("@e", id), ("@m", mutationId), ("@v", checked(version + 1)));
+    private static async Task SaveIndirectWorkspaceVersionAsync(SqliteConnection connection, string instanceId, string kind, string id,
+        string mutationId, long version, CancellationToken cancellationToken)
+    {
+        var command = connection.CreateCommand();
+        command.CommandText = "SELECT EXISTS(SELECT 1 FROM personal_cloud_task_conflicts WHERE instance_id=@i AND mutation_id=@m)";
+        command.Parameters.AddWithValue("@i", instanceId); command.Parameters.AddWithValue("@m", mutationId);
+        if (Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)) == 0)
+            version = await WorkspaceVersionAsync(connection, instanceId, kind, id, cancellationToken, includeParked: false).ConfigureAwait(false) ?? version;
+        await WorkspaceExecuteAsync(connection,
+            "INSERT INTO personal_cloud_workspace_indirect_versions(instance_id,kind,entity_id,mutation_id,entity_version) VALUES(@i,@k,@e,@m,@v)",
+            cancellationToken, ("@i", instanceId), ("@k", kind), ("@e", id), ("@m", mutationId), ("@v", checked(version + 1))).ConfigureAwait(false);
+    }
 
     private static async Task<PersonalCloudK1OutboxEntry> AppendWorkspaceMutationAsync(SqliteConnection connection, string instanceId, string deviceId,
         string operation, string entityId, long? baseVersion, object payload, CancellationToken cancellationToken)
@@ -71,6 +81,7 @@ public sealed partial class SqliteTaskStore
         foreach (var (name, value) in new (string, object)[] { ("@m", mutationId), ("@i", instanceId), ("@d", deviceId), ("@q", sequence), ("@o", operation), ("@e", entityId), ("@j", json), ("@h", hash), ("@a", now.ToUnixTimeMilliseconds()) }) command.Parameters.AddWithValue(name, value);
         var localSequence = Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false));
         await WorkspaceExecuteAsync(connection, "UPDATE personal_cloud_device_state SET next_device_sequence=@q WHERE instance_id=@i AND device_id=@d", cancellationToken, ("@q", checked(sequence + 1)), ("@i", instanceId), ("@d", deviceId)).ConfigureAwait(false);
+        await ParkNewTaskMutationAsync(connection, instanceId, deviceId, mutationId, cancellationToken).ConfigureAwait(false);
         return new() { LocalSequence = localSequence, MutationId = mutationId, Product = "tasks", InstanceId = instanceId, DeviceId = deviceId,
             DeviceSequence = sequence, Operation = operation, EntityId = entityId, CanonicalJson = json, CanonicalHash = hash, CreatedAt = now };
     }

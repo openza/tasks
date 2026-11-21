@@ -1,3 +1,5 @@
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using Openza.Tasks.Core.Data;
 using Openza.Tasks.Core.Models;
 using Openza.Tasks.Core.PersonalCloud;
@@ -7,6 +9,46 @@ namespace Openza.Tasks.Tests;
 
 public sealed class PersonalCloudSourceLinkedOpenzaTaskTests : IDisposable
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Conflict_cloud_choice_discards_provider_date_write_while_keep_retains_it(bool keepDesktop)
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        await store.UpsertProviderSourceItemAsync(new ProviderSourceItem
+        {
+            Id = "source_conflicted_date", IntegrationId = IntegrationIds.Todoist, ProviderConnectionId = "todoist_default",
+            ExternalId = "conflicted_external", ProviderTaskId = "conflicted_provider_task", Title = "Provider title",
+        });
+        var task = (await store.AdoptProviderSourceItemAsync("source_conflicted_date"))!;
+        await store.SavePersonalCloudWorkspaceCapabilitiesAsync(InstanceId, true, true);
+        var cloud = JsonSerializer.SerializeToNode(PersonalCloudWorkspaceTests.TaskRecord(task.Id, projectId: null))!;
+        cloud["spaceId"] = task.SpaceId;
+        cloud["source"] = JsonNode.Parse(PersonalCloudK0Codec.Serialize(PersonalCloudK0Mapper.CreateSafeSourceDescriptor(task)));
+        cloud["sourceOwnerDeviceId"] = DeviceId;
+        await store.ApplyPersonalCloudChangePageAsync(InstanceId, DeviceId, PersonalCloudWorkspaceTests.Page(1,
+            spaces: [PersonalCloudWorkspaceTests.Space(task.SpaceId)], tasks: [cloud]));
+        var rejected = await store.UpdateTaskPlannedOnWithPersonalCloudIntentAsync(task.Id, new DateOnly(2026, 9, 20), 1, InstanceId, DeviceId);
+        Assert.Equal(task.Id, Assert.Single(await store.GetPendingTaskDateUpdatesAsync(IntegrationIds.Todoist)).TaskId);
+        await store.ParkPersonalCloudTaskConflictAsync(rejected);
+        await store.QueueTaskDateUpdateAsync(new PendingTaskDateUpdate
+        {
+            Id = "date_unrelated", TaskId = "task_unrelated", Provider = IntegrationIds.Todoist,
+            ProviderTaskId = "unrelated_provider_task", PlannedOn = new DateOnly(2026, 9, 22),
+        });
+        cloud["entityVersion"] = 2; cloud["plannedOn"] = "2026-09-21"; cloud["plannedAt"] = null;
+        await store.ApplyPersonalCloudChangePageAsync(InstanceId, DeviceId, PersonalCloudWorkspaceTests.Page(2, tasks: [cloud]));
+        var card = Assert.Single(await store.GetPersonalCloudTaskConflictsAsync(InstanceId));
+        await store.ResolvePersonalCloudTaskConflictAsync(InstanceId, card.TaskId, keepDesktop, expectedRevision: card.RevisionToken);
+        Assert.Equal(new DateOnly(2026, 9, keepDesktop ? 20 : 21), (await store.GetTaskAsync(task.Id))!.PlannedOn);
+        var provider = new RecordingTodoistProvider();
+        Assert.Equal(keepDesktop ? 2 : 1, await new TaskSyncEngine(store).SyncPendingTaskDateUpdatesAsync(provider));
+        Assert.Equal(keepDesktop ? 1 : 0, provider.DateUpdates.Count(update => update.TaskId == task.Id));
+        Assert.Contains(provider.DateUpdates, update => update.TaskId == "task_unrelated");
+        Assert.Empty(await store.GetPendingTaskDateUpdatesAsync(IntegrationIds.Todoist));
+    }
+
     private const string InstanceId = "instance_source_linked_000000000000001";
     private const string DeviceId = "device_source_linked_000000000000001";
     private readonly string _directory = Path.Combine(

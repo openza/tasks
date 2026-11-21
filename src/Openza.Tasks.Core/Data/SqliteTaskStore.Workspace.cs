@@ -98,15 +98,18 @@ public sealed partial class SqliteTaskStore
         command.CommandText = """
             SELECT EXISTS(SELECT 1 FROM personal_cloud_outbox WHERE instance_id=@i AND entity_id=@e
               AND acknowledged_at IS NULL AND operation NOT IN('source.refreshSnapshot','externalCommand.confirm','externalCommand.reject'))
+              OR EXISTS(SELECT 1 FROM personal_cloud_task_conflicts WHERE instance_id=@i AND entity_id=@e)
               OR EXISTS(SELECT 1 FROM personal_cloud_workspace_indirect_versions v JOIN personal_cloud_outbox o ON o.mutation_id=v.mutation_id
                 WHERE v.instance_id=@i AND v.entity_id=@e AND o.acknowledged_at IS NULL)
+              OR EXISTS(SELECT 1 FROM personal_cloud_workspace_indirect_versions v JOIN personal_cloud_task_conflicts c ON c.mutation_id=v.mutation_id
+                WHERE v.instance_id=@i AND v.entity_id=@e)
             """;
         command.Parameters.AddWithValue("@i", instanceId); command.Parameters.AddWithValue("@e", id);
         return Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)) != 0;
     }
 
     private async Task ApplyWorkspacePayloadAsync(SqliteConnection connection, string instanceId, JsonElement payload, CancellationToken cancellationToken,
-        IReadOnlyDictionary<string, TaskItem>? priorTasks = null)
+        IReadOnlyDictionary<string, TaskItem>? priorTasks = null, bool applyStoredTask = false)
     {
         // Store every complete server record atomically. While delivery is pending, domain
         // rows retain their optimistic overlay; its exact outbox envelope remains authoritative.
@@ -150,7 +153,7 @@ public sealed partial class SqliteTaskStore
         foreach (var item in payload.GetProperty("tasks").EnumerateArray())
         {
             var id = WText(item, "id")!;
-            if (!await SaveWorkspaceRecordAsync(connection, instanceId, "tasks", item, cancellationToken).ConfigureAwait(false)) continue;
+            if (!applyStoredTask && !await SaveWorkspaceRecordAsync(connection, instanceId, "tasks", item, cancellationToken).ConfigureAwait(false)) continue;
             var version = item.GetProperty("entityVersion").GetInt64();
             await UpsertPersonalCloudEntityVersionAsync(connection, instanceId, id, version, cancellationToken).ConfigureAwait(false);
             if (await HasPendingWorkspaceOverlayAsync(connection, instanceId, id, cancellationToken).ConfigureAwait(false)) continue;
