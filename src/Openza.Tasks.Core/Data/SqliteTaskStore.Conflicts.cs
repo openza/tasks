@@ -37,27 +37,28 @@ public sealed partial class SqliteTaskStore
     private static async Task ParkTaskConflictAsync(SqliteConnection connection, string instanceId, string deviceId, string entityId, long sequence, CancellationToken cancellationToken)
     {
         var command = connection.CreateCommand();
-        command.CommandText = "SELECT local_sequence,mutation_id,entity_id,device_sequence,canonical_json,created_at FROM personal_cloud_outbox WHERE instance_id=@i AND device_id=@d AND acknowledged_at IS NULL AND device_sequence>=@q ORDER BY device_sequence";
+        command.CommandText = "SELECT local_sequence,mutation_id,entity_id,device_sequence,canonical_json,created_at,operation FROM personal_cloud_outbox WHERE instance_id=@i AND device_id=@d AND acknowledged_at IS NULL AND device_sequence>=@q ORDER BY device_sequence";
         command.Parameters.AddWithValue("@i", instanceId); command.Parameters.AddWithValue("@d", deviceId); command.Parameters.AddWithValue("@q", sequence);
-        var tail = new List<(long Local, string Id, string Entity, long Sequence, string Json, long CreatedAt)>();
+        var tail = new List<(long Local, string Id, string Entity, long Sequence, string Json, long CreatedAt, string Operation)>();
         await using (var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
-            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) tail.Add((reader.GetInt64(0), reader.GetString(1), reader.GetString(2), reader.GetInt64(3), reader.GetString(4), reader.GetInt64(5)));
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) tail.Add((reader.GetInt64(0), reader.GetString(1), reader.GetString(2), reader.GetInt64(3), reader.GetString(4), reader.GetInt64(5), reader.GetString(6)));
         if (tail.Count == 0 || tail[0].Entity != entityId || tail[0].Sequence != sequence)
             throw new PersonalCloudK0ContractException("version_conflict", "The pending queue changed; sync again before resolving conflicts.");
         var cloud = await ReadWorkspaceRecordAsync(connection, instanceId, "tasks", entityId, cancellationToken).ConfigureAwait(false);
         using var first = JsonDocument.Parse(tail[0].Json);
         var baseVersion = first.RootElement.GetProperty("baseEntityVersion");
         var baseJson = cloud is { } record && baseVersion.ValueKind == JsonValueKind.Number && record.GetProperty("entityVersion").GetInt64() == baseVersion.GetInt64() ? record.GetRawText() : null;
-        foreach (var row in tail.Where(r => r.Entity == entityId))
+        var parkedIds = tail.Where(r => r.Entity == entityId && !IsUnversionedProviderOperation(r.Operation)).Select(r => r.Id).ToHashSet(StringComparer.Ordinal);
+        foreach (var row in tail.Where(r => parkedIds.Contains(r.Id)))
         {
             await WorkspaceExecuteAsync(connection, "INSERT INTO personal_cloud_task_conflicts(mutation_id,instance_id,device_id,entity_id,device_sequence,canonical_json,base_record_json) VALUES(@m,@i,@d,@e,@q,@j,@b)", cancellationToken,
                 ("@m", row.Id), ("@i", instanceId), ("@d", deviceId), ("@e", entityId), ("@q", row.Sequence), ("@j", row.Json), ("@b", row.Id == tail[0].Id ? baseJson : null)).ConfigureAwait(false);
         }
-        await WorkspaceExecuteAsync(connection, "UPDATE personal_cloud_initial_sync SET seed_end_sequence=seed_end_sequence-(SELECT COUNT(*) FROM personal_cloud_outbox WHERE instance_id=@i AND device_id=@d AND entity_id=@e AND acknowledged_at IS NULL AND device_sequence BETWEEN @q AND seed_end_sequence) WHERE instance_id=@i AND device_id=@d AND seed_end_sequence>=@q", cancellationToken,
+        await WorkspaceExecuteAsync(connection, "UPDATE personal_cloud_initial_sync SET seed_end_sequence=seed_end_sequence-(SELECT COUNT(*) FROM personal_cloud_outbox WHERE instance_id=@i AND device_id=@d AND entity_id=@e AND operation NOT IN ('source.refreshSnapshot','externalCommand.confirm','externalCommand.reject') AND acknowledged_at IS NULL AND device_sequence BETWEEN @q AND seed_end_sequence) WHERE instance_id=@i AND device_id=@d AND seed_end_sequence>=@q", cancellationToken,
             ("@q", sequence), ("@i", instanceId), ("@d", deviceId), ("@e", entityId)).ConfigureAwait(false);
         await WorkspaceExecuteAsync(connection, "DELETE FROM personal_cloud_outbox WHERE instance_id=@i AND device_id=@d AND acknowledged_at IS NULL AND device_sequence>=@q", cancellationToken, ("@i", instanceId), ("@d", deviceId), ("@q", sequence)).ConfigureAwait(false);
         var next = sequence;
-        foreach (var row in tail.Where(r => r.Entity != entityId))
+        foreach (var row in tail.Where(r => !parkedIds.Contains(r.Id)))
         {
             var node = JsonNode.Parse(row.Json)!.AsObject(); var id = $"mutation_{Guid.NewGuid():N}";
             node["mutationId"] = id; node["deviceSequence"] = next++;
@@ -69,6 +70,9 @@ public sealed partial class SqliteTaskStore
         }
         await WorkspaceExecuteAsync(connection, "UPDATE personal_cloud_device_state SET next_device_sequence=@q WHERE instance_id=@i AND device_id=@d", cancellationToken, ("@q", next), ("@i", instanceId), ("@d", deviceId)).ConfigureAwait(false);
     }
+
+    private static bool IsUnversionedProviderOperation(string operation) =>
+        operation is "source.refreshSnapshot" or "externalCommand.confirm" or "externalCommand.reject";
 
     private sealed record ConflictState(string Id, string DeviceId, JsonObject? Base, JsonObject? Cloud, JsonObject Fields, bool Supported, IReadOnlyList<string> Operations);
 
@@ -111,14 +115,19 @@ public sealed partial class SqliteTaskStore
         var result = new List<PersonalCloudTaskConflict>();
         foreach (var c in await ReadTaskConflictsAsync(connection, instanceId, cancellationToken).ConfigureAwait(false))
         {
-            var fields = c.Fields.Where(f => c.Cloud is null || !JsonNode.DeepEquals(f.Value, c.Cloud[f.Key]))
-                .Select(f => new PersonalCloudConflictField(f.Key, DisplayConflictValue(f.Value), DisplayConflictValue(c.Cloud?[f.Key]))).ToArray();
+            var fields = new List<PersonalCloudConflictField>();
+            foreach (var field in c.Fields.Where(f => c.Cloud is null || !JsonNode.DeepEquals(f.Value, c.Cloud[f.Key])))
+                fields.Add(new(field.Key,
+                    await DisplayConflictFieldValueAsync(connection, instanceId, field.Key, field.Value, cancellationToken).ConfigureAwait(false),
+                    await DisplayConflictFieldValueAsync(connection, instanceId, field.Key, c.Cloud?[field.Key], cancellationToken).ConfigureAwait(false)));
             var reason = await ConflictReplayRestrictionAsync(connection, instanceId, c, cancellationToken).ConfigureAwait(false);
             result.Add(new(c.Id, c.Fields["title"]?.GetValue<string>() ?? c.Cloud?["title"]?.GetValue<string>() ?? c.Id, fields)
             {
                 CanKeepDesktop = reason is null,
-                ResolutionNotice = reason is not null ? reason + " Only Use cloud version is available; it discards all parked desktop changes for this task."
-                    : fields.Length == 0 ? "These field values already match the cloud. Choose a version to clear the parked changes." : string.Empty,
+                ResolutionNotice = c.Cloud is null
+                    ? "No cached cloud record is available. Use cloud version discards the parked changes and restores the last known base when available; otherwise the local task is kept as a recovery copy until the next cloud download."
+                    : reason is not null ? reason + " Only Use cloud version is available; it discards all parked desktop changes for this task."
+                    : fields.Count == 0 ? "These field values already match the cloud. Choose a version to clear the parked changes." : string.Empty,
             });
         }
         return result;
@@ -126,10 +135,22 @@ public sealed partial class SqliteTaskStore
 
     private static string DisplayConflictValue(JsonNode? value) => value is null ? "(empty)" : value is JsonValue v && v.TryGetValue<string>(out var s) ? s : value.ToJsonString();
 
+    private static async Task<string> DisplayConflictFieldValueAsync(SqliteConnection connection, string instanceId, string field, JsonNode? value, CancellationToken cancellationToken)
+    {
+        if (field != "projectId" || value is null) return DisplayConflictValue(value);
+        var id = value.GetValue<string>();
+        var project = await ReadWorkspaceRecordAsync(connection, instanceId, "projects", id, cancellationToken).ConfigureAwait(false);
+        if (project is { } record && WText(record, "name") is { } name) return name;
+        var command = connection.CreateCommand();
+        command.CommandText = "SELECT name FROM projects WHERE id=@id";
+        command.Parameters.AddWithValue("@id", id);
+        return await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) as string ?? "(unavailable project)";
+    }
+
     private static async Task ParkNewTaskMutationAsync(SqliteConnection connection, string instanceId, string deviceId, string mutationId, CancellationToken cancellationToken)
     {
         var command = connection.CreateCommand();
-        command.CommandText = "SELECT entity_id,device_sequence FROM personal_cloud_outbox o WHERE mutation_id=@m AND EXISTS(SELECT 1 FROM personal_cloud_task_conflicts c WHERE c.instance_id=o.instance_id AND c.entity_id=o.entity_id)";
+        command.CommandText = "SELECT entity_id,device_sequence FROM personal_cloud_outbox o WHERE mutation_id=@m AND operation NOT IN ('source.refreshSnapshot','externalCommand.confirm','externalCommand.reject') AND EXISTS(SELECT 1 FROM personal_cloud_task_conflicts c WHERE c.instance_id=o.instance_id AND c.entity_id=o.entity_id)";
         command.Parameters.AddWithValue("@m", mutationId);
         string entityId; long sequence;
         await using (var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
@@ -201,7 +222,7 @@ public sealed partial class SqliteTaskStore
 
     private async Task ResolveTaskConflictAsync(SqliteConnection connection, string instanceId, ConflictState conflict, bool keepDesktop, CancellationToken cancellationToken)
     {
-        if (conflict.Cloud is null || keepDesktop && await ConflictReplayRestrictionAsync(connection, instanceId, conflict, cancellationToken).ConfigureAwait(false) is not null)
+        if (keepDesktop && await ConflictReplayRestrictionAsync(connection, instanceId, conflict, cancellationToken).ConfigureAwait(false) is not null)
             throw new PersonalCloudK0ContractException("invalid_transition", "Sync the latest cloud record before resolving this task. This edit cannot be safely replayed.");
         var pending = connection.CreateCommand(); pending.CommandText = "SELECT COUNT(*) FROM personal_cloud_outbox WHERE instance_id=@i AND entity_id=@e AND acknowledged_at IS NULL";
         pending.Parameters.AddWithValue("@i", instanceId); pending.Parameters.AddWithValue("@e", conflict.Id);
@@ -215,16 +236,17 @@ public sealed partial class SqliteTaskStore
             while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) records.Add(JsonNode.Parse(reader.GetString(0))!.AsObject());
         await WorkspaceExecuteAsync(connection, "DELETE FROM personal_cloud_workspace_indirect_versions WHERE mutation_id IN (SELECT mutation_id FROM personal_cloud_task_conflicts WHERE instance_id=@i AND entity_id=@e)", cancellationToken, ("@i", instanceId), ("@e", conflict.Id)).ConfigureAwait(false);
         await WorkspaceExecuteAsync(connection, "DELETE FROM personal_cloud_task_conflicts WHERE instance_id=@i AND entity_id=@e", cancellationToken, ("@i", instanceId), ("@e", conflict.Id)).ConfigureAwait(false);
-        if (conflict.Cloud["deletedAt"] is null)
+        var record = (conflict.Cloud ?? conflict.Base)?.DeepClone().AsObject();
+        if (record?["deletedAt"] is null)
             await WorkspaceExecuteAsync(connection, "DELETE FROM personal_cloud_tombstones WHERE instance_id=@i AND product='tasks' AND entity_id=@e", cancellationToken, ("@i", instanceId), ("@e", conflict.Id)).ConfigureAwait(false);
-        var record = conflict.Cloud.DeepClone().AsObject(); var differing = new Dictionary<string, object?>();
+        var differing = new Dictionary<string, object?>();
         if (keepDesktop)
-            foreach (var field in conflict.Fields.Where(f => !JsonNode.DeepEquals(f.Value, record[f.Key])).ToArray())
-            { record[field.Key] = field.Value?.DeepClone(); differing[field.Key] = field.Value?.DeepClone(); }
-        records.Insert(0, record);
+            foreach (var field in conflict.Fields.Where(f => !JsonNode.DeepEquals(f.Value, record![f.Key])).ToArray())
+            { record![field.Key] = field.Value?.DeepClone(); differing[field.Key] = field.Value?.DeepClone(); }
+        if (record is not null) records.Insert(0, record);
         using var payload = JsonDocument.Parse(PersonalCloudK0Codec.Serialize(new { spaces = Array.Empty<object>(), projects = Array.Empty<object>(), tasks = records }));
         await ApplyWorkspacePayloadAsync(connection, instanceId, payload.RootElement, cancellationToken, applyStoredTask: true).ConfigureAwait(false);
         if (differing.Count > 0)
-            await AppendWorkspaceMutationAsync(connection, instanceId, conflict.DeviceId, "task.patch", conflict.Id, conflict.Cloud["entityVersion"]!.GetValue<long>(), new { fields = differing }, cancellationToken).ConfigureAwait(false);
+            await AppendWorkspaceMutationAsync(connection, instanceId, conflict.DeviceId, "task.patch", conflict.Id, conflict.Cloud!["entityVersion"]!.GetValue<long>(), new { fields = differing }, cancellationToken).ConfigureAwait(false);
     }
 }

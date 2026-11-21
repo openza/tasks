@@ -8,6 +8,99 @@ namespace Openza.Tasks.Tests;
 
 public sealed partial class PersonalCloudBatchSyncTests
 {
+    [Theory]
+    [InlineData(false, null)]
+    [InlineData(true, null)]
+    [InlineData(false, "provider_rejected")]
+    [InlineData(true, "provider_rejected")]
+    public async Task Unversioned_provider_rows_upload_and_settle_whether_authored_before_or_after_parking(bool parkFirst, string? error)
+    {
+        var (store, handler) = await ConflictStoreAsync();
+        var rejected = await PatchAsync(store, "task_test", "title", "Desktop title");
+        if (parkFirst) await store.ParkPersonalCloudTaskConflictAsync(rejected);
+        var source = new K0SafeSourceDescriptor { IntegrationKind = "todoist", ExternalIdHash = new string('a', 64),
+            Title = "Source title", RefreshedAt = "2026-10-13T00:00:00.000Z" };
+        await using var connection = new SqliteConnection($"Data Source={store.DatabasePath}");
+        await connection.OpenAsync();
+        var seed = connection.CreateCommand();
+        seed.CommandText = """
+            INSERT INTO personal_cloud_provider_sources(instance_id,task_id,source_json) VALUES(@i,'task_test',@j);
+            INSERT INTO personal_cloud_provider_attempts(claim_id,instance_id,task_id,requested_seq,device_id,account_binding,command,source_json,state)
+            VALUES('claim_conflict',@i,'task_test',42,@d,'synthetic_account','complete',@j,'dispatching');
+            """;
+        seed.Parameters.AddWithValue("@i", Instance); seed.Parameters.AddWithValue("@d", Device);
+        seed.Parameters.AddWithValue("@j", PersonalCloudK0Codec.Serialize(source));
+        await seed.ExecuteNonQueryAsync();
+        await store.CompletePersonalCloudProviderAttemptAsync(Instance,
+            new("claim_conflict", "task_test", 42, Device, "synthetic_account", "complete", "dispatching", source), error);
+        await store.EnqueuePersonalCloudSourceSnapshotAsync(Instance, Device, "task_test",
+            source with { Title = "Refreshed source title", RefreshedAt = "2026-10-13T01:00:00.000Z" });
+        if (!parkFirst) await store.ParkPersonalCloudTaskConflictAsync(rejected);
+
+        var pending = await store.GetPendingPersonalCloudOutboxAsync(Instance, Device);
+        Assert.Equal(new long[] { 1, 2 }, pending.Select(r => r.DeviceSequence));
+        Assert.Equal(new[] { error is null ? "externalCommand.confirm" : "externalCommand.reject", "source.refreshSnapshot" }, pending.Select(r => r.Operation));
+        var attempt = connection.CreateCommand();
+        attempt.CommandText = "SELECT result_mutation_id FROM personal_cloud_provider_attempts WHERE claim_id='claim_conflict'";
+        Assert.Equal(pending[0].MutationId, await attempt.ExecuteScalarAsync());
+        Assert.True(Assert.Single(await store.GetPersonalCloudTaskConflictsAsync(Instance)).CanKeepDesktop);
+        handler.CurrentCheckpoint = 2;
+        handler.ChangePageJson = PersonalCloudWorkspaceTests.Page(2, tasks: [CloudTask()]);
+        var result = await (await CreateClientAsync(store, handler)).SyncAsync();
+        Assert.Equal(2, result.PushedMutations);
+        Assert.Null(result.BlockedCode);
+        Assert.Equal(pending.Select(r => r.CanonicalJson), handler.Envelopes);
+        attempt.CommandText = "SELECT state FROM personal_cloud_provider_attempts WHERE claim_id='claim_conflict'";
+        Assert.Equal("settled", await attempt.ExecuteScalarAsync());
+        await store.ResolvePersonalCloudTaskConflictAsync(Instance, "task_test", false);
+        await store.EnsureNoPendingPersonalCloudIntentsAsync();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Missing_cached_cloud_can_discard_conflict_and_restore_base_or_keep_recovery_copy(bool unknownBase)
+    {
+        var (store, _) = await ConflictStoreAsync();
+        var rejected = await PatchAsync(store, "task_test", "title", "Desktop title");
+        await store.ParkPersonalCloudTaskConflictAsync(rejected);
+        await using var connection = new SqliteConnection($"Data Source={store.DatabasePath}");
+        await connection.OpenAsync();
+        var remove = connection.CreateCommand();
+        remove.CommandText = "DELETE FROM personal_cloud_workspace_records WHERE kind='tasks' AND entity_id='task_test';" +
+            (unknownBase ? "UPDATE personal_cloud_task_conflicts SET base_record_json=NULL;" : "");
+        await remove.ExecuteNonQueryAsync();
+        var conflict = Assert.Single(await store.GetPersonalCloudTaskConflictsAsync(Instance));
+        Assert.False(conflict.CanKeepDesktop);
+        Assert.Contains("recovery copy", conflict.ResolutionNotice);
+        await Assert.ThrowsAsync<PersonalCloudK0ContractException>(() => store.ResolvePersonalCloudTaskConflictAsync(Instance, "task_test", true));
+        await store.ResolvePersonalCloudTaskConflictAsync(Instance, "task_test", false);
+        Assert.Equal(unknownBase ? "Desktop title" : "Example", (await store.GetTaskAsync("task_test"))!.Title);
+        Assert.Empty(await store.GetPersonalCloudTaskConflictsAsync(Instance));
+        Assert.Empty(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device));
+        await store.EnsureNoPendingPersonalCloudIntentsAsync();
+        await store.ApplyPersonalCloudChangePageAsync(Instance, Device, PersonalCloudWorkspaceTests.Page(2, tasks: [CloudTask()]));
+        Assert.Equal("Cloud title", (await store.GetTaskAsync("task_test"))!.Title);
+    }
+
+    [Fact]
+    public async Task Project_conflict_values_show_names_including_deleted_projects()
+    {
+        var (store, _) = await ConflictStoreAsync();
+        var project = JsonSerializer.SerializeToNode(PersonalCloudWorkspaceTests.Project())!;
+        project["id"] = "project_destination"; project["name"] = "Destination project";
+        await store.ApplyPersonalCloudChangePageAsync(Instance, Device, PersonalCloudWorkspaceTests.Page(2, projects: [project]));
+        var rejected = await PatchAsync(store, "task_test", "projectId", "project_destination");
+        await store.ParkPersonalCloudTaskConflictAsync(rejected);
+        var field = Assert.Single(Assert.Single(await store.GetPersonalCloudTaskConflictsAsync(Instance)).Fields);
+        Assert.Equal("Project", field.DisplayName);
+        Assert.Equal("Destination project", field.DesktopValue);
+        Assert.Equal("Project", field.CloudValue);
+        project["entityVersion"] = 2; project["deletedAt"] = "2026-10-13T00:00:00.000Z";
+        await store.ApplyPersonalCloudChangePageAsync(Instance, Device, PersonalCloudWorkspaceTests.Page(3, projects: [project]));
+        Assert.Equal("Destination project", Assert.Single(Assert.Single(await store.GetPersonalCloudTaskConflictsAsync(Instance)).Fields).DesktopValue);
+    }
+
     [Fact]
     public async Task Matching_values_explain_the_card_and_migration_index_survives_reopen()
     {

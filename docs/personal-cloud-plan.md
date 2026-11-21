@@ -350,6 +350,8 @@ After downloading changes, desktop compares each locally assigned field (includi
 
 New task operations on an already parked task are parked within their authoring transaction, before they can be uploaded. Sync never sweeps possibly delivered rows into conflicts. Automatic resolution skips tasks with pending uploads. Cards explain parked semantic operations and disable desktop replay when it would replay unsupported operations, change a provider-owned title, or select a cloud project that is missing, deleted, archived, or in another Space. In those cases the cloud-only choice explicitly discards all parked desktop changes. A real upload block and the task-conflict notice are both shown.
 
+Unversioned source refreshes and provider-command confirmations/rejections are never parked: they remain uploadable, including after resequencing, so receipts can settle provider attempts. If the cached cloud task is missing, the cloud-only choice still clears the parked intents, restoring the recorded base when available; without a base, it retains the local task as a recovery copy until a subsequent cloud download. The card explains this fallback.
+
 ## 7. Online-first Web behavior
 
 ### 7.1 Supported experience
