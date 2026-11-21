@@ -47,7 +47,7 @@ Also follow the shared Openza guidance in `../AGENTS.md`. Keep this file limited
 - The fresh-start rule excludes automatic import of legacy Flutter-era stores. A separately authorized, guarded WinUI-to-Avalonia package transition is a different scope; it does not authorize searching for or importing other old app stores. Continuity remains Dev-only; other channels and installed apps must not be replaced without explicit authorization.
 - Package-local SQLite copies are restore points, not durable backups. Durable backup means OneDrive app-folder backup or explicit user export.
 - Do not fight MSIX AppData virtualization to place automatic restore points under `%LOCALAPPDATA%\Openza`; use package `LocalState` for restore points.
-- Preserve channel identities and version lanes: Dev `Openza.OpenzaTasks.Dev` / `0.0.N.0`, Preview `Openza.OpenzaTasks.Preview` / `0.N.B.0`, Production `Openza.OpenzaTasks` / `1.N.P.0`.
+- Preserve channel identities and version lanes: Dev `Openza.OpenzaTasks.Dev` / `0.1.N.0` from `0.1.1.0`, Preview `Openza.OpenzaTasks.Preview` / `0.N.B.0`, Production `Openza.OpenzaTasks` / `1.N.P.0`. Dev uses this lane so Avalonia can upgrade the June WinUI Dev baseline `0.1.0.0` without lowering its version.
 
 ## Testing Guidelines
 - Prefer unit tests for repositories, migration, backup/restore, import/export, provider mappers, and sync jobs.

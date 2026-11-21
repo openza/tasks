@@ -121,14 +121,30 @@ checks; native UI/package acceptance remains separate.
 
 | Lane | Required identity | Agreed version lane | Baseline WinUI manifest |
 | --- | --- | --- | --- |
-| Dev | Openza.OpenzaTasks.Dev | 0.0.N.0 | 0.1.0.0 |
+| Dev | Openza.OpenzaTasks.Dev | 0.1.N.0 (from 0.1.1.0) | 0.1.0.0 |
 | Preview | Openza.OpenzaTasks.Preview | 0.N.B.0 | 0.2.3.0 |
 | Production | Openza.OpenzaTasks | 1.N.P.0 | 1.1.0.0 |
 
-These are source manifest values, not installed or latest Store versions. The Dev
-manifest differs from its intended lane; resolve increasing update eligibility
-before packaging without silently lowering a version. Preserve publisher/name
+Dev uses `0.1.N.0` from `0.1.1.0` so Avalonia can upgrade the June WinUI Dev
+baseline `0.1.0.0` without lowering its version.
+These are source manifest values, not installed or latest Store versions. Preserve publisher/name
 association, architecture and OS constraints; keep private Store metadata out of Git.
+
+### Dev MSIX packaging
+
+On Windows with .NET 10 and Windows SDK `makeappx.exe` on PATH, run
+`./scripts/windows/package-msix.ps1`. It publishes self-contained .NET and Windows
+App SDK binaries into a unique layout under ignored `artifacts/msix/`, then packs
+the Avalonia Dev manifest. Other channels are rejected. The application ID `App`,
+publisher, architecture, display names and assets match the June WinUI Dev package.
+
+For optional local signing, supply `-CertificatePath` and a SecureString
+`-CertificatePassword` (for example, obtained with `Read-Host -AsSecureString`).
+Signing also requires `signtool.exe` on PATH; explicit `-MakeAppxPath` and
+`-SignToolPath` overrides are available. Use an approved certificate matching
+`CN=Openza`; keep certificates and passwords outside the repository. The script
+never installs or launches a package. Native launch, package LocalFolder access
+and upgrade acceptance still require a separately authorized installed Dev test.
 
 ## Native package validation
 
