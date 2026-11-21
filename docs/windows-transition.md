@@ -13,8 +13,9 @@ implementation and future acceptance requirements as reference.
 
 Keep Core, Application and Desktop code cross-platform and Windows-compatible,
 with OS-specific behavior behind platform services. The optional Windows CI job
-builds Avalonia and runs the shared suite as a nonblocking early warning only; do
-not block Linux work on it or act on its results unless explicitly requested.
+builds Avalonia and runs smoke tests on code PRs and pushes to main, and runs the
+full shared suite weekly and on manual dispatch. It is a nonblocking early warning
+only; do not block Linux work on it or act on its results unless explicitly requested.
 It does not build WinUI or establish native package acceptance. Linux build/tests
 and Snap validation remain required.
 

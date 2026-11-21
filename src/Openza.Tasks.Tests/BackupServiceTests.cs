@@ -11,6 +11,7 @@ public sealed class BackupServiceTests : IDisposable
     private readonly string _directory = Path.Combine(Path.GetTempPath(), "openza-backup-tests", Guid.NewGuid().ToString("N"));
 
     [Fact]
+    [Trait("Category", "WindowsSmoke")]
     public void Restore_point_path_stays_under_package_local_state()
     {
         var localState = Path.Combine("package-root", "LocalState");
@@ -20,6 +21,7 @@ public sealed class BackupServiceTests : IDisposable
     }
 
     [Fact]
+    [Trait("Category", "WindowsSmoke")]
     public void Redirected_stable_backup_path_resolves_inside_package_cache()
     {
         var localState = Path.Combine(_directory, "Packages", "Openza.OpenzaTasks.Preview_rt595jwp8ay6e", "LocalState");
@@ -40,6 +42,7 @@ public sealed class BackupServiceTests : IDisposable
     }
 
     [Fact]
+    [Trait("Category", "WindowsSmoke")]
     public async Task CreateBackup_writes_metadata_and_lists_counts()
     {
         var databasePath = await CreateDatabaseAsync("source.db", taskId: "task_1", projectId: "project_1");
@@ -169,6 +172,7 @@ public sealed class BackupServiceTests : IDisposable
     }
 
     [Fact]
+    [Trait("Category", "WindowsSmoke")]
     public async Task Restore_creates_pre_restore_backup_and_replaces_database()
     {
         var currentPath = await CreateDatabaseAsync("current.db", taskId: "task_current");

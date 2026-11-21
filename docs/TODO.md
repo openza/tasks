@@ -25,8 +25,9 @@ replacement passes acceptance.
 - Windows continuity is implemented behind its Dev gate. Native package, vault,
   sign-in and replacement acceptance remain separate; see the
   [transition plan](windows-transition.md).
-- CI requires Linux build/tests and Snap validation. The optional Windows job is a
-  nonblocking early warning only; do not act on its results unless explicitly asked.
+- CI requires Linux build/tests and Snap validation. Optional Windows CI runs an
+  Avalonia build and smoke tests on code PRs and pushes to main, and the full suite
+  weekly or on manual dispatch. Do not act on its results unless explicitly asked.
 
 ## Release and validation work
 

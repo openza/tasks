@@ -22,7 +22,7 @@ Also follow the shared Openza guidance in `../AGENTS.md`. Keep this file limited
 ## Build, Test, and Development Commands
 - `dotnet test src/Openza.Tasks.Tests/Openza.Tasks.Tests.csproj -c Release` runs the shared test suite.
 - From `src/Openza.Tasks.Desktop`, `dotnet restore` and `dotnet build -c Release --no-restore` validate Avalonia on Linux with its desktop SDK selection. Restore and run the shared tests from that directory as well.
-- CI requires `build-test-linux` and `build-snap`. The optional, nonblocking Windows `build-test` job builds Avalonia and runs the shared suite as an early warning only; it does not authorize Windows work or prove package acceptance.
+- CI requires `build-test-linux` and `build-snap`. The optional, nonblocking Windows `build-test` job builds Avalonia and runs `Category=WindowsSmoke` on code PRs and pushes to main. The full Windows suite runs weekly and on manual dispatch. Neither run authorizes Windows work or proves package acceptance.
 - On Linux, `./dev.sh` launches the Avalonia app.
 - `./dev-cli.sh` runs the CLI against the isolated Dev channel; never override it to use Production during development.
 - `snapcraft pack` builds the strict Production Snap containing the Avalonia app and CLI. Snap artifacts belong under ignored `artifacts/snap/`; do not publish or install them without explicit approval.

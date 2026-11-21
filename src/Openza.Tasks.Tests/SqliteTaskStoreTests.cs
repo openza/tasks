@@ -9,6 +9,7 @@ public sealed class SqliteTaskStoreTests : IDisposable
     private readonly string _directory = Path.Combine(Path.GetTempPath(), "openza-tasks-tests", Guid.NewGuid().ToString("N"));
 
     [Fact]
+    [Trait("Category", "WindowsSmoke")]
     public async Task Initialize_creates_clean_workspace_integrations_and_connections()
     {
         var store = CreateStore();
@@ -52,6 +53,7 @@ public sealed class SqliteTaskStoreTests : IDisposable
     }
 
     [Fact]
+    [Trait("Category", "WindowsSmoke")]
     public async Task Pending_write_summary_is_read_only_when_queue_tables_do_not_exist()
     {
         Directory.CreateDirectory(_directory);
