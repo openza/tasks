@@ -16,6 +16,62 @@ public sealed class DesktopPersonalCloudSettingsTests(EditorTestSession fixture)
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    [InlineData(null)]
+    public async Task Conflict_summary_clears_after_either_resolution_or_sync(bool? keepDesktop)
+    {
+        await fixture.Session.Dispatch(async () =>
+        {
+            var directory = Path.Combine(Path.GetTempPath(), "openza-conflict-summary", Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(directory);
+            try
+            {
+                var store = new SqliteTaskStore(Path.Combine(directory, "tasks.db"));
+                await store.InitializeAsync();
+                const string instance = "instance_summary", device = "device_summary";
+                await store.SavePersonalCloudWorkspaceCapabilitiesAsync(instance, true, true);
+                await store.ApplyPersonalCloudChangePageAsync(instance, device, PersonalCloudWorkspaceTests.Page(1,
+                    [PersonalCloudWorkspaceTests.Space()], [PersonalCloudWorkspaceTests.Project()], [PersonalCloudWorkspaceTests.TaskRecord()]));
+                var task = (await store.GetTaskAsync("task_test"))!;
+                var rejected = await store.PatchTaskWithPersonalCloudIntentAsync(task.Id,
+                    new Dictionary<string, object?> { ["title"] = "Desktop title" }, task.Revision, instance, device);
+                await store.ParkPersonalCloudTaskConflictAsync(rejected);
+                var origin = new Uri("https://summary.example.test/");
+                var profile = new PersonalCloudConnectionProfile { ServiceOrigin = origin, InstanceId = instance,
+                    DeviceId = device, ArtifactVersion = "synthetic", ConnectedAt = DateTimeOffset.UtcNow };
+                var service = new StubSetupService(new(origin, "worker", "database", "synthetic", origin), profile);
+                var vm = new MainWindowViewModel(store, new InMemoryCredentialStore(), personalCloudSetup: service);
+                await vm.RefreshPersonalCloudTaskConflictsAsync();
+                Assert.Contains("1 task(s) have conflicting edits", vm.PersonalCloudSummaryText);
+                await vm.RunTodoistSyncAsync();
+                Assert.Contains("1 task(s) have conflicting edits", vm.PersonalCloudSummaryText);
+
+                if (keepDesktop is { } choice)
+                    await vm.ResolvePersonalCloudTaskConflictAsync(task.Id, choice);
+                else
+                {
+                    service.SyncAction = async _ =>
+                    {
+                        await store.ResolvePersonalCloudTaskConflictAsync(instance, task.Id, false);
+                        service.SyncAction = null;
+                        return new PersonalCloudSyncResult(1, 1, 2);
+                    };
+                    await vm.RunTodoistSyncAsync();
+                }
+
+                Assert.False(vm.HasPersonalCloudTaskConflicts);
+                Assert.DoesNotContain("conflicting edits", vm.PersonalCloudSummaryText);
+                Assert.Contains("paired", vm.PersonalCloudSummaryText);
+                await vm.RunTodoistSyncAsync();
+                Assert.DoesNotContain("conflicting edits", vm.PersonalCloudSummaryText);
+            }
+            finally { TestDirectory.Delete(directory); }
+            return true;
+        }, CancellationToken.None);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task Settings_show_both_conflict_values_and_resolution_buttons_rebase_or_adopt(bool keepDesktop)
     {
         await fixture.Session.Dispatch(async () =>

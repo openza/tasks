@@ -13,10 +13,13 @@ public sealed partial class MainWindowViewModel
     public async Task RefreshPersonalCloudTaskConflictsAsync()
     {
         var conflicts = await _taskService.ListPersonalCloudTaskConflictsAsync();
+        var hadConflicts = HasPersonalCloudTaskConflicts;
         PersonalCloudTaskConflicts.Clear();
         foreach (var conflict in conflicts) PersonalCloudTaskConflicts.Add(conflict);
         OnPropertyChanged(nameof(HasPersonalCloudTaskConflicts));
         if (conflicts.Count > 0) PersonalCloudSummaryText = TaskConflictSummary(conflicts.Count);
+        else if (hadConflicts && IsPersonalCloudConnected)
+            PersonalCloudSummaryText = "This desktop is paired. Sync can continue.";
     }
 
     public async Task ResolvePersonalCloudTaskConflictAsync(string taskId, bool keepDesktop)
@@ -134,8 +137,8 @@ public sealed partial class MainWindowViewModel
         try
         {
             var result = await _personalCloudSetup!.SyncAsync(cancellationToken);
-            await RefreshInitialSyncProgressAsync();
             if (result.InitialSyncProgress is { } progress) ApplyInitialSyncProgress(progress);
+            await RefreshInitialSyncProgressAsync();
             return result;
         }
         catch (PersonalCloudK0ContractException exception) when (exception.DispatchStatus is not null)
