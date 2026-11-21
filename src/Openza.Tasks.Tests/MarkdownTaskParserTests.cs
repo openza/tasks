@@ -8,6 +8,38 @@ namespace Openza.Tasks.Tests;
 
 public sealed class MarkdownTaskParserTests
 {
+    [Fact]
+    public async Task Import_legacy_cloud_keeps_cancelled_task_open_to_match_create_intent()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var store = new SqliteTaskStore(Path.Combine(directory, "tasks.db"));
+            await store.InitializeAsync();
+            var cloud = new PersonalCloudConnectionProfile
+            {
+                ServiceOrigin = new("https://example.test"), InstanceId = "instance_cancelled_markdown", DeviceId = "device_cancelled_markdown",
+                ArtifactVersion = "test", ConnectedAt = DateTimeOffset.UtcNow,
+            };
+            Assert.False(await store.SupportsPersonalCloudWorkspaceAsync(cloud.InstanceId));
+            var original = new TaskItem { Title = "Cancelled", CompletionState = TaskCompletionState.Cancelled, Priority = 2 };
+            var markdown = MarkdownExporter.Export([original], [], []);
+
+            await MarkdownTaskImporter.ImportAsync(store, MarkdownTaskParser.Parse(markdown), SpaceIds.Default, cloud);
+
+            var imported = Assert.Single(await store.GetTasksAsync(TaskQuery.ForMarkdownExport(SpaceIds.Default)));
+            Assert.Equal(TaskCompletionState.Open, imported.CompletionState);
+            Assert.Null(imported.CompletedAt);
+            var entry = Assert.Single(await store.GetPendingPersonalCloudOutboxAsync(cloud.InstanceId, cloud.DeviceId));
+            Assert.Equal("task.create", entry.Operation);
+            Assert.Equal(imported.Id, entry.EntityId);
+            using var json = JsonDocument.Parse(entry.CanonicalJson);
+            Assert.Equal("open", json.RootElement.GetProperty("payload").GetProperty("task").GetProperty("completionState").GetString());
+        }
+        finally { Directory.Delete(directory, recursive: true); }
+    }
+
     [Theory]
     [InlineData(true, ProjectLifecycleStates.Active)]
     [InlineData(false, ProjectLifecycleStates.Archived)]

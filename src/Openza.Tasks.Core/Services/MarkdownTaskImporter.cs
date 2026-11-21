@@ -92,7 +92,5 @@ public static class MarkdownTaskImporter
             await store.UpdateTaskDeadlineOnWithPersonalCloudIntentAsync(task.Id, task.DeadlineOn, version++, cloud.InstanceId, cloud.DeviceId);
         if (task.IsCompleted)
             await store.CompleteTaskWithPersonalCloudIntentAsync(task.Id, task.CompletedAt!.Value, version, cloud.InstanceId, cloud.DeviceId);
-        else if (task.CompletionState == TaskCompletionState.Cancelled)
-            await store.UpsertTaskAsync((await store.GetTaskAsync(task.Id))! with { CompletionState = TaskCompletionState.Cancelled });
     }
 }
