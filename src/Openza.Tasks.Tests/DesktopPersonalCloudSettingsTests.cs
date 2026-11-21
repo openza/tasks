@@ -14,6 +14,42 @@ namespace Openza.Tasks.Tests;
 public sealed class DesktopPersonalCloudSettingsTests(EditorTestSession fixture)
 {
     [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public Task Blank_pairing_code_is_validated_without_attempting_pairing(string code) => fixture.Session.Dispatch(async () =>
+    {
+        var service = new StubSetupService(new PersonalCloudProvisioningResult(
+            new Uri("https://example.test/"), "worker", "database", "1.2.3", new Uri("https://example.test/#setup=unused")));
+        service.PairAction = () => Task.FromException<PersonalCloudConnectionProfile>(new InvalidOperationException("Pairing attempt rejected."));
+        var vm = CreateViewModel(service);
+        var owner = new Window();
+        owner.Show();
+        var dialog = new Openza.Tasks.Desktop.Dialogs.PersonalCloudSetupWindow(vm, pairExisting: true);
+        dialog.Show(owner);
+        try
+        {
+            dialog.FindControl<TextBox>("ExistingCloudAddress")!.Text = "https://example.test/";
+            dialog.FindControl<TextBox>("ExistingPairingGrant")!.Text = code;
+            dialog.FindControl<Button>("PairExistingButton")!.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+            await Task.Delay(100);
+            dialog.UpdateLayout();
+            using var frame = dialog.CaptureRenderedFrame();
+            var output = Environment.GetEnvironmentVariable("OPENZA_CONTROL_SCREENSHOTS");
+            if (!string.IsNullOrWhiteSpace(output))
+            {
+                Directory.CreateDirectory(output);
+                frame!.Save(Path.Combine(output, "3-blank-pairing.png"), new Avalonia.Media.Imaging.PngBitmapEncoderOptions());
+            }
+            Assert.Equal(0, service.PairCalls);
+            Assert.Equal(0, service.SyncCalls);
+            Assert.False(vm.IsConnectingPersonalCloud);
+            Assert.Contains("Enter the pairing code", dialog.FindControl<TextBlock>("PairingError")!.Text);
+        }
+        finally { dialog.Close(); owner.Close(); }
+        return true;
+    }, CancellationToken.None);
+
+    [Theory]
     [InlineData("local_budget_exceeded")]
     [InlineData("local_operation_budget_exceeded")]
     public async Task Upload_only_hold_keeps_manual_retry_available_with_visible_pending_recovery(string code)
@@ -548,6 +584,7 @@ public sealed class DesktopPersonalCloudSettingsTests(EditorTestSession fixture)
             IProgress<PersonalCloudSetupProgress>? progress = null)
         { ConnectCalls++; return Task.FromResult(result); }
         public int PairCalls { get; private set; }
+        public Func<Task<PersonalCloudConnectionProfile>>? PairAction { get; set; }
         public bool LastProviderBridge { get; private set; }
         public Task<PersonalCloudConnectionProfile> PairExistingAsync(
             Uri serviceOrigin,
@@ -557,6 +594,7 @@ public sealed class DesktopPersonalCloudSettingsTests(EditorTestSession fixture)
             CancellationToken cancellationToken = default)
         {
             PairCalls++;
+            if (PairAction is not null) return PairAction();
             LastProviderBridge = providerBridge;
             _connection = new PersonalCloudConnectionProfile
             {
