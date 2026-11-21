@@ -8,6 +8,47 @@ namespace Openza.Tasks.Tests;
 
 public sealed partial class PersonalCloudBatchSyncTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Project_delete_predictions_exclude_parked_edits_and_cloud_choice_resets_the_next_base(bool deleteBeforeParking)
+    {
+        var (store, handler) = await ConflictStoreAsync();
+        var rejected = await PatchAsync(store, "task_test", "title", "Desktop title");
+        await PatchAsync(store, "task_test", "notes", "Desktop notes");
+        await PatchAsync(store, "task_test", "priority", 4);
+        if (deleteBeforeParking) await store.DeleteProjectWithPersonalCloudIntentAsync("project_test", Instance, Device);
+        await store.ParkPersonalCloudTaskConflictAsync(rejected);
+        if (!deleteBeforeParking) await store.DeleteProjectWithPersonalCloudIntentAsync("project_test", Instance, Device);
+        await using var database = new SqliteConnection($"Data Source={store.DatabasePath}");
+        await database.OpenAsync();
+        var predictions = database.CreateCommand();
+        predictions.CommandText = "SELECT MAX(entity_version) FROM personal_cloud_workspace_indirect_versions WHERE instance_id=@i AND kind='tasks' AND entity_id='task_test'";
+        predictions.Parameters.AddWithValue("@i", Instance);
+        Assert.Equal(2L, await predictions.ExecuteScalarAsync());
+        var cloud = JsonSerializer.SerializeToNode(CloudTask(version: 3))!;
+        cloud["projectId"] = null;
+        handler.CurrentCheckpoint = 2;
+        handler.ChangePageJson = PersonalCloudWorkspaceTests.Page(2, projects: [PersonalCloudWorkspaceTests.Project(2, "2026-10-14T00:00:00.000Z")], tasks: [cloud]);
+        var client = await CreateClientAsync(store, handler);
+        var result = await client.SyncAsync();
+        Assert.Null(result.BlockedCode);
+        Assert.Equal(1, result.PushedMutations);
+        var card = Assert.Single(await store.GetPersonalCloudTaskConflictsAsync(Instance));
+        await store.ResolvePersonalCloudTaskConflictAsync(Instance, card.TaskId, false, expectedRevision: card.RevisionToken);
+        Assert.Equal(3, await store.GetPersonalCloudEntityVersionAsync(Instance, "task_test"));
+        predictions.CommandText = "SELECT COUNT(*) FROM personal_cloud_workspace_indirect_versions WHERE instance_id=@i AND kind='tasks' AND entity_id='task_test'";
+        Assert.Equal(0L, await predictions.ExecuteScalarAsync());
+        var next = await PatchAsync(store, "task_test", "notes", "New desktop notes");
+        using var mutation = JsonDocument.Parse(next.CanonicalJson);
+        Assert.Equal(3, mutation.RootElement.GetProperty("baseEntityVersion").GetInt64());
+        result = await client.SyncAsync();
+        Assert.Null(result.BlockedCode);
+        Assert.Equal(1, result.PushedMutations);
+        Assert.Empty(await store.GetPersonalCloudTaskConflictsAsync(Instance));
+        Assert.Empty(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device));
+    }
+
     [Fact]
     public async Task Dependent_completion_is_named_on_the_card_before_cloud_choice_discards_it()
     {

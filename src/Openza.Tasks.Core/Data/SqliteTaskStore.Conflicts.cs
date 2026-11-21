@@ -69,6 +69,16 @@ public sealed partial class SqliteTaskStore
         var next = sequence;
         foreach (var row in tail.Where(r => !parkedIds.Contains(r.Id)))
         {
+            foreach (var parked in tail.Where(p => parkedIds.Contains(p.Id) && p.Sequence < row.Sequence))
+            {
+                var versionedTasks = new HashSet<string>(indirect.GetValueOrDefault(parked.Id) ?? [], StringComparer.Ordinal) { parked.Entity };
+                await WorkspaceExecuteAsync(connection, """
+                    UPDATE personal_cloud_workspace_indirect_versions AS v
+                    SET entity_version=MAX(entity_version-1, COALESCE((SELECT r.entity_version+1
+                        FROM personal_cloud_workspace_records r WHERE r.instance_id=@i AND r.kind='tasks' AND r.entity_id=v.entity_id),1))
+                    WHERE instance_id=@i AND mutation_id=@m AND kind='tasks' AND entity_id IN(SELECT value FROM json_each(@ids))
+                    """, cancellationToken, ("@i", instanceId), ("@m", row.Id), ("@ids", JsonSerializer.Serialize(versionedTasks))).ConfigureAwait(false);
+            }
             var node = JsonNode.Parse(row.Json)!.AsObject(); var id = $"mutation_{Guid.NewGuid():N}";
             node["mutationId"] = id; node["deviceSequence"] = next++;
             var json = PersonalCloudK0Codec.Canonicalize(node.ToJsonString());
@@ -334,6 +344,9 @@ public sealed partial class SqliteTaskStore
         var ids = JsonSerializer.Serialize(conflict.TaskIds);
         await WorkspaceExecuteAsync(connection, "DELETE FROM personal_cloud_workspace_indirect_versions WHERE mutation_id IN (SELECT mutation_id FROM personal_cloud_task_conflicts WHERE instance_id=@i AND entity_id IN(SELECT value FROM json_each(@ids)))", cancellationToken, ("@i", instanceId), ("@ids", ids)).ConfigureAwait(false);
         await WorkspaceExecuteAsync(connection, "DELETE FROM personal_cloud_task_conflicts WHERE instance_id=@i AND entity_id IN(SELECT value FROM json_each(@ids))", cancellationToken, ("@i", instanceId), ("@ids", ids)).ConfigureAwait(false);
+        if (!keepDesktop)
+            await WorkspaceExecuteAsync(connection, "DELETE FROM personal_cloud_workspace_indirect_versions WHERE instance_id=@i AND kind='tasks' AND entity_id IN(SELECT value FROM json_each(@ids))", cancellationToken,
+                ("@i", instanceId), ("@ids", ids)).ConfigureAwait(false);
         await WorkspaceExecuteAsync(connection, "DELETE FROM personal_cloud_tombstones WHERE instance_id=@i AND product='tasks' AND entity_id IN(SELECT value FROM json_each(@ids))", cancellationToken, ("@i", instanceId),
             ("@ids", JsonSerializer.Serialize(records.Where(r => r["deletedAt"] is null).Select(r => r["id"]!.GetValue<string>())))).ConfigureAwait(false);
         var record = (conflict.Cloud ?? conflict.Base)?.DeepClone().AsObject();
