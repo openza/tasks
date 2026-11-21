@@ -35,7 +35,15 @@ public static partial class MarkdownTaskParser
                     if (data is not null && !string.IsNullOrWhiteSpace(data.Title) && data.Priority is >= 1 and <= 4
                         && data.Labels is not null && data.Labels.All(label => label is not null && !string.IsNullOrWhiteSpace(label.Name))
                         && Enum.IsDefined(data.WorkflowStatus) && Enum.IsDefined(data.CompletionState))
-                        tasks[^1] = data;
+                    {
+                        var isCompleted = tasks[^1].IsCompleted;
+                        tasks[^1] = data with
+                        {
+                            IsCompleted = isCompleted,
+                            CompletionState = isCompleted ? TaskCompletionState.Completed
+                                : data.CompletionState == TaskCompletionState.Completed ? TaskCompletionState.Open : data.CompletionState,
+                        };
+                    }
                 }
                 catch (JsonException) { }
                 continue;

@@ -1,11 +1,36 @@
 using Openza.Tasks.Core.Services;
 using Openza.Tasks.Core.Models;
 using Openza.Tasks.Core.Data;
+using System.Text.Json;
 
 namespace Openza.Tasks.Tests;
 
 public sealed class MarkdownTaskParserTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Parse_edited_checkbox_overrides_comment_completion(bool originallyCompleted)
+    {
+        var original = new TaskItem
+        {
+            Title = "Checkbox edit", CompletionState = originallyCompleted ? TaskCompletionState.Completed : TaskCompletionState.Open,
+            WorkflowStatus = TaskWorkflowStatus.Waiting, Priority = 3,
+            PlannedOn = new(2027, 6, 15), DeadlineOn = new(2027, 6, 20), Notes = "Keep these notes",
+            ProjectId = "project", Labels = [new LabelItem { Name = "some label", Color = "#123456" }],
+        };
+        var markdown = MarkdownExporter.Export([original], [new ProjectItem { Id = "project", Name = "Example" }], original.Labels);
+        var expected = Assert.Single(MarkdownTaskParser.Parse(markdown)) with
+        {
+            IsCompleted = !originallyCompleted,
+            CompletionState = originallyCompleted ? TaskCompletionState.Open : TaskCompletionState.Completed,
+        };
+        var edited = markdown.Replace(originallyCompleted ? "- [x] " : "- [ ] ", originallyCompleted ? "- [ ] " : "- [x] ", StringComparison.Ordinal);
+        var actual = Assert.Single(MarkdownTaskParser.Parse(edited));
+
+        Assert.Equal(JsonSerializer.Serialize(expected), JsonSerializer.Serialize(actual));
+    }
+
     [Theory]
     [InlineData("Call @alex")]
     [InlineData("Review (Priority: Normal, Date: 2027-06-15, Deadline: 2027-06-20) @work")]
