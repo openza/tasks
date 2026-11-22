@@ -6,12 +6,26 @@ namespace Openza.Tasks.Desktop.Services.Continuity;
 
 public sealed record WindowsPackageEvidence(string Name, string Publisher, string FamilyName, string LocalFolder)
 {
-    public WindowsPackageDataContext ValidateDev()
+    public WindowsPackageDataContext Validate(OpenzaChannel channel = OpenzaChannel.Dev)
     {
-        if (Name != "Openza.OpenzaTasks.Dev" || Publisher != "CN=Openza" ||
-            !FamilyName.StartsWith(Name + "_", StringComparison.Ordinal) || FamilyName.Length <= Name.Length + 1)
-            throw new WindowsContinuityException("This transition is limited to the matching signed Dev package.");
-        return WindowsPackageDataContext.FromLocalFolder(OpenzaChannel.Dev, Name, LocalFolder);
+        ValidateIdentity(channel, Name, Publisher);
+        if (!FamilyName.StartsWith(Name + "_", StringComparison.Ordinal) || FamilyName.Length <= Name.Length + 1)
+            throw new WindowsContinuityException("The package family does not match the continuity identity.");
+        return WindowsPackageDataContext.FromLocalFolder(channel, Name, LocalFolder);
+    }
+    public string CredentialResource(OpenzaChannel channel) =>
+        $"Openza.Tasks.Desktop/{FamilyName}/{Validate(channel).Runtime.CredentialNamespace}";
+
+    public static void ValidateIdentity(OpenzaChannel channel, string name, string publisher)
+    {
+        var expected = channel switch
+        {
+            OpenzaChannel.Dev => ("Openza.OpenzaTasks.Dev", "CN=Openza"),
+            OpenzaChannel.Production => ("Openza.OpenzaTasks", "CN=DAC3BFD1-0B27-4912-85AF-DB96E18108D1"),
+            _ => throw new WindowsContinuityException("Windows continuity does not support this channel."),
+        };
+        if (name != expected.Item1 || publisher != expected.Item2)
+            throw new WindowsContinuityException("Windows continuity requires the matching package identity and publisher.");
     }
 }
 
@@ -41,10 +55,10 @@ public sealed class WindowsContinuitySession : IDisposable
     public const string CloudAccessNotice = "Credential access is temporarily unavailable. Local tasks remain available; cloud operations are paused for this session. Restore credential access and restart Openza to retry.";
     public string SettingsPath => Path.Combine(Data.Runtime.DataDirectory, "settings.avalonia.json");
 
-    public WindowsContinuitySession(IWindowsContinuityPlatform platform)
+    public WindowsContinuitySession(IWindowsContinuityPlatform platform, OpenzaChannel channel = OpenzaChannel.Dev)
     {
         Package = platform.GetCurrentPackage();
-        Data = Package.ValidateDev();
+        Data = Package.Validate(channel);
         _sourceExclusion = platform.AcquireSourceExclusion();
         try { Credentials = platform.CreatePackageCredentialStore(Package); AppCredentials = new SessionCredentials(this); }
         catch { _sourceExclusion.Dispose(); throw; }

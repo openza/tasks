@@ -7,13 +7,13 @@ namespace Openza.Tasks.Desktop.Services.Continuity;
 
 public static class WindowsContinuityHost
 {
-#if OPENZA_WINDOWS_CONTINUITY_DEV
+#if OPENZA_WINDOWS_CONTINUITY
     public const bool IsEnabled = true;
 #else
     public const bool IsEnabled = false;
 #endif
     private static IWindowsContinuityPlatform? _platform = null;
-#if OPENZA_WINDOWS_CONTINUITY_DEV
+#if OPENZA_WINDOWS_CONTINUITY
     private static WindowsActivationCoordinator? _activation;
 #endif
     private static IDisposable? _activationRegistration;
@@ -22,10 +22,11 @@ public static class WindowsContinuityHost
 
     public static bool TryRedirectActivation()
     {
-#if OPENZA_WINDOWS_CONTINUITY_DEV
+#if OPENZA_WINDOWS_CONTINUITY
         return WindowsActivationCoordinator.RegisterAndRedirect(() =>
         {
-            new NativeWindowsContinuityPlatform().GetCurrentPackage().ValidateDev();
+            var channel = OpenzaRuntimeContext.ReadChannel(typeof(WindowsContinuityHost).Assembly);
+            new NativeWindowsContinuityPlatform(channel).GetCurrentPackage().Validate(channel);
             return new NativeWindowsActivationPlatform();
         }, out _activation);
 #else
@@ -35,19 +36,20 @@ public static class WindowsContinuityHost
 
     public static void AttachReadyWindow(Window window)
     {
-#if OPENZA_WINDOWS_CONTINUITY_DEV
+#if OPENZA_WINDOWS_CONTINUITY
         _activationRegistration = _activation?.AttachReadyWindow(new NativeWindowsActivationWindow(window));
 #endif
     }
 
     public static WindowsContinuitySession? Resolve(OpenzaChannel channel, string? devOverride)
     {
-#if OPENZA_WINDOWS_CONTINUITY_DEV
-        if (!OperatingSystem.IsWindows() || channel != OpenzaChannel.Dev || !string.IsNullOrWhiteSpace(devOverride))
-            throw new WindowsContinuityException("The continuity build requires Windows, the Dev channel and its matching package LocalFolder; data-directory overrides are disabled for this build.");
+#if OPENZA_WINDOWS_CONTINUITY
+        if (!OperatingSystem.IsWindows() || (channel != OpenzaChannel.Dev && channel != OpenzaChannel.Production) ||
+            (channel == OpenzaChannel.Dev && !string.IsNullOrWhiteSpace(devOverride)))
+            throw new WindowsContinuityException("The continuity build requires Windows, an approved channel and its matching package LocalFolder; data-directory overrides are disabled for this build.");
         if (Session is not null) return Session;
-        _platform = new NativeWindowsContinuityPlatform();
-        Session = new WindowsContinuitySession(_platform);
+        _platform = new NativeWindowsContinuityPlatform(channel);
+        Session = new WindowsContinuitySession(_platform, channel);
 #endif
         return Session;
     }

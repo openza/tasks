@@ -3,21 +3,21 @@ using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using AppInstance = Microsoft.Windows.AppLifecycle.AppInstance;
 using Openza.Tasks.Core.Credentials;
+using Openza.Tasks.Application.Runtime;
 using Windows.ApplicationModel;
 using Windows.Security.Credentials;
 using Windows.Storage;
 
 namespace Openza.Tasks.Desktop.Services.Continuity;
 
-public sealed class NativeWindowsContinuityPlatform : IWindowsContinuityPlatform
+public sealed class NativeWindowsContinuityPlatform(OpenzaChannel channel) : IWindowsContinuityPlatform
 {
     public WindowsPackageEvidence GetCurrentPackage()
     {
         WinRT.ComWrappersSupport.InitializeComWrappers();
         var id = Package.Current.Id;
         // Check identity before asking for package app data. No profile enumeration.
-        if (id.Name != "Openza.OpenzaTasks.Dev" || id.Publisher != "CN=Openza")
-            throw new WindowsContinuityException("Windows continuity is enabled only for the matching signed Dev package.");
+        WindowsPackageEvidence.ValidateIdentity(channel, id.Name, id.Publisher);
         return new(id.Name, id.Publisher, id.FamilyName, ApplicationData.Current.LocalFolder.Path);
     }
 
@@ -32,8 +32,7 @@ public sealed class NativeWindowsContinuityPlatform : IWindowsContinuityPlatform
 
     public ICredentialStore CreatePackageCredentialStore(WindowsPackageEvidence package)
     {
-        package.ValidateDev();
-        return new VaultStore($"Openza.Tasks.Desktop/{package.FamilyName}/tasks-dev", false);
+        return new VaultStore(package.CredentialResource(channel), false);
     }
 
     public ICredentialStore OpenLegacyCloudCredentialReader() => new VaultStore("Openza.Tasks", true);

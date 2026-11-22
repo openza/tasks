@@ -9,7 +9,7 @@ using Openza.Tasks.Core.Services;
 
 namespace Openza.Tasks.Desktop.Services.Continuity;
 
-/// <summary>Package-local, Dev-gated preparation before the store or main window opens.</summary>
+/// <summary>Package-local, channel-gated preparation before the store or main window opens.</summary>
 public sealed class WindowsContinuityCoordinator
 {
     public const string CloudRecoveryNotice = "Personal Cloud sync is paused. Open Sync or Settings to recover the saved pairing or export/restore a safety copy. Local tasks and pending operations remain; legacy identity will not be re-imported.";
@@ -26,7 +26,7 @@ public sealed class WindowsContinuityCoordinator
     {
         session.EnsureActive();
         var data = session.Data;
-        session.Package.ValidateDev();
+        session.Package.Validate(data.Runtime.Channel);
         var root = data.Runtime.DataDirectory;
         RejectLink(root);
         PrivateFilePermissions.EnsureDirectory(root);
@@ -105,7 +105,7 @@ public sealed class WindowsContinuityCoordinator
         var conversion = WinUiSettingsConverter.Convert(sourceSettings.TrimStart('\uFEFF'));
         var notices = new List<string>
         {
-            "Windows Dev transition: automatic sync and OneDrive upload start disabled. Review connections before enabling them.",
+            "Windows transition: automatic sync and OneDrive upload start disabled. Review connections before enabling them.",
             "Legacy provider tokens have no channel ownership proof. Reconnect Todoist, GitHub or backup as needed; original credentials were not read or removed.",
         };
         if (conversion.RetainedFields.Count > 0) notices.Add("Some Windows settings remain in the retained original; review the transition archive for unsupported preferences.");
