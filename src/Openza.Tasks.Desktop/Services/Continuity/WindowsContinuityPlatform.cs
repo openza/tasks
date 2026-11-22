@@ -6,7 +6,7 @@ namespace Openza.Tasks.Desktop.Services.Continuity;
 
 public sealed record WindowsPackageEvidence(string Name, string Publisher, string FamilyName, string LocalFolder)
 {
-    public WindowsPackageDataContext Validate(OpenzaChannel channel = OpenzaChannel.Dev)
+    public WindowsPackageDataContext Validate(OpenzaChannel channel)
     {
         ValidateIdentity(channel, Name, Publisher);
         if (!FamilyName.StartsWith(Name + "_", StringComparison.Ordinal) || FamilyName.Length <= Name.Length + 1)

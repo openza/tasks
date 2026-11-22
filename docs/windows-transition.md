@@ -126,8 +126,10 @@ checks; native UI/package acceptance remains separate.
 
 Dev uses `0.1.N.0` from `0.1.1.0` so Avalonia can upgrade the June WinUI Dev
 baseline `0.1.0.0` without lowering its version.
-These are source manifest values, not installed or latest Store versions. Preserve publisher/name
-association, architecture and OS constraints; keep private Store metadata out of Git.
+The Production baseline is the live Store version from 2026-06-24; Dev and Preview
+baselines are source manifest values, not claims about installed versions. The
+Avalonia Production manifest targets 1.4.0.0. Preserve publisher/name association,
+architecture and OS constraints; keep private Store metadata out of Git.
 
 ### MSIX packaging
 
