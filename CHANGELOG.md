@@ -4,6 +4,24 @@ All notable changes to Openza Tasks will be documented in this file.
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-11-22
+
+### Added
+- Personal Cloud task conflict resolution in Settings: keep Desktop or Cloud edits while unrelated changes continue syncing.
+- Dev-only Windows Avalonia MSIX packaging and guarded upgrades from the WinUI Dev package, with single-instance activation and Windows high-contrast support. This is not a Windows Store release; Preview and Production replacement remain gated.
+
+### Changed
+- Quick capture keeps planning fields optional, task details show existing notes in a compact layout, and Add Task actions stay within the monitor work area.
+- Clearer Inbox and search scope, direct access to App connections from first-use setup, and initial-sync progress when pairing Personal Cloud.
+- Local validation uses .NET SDK 10.0.110 and runtime 10.0.10; the Snap build selects the .NET 10.0 runtime independently.
+
+### Fixed
+- Markdown export/import preserves task titles, notes, dates, deadlines, priorities, workflow and completion states, projects, and labels, while honoring edited checkboxes and recording Personal Cloud changes.
+- Personal Cloud deadlines use Gregorian dates regardless of the system calendar.
+- Keyboard navigation and selection in desktop pickers, and validation of Personal Cloud settings and pairing codes.
+- Long space names, task status labels, and completed-task badges display correctly.
+- Snap keyring failures explain Secret Portal and fallback access requirements and retain error details.
+
 ## [1.3.0] - 2026-10-26
 
 ### Added

@@ -81,8 +81,8 @@ Cloud guides aligned; the website sources live in
 [`openza/website`](https://github.com/openza/website), not this repository or
 `openza/personal-cloud`.
 
-The next Linux Snap version has its planned changes under
-[CHANGELOG Unreleased](../CHANGELOG.md#unreleased). Before release, update the
+The next Linux Snap version is **1.4.0**, not yet published, with changes under
+[CHANGELOG 1.4.0](../CHANGELOG.md#140---2026-11-22). Before release, update the
 Snap version, both .NET publish version properties, AppStream metadata and final
 changelog/tag together. Windows package publication remains a separate release
 lane.
