@@ -1,135 +1,77 @@
-# Microsoft Store Submission Notes
+# Microsoft Store Submission — Avalonia 1.4.0.0
 
-Openza Tasks is Store-first for WinUI V1.
+## Release and identity
 
-## Current Release Target
+The live Store app is WinUI **1.0.0.0**, uploaded **2026-06-24**:
+`Openza.OpenzaTasks_1.0.0.0_x64__q7pgk2crrc53t`.
+The authorized replacement is Avalonia **1.4.0.0**; WinUI stays frozen.
 
-- Release: `1.0.1`
-- Package version: `1.0.1.0`
-- Store app name: Openza Tasks
-- Microsoft Store product ID: `9NQGDKXGRGF8`
-- Public Store listing: <https://apps.microsoft.com/detail/9NQGDKXGRGF8>
-- Store app deep link: `ms-windows-store://pdp/?ProductId=9NQGDKXGRGF8`
-- Public support/contact: `deependra@solanky.dev`
-- Privacy policy: use the published `PRIVACY.md` page from this repository or website.
+- Product: [Openza Tasks, 9NQGDKXGRGF8](https://apps.microsoft.com/detail/9NQGDKXGRGF8)
+- Name: `Openza.OpenzaTasks`
+- Publisher: `CN=DAC3BFD1-0B27-4912-85AF-DB96E18108D1`
+- Application Id: `App`; architecture: x64; Windows 10 22H2+ / Windows 11
+- Manifest: `packaging/windows/Package.Production.appxmanifest`
+- Self-contained .NET and Windows App SDK; capabilities: internetClient, runFullTrust.
 
-## Package Defaults
+## Build the upload package
 
-- App name: Openza Tasks
-- Package identity: Openza.OpenzaTasks
-- Architecture: x64
-- Target OS: Windows 10 22H2+ and Windows 11
-- Restricted capability: `runFullTrust`, required by packaged WinUI desktop apps
-- Runtime deployment: self-contained .NET and Windows App SDK; the Store package must not require a separate .NET runtime install.
-- Production version lane: `1.N.P.0`
-- Preview and Dev identities must stay separate from Production. Do not install over or relaunch Production/Preview during release validation unless explicitly approved.
-
-## Local Validation
-
-Run these before creating the Store upload package:
+On Windows with .NET 10 and Windows SDK MakeAppx on PATH:
 
 ```powershell
-dotnet restore Openza.Tasks.slnx
-dotnet test src\Openza.Tasks.Tests\Openza.Tasks.Tests.csproj -c Release --no-restore
-dotnet build src\Openza.Tasks\Openza.Tasks.csproj -c Release -p:Platform=x64 --no-restore
-pnpm --dir website build
-gitleaks detect --source . --verbose
+Push-Location src\Openza.Tasks.Desktop
+dotnet build Openza.Tasks.Desktop.csproj -c Release
+Pop-Location
+dotnet test src\Openza.Tasks.Tests\Openza.Tasks.Tests.csproj -c Release
+./scripts/windows/package-msix.ps1 -Channel Production
+gitleaks detect --source . --verbose --redact
 ```
 
-If `pnpm` is not on PATH, use:
+The script publishes the dedicated Desktop Package entry project with
+`OpenzaPackagingProfile=Production`, `OpenzaChannel=Production` and
+`OpenzaWindowsContinuity=Production`. The profile embeds matching metadata and
+publishes the `.openza-channel` marker containing `Production`. A missing or
+incorrect marker stops packaging. This is not an ordinary source launch.
+
+The printed `MSIX:` path under ignored `artifacts/msix/<id>/` is the unsigned
+`.msix` upload candidate. Partner Center accepts MSIX and applies Store signing;
+this script does not generate an msixupload container. Optional local signing
+uses `-CertificatePath` and a SecureString `-CertificatePassword`, plus SignTool.
+The certificate must match the manifest publisher. Never commit certificates,
+passwords, packages, private data or private Store metadata.
+
+Inspect the package before handing it off:
 
 ```powershell
-$env:ASTRO_TELEMETRY_DISABLED='1'; npm --prefix website run build
+makeappx unpack /p <printed-msix-path> /d artifacts/msix/production-inspection /o
+Get-Content artifacts/msix/production-inspection/AppxManifest.xml
+Get-Content artifacts/msix/production-inspection/.openza-channel
 ```
 
-For Store upload package generation, the project disables `.appxsym` creation with
-`AppxSymbolPackageEnabled=false`. This avoids MSIX tooling failures on machines
-without `mspdbcmf.exe` while still producing the `.msixupload` package Partner
-Center accepts.
+Confirm identity/publisher/version, App Id, Avalonia executable and Production
+marker. Do not install, replace, stop or relaunch live Production/Preview for
+validation without specific approval. The script never installs or launches.
 
-The project also sets `SelfContained=true`, `PublishSelfContained=true`, and
-`WindowsAppSDKSelfContained=true` so the package includes the .NET and Windows
-App SDK runtime components needed to launch on clean Store certification
-machines. If Partner Center reports policy 10.2.4.1 for an undisclosed `.NET
-environment`, rebuild and resubmit from a package that includes these settings
-rather than adding .NET as a required external dependency in the listing copy.
+## What upgrading users see
 
-## Partner Center Handoff
+The same package family retains its package-local database and settings.
+Continuity uses only the matching package LocalFolder, archives originals and a
+consistent SQLite safety copy, and converts supported settings into
+`settings.avalonia.json`. It does not search for Flutter-era stores.
+Automatic sync and OneDrive upload start **off**. Users should review connections
+and reconnect providers as requested before enabling them. Unscoped legacy
+Todoist/GitHub/backup-passphrase credentials are not automatically copied.
+Microsoft cache reuse is attempted for the configured account/client; unusable
+caches require sign-in. Originals are retained. Local safety copies are restore
+points, not durable backups; use explicit export or OneDrive backup.
 
-These steps require the maintainer's Microsoft Partner Center account:
+## Partner Center handoff
 
-1. Reserve or open the **Openza Tasks** product in Partner Center.
-2. Associate `src\Openza.Tasks\Openza.Tasks.csproj` with the Store app from Visual Studio so the production manifest receives the Store-assigned identity and publisher values.
-3. Confirm the Store identity still maps to the production package lane, not Preview or Dev.
-4. Complete pricing, availability, category, age rating, privacy policy URL, support contact, and declarations.
-5. Create the Store upload package from Visual Studio's Store packaging flow.
-6. Upload the generated `.msixupload` or `.msixbundle` in Partner Center.
-7. Submit after Partner Center package validation passes.
+1. Open the existing Openza Tasks product in Partner Center, not a new app.
+2. Upload the generated unsigned Production MSIX to the 1.4.0.0 submission.
+3. Verify package validation, listing, privacy URL, declarations and availability.
+4. Use reviewed Avalonia screenshots with synthetic data only.
+5. Submit only with maintainer approval after native upgrade acceptance.
 
-Do not commit generated certificates, `.msixupload` files, `.msixbundle` files, or `AppPackages/` output.
-
-## Listing Copy
-
-Short description:
-
-> Native local-first task manager for Windows with optional Todoist, Microsoft To Do, and OneDrive backup support.
-
-Suggested long description:
-
-> Openza Tasks is a Windows-native task manager for fast local capture, project planning, and optional provider sync. Your tasks live locally in SQLite, with package-local restore points for rollback and optional OneDrive app-folder backup for durable recovery. Connect Todoist or Microsoft To Do when you want provider sync, or use Openza Tasks as a local-first planner with Markdown import/export.
->
-> V1 is a fresh WinUI release line. It does not auto-migrate older Flutter-era local stores; reconnect integrations or import data explicitly when needed.
-
-Suggested search terms:
-
-- tasks
-- todo
-- planner
-- project
-- Todoist
-- Microsoft To Do
-- OneDrive backup
-- local first
-
-## Store Assets
-
-Store-ready screenshots captured from the Preview Demo space:
-
-- 1536x816 originals:
-  - `assets\screenshots\main-view-demo.png`
-  - `assets\screenshots\add-task-demo.png`
-  - `assets\screenshots\search-demo.png`
-  - `assets\screenshots\sync-demo.png`
-- 1366x768 Partner Center variants in `assets\screenshots\store-1366x768\`:
-  - `main-view-store-1366x768.png`
-  - `add-task-store-1366x768.png`
-  - `search-store-1366x768.png`
-  - `sync-store-1366x768.png`
-
-Older screenshots:
-
-- `assets\screenshots\settings.png` is 1505x973 but may expose account state depending on the running app and should be reviewed before Store use.
-- `assets\screenshots\main-view.png` is 1502x622 and is not tall enough for Store submission.
-
-Do not use screenshots with personal tasks, real provider data, private account names, tokens, or private project names.
-
-## Release Checklist
-
-- [x] Production manifest exists with `Openza.OpenzaTasks` and version `1.0.1.0`.
-- [x] Dev and Preview manifests are separate from Production.
-- [x] Package artifacts and certificates are ignored by git.
-- [x] Unit tests pass locally for Release.
-- [x] WinUI app builds locally for Release/x64.
-- [x] Website/docs build passes locally.
-- [x] `gitleaks detect --source . --verbose` passes before commit/tag.
-- [x] Partner Center product exists and app is associated from Visual Studio.
-- [x] Production manifest publisher/identity is updated to Store-assigned values after association.
-- [x] Store-ready screenshots are captured from non-private sample data.
-- [x] Store package is generated from Visual Studio/MSBuild.
-- [x] Store package bundles the .NET runtime and Windows App SDK runtime.
-- [x] Partner Center package validation passes.
-- [x] Submission is reviewed and published.
-
-## Privacy
-
-Use `PRIVACY.md` as the public privacy policy source. The app does not collect telemetry or analytics in V1.
+Building, unpacking and unit tests do not prove installed upgrade behavior,
+Microsoft sign-in, real vault access or provider/Personal Cloud continuity.
+See [Windows transition](windows-transition.md) for those acceptance checks.

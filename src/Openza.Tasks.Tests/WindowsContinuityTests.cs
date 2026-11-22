@@ -305,6 +305,30 @@ public sealed class WindowsContinuityTests : IDisposable
         Assert.Equal(0, target.Writes);
     }
 
+    [Theory]
+    [InlineData(OpenzaChannel.Dev, "Openza.OpenzaTasks.Dev", "CN=Openza", "tasks-dev")]
+    [InlineData(OpenzaChannel.Production, "Openza.OpenzaTasks", "CN=DAC3BFD1-0B27-4912-85AF-DB96E18108D1", "tasks")]
+    public void Package_evidence_accepts_approved_channel_and_scopes_credentials(
+        OpenzaChannel channel, string name, string publisher, string credentialNamespace)
+    {
+        var package = new Openza.Tasks.Desktop.Services.Continuity.WindowsPackageEvidence(
+            name, publisher, name + "_synthetic", Path.GetFullPath(_directory));
+        Assert.Equal(channel, package.Validate(channel).Runtime.Channel);
+        Assert.Equal($"Openza.Tasks.Desktop/{name}_synthetic/{credentialNamespace}", package.CredentialResource(channel));
+    }
+
+    [Theory]
+    [InlineData(OpenzaChannel.Preview, "Openza.OpenzaTasks.Preview", "CN=Openza")]
+    [InlineData(OpenzaChannel.Production, "Openza.OpenzaTasks", "CN=Openza")]
+    [InlineData(OpenzaChannel.Dev, "Openza.OpenzaTasks", "CN=DAC3BFD1-0B27-4912-85AF-DB96E18108D1")]
+    [InlineData(OpenzaChannel.Production, "", "")]
+    public void Package_identity_rejects_unsupported_mismatched_or_empty_evidence(
+        OpenzaChannel channel, string name, string publisher)
+    {
+        Assert.Throws<Openza.Tasks.Desktop.Services.Continuity.WindowsContinuityException>(() =>
+            Openza.Tasks.Desktop.Services.Continuity.WindowsPackageEvidence.ValidateIdentity(channel, name, publisher));
+    }
+
     private sealed class TestCredentials : ICredentialStore
     {
         public Dictionary<string, string> Values { get; } = new(StringComparer.Ordinal);

@@ -19,13 +19,22 @@ public sealed partial class WindowsContinuityIntegrationTests(EditorTestSession 
     private FakePlatform Platform => new(_root);
     private string Archive => Path.Combine(_root, "windows-continuity-v1");
 
-    [Fact]
-    public async Task Applies_sidecar_with_durable_original_and_database_copy_without_changing_source()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Applies_sidecar_with_durable_original_and_database_copy_without_changing_source(bool production)
     {
         var platform = Platform;
+        if (production)
+        {
+            platform.Name = "Openza.OpenzaTasks";
+            platform.Publisher = "CN=DAC3BFD1-0B27-4912-85AF-DB96E18108D1";
+        }
         var original = await SeedAsync();
         var database = await File.ReadAllBytesAsync(Path.Combine(_root, "openza_tasks.db"));
-        using var session = new WindowsContinuitySession(platform);
+        using var session = new WindowsContinuitySession(platform, production
+            ? Openza.Tasks.Application.Runtime.OpenzaChannel.Production
+            : Openza.Tasks.Application.Runtime.OpenzaChannel.Dev);
         await PrepareAsync(session, platform);
         Assert.Equal(Path.Combine(_root, "openza_tasks.db"), session.Data.Runtime.DatabasePath);
         Assert.False(File.Exists(Path.Combine(_root, "openza-tasks.db")));

@@ -10,8 +10,8 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
-if ($Channel -cne 'Dev') {
-    throw 'MSIX packaging supports only Dev. Preview and Production are rejected because Windows continuity is Dev-only.'
+if ($Channel -cne 'Dev' -and $Channel -cne 'Production') {
+    throw 'MSIX packaging supports only Dev and Production. Preview is rejected.'
 }
 if ($env:OS -ne 'Windows_NT') { throw 'MSIX packaging requires Windows.' }
 $makeappx = (Get-Command $MakeAppxPath -ErrorAction Stop).Source
@@ -29,12 +29,29 @@ New-Item -ItemType Directory -Path $layout -Force | Out-Null
 
 Push-Location $repo
 try {
-    & dotnet publish src/Openza.Tasks.Desktop/Openza.Tasks.Desktop.csproj -c Release -r win-x64 `
-        --self-contained true -p:OpenzaWindowsContinuity=Dev -p:OpenzaChannel=Dev `
+    $project = 'src/Openza.Tasks.Desktop/Openza.Tasks.Desktop.csproj'
+    $profile = @()
+    if ($Channel -ceq 'Production') {
+        $project = 'src/Openza.Tasks.Desktop/Openza.Tasks.Desktop.Package.csproj'
+        [xml]$productionManifest = Get-Content (Join-Path $repo 'packaging/windows/Package.Production.appxmanifest') -Raw
+        $packageVersion = [Version]$productionManifest.Package.Identity.Version
+        if ($packageVersion.Revision -ne 0) { throw 'Production package version must end in revision 0.' }
+        $productVersion = $packageVersion.ToString(3)
+        $profile = @('-p:OpenzaPackagingProfile=Production', "-p:Version=$productVersion",
+            "-p:AssemblyVersion=$packageVersion", "-p:FileVersion=$packageVersion",
+            "-p:InformationalVersion=$productVersion", '-p:IncludeSourceRevisionInInformationalVersion=false')
+    }
+    & dotnet publish $project @profile -c Release -r win-x64 `
+        --self-contained true -p:OpenzaWindowsContinuity=$Channel -p:OpenzaChannel=$Channel `
         -p:WindowsAppSDKSelfContained=true -o $layout
     if ($LASTEXITCODE -ne 0) { throw "Desktop publish failed ($LASTEXITCODE)." }
 
-    Copy-Item (Join-Path $repo 'packaging/windows/Package.Dev.appxmanifest') (Join-Path $layout 'AppxManifest.xml')
+    if ($Channel -ceq 'Production' -and
+        (!(Test-Path (Join-Path $layout '.openza-channel')) -or
+         (Get-Content (Join-Path $layout '.openza-channel') -Raw).Trim() -cne 'Production')) {
+        throw 'Production publish is missing its matching channel marker.'
+    }
+    Copy-Item (Join-Path $repo "packaging/windows/Package.$Channel.appxmanifest") (Join-Path $layout 'AppxManifest.xml')
     Copy-Item (Join-Path $repo 'src/Openza.Tasks/Assets') (Join-Path $layout 'Assets') -Recurse
     foreach ($file in @('Openza.Tasks.Desktop.exe', 'coreclr.dll', 'Microsoft.WindowsAppRuntime.dll')) {
         if (-not (Test-Path (Join-Path $layout $file))) { throw "Self-contained publish is missing $file." }
