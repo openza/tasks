@@ -13,7 +13,6 @@ All notable changes to Openza Tasks will be documented in this file.
 ### Changed
 - Quick capture keeps planning fields optional, task details show existing notes in a compact layout, and Add Task actions stay within the monitor work area.
 - Clearer Inbox and search scope, direct access to App connections from first-use setup, and initial-sync progress when pairing Personal Cloud.
-- Local validation uses .NET SDK 10.0.110 and runtime 10.0.10; the Snap build selects the .NET 10.0 runtime independently.
 
 ### Fixed
 - Markdown export/import preserves task titles, notes, dates, deadlines, priorities, workflow and completion states, projects, and labels, while honoring edited checkboxes and recording Personal Cloud changes.
