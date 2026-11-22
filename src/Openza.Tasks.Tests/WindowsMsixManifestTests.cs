@@ -5,6 +5,24 @@ namespace Openza.Tasks.Tests;
 
 public sealed class WindowsMsixManifestTests
 {
+    [Fact]
+    public void Production_publish_stamps_runtime_versions_from_manifest_without_changing_Dev()
+    {
+        var root = RepositoryRoot();
+        var script = File.ReadAllText(Path.Combine(root, "scripts/windows/package-msix.ps1"));
+        var production = script[script.IndexOf("if ($Channel -ceq 'Production')", StringComparison.Ordinal)..
+            script.IndexOf("& dotnet publish", StringComparison.Ordinal)];
+        Assert.Contains("packaging/windows/Package.Production.appxmanifest", production);
+        Assert.Contains("[Version]$productionManifest.Package.Identity.Version", production);
+        Assert.Contains("$packageVersion.ToString(3)", production);
+        foreach (var property in new[] { "Version", "InformationalVersion" })
+            Assert.Contains($"-p:{property}=$productVersion", production);
+        foreach (var property in new[] { "AssemblyVersion", "FileVersion" })
+            Assert.Contains($"-p:{property}=$packageVersion", production);
+        Assert.Contains("-p:IncludeSourceRevisionInInformationalVersion=false", production);
+        Assert.Contains("$profile = @()", script[..script.IndexOf("if ($Channel -ceq 'Production')", StringComparison.Ordinal)]);
+    }
+
     private static string RepositoryRoot([CallerFilePath] string source = "") =>
         Path.GetFullPath(Path.Combine(Path.GetDirectoryName(source)!, "../.."));
 

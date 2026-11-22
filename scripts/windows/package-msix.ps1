@@ -33,7 +33,13 @@ try {
     $profile = @()
     if ($Channel -ceq 'Production') {
         $project = 'src/Openza.Tasks.Desktop/Openza.Tasks.Desktop.Package.csproj'
-        $profile = @('-p:OpenzaPackagingProfile=Production')
+        [xml]$productionManifest = Get-Content (Join-Path $repo 'packaging/windows/Package.Production.appxmanifest') -Raw
+        $packageVersion = [Version]$productionManifest.Package.Identity.Version
+        if ($packageVersion.Revision -ne 0) { throw 'Production package version must end in revision 0.' }
+        $productVersion = $packageVersion.ToString(3)
+        $profile = @('-p:OpenzaPackagingProfile=Production', "-p:Version=$productVersion",
+            "-p:AssemblyVersion=$packageVersion", "-p:FileVersion=$packageVersion",
+            "-p:InformationalVersion=$productVersion", '-p:IncludeSourceRevisionInInformationalVersion=false')
     }
     & dotnet publish $project @profile -c Release -r win-x64 `
         --self-contained true -p:OpenzaWindowsContinuity=$Channel -p:OpenzaChannel=$Channel `
