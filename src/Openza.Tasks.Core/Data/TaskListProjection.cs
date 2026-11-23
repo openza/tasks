@@ -115,7 +115,7 @@ public static class TaskListProjection
                 ? tasks.OrderBy(t => RelevantDate(t, query.DateScope) is null).ThenByDescending(t => RelevantDate(t, query.DateScope)).ThenByDescending(t => t.CreatedAt)
                 : tasks.OrderBy(t => RelevantDate(t, query.DateScope) is null).ThenBy(t => RelevantDate(t, query.DateScope)).ThenByDescending(t => t.CreatedAt),
             TaskSortMode.CreatedNewest => descending
-                ? tasks.OrderBy(t => t.CreatedAt)
+                ? tasks.OrderBy(t => t.CreatedAt).ThenBy(t => t.Id, StringComparer.Ordinal)
                 : tasks.OrderByDescending(t => t.CreatedAt),
             TaskSortMode.Title => descending
                 ? tasks.OrderByDescending(t => t.Title, StringComparer.CurrentCultureIgnoreCase)

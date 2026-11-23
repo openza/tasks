@@ -33,11 +33,13 @@ public sealed class JsonPersonalCloudConnectionStore(string path) : IPersonalClo
         if (!File.Exists(path)) return null;
         try
         {
-            var value = JsonSerializer.Deserialize<PersonalCloudConnectionProfile>(File.ReadAllText(path), Json);
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
+            var value = JsonSerializer.Deserialize<PersonalCloudConnectionProfile>(stream, Json);
             Validate(value);
             return value;
         }
         catch (PersonalCloudK0ContractException) { throw; }
+        catch (Exception exception) when (exception is FileNotFoundException or DirectoryNotFoundException) { return null; }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
         {
             throw new PersonalCloudK0ContractException("connection_invalid", "The saved Personal Cloud connection is invalid.", exception);

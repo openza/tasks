@@ -112,9 +112,9 @@ internal static class SqliteTaskReadQueries
         return new TaskCountSummary(inbox, nextActions, waiting, someday, today, calendar, overdue, open, all, completed, byProject, nextByProject);
     }
 
-    public static async Task<IReadOnlyList<TaskItem>> ReadTasksAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    public static async Task<IReadOnlyList<TaskItem>> ReadTasksAsync(SqliteConnection connection, CancellationToken cancellationToken, string? filterTaskId = null)
     {
-        var labelsByTask = await ReadLabelsByTaskAsync(connection, cancellationToken).ConfigureAwait(false);
+        var labelsByTask = await ReadLabelsByTaskAsync(connection, cancellationToken, filterTaskId).ConfigureAwait(false);
         var taskColumns = await GetColumnNamesAsync(connection, "tasks", cancellationToken).ConfigureAwait(false);
         var revisionProjection = taskColumns.Contains("revision") ? "t.revision" : "0 AS revision";
         var command = connection.CreateCommand();
@@ -135,6 +135,11 @@ internal static class SqliteTaskReadQueries
               WHERE pct.product = 'tasks' AND pct.entity_id = t.id
             )
             """.Replace("@revision_projection", revisionProjection, StringComparison.Ordinal);
+        if (filterTaskId is not null)
+        {
+            command.CommandText += " AND t.id = @task_id";
+            command.Parameters.AddWithValue("@task_id", filterTaskId);
+        }
 
         var tasks = new List<TaskItem>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
@@ -191,7 +196,7 @@ internal static class SqliteTaskReadQueries
         return tasks;
     }
 
-    private static async Task<Dictionary<string, IReadOnlyList<LabelItem>>> ReadLabelsByTaskAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    private static async Task<Dictionary<string, IReadOnlyList<LabelItem>>> ReadLabelsByTaskAsync(SqliteConnection connection, CancellationToken cancellationToken, string? filterTaskId)
     {
         var command = connection.CreateCommand();
         command.CommandText = """
@@ -199,8 +204,13 @@ internal static class SqliteTaskReadQueries
                    l.sort_order, l.is_favorite, l.provider_metadata, l.created_at
             FROM task_labels tl
             INNER JOIN labels l ON l.id = tl.label_id
-            ORDER BY l.sort_order, l.name
             """;
+        if (filterTaskId is not null)
+        {
+            command.CommandText += " WHERE tl.task_id = @task_id";
+            command.Parameters.AddWithValue("@task_id", filterTaskId);
+        }
+        command.CommandText += " ORDER BY l.sort_order, l.name";
 
         var labels = new Dictionary<string, List<LabelItem>>(StringComparer.Ordinal);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);

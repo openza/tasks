@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -20,11 +21,12 @@ public sealed class MicrosoftToDoProvider(HttpClient httpClient, string accessTo
             .GroupBy(label => label.Name, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
         var tasks = new List<TaskItem>();
+        var expansion = new ChecklistExpansion();
         foreach (var list in lists)
         {
             if (list.ExternalId is not null)
             {
-                tasks.AddRange(await FetchTasksAsync(list.ExternalId, categories, cancellationToken).ConfigureAwait(false));
+                tasks.AddRange(await FetchTasksAsync(list.ExternalId, categories, expansion, cancellationToken).ConfigureAwait(false));
             }
         }
 
@@ -43,14 +45,8 @@ public sealed class MicrosoftToDoProvider(HttpClient httpClient, string accessTo
 
     private async Task<IReadOnlyList<ProjectItem>> FetchListsAsync(CancellationToken cancellationToken)
     {
-        using var request = CreateRequest(HttpMethod.Get, "/me/todo/lists");
-        using var document = await SendJsonAsync(request, cancellationToken).ConfigureAwait(false);
-        if (!document.RootElement.TryGetProperty("value", out var value))
-        {
-            return [];
-        }
-
-        return value.EnumerateArray().Select(list =>
+        var lists = await FetchCollectionAsync("/me/todo/lists", cancellationToken).ConfigureAwait(false);
+        return lists.Select(list =>
         {
             var id = GetString(list, "id") ?? Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture);
             var wellKnown = GetString(list, "wellknownListName");
@@ -73,14 +69,8 @@ public sealed class MicrosoftToDoProvider(HttpClient httpClient, string accessTo
     {
         try
         {
-            using var request = CreateRequest(HttpMethod.Get, "/me/outlook/masterCategories");
-            using var document = await SendJsonAsync(request, cancellationToken).ConfigureAwait(false);
-            if (!document.RootElement.TryGetProperty("value", out var value))
-            {
-                return [];
-            }
-
-            return value.EnumerateArray()
+            var categories = await FetchCollectionAsync("/me/outlook/masterCategories", cancellationToken).ConfigureAwait(false);
+            return categories
                 .Select(category =>
                 {
                     var name = GetString(category, "displayName") ?? "Category";
@@ -98,38 +88,123 @@ public sealed class MicrosoftToDoProvider(HttpClient httpClient, string accessTo
                 })
                 .ToList();
         }
-        catch
+        catch (Exception exception) when (exception is not (OperationCanceledException or MicrosoftPagingException))
         {
             return [];
         }
     }
 
-    private async Task<IReadOnlyList<TaskItem>> FetchTasksAsync(string listId, IReadOnlyDictionary<string, LabelItem> categories, CancellationToken cancellationToken)
+    private async Task<IReadOnlyList<JsonElement>> FetchCollectionAsync(string path, CancellationToken cancellationToken)
     {
-        var tasks = new List<TaskItem>();
-        string? nextPath = $"/me/todo/lists/{listId}/tasks?$top=100";
+        var items = new List<JsonElement>();
+        string? nextPath = path;
+        var visited = new HashSet<string>(StringComparer.Ordinal) { path };
         while (nextPath is not null)
         {
             using var request = CreateRequest(HttpMethod.Get, nextPath);
             using var document = await SendJsonAsync(request, cancellationToken).ConfigureAwait(false);
+            if (document.RootElement.TryGetProperty("value", out var values))
+                items.AddRange(values.EnumerateArray().Select(value => value.Clone()));
+            nextPath = ReadNextPagePath(document.RootElement, visited);
+        }
+        return items;
+    }
+
+    private sealed class ChecklistExpansion
+    {
+        public bool Enabled { get; set; } = true;
+    }
+
+    private async Task<IReadOnlyList<TaskItem>> FetchTasksAsync(string listId, IReadOnlyDictionary<string, LabelItem> categories,
+        ChecklistExpansion expansion, CancellationToken cancellationToken)
+    {
+        var tasks = new List<TaskItem>();
+        string? nextPath = $"/me/todo/lists/{listId}/tasks?$top=100&$expand=checklistItems";
+        var visited = new HashSet<string>(StringComparer.Ordinal) { nextPath };
+        while (nextPath is not null)
+        {
+            using var document = await FetchTaskPageAsync(nextPath, expansion, cancellationToken).ConfigureAwait(false);
             if (document.RootElement.TryGetProperty("value", out var value))
             {
-                tasks.AddRange(value.EnumerateArray().Select(task => MapTask(task, listId, categories, providerConnectionId)));
+                foreach (var task in value.EnumerateArray())
+                {
+                    List<JsonElement>? checklist = null;
+                    if (expansion.Enabled && task.TryGetProperty("checklistItems", out var expanded) && expanded.ValueKind == JsonValueKind.Array)
+                    {
+                        checklist = expanded.EnumerateArray().Select(item => item.Clone()).ToList();
+                        if (task.TryGetProperty("checklistItems@odata.nextLink", out var nextChecklist))
+                            checklist.AddRange(await FetchChecklistAsync(nextChecklist.GetString()!, cancellationToken).ConfigureAwait(false));
+                    }
+                    tasks.Add(MapTask(task, listId, categories, providerConnectionId, checklist));
+                }
             }
 
-            nextPath = document.RootElement.TryGetProperty("@odata.nextLink", out var next)
-                ? next.GetString()?.Replace(BaseUrl, string.Empty, StringComparison.Ordinal)
-                : null;
+            nextPath = ReadNextPagePath(document.RootElement, visited);
         }
 
         return tasks;
     }
 
-    private static TaskItem MapTask(JsonElement task, string listId, IReadOnlyDictionary<string, LabelItem> categories, string providerConnectionId)
+    private async Task<JsonDocument> FetchTaskPageAsync(string path, ChecklistExpansion expansion, CancellationToken cancellationToken)
+    {
+        var withoutExpansion = RemoveChecklistExpansion(path);
+        if (!expansion.Enabled) path = withoutExpansion;
+        using var request = CreateRequest(HttpMethod.Get, path);
+        try { return await SendJsonAsync(request, cancellationToken).ConfigureAwait(false); }
+        catch (HttpRequestException exception) when (path != withoutExpansion &&
+            exception.StatusCode is HttpStatusCode.BadRequest or HttpStatusCode.NotImplemented)
+        {
+            expansion.Enabled = false;
+            using var fallback = CreateRequest(HttpMethod.Get, withoutExpansion);
+            return await SendJsonAsync(fallback, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private static string RemoveChecklistExpansion(string path)
+    {
+        var queryStart = path.IndexOf('?');
+        if (queryStart < 0) return path;
+        var query = string.Join("&", path[(queryStart + 1)..].Split('&').Where(parameter =>
+            !Uri.UnescapeDataString(parameter.Split('=', 2)[0]).Equals("$expand", StringComparison.OrdinalIgnoreCase)));
+        return path[..queryStart] + (query.Length == 0 ? string.Empty : $"?{query}");
+    }
+
+    private async Task<IReadOnlyList<JsonElement>> FetchChecklistAsync(string initialPath, CancellationToken cancellationToken)
+    {
+        var items = new List<JsonElement>();
+        string? path = initialPath.Replace(BaseUrl, string.Empty, StringComparison.Ordinal);
+        var visited = new HashSet<string>(StringComparer.Ordinal) { path };
+        while (path is not null)
+        {
+            using var request = CreateRequest(HttpMethod.Get, path);
+            using var document = await SendJsonAsync(request, cancellationToken).ConfigureAwait(false);
+            items.AddRange(document.RootElement.GetProperty("value").EnumerateArray().Select(item => item.Clone()));
+            path = ReadNextPagePath(document.RootElement, visited);
+        }
+        return items;
+    }
+
+    private static string? ReadNextPagePath(JsonElement page, HashSet<string> visited)
+    {
+        var path = page.TryGetProperty("@odata.nextLink", out var next)
+            ? next.GetString()?.Replace(BaseUrl, string.Empty, StringComparison.Ordinal) : null;
+        if (path is not null && !visited.Add(path))
+            throw new MicrosoftPagingException("Microsoft Graph returned a repeated collection page.");
+        return path;
+    }
+
+    private sealed class MicrosoftPagingException(string message) : InvalidOperationException(message);
+
+    private static TaskItem MapTask(JsonElement task, string listId, IReadOnlyDictionary<string, LabelItem> categories, string providerConnectionId,
+        IReadOnlyList<JsonElement>? checklist)
     {
         var id = GetString(task, "id") ?? Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture);
         var due = ParseGraphDate(task, "dueDateTime");
         var status = GetString(task, "status");
+        var labels = MapCategories(task, categories, providerConnectionId);
+        var metadata = new Dictionary<string, object> { ["id"] = id, ["listId"] = listId, ["synced_at"] = DateTimeOffset.UtcNow };
+        metadata["categories"] = labels.Select(label => new { name = label.Name, color = label.Color });
+        if (checklist is not null) metadata["checklistItems"] = checklist;
         return new TaskItem
         {
             Id = $"mstodo_{id}",
@@ -155,10 +230,10 @@ public sealed class MicrosoftToDoProvider(HttpClient httpClient, string accessTo
             RecurrenceRule = ParseGraphRecurrence(task),
             CreatedAt = ParseDate(GetString(task, "createdDateTime")) ?? DateTimeOffset.UtcNow,
             CompletedAt = ParseGraphDate(task, "completedDateTime"),
-            Labels = MapCategories(task, categories, providerConnectionId),
+            Labels = labels,
             ProviderMetadataJson = JsonSerializer.Serialize(new
             {
-                msToDo = new { id, listId, synced_at = DateTimeOffset.UtcNow },
+                msToDo = metadata,
             }),
         };
     }

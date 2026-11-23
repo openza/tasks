@@ -22,6 +22,7 @@ These contracts state the intended product meanings. Current behavior, exception
 | Inbox badge | Follows workflow status. A project-assigned Inbox-status task is intentionally unprocessed within that project, and its Inbox badge is correct even outside the Inbox view. Project assignment and status selection do not change each other. |
 | Capture | A title is required and trimmed; ordinary local capture defaults to inbox and can omit a project. Hosts still have direct store call sites. |
 | Provider adoption | Creates a linked local wrapper. Provider identity, snapshots, description and source context remain provider-owned. |
+| Subtask inspector | Shows children oldest-created first, then by ID, without grouping by completion or sorting by priority/date. Completing or reopening does not reorder the checklist; newly added children go at the bottom. Parent-row progress is completed/total. |
 | Local enhancements | Notes, labels, local priority, project and workflow generally survive provider refresh. Refresh has explicit date/hierarchy exceptions below. |
 | Provider writes | Completion/reopen and bounded Todoist Date changes for non-recurring source tasks exist. Arbitrary provider title, notes, labels or deadline editing is not implied. |
 | Recurrence | Metadata is stored; local completion does not create another occurrence. A provider can advance and reopen the same wrapper. No universal recurrence engine or reminder service is established. |
