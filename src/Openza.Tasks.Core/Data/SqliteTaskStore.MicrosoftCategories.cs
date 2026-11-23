@@ -10,17 +10,17 @@ public sealed partial class SqliteTaskStore
 {
     public Func<PersonalCloudConnectionProfile?>? PersonalCloudConnection { get; set; }
 
-    private async Task<(TaskItem Task, bool NeedsCloudStaging)> ApplyMicrosoftCategoriesAsync(SqliteConnection connection, ProviderSourceItem source,
+    private async Task<TaskItem> ApplyMicrosoftCategoriesAsync(SqliteConnection connection, ProviderSourceItem source,
         TaskItem task, CancellationToken cancellationToken, bool creatingCloudTask = false, MicrosoftCategoryAuthoring? authoring = null)
     {
-        if (source.IntegrationId != IntegrationIds.MicrosoftToDo) return (task, false);
+        if (source.IntegrationId != IntegrationIds.MicrosoftToDo) return task;
         var metadata = JsonNode.Parse(task.SourceMetadataJson ?? "{}")!.AsObject();
-        if (metadata["msToDoCategoriesApplied"]?.GetValue<bool>() == true) return (task, false);
+        if (metadata["msToDoCategoriesApplied"]?.GetValue<bool>() == true) return task;
 
         using var snapshot = JsonDocument.Parse(source.SnapshotJson ?? "{}");
         if (!snapshot.RootElement.TryGetProperty("msToDo", out var microsoft) ||
             !microsoft.TryGetProperty("categories", out var categories) || categories.ValueKind != JsonValueKind.Array)
-            return (task, false);
+            return task;
 
         var labels = task.Labels.ToList();
         PersonalCloudConnectionProfile? cloud = null;
@@ -46,10 +46,21 @@ public sealed partial class SqliteTaskStore
             if (labels.Any(item => item.Id == label.Id)) continue;
             if (!cloudResolved)
             {
-                if (!creatingCloudTask) authoring?.Acquire();
+                var target = creatingCloudTask ? null : PersonalCloudConnection?.Invoke();
+                if (target is not null && await ReadPersonalCloudEntityVersionAsync(connection, target.InstanceId, task.Id, cancellationToken).ConfigureAwait(false) is not null)
+                    authoring?.Acquire();
                 cloud = creatingCloudTask ? null : authoring?.Cloud;
                 version = cloud is null ? null : await ReadPersonalCloudEntityVersionAsync(connection, cloud.InstanceId, task.Id, cancellationToken).ConfigureAwait(false);
                 cloudResolved = true;
+                if (cloud is not null && version is not null)
+                {
+                    var pending = connection.CreateCommand();
+                    pending.CommandText = "SELECT COUNT(*) FROM personal_cloud_outbox WHERE instance_id=@i AND entity_id=@t AND acknowledged_at IS NULL AND operation IN('task.create','task.createRich')";
+                    pending.Parameters.AddWithValue("@i", cloud.InstanceId);
+                    pending.Parameters.AddWithValue("@t", task.Id);
+                    if (Convert.ToInt64(await pending.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)) > 0)
+                        return task;
+                }
             }
             if (isNew)
             {
@@ -72,14 +83,7 @@ public sealed partial class SqliteTaskStore
         var json = metadata.ToJsonString();
         await WorkspaceExecuteAsync(connection, "UPDATE tasks SET source_metadata=@m,revision=revision+1 WHERE id=@t",
             cancellationToken, ("@m", json), ("@t", task.Id)).ConfigureAwait(false);
-        return (task with { Labels = labels, SourceMetadataJson = json, Revision = task.Revision + 1 },
-            labels.Count > task.Labels.Count && cloud is not null && version is null);
-    }
-
-    private async Task StageMicrosoftCategoryTasksAsync(PersonalCloudConnectionProfile? cloud, CancellationToken cancellationToken)
-    {
-        if (cloud is not null)
-            await StageUnpublishedTasksForPersonalCloudAsync(cloud.InstanceId, cloud.DeviceId, cancellationToken, requireNegotiatedCapabilities: true).ConfigureAwait(false);
+        return task with { Labels = labels, SourceMetadataJson = json, Revision = task.Revision + 1 };
     }
 
     private sealed class MicrosoftCategoryAuthoring(SqliteTaskStore store) : IDisposable
@@ -103,34 +107,4 @@ public sealed partial class SqliteTaskStore
         public void Dispose() => lease?.Dispose();
     }
 
-    internal MicrosoftCategorySyncBatch BeginMicrosoftCategorySyncBatch(CancellationToken cancellationToken) => new(this, cancellationToken);
-
-    internal sealed class MicrosoftCategorySyncBatch : IAsyncDisposable
-    {
-        private readonly SqliteTaskStore store;
-        private readonly CancellationToken cancellationToken;
-        private readonly MicrosoftCategoryAuthoring authoring;
-        private bool needsStaging;
-
-        internal MicrosoftCategorySyncBatch(SqliteTaskStore store, CancellationToken cancellationToken)
-        {
-            this.store = store;
-            this.cancellationToken = cancellationToken;
-            authoring = new(store);
-        }
-
-        internal async Task UpsertAsync(ProviderSourceItem source)
-        {
-            needsStaging |= await store.UpsertProviderSourceItemWithCategoriesAsync(source, false, cancellationToken, authoring).ConfigureAwait(false);
-        }
-
-        public async ValueTask DisposeAsync()
-        {
-            try
-            {
-                if (needsStaging) await store.StageMicrosoftCategoryTasksAsync(authoring.Cloud, cancellationToken).ConfigureAwait(false);
-            }
-            finally { authoring.Dispose(); }
-        }
-    }
 }

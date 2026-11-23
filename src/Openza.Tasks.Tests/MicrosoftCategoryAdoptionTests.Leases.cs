@@ -75,13 +75,13 @@ public sealed partial class MicrosoftCategoryAdoptionTests
     }
 
     [Fact]
-    public async Task Category_connection_is_rechecked_under_the_lease_before_queuing_intents()
+    public async Task Unpublished_category_adoption_does_not_acquire_a_cloud_lease()
     {
         var store = await StoreAsync();
         var reads = 0;
         store.PersonalCloudConnection = () => ++reads == 1 ? CategoryCloud() : null;
         var parent = await AdoptAsync(store, Source("Release"));
-        Assert.Equal(2, reads);
+        Assert.Equal(1, reads);
         Assert.Single(parent.Labels);
         Assert.Empty(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device));
         using var replacement = PersonalCloudConnectionLease.AcquireReplacement(store.DatabasePath);

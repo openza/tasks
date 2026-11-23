@@ -9,7 +9,7 @@ public sealed partial class MicrosoftCategoryAdoptionTests
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public async Task Sync_batch_stages_changed_Microsoft_categories_once_and_skips_unchanged_tasks(bool workspace)
+    public async Task Category_sync_never_seeds_unpublished_tasks_and_skips_unchanged_tasks(bool workspace)
     {
         var store = await StoreAsync();
         var sources = Enumerable.Range(0, 4).Select(index => Source("Release") with
@@ -37,8 +37,10 @@ public sealed partial class MicrosoftCategoryAdoptionTests
         var result = await engine.SyncAsync(provider);
 
         Assert.True(result.Success, result.Error);
-        Assert.Equal(2, targetReads);
+        Assert.Equal(4, targetReads);
         Assert.Equal(tasks.Length, (await store.GetTasksAsync(new TaskQuery { Kind = TaskListKind.All })).Count(task => task.Labels.Count == 1));
+        Assert.Empty(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device));
+        await store.StageUnpublishedTasksForPersonalCloudAsync(Instance, Device);
         var before = (await store.GetPendingPersonalCloudOutboxAsync(Instance, Device)).Count;
         targetReads = 0;
         result = await engine.SyncAsync(provider);
@@ -48,7 +50,7 @@ public sealed partial class MicrosoftCategoryAdoptionTests
     }
 
     [Fact]
-    public async Task Sync_batch_stages_committed_category_changes_when_a_later_source_fails()
+    public async Task Category_sync_preserves_local_changes_without_staging_when_a_later_source_fails()
     {
         var store = await StoreAsync();
         var sources = Enumerable.Range(0, 2).Select(index => Source("Release") with
@@ -73,8 +75,10 @@ public sealed partial class MicrosoftCategoryAdoptionTests
         var result = await new TaskSyncEngine(store).SyncAsync(new CategoryBatchProvider(tasks));
 
         Assert.False(result.Success);
-        Assert.Equal(2, targetReads);
+        Assert.Equal(1, targetReads);
         var first = (await store.GetProviderSourceItemsAsync(IntegrationIds.MicrosoftToDo, includeAdopted: true)).Single(source => source.ExternalId == sources[0].ExternalId);
+        Assert.Empty(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device));
+        await store.StageUnpublishedTasksForPersonalCloudAsync(Instance, Device);
         var create = (await store.GetPendingPersonalCloudOutboxAsync(Instance, Device)).Single(entry => entry.EntityId == first.AdoptedTaskId);
         Assert.Equal("task.createRich", create.Operation);
         Assert.Contains("Release", create.CanonicalJson);

@@ -15,7 +15,11 @@ on the next sync, without removing existing labels. Afterward, changing provider
 categories does not change local labels, and removing an imported label sticks.
 Todoist labels remain source metadata and are not promoted.
 
-When Personal Cloud is connected, new tasks include their labels in workspace
-creation or legacy per-field creation intents. Backfilling an already published
-task queues a separate add-label intent for each new attachment. Category colors
+Category imports never stage unpublished tasks or workspace metadata. Normal
+Personal Cloud sync downloads capabilities and cloud versions first, then includes
+new tasks' local labels in workspace creation or legacy per-field creation intents. Backfilling an already published
+task queues a separate add-label intent for each new attachment under the narrow
+authoring lease. This payload atomically upserts the label by ID/name and never
+references a Space or project. A parent with a pending create is left unmarked
+until a later refresh can attach categories after publication. Category colors
 are local presentation metadata; the cloud label relationship carries ID/name.

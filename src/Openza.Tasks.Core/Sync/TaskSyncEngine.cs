@@ -14,14 +14,9 @@ public sealed class TaskSyncEngine(ITaskStore store)
             var dateUpdatesSynced = await SyncPendingTaskDateUpdatesAsync(provider, cancellationToken).ConfigureAwait(false);
             var completionsSynced = await SyncPendingCompletionsAsync(provider, cancellationToken).ConfigureAwait(false);
             var snapshot = await provider.FetchSnapshotAsync(cancellationToken).ConfigureAwait(false);
-            await using var categoryBatch = provider.IntegrationId == IntegrationIds.MicrosoftToDo && store is SqliteTaskStore sqlite
-                ? sqlite.BeginMicrosoftCategorySyncBatch(cancellationToken) : null;
             async Task SaveSourceAsync(ProviderSourceItem source)
             {
-                if (categoryBatch is null)
-                    await store.UpsertProviderSourceItemAsync(source, cancellationToken).ConfigureAwait(false);
-                else
-                    await categoryBatch.UpsertAsync(source).ConfigureAwait(false);
+                await store.UpsertProviderSourceItemAsync(source, cancellationToken).ConfigureAwait(false);
             }
             var providerConnectionId = provider.ProviderConnectionId;
             var existing = await store.GetProviderSourceItemsAsync(provider.IntegrationId, includeAdopted: true, includeIgnored: true, cancellationToken: cancellationToken).ConfigureAwait(false);

@@ -49,6 +49,8 @@ public sealed partial class MicrosoftCategoryAdoptionTests : IDisposable
         await CloudAsync(store, workspace);
         Assert.Equal(workspace, await store.SupportsPersonalCloudWorkspaceAsync(Instance));
         var task = await AdoptAsync(store, Source("Release", "Planning"));
+        Assert.Empty(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device));
+        await store.StageUnpublishedTasksForPersonalCloudAsync(Instance, Device);
         var outbox = await store.GetPendingPersonalCloudOutboxAsync(Instance, Device);
         if (workspace)
         {
@@ -92,6 +94,7 @@ public sealed partial class MicrosoftCategoryAdoptionTests : IDisposable
         await CloudAsync(store, workspace);
         Assert.Equal(workspace, await store.SupportsPersonalCloudWorkspaceAsync(Instance));
         await store.StageUnpublishedTasksForPersonalCloudAsync(Instance, Device);
+        await AcknowledgeCategoryOutboxAsync(store);
         var before = (await store.GetPendingPersonalCloudOutboxAsync(Instance, Device)).Count;
         var version = (await store.GetPersonalCloudEntityVersionAsync(Instance, task.Id))!.Value;
 
@@ -245,6 +248,44 @@ public sealed partial class MicrosoftCategoryAdoptionTests : IDisposable
             Assert.True(Applied(refreshed));
             Assert.Empty(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device));
         }
+    }
+
+    private static async Task AcknowledgeCategoryOutboxAsync(SqliteTaskStore store)
+    {
+        foreach (var entry in await store.GetPendingPersonalCloudOutboxAsync(Instance, Device))
+        {
+            using var json = JsonDocument.Parse(entry.CanonicalJson);
+            var version = json.RootElement.GetProperty("baseEntityVersion");
+            var receipt = PersonalCloudK0Codec.Serialize(new K0MutationReceipt
+            {
+                ProtocolVersion = 1, Product = "tasks", MutationId = entry.MutationId, Outcome = "accepted",
+                EntityId = entry.EntityId, EntityVersion = version.ValueKind == JsonValueKind.Null ? 1 : version.GetInt64() + 1,
+                ChangeSeq = entry.DeviceSequence, ServerAcceptedAt = "2026-11-23T00:00:00.000Z",
+            });
+            await store.AcknowledgePersonalCloudMutationAsync(Instance, Device, receipt);
+        }
+    }
+
+    [Fact]
+    public async Task Category_backfill_defers_a_pending_parent_create_without_marking_or_dangling_intents()
+    {
+        var store = await StoreAsync();
+        var task = await AdoptAsync(store, Source() with { SnapshotJson = "{}" });
+        await CloudAsync(store, true);
+        await store.StageUnpublishedTasksForPersonalCloudAsync(Instance, Device);
+        var before = (await store.GetPendingPersonalCloudOutboxAsync(Instance, Device)).Count;
+        await store.UpsertProviderSourceItemAsync(Source("Release"));
+        Assert.Equal(before, (await store.GetPendingPersonalCloudOutboxAsync(Instance, Device)).Count);
+        Assert.Empty((await store.GetTaskAsync(task.Id))!.Labels);
+        Assert.DoesNotContain("msToDoCategoriesApplied", (await store.GetTaskAsync(task.Id))!.SourceMetadataJson!);
+        await AcknowledgeCategoryOutboxAsync(store);
+        await store.UpsertProviderSourceItemAsync(Source("Release"));
+        var intent = Assert.Single(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device));
+        Assert.Equal("task.addLabel", intent.Operation);
+        using var json = JsonDocument.Parse(intent.CanonicalJson);
+        var payload = json.RootElement.GetProperty("payload");
+        Assert.Equal(new[] { "label" }, payload.EnumerateObject().Select(property => property.Name));
+        Assert.Equal("Release", payload.GetProperty("label").GetProperty("name").GetString());
     }
 
     private static async Task CloudAsync(SqliteTaskStore store, bool workspace)

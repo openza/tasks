@@ -17,7 +17,7 @@ public sealed partial class PersonalCloudLifecycleIntegrationTests
         f.Tasks.PersonalCloudConnection = () =>
         {
             var current = f.Service.CurrentConnection;
-            if (++reads == 2) removal = f.Service.RemoveAsync();
+            if (++reads == 3) removal = f.Service.RemoveAsync();
             return current;
         };
         var result = await new TaskSyncEngine(f.Tasks).SyncAsync(provider);
@@ -54,12 +54,43 @@ public sealed partial class PersonalCloudLifecycleIntegrationTests
         await f.Tasks.EnsureNoPendingPersonalCloudIntentsAsync();
     }
 
+    [Fact]
+    public async Task Upgraded_cloud_category_backfill_waits_for_workspace_download_before_seeding()
+    {
+        using var f = await Fixture.CreateAsync(23);
+        var source = new ProviderSourceItem { Id = "upgrade_category", ExternalId = "upgrade_category",
+            IntegrationId = IntegrationIds.MicrosoftToDo, ProviderConnectionId = "mstodo_default", Title = "Parent", SnapshotJson = "{}" };
+        await f.Tasks.UpsertProviderSourceItemAsync(source);
+        var parent = (await f.Tasks.AdoptProviderSourceItemAsync(source.Id))!;
+        f.Http.HealthWorkspace = true;
+        await f.Service.UpgradeAsync();
+        var cloud = f.Service.CurrentConnection!;
+        f.Tasks.PersonalCloudConnection = () => cloud;
+        await f.Tasks.UpsertProviderSourceItemAsync(source with { SnapshotJson = "{\"msToDo\":{\"categories\":[{\"name\":\"Release\"}]}}" });
+        Assert.Empty(await f.Tasks.GetPendingPersonalCloudOutboxAsync(cloud.InstanceId, cloud.DeviceId));
+        await f.Tasks.ApplyPersonalCloudChangePageAsync(cloud.InstanceId, cloud.DeviceId,
+            PersonalCloudWorkspaceTests.Page(1, spaces: [PersonalCloudWorkspaceTests.Space(SpaceIds.Default)]));
+        await f.Tasks.StageUnpublishedTasksForPersonalCloudAsync(cloud.InstanceId, cloud.DeviceId);
+        var outbox = await f.Tasks.GetPendingPersonalCloudOutboxAsync(cloud.InstanceId, cloud.DeviceId);
+        Assert.DoesNotContain(outbox, entry => entry.Operation == "space.put" && entry.EntityId == SpaceIds.Default);
+        var create = Assert.Single(outbox, entry => entry.EntityId == parent.Id && entry.Operation == "task.createRich");
+        using var json = System.Text.Json.JsonDocument.Parse(create.CanonicalJson);
+        Assert.Equal("Release", json.RootElement.GetProperty("payload").GetProperty("task").GetProperty("labels")[0].GetProperty("name").GetString());
+    }
+
     private static async Task<(TaskItem Parent, ISyncProvider Provider)> PrepareCategoryRemovalBackfillAsync(Fixture f)
     {
         var source = new ProviderSourceItem { Id = "source_categories", ExternalId = "external_categories", IntegrationId = IntegrationIds.MicrosoftToDo,
             ProviderConnectionId = "mstodo_default", Title = "Synthetic parent", SnapshotJson = "{}" };
         await f.Tasks.UpsertProviderSourceItemAsync(source);
         var parent = (await f.Tasks.AdoptProviderSourceItemAsync(source.Id))!;
+        await using var connection = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={f.Tasks.DatabasePath};Pooling=False");
+        await connection.OpenAsync();
+        var known = connection.CreateCommand();
+        known.CommandText = "INSERT INTO personal_cloud_entity_versions(instance_id,product,entity_id,entity_version,updated_at) VALUES(@i,'tasks',@t,1,0)";
+        known.Parameters.AddWithValue("@i", f.Service.CurrentConnection!.InstanceId);
+        known.Parameters.AddWithValue("@t", parent.Id);
+        await known.ExecuteNonQueryAsync();
         return (parent, new RemovalCategoryProvider(new() { Id = "remote_categories", ExternalId = source.ExternalId, IntegrationId = IntegrationIds.MicrosoftToDo,
             Title = source.Title, ProviderMetadataJson = """{"msToDo":{"categories":[{"name":"Release","color":"#32CD32"}]}}""" }));
     }

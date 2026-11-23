@@ -1,5 +1,4 @@
 using System.Text.Json;
-using Microsoft.Data.Sqlite;
 using Openza.Tasks.Core.Models;
 using Openza.Tasks.Core.PersonalCloud;
 
@@ -39,27 +38,6 @@ public sealed partial class PersonalCloudLifecycleIntegrationTests
         else await service.UpgradeAsync();
         var cloud = service.CurrentConnection!;
         Assert.True(await f.Tasks.SupportsPersonalCloudWorkspaceAsync(cloud.InstanceId));
-        await f.Tasks.StageUnpublishedTasksForPersonalCloudAsync(cloud.InstanceId, cloud.DeviceId);
-        await AssertPreciseDeadlineIntentAsync(f, cloud);
-    }
-
-    [Fact]
-    public async Task Initial_seed_defers_unknown_capabilities_without_poisoning_the_workspace_seed()
-    {
-        using var f = await Fixture.CreateAsync(23);
-        var cloud = f.Service.CurrentConnection!;
-        await f.Tasks.UpsertTaskAsync(PreciseDeadlineTask());
-        await using (var connection = new SqliteConnection($"Data Source={f.Tasks.DatabasePath};Pooling=False"))
-        {
-            await connection.OpenAsync();
-            var command = connection.CreateCommand();
-            command.CommandText = "DELETE FROM personal_cloud_workspace_capabilities WHERE instance_id=@i";
-            command.Parameters.AddWithValue("@i", cloud.InstanceId);
-            await command.ExecuteNonQueryAsync();
-        }
-        Assert.Equal(0, await f.Tasks.StageUnpublishedTasksForPersonalCloudAsync(cloud.InstanceId, cloud.DeviceId, requireNegotiatedCapabilities: true));
-        Assert.Empty(await f.Tasks.GetPendingPersonalCloudOutboxAsync(cloud.InstanceId, cloud.DeviceId));
-        await f.Tasks.SavePersonalCloudWorkspaceCapabilitiesAsync(cloud.InstanceId, true, false);
         await f.Tasks.StageUnpublishedTasksForPersonalCloudAsync(cloud.InstanceId, cloud.DeviceId);
         await AssertPreciseDeadlineIntentAsync(f, cloud);
     }

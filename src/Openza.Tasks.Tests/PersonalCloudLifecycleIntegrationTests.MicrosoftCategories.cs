@@ -41,6 +41,11 @@ public sealed partial class PersonalCloudLifecycleIntegrationTests
         f.Http.BeforeDeviceRevoke = async () =>
         {
             Assert.NotNull(f.Service.CurrentConnection);
+            if (!backfill)
+            {
+                Assert.NotNull(await f.Tasks.AdoptProviderSourceItemAsync(source.Id));
+                return;
+            }
             var error = await Assert.ThrowsAsync<PersonalCloudK0ContractException>(async () =>
             {
                 if (backfill) await f.Tasks.UpsertProviderSourceItemAsync(source);
