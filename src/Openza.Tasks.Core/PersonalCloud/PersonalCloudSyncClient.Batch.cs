@@ -14,15 +14,15 @@ public sealed partial class PersonalCloudSyncClient
     private bool _supportsFanoutBudget;
     private sealed class BatchEndpointUnavailableException : Exception { }
 
-    private async Task<(int Pushed, string? Blocked)> PushPendingAsync(IReadOnlyList<PersonalCloudK1OutboxEntry> pending,
+    private async Task<(int Pushed, string? Blocked, bool Parked)> PushPendingAsync(IReadOnlyList<PersonalCloudK1OutboxEntry> pending,
         string accessToken, CancellationToken cancellationToken)
     {
         await DiscoverCapabilitiesAsync(cancellationToken).ConfigureAwait(false);
         var pushed = 0;
         while (pushed < pending.Count)
         {
-            if (!_supportsWorkspace && IsWorkspaceOperation(pending[pushed].Operation)) return (pushed, "upgrade_required");
-            if (!_supportsProviderScopes && IsScopedProviderOperation(pending[pushed])) return (pushed, "upgrade_required");
+            if (!_supportsWorkspace && IsWorkspaceOperation(pending[pushed].Operation)) return (pushed, "upgrade_required", false);
+            if (!_supportsProviderScopes && IsScopedProviderOperation(pending[pushed])) return (pushed, "upgrade_required", false);
             var batch = BuildBatch(pending, pushed);
             if (batch is { } value)
             {
@@ -37,7 +37,7 @@ public sealed partial class PersonalCloudSyncClient
                     continue; // Retry the exact persisted envelopes via the old endpoint; no new IDs/sequences.
                 }
                 catch (PersonalCloudK0ContractException exception) when (IsPermanentMutationRejection(exception.Code))
-                { return (pushed, exception.Code); }
+                { return (pushed, exception.Code, false); }
 
                 var receipt = ValidateBatchResponse(response, value.Items);
                 foreach (var json in receipt.Receipts)
@@ -48,12 +48,13 @@ public sealed partial class PersonalCloudSyncClient
                 }
                 if (receipt.ErrorCode is { } code)
                 {
-                    if (code == "version_conflict" && await store.ParkPersonalCloudTaskConflictAsync(value.Items[receipt.Receipts.Count], cancellationToken).ConfigureAwait(false))
-                        return await PushAfterParkingAsync(pushed, accessToken, cancellationToken).ConfigureAwait(false);
+                    if ((!receipt.Retryable || code == "parent_not_found") &&
+                        await store.ParkRejectedPersonalCloudTaskAsync(value.Items[receipt.Receipts.Count], code, cancellationToken).ConfigureAwait(false))
+                        return (pushed, null, true);
                     if (code == "fanout_bound_exceeded")
                     {
                         await RememberStaleFanoutAsync(value.Items[receipt.Receipts.Count], cancellationToken).ConfigureAwait(false);
-                        return (pushed, code);
+                        return (pushed, code, false);
                     }
                     if (code == "daily_quota_exceeded")
                     {
@@ -62,7 +63,7 @@ public sealed partial class PersonalCloudSyncClient
                         throw status is { IsPaused: true } ? status.ToException() :
                             new PersonalCloudK0ContractException(code, "The daily cloud quota was reached. Confirmed changes were acknowledged; remaining exact intents are preserved.");
                     }
-                    if (IsPermanentMutationRejection(code)) return (pushed, code);
+                    if (IsPermanentMutationRejection(code)) return (pushed, code, false);
                     throw new PersonalCloudK0ContractException("sync_failed", "The cloud could not finish this batch. Remaining exact intents have been preserved.");
                 }
                 continue;
@@ -76,30 +77,45 @@ public sealed partial class PersonalCloudSyncClient
             catch (PersonalCloudK0ContractException exception) when (exception.Code == "fanout_bound_exceeded")
             {
                 await RememberStaleFanoutAsync(mutation, cancellationToken).ConfigureAwait(false);
-                return (pushed, exception.Code);
+                return (pushed, exception.Code, false);
             }
             catch (PersonalCloudK0ContractException exception) when (IsPermanentMutationRejection(exception.Code))
             {
-                if (exception.Code == "version_conflict" && await store.ParkPersonalCloudTaskConflictAsync(mutation, cancellationToken).ConfigureAwait(false))
-                    return await PushAfterParkingAsync(pushed, accessToken, cancellationToken).ConfigureAwait(false);
-                return (pushed, exception.Code);
+                if (exception.IsDefinitiveMutationRejection && await store.ParkRejectedPersonalCloudTaskAsync(mutation, exception.Code, cancellationToken).ConfigureAwait(false))
+                    return (pushed, null, true);
+                return (pushed, exception.Code, false);
             }
             SqliteTaskStore.ValidatePersonalCloudMutationReceipt(mutation, receiptJson);
             await store.AcknowledgePersonalCloudMutationAsync(connection.InstanceId, connection.DeviceId, receiptJson, cancellationToken).ConfigureAwait(false);
             pushed++;
             if (progress is not null) await progress(PersonalCloudInitialSyncPhase.Uploading, cancellationToken).ConfigureAwait(false);
         }
-        return (pushed, null);
+        return (pushed, null, false);
     }
 
-    private async Task<(int Pushed, string? Blocked)> PushAfterParkingAsync(int pushed, string accessToken, CancellationToken cancellationToken)
+    private async Task<(int Pushed, string? Blocked)> PushBudgetedPendingAsync(
+        (IReadOnlyList<PersonalCloudK1OutboxEntry> Items, bool PauseAfter, long? OversizedUnits) prefix,
+        string accessToken, CancellationToken cancellationToken)
     {
-        var pending = await store.GetPendingPersonalCloudOutboxAsync(connection.InstanceId, connection.DeviceId, cancellationToken).ConfigureAwait(false);
-        var prefix = await SelectBudgetPrefixAsync(pending, cancellationToken).ConfigureAwait(false);
-        var rest = await PushPendingAsync(prefix.Items, accessToken, cancellationToken).ConfigureAwait(false);
-        if (rest.Blocked is null && prefix.PauseAfter && PersonalCloudDispatchHttp.PolicyFor(http) is { } dispatch)
-            return (pushed + rest.Pushed, (await dispatch.PauseBudgetAsync(connection.ServiceOrigin, prefix.OversizedUnits, cancellationToken).ConfigureAwait(false)).Code);
-        return (pushed + rest.Pushed, rest.Blocked);
+        var pushed = 0;
+        for (var parked = 0; pushed + parked < PushBatchLimit; parked++)
+        {
+            var items = prefix.Items.Take(PushBatchLimit - pushed - parked).ToArray();
+            var result = await PushPendingAsync(items, accessToken, cancellationToken).ConfigureAwait(false);
+            pushed += result.Pushed;
+            if (!result.Parked)
+            {
+                if (result.Blocked is null && items.Length == prefix.Items.Count && prefix.PauseAfter && PersonalCloudDispatchHttp.PolicyFor(http) is { } dispatch)
+                    return (pushed, (await dispatch.PauseBudgetAsync(connection.ServiceOrigin, prefix.OversizedUnits, cancellationToken).ConfigureAwait(false)).Code);
+                return (pushed, result.Blocked);
+            }
+
+            // Only the validated accepted prefix was acknowledged. Re-read the
+            // rewritten suffix before sending anything at the rejected sequence.
+            var pending = await store.GetPendingPersonalCloudOutboxAsync(connection.InstanceId, connection.DeviceId, cancellationToken).ConfigureAwait(false);
+            prefix = await SelectBudgetPrefixAsync(pending, cancellationToken).ConfigureAwait(false);
+        }
+        return (pushed, null);
     }
 
     internal async Task DiscoverCapabilitiesAsync(CancellationToken cancellationToken)
@@ -169,7 +185,7 @@ public sealed partial class PersonalCloudSyncClient
         return json is null ? null : (json, items);
     }
 
-    private (IReadOnlyList<string> Receipts, string? ErrorCode) ValidateBatchResponse(string json, IReadOnlyList<PersonalCloudK1OutboxEntry> submitted)
+    private (IReadOnlyList<string> Receipts, string? ErrorCode, bool Retryable) ValidateBatchResponse(string json, IReadOnlyList<PersonalCloudK1OutboxEntry> submitted)
     {
         try
         {
@@ -186,6 +202,7 @@ public sealed partial class PersonalCloudSyncClient
             var error = root.GetProperty("error");
             var stopped = root.GetProperty("stoppedAt");
             string? errorCode = null;
+            var retryable = false;
             if (error.ValueKind == JsonValueKind.Null)
             {
                 if (stopped.ValueKind != JsonValueKind.Null || processed != submitted.Count) throw InvalidBatch();
@@ -207,7 +224,8 @@ public sealed partial class PersonalCloudSyncClient
                     error.GetProperty("requestId").ValueKind != JsonValueKind.String ||
                     error.GetProperty("retryable").ValueKind is not (JsonValueKind.True or JsonValueKind.False)) throw InvalidBatch();
                 errorCode = error.GetProperty("code").GetString();
-                if (errorCode == "fanout_bound_exceeded" && (error.GetProperty("retryable").ValueKind != JsonValueKind.True ||
+                retryable = error.GetProperty("retryable").GetBoolean();
+                if (errorCode == "fanout_bound_exceeded" && (!retryable ||
                     !_supportsFanoutBudget || !PersonalCloudMutationCost.IsFanout(submitted[processed].Operation)))
                     throw InvalidBatch();
                 if (string.IsNullOrWhiteSpace(errorCode) || errorCode.Length > 128) throw InvalidBatch();
@@ -219,7 +237,7 @@ public sealed partial class PersonalCloudSyncClient
                 SqliteTaskStore.ValidatePersonalCloudMutationReceipt(submitted[result.Count], serialized);
                 result.Add(serialized);
             }
-            return (result, errorCode); // Validate the entire returned prefix before ACKing its first item.
+            return (result, errorCode, retryable); // Validate the entire returned prefix before ACKing its first item.
         }
         catch (Exception exception) when (exception is JsonException or InvalidOperationException or KeyNotFoundException or FormatException or OverflowException)
         { throw InvalidBatch(); }

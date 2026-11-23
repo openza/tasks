@@ -92,7 +92,7 @@ public sealed partial class SqliteTaskStore
             if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) throw PersonalCloudWorkspaceCodec.Invalid();
             checkpoint = reader.GetInt64(0); pages = reader.GetInt32(1);
         }
-        await EnsureNoPendingPersonalCloudIntentsAsync(connection, cancellationToken).ConfigureAwait(false);
+        await EnsureNoPendingPersonalCloudIntentsAsync(connection, instanceId, cancellationToken).ConfigureAwait(false);
         await CreateIncomingWorkspaceTasksAsync(connection, cancellationToken).ConfigureAwait(false);
         for (var index = 0; index < pages; index++)
         {

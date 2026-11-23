@@ -169,8 +169,8 @@ public sealed partial class PersonalCloudSetupService(
         IProgress<PersonalCloudSetupProgress>? progress)
     {
         using var connectionLease = taskStore is null ? null : PersonalCloudConnectionLease.AcquireReplacement(taskStore.DatabasePath);
-        if (taskStore is not null)
-            await taskStore.EnsureNoPendingPersonalCloudIntentsAsync(cancellationToken).ConfigureAwait(false);
+        if (taskStore is not null && CurrentConnection is { } current)
+            await taskStore.EnsureNoPendingPersonalCloudIntentsAsync(current.InstanceId, cancellationToken).ConfigureAwait(false);
         var version = artifactVersion;
         if (artifactSlot is not null)
         {
@@ -192,6 +192,7 @@ public sealed partial class PersonalCloudSetupService(
             };
             if (taskStore is not null)
             {
+                await taskStore.EnsureNoPendingPersonalCloudIntentsAsync(connection.InstanceId, cancellationToken).ConfigureAwait(false);
                 await RecordWorkspaceCapabilitiesAsync(connection, cancellationToken).ConfigureAwait(false);
                 await taskStore.BeginPersonalCloudInitialSyncAsync(connection.InstanceId, connection.DeviceId, CancellationToken.None).ConfigureAwait(false);
             }
@@ -217,12 +218,13 @@ public sealed partial class PersonalCloudSetupService(
             throw new PersonalCloudK0ContractException("sync_unavailable", "Personal Cloud pairing is not available in this build.");
 
         using var connectionLease = PersonalCloudConnectionLease.AcquireReplacement(taskStore.DatabasePath);
-        await taskStore.EnsureNoPendingPersonalCloudIntentsAsync(cancellationToken).ConfigureAwait(false);
+        if (CurrentConnection is { } current)
+            await taskStore.EnsureNoPendingPersonalCloudIntentsAsync(current.InstanceId, cancellationToken).ConfigureAwait(false);
 
         var health = await new PersonalCloudHealthClient(syncHttp)
             .InspectAsync(serviceOrigin, cancellationToken).ConfigureAwait(false);
-        var paired = await deviceIdentity.PairAsync(serviceOrigin, grant, deviceName, providerBridge, cancellationToken)
-            .ConfigureAwait(false);
+        var paired = await deviceIdentity.PairAsync(serviceOrigin, grant, deviceName, providerBridge,
+            taskStore.EnsureNoPendingPersonalCloudIntentsAsync, cancellationToken).ConfigureAwait(false);
         var connection = new PersonalCloudConnectionProfile
         {
             ServiceOrigin = paired.ServiceOrigin,
@@ -299,7 +301,7 @@ public sealed partial class PersonalCloudSetupService(
         if (deviceIdentity is null || connectionStore is null)
             throw new PersonalCloudK0ContractException("management_unavailable", "Personal Cloud management is not available in this build.");
         if (taskStore is not null)
-            await taskStore.EnsureNoPendingPersonalCloudIntentsAsync(cancellationToken).ConfigureAwait(false);
+            await taskStore.EnsureNoPendingPersonalCloudIntentsAsync(current.InstanceId, cancellationToken).ConfigureAwait(false);
         await deviceIdentity.RevokeAsync(current.ServiceOrigin, cancellationToken).ConfigureAwait(false);
         await connectionStore.ClearAsync(cancellationToken).ConfigureAwait(false);
         CurrentConnection = null;
@@ -312,8 +314,8 @@ public sealed partial class PersonalCloudSetupService(
         if (management is null || deviceIdentity is null || connectionStore is null)
             throw new PersonalCloudK0ContractException("management_unavailable", "Personal Cloud management is not available in this build.");
         await management.RemoveAsync(current, cancellationToken).ConfigureAwait(false);
-        await deviceIdentity.ForgetAsync(current.ServiceOrigin, cancellationToken).ConfigureAwait(false);
-        await connectionStore.ClearAsync(cancellationToken).ConfigureAwait(false);
+        await deviceIdentity.ForgetAsync(current.ServiceOrigin, CancellationToken.None).ConfigureAwait(false);
+        await connectionStore.ClearAsync(CancellationToken.None).ConfigureAwait(false);
         CurrentConnection = null;
     }
 
