@@ -73,13 +73,11 @@ public sealed partial class SqliteTaskStore
     private sealed class MicrosoftStepAuthoring(SqliteTaskStore store) : IDisposable
     {
         private PersonalCloudConnectionLease? lease;
-        private bool resolved;
         public PersonalCloudConnectionProfile? Cloud { get; private set; }
 
         public void Acquire()
         {
-            if (resolved) return;
-            resolved = true;
+            if (lease is not null) return;
             if (store.PersonalCloudConnection?.Invoke() is null) return;
             lease = PersonalCloudConnectionLease.AcquireAuthoring(store.DatabasePath);
             Cloud = store.PersonalCloudConnection?.Invoke();
@@ -114,7 +112,11 @@ public sealed partial class SqliteTaskStore
 
         internal async Task StageAsync()
         {
-            if (changed) await store.StageMicrosoftStepTasksAsync(authoring.Cloud, cancellationToken).ConfigureAwait(false);
+            if (changed)
+            {
+                authoring.Acquire();
+                await store.StageMicrosoftStepTasksAsync(authoring.Cloud, cancellationToken).ConfigureAwait(false);
+            }
         }
 
         public ValueTask DisposeAsync()
