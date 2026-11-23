@@ -34,6 +34,7 @@ public sealed class ConnectedSyncApplicationService(
         IProgress<PersonalCloudInitialSyncProgress>? progress = null,
         CancellationToken cancellationToken = default)
     {
+        if (store is SqliteTaskStore sqlite) sqlite.PersonalCloudConnection = () => personalCloud?.CurrentConnection;
         var bridgeProviders = new List<PersonalCloudConfiguredProvider>();
         // Preserve the caller's context for progress publication. Provider and bridge
         // work retain their separate background passes, outside the host's UI busy gate.

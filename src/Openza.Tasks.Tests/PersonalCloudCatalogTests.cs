@@ -169,5 +169,41 @@ public sealed class PersonalCloudCatalogTests : IDisposable
         Assert.Equal("local_conflict", (await store.GetPersonalCloudCatalogActionAsync(Instance, "intent_test"))!.Phase);
         Assert.Empty(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device)); Assert.Equal(manual.Id, (await store.GetPersonalCloudCatalogSourceItemsAsync()).Single(s => s.Id == local.Id).AdoptedTaskId);
     }
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Microsoft_catalog_adoption_imports_children_once_or_waits_for_a_fresh_checklist(bool cached)
+    {
+        var store = await StoreAsync();
+        const string checklist = """{"msToDo":{"checklistItems":[{"displayName":"First step","isChecked":false},{"displayName":"Done step","isChecked":true}]}}""";
+        var source = Local() with { IntegrationId = IntegrationIds.MicrosoftToDo, ProviderConnectionId = "mstodo_default", SnapshotJson = cached ? "{}" : checklist };
+        await store.UpsertProviderSourceItemAsync(source);
+        await store.ApplyPersonalCloudChangePageAsync(Instance, Device, PersonalCloudWorkspaceTests.Page(1, catalog: [Catalog(Source(source))]));
+        await store.PreparePersonalCloudCatalogIntentAsync(Instance, Device, Intent(), "account", source.ProviderConnectionId, null);
+        await store.AcknowledgePersonalCloudMutationAsync(Instance, Device, Receipt(Assert.Single(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device)), 2));
+        await store.ApplyPersonalCloudSourceIntentAsync(Instance, Device, Intent("started", 2), source.Id);
+        var action = (await store.GetPersonalCloudCatalogActionAsync(Instance, "intent_test"))!;
+        var parent = (await store.GetTaskAsync(action.AdoptedTaskId!))!;
+        if (cached)
+        {
+            Assert.DoesNotContain("msToDoStepsApplied", parent.SourceMetadataJson!);
+            store.PersonalCloudConnection = () => new() { InstanceId = Instance, DeviceId = Device,
+                ServiceOrigin = new("https://example.test"), ArtifactVersion = "test", ConnectedAt = DateTimeOffset.UtcNow };
+            await store.UpsertProviderSourceItemAsync(source with { SnapshotJson = checklist });
+        }
+        var children = await store.GetTasksAsync(new() { ParentId = parent.Id, IncludeSubtasks = true });
+        Assert.Equal(new[] { "First step", "Done step" }, children.Select(child => child.Title));
+        Assert.True(children[1].IsCompleted);
+        var entries = await store.GetPendingPersonalCloudOutboxAsync(Instance, Device);
+        Assert.All(children, child =>
+        {
+            Assert.Contains(entries, entry => entry.EntityId == child.Id && entry.Operation == "task.createRich");
+            Assert.Contains(entries, entry => entry.EntityId == child.Id && entry.Operation == "task.setParent");
+        });
+        await store.DeleteTaskAsync(children[0].Id);
+        await store.UpsertProviderSourceItemAsync(source with { SnapshotJson = checklist });
+        Assert.Single(await store.GetTasksAsync(new() { ParentId = parent.Id, IncludeSubtasks = true }));
+    }
+
     public void Dispose() { if (Directory.Exists(_directory)) Directory.Delete(_directory, true); }
 }

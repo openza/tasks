@@ -1,0 +1,15 @@
+# Microsoft To Do import
+
+Openza imports Microsoft To Do lists and tasks as provider source items. Adopting a task creates an ordinary local Openza task linked to that source.
+
+## Checklist items (steps)
+
+The provider requests `$expand=checklistItems` when listing tasks to avoid a request per task. If Graph rejects expansion (400 or 501), or omits an expanded collection, Openza fetches the task's `/checklistItems` collection instead. Task pages and checklist pages follow `@odata.nextLink`; repeated links and cycles fail the snapshot rather than publish incomplete checklist data. Expanded checklist continuation links are followed too. An HTTP failure never becomes an empty checklist.
+
+The snapshot retains each checklist item's display name, checked state, checked timestamp and Graph array order in `msToDo.checklistItems`. On adoption, items become ordinary local child tasks (`ParentId`) displayed in the inspector's **Subtasks** section, not a separate steps model. Checked items are completed; `checkedDateTime` supplies completion time when available, otherwise import time is used. Child tasks have no provider identity or source link of their own and are never updated by Microsoft sync.
+
+Graph order is encoded with descending, one-second-spaced creation timestamps because the existing inspector sorts equal-priority, undated children newest first. There is no sibling-order column or new cloud contract. **Ordering limitation:** existing subtask views group open children before completed children, and other task views or cloud clients can use different sorts. Graph order is retained within these groups in the desktop inspector, not guaranteed as an arbitrary mixed open/completed sequence everywhere. Graph's returned order may itself differ from the order displayed in Microsoft's app. Creation times represent import ordering, not original checklist creation times.
+
+Import sets `msToDoStepsApplied` in the parent task's source metadata. Previously adopted tasks receive a one-time backfill on their next provider refresh; existing local children are retained. The backfill adds checklist children without matching by title, since different checklist items can legitimately share a name. Once marked, later provider changes cannot rename, recheck, recreate or delete children. User edits and child deletions persist, including after legacy cloud bootstrap replacement. Snapshots without checklist data remain unmarked so a fresh sync can import them; explicit empty checklists are marked.
+
+With Personal Cloud connected, new children use the existing task-create, parent-relationship and completion mutation paths in workspace and legacy modes, with consecutive per-entity versions. Unpublished tasks are staged once per changed provider-sync batch, not once per source. Authoring holds the connection lease through staging so disconnect cannot revoke the device between its pending-edit check and these writes. Without a cloud target, no intents are queued. Cloud catalog adoption applies the same one-time mapping. No changes to Todoist source-label or task behavior are made.

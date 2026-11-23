@@ -497,6 +497,13 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
 
     public async Task UpsertProviderSourceItemAsync(ProviderSourceItem item, CancellationToken cancellationToken = default)
     {
+        await UpsertProviderSourceWithStepsAsync(item, true, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<bool> UpsertProviderSourceWithStepsAsync(ProviderSourceItem item, bool stageSteps, CancellationToken cancellationToken)
+    {
+        using var cloudLease = item.IntegrationId == IntegrationIds.MicrosoftToDo && PersonalCloudConnection is not null
+            ? PersonalCloudConnectionLease.AcquireAuthoring(DatabasePath) : null;
         await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         var existing = await ReadProviderSourceItemByExternalAsync(connection, item.ProviderConnectionId, item.ExternalId, cancellationToken).ConfigureAwait(false);
@@ -542,7 +549,12 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
                 cancellationToken).ConfigureAwait(false);
         }
 
+        var steps = source.AdoptedTaskId is { } taskId
+            ? await ApplyMicrosoftStepsAsync(connection, source, taskId, cancellationToken).ConfigureAwait(false) : default;
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        var changed = steps.Children?.Count > 0;
+        if (changed && stageSteps) await StageMicrosoftStepTasksAsync(cancellationToken).ConfigureAwait(false);
+        return changed;
     }
 
     public async Task DetachProviderSourceItemAsync(string sourceItemId, CancellationToken cancellationToken = default)
@@ -607,6 +619,7 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
 
     public async Task<TaskItem?> AdoptProviderSourceItemAsync(string sourceItemId, string spaceId = SpaceIds.Default, CancellationToken cancellationToken = default)
     {
+        using var cloudLease = PersonalCloudConnection is null ? null : PersonalCloudConnectionLease.AcquireAuthoring(DatabasePath);
         await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         var source = await ReadProviderSourceItemByIdAsync(connection, sourceItemId, cancellationToken).ConfigureAwait(false);
@@ -643,7 +656,10 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
             UpdatedAt = now,
         };
         await UpsertProviderSourceItemCoreAsync(connection, adopted, cancellationToken).ConfigureAwait(false);
+        var steps = await ApplyMicrosoftStepsAsync(connection, source, task.Id, cancellationToken).ConfigureAwait(false);
+        if (steps.Metadata is not null) task = task with { SourceMetadataJson = steps.Metadata, Revision = task.Revision + 1 };
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        if (steps.Children.Count > 0) await StageMicrosoftStepTasksAsync(cancellationToken).ConfigureAwait(false);
         return task;
     }
 
@@ -3183,7 +3199,8 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
                     SET source_integration_id = @integration_id,
                         source_url = @source_url,
                         source_description = @source_description,
-                        source_metadata = @source_metadata,
+                        source_metadata = CASE WHEN json_extract(source_metadata,'$.msToDoStepsApplied')=1
+                            THEN json_set(@source_metadata,'$.msToDoStepsApplied',json('true')) ELSE @source_metadata END,
                         updated_at = @updated_at
                     WHERE id = @id
                       AND (source_integration_id IS NULL OR source_integration_id = @integration_id)
@@ -3374,11 +3391,12 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
           DELETE FROM personal_cloud_entity_versions WHERE instance_id=@i AND product='tasks';
           DELETE FROM task_labels WHERE task_id IN(SELECT entity_id FROM personal_cloud_replica_entities WHERE instance_id=@i AND product='tasks');
           DELETE FROM tasks WHERE id IN(SELECT entity_id FROM personal_cloud_replica_entities WHERE instance_id=@i AND product='tasks')
+            AND id NOT IN(SELECT value FROM json_each(@incoming_task_ids))
             AND NOT EXISTS(SELECT 1 FROM personal_cloud_outbox o WHERE o.entity_id=tasks.id AND o.acknowledged_at IS NULL);
           DELETE FROM personal_cloud_replica_entities WHERE instance_id=@i AND product='tasks';
           DELETE FROM personal_cloud_provider_commands WHERE instance_id=@i;
           DELETE FROM personal_cloud_provider_sources WHERE instance_id=@i;
-          """;clear.Parameters.AddWithValue("@i",instanceId);await clear.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+          """;clear.Parameters.AddWithValue("@i",instanceId);clear.Parameters.AddWithValue("@incoming_task_ids",JsonSerializer.Serialize(bootstrap.Snapshot.Tasks.Select(task=>task.Id)));await clear.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         foreach(var space in bootstrap.Snapshot.Spaces.Where(s=>s.DeletedAt is null)){var c=connection.CreateCommand();c.CommandText="INSERT INTO spaces(id,name,created_at) VALUES(@id,@name,@now) ON CONFLICT(id) DO UPDATE SET name=excluded.name";c.Parameters.AddWithValue("@id",space.Id);c.Parameters.AddWithValue("@name",space.Name);c.Parameters.AddWithValue("@now",DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());await c.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);}
         foreach(var project in bootstrap.Snapshot.Projects.Where(p=>p.DeletedAt is null)){var c=connection.CreateCommand();c.CommandText="INSERT INTO projects(id,space_id,integration_id,name,created_at) VALUES(@id,@space,'openza_tasks',@name,@now) ON CONFLICT(id) DO UPDATE SET space_id=excluded.space_id,name=excluded.name";c.Parameters.AddWithValue("@id",project.Id);c.Parameters.AddWithValue("@space",project.SpaceId);c.Parameters.AddWithValue("@name",project.Name);c.Parameters.AddWithValue("@now",DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());await c.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);}
         foreach(var task in bootstrap.Snapshot.Tasks)
@@ -4221,7 +4239,8 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
                 source_external_id = @source_external_id,
                 source_provider_task_id = @source_provider_task_id,
                 source_url = @source_url,
-                source_metadata = @source_metadata,
+                source_metadata = CASE WHEN json_extract(source_metadata,'$.msToDoStepsApplied')=1
+                    THEN json_set(@source_metadata,'$.msToDoStepsApplied',json('true')) ELSE @source_metadata END,
                 planned_on = CASE
                     WHEN @sync_planned_date = 1 AND NOT EXISTS (SELECT 1 FROM pending_task_date_updates WHERE task_id = @task_id) THEN @planned_on
                     ELSE planned_on
@@ -4442,7 +4461,8 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
                 recurrence_rule = excluded.recurrence_rule,
                 notes = excluded.notes,
                 provider_metadata = excluded.provider_metadata,
-                source_metadata = excluded.source_metadata,
+                source_metadata = CASE WHEN json_extract(tasks.source_metadata,'$.msToDoStepsApplied')=1
+                    THEN json_set(COALESCE(excluded.source_metadata,'{}'),'$.msToDoStepsApplied',json('true')) ELSE excluded.source_metadata END,
                 local_metadata = excluded.local_metadata,
                 updated_at = excluded.updated_at,
                 completed_at = excluded.completed_at,

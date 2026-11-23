@@ -249,11 +249,12 @@ public sealed class SyncProviderTests
                   ]
                 }
                 """),
-            "/v1.0/me/todo/lists/list1/tasks?$top=100" => Json("""
+            "/v1.0/me/todo/lists/list1/tasks?$top=100&$expand=checklistItems" => Json("""
                 {
                   "value": [
                     {
                       "id": "task1",
+                      "checklistItems": [],
                       "title": "Review package",
                       "body": { "content": "Store readiness" },
                       "importance": "high",

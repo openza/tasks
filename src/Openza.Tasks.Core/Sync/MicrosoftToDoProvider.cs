@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -107,25 +108,73 @@ public sealed class MicrosoftToDoProvider(HttpClient httpClient, string accessTo
     private async Task<IReadOnlyList<TaskItem>> FetchTasksAsync(string listId, IReadOnlyDictionary<string, LabelItem> categories, CancellationToken cancellationToken)
     {
         var tasks = new List<TaskItem>();
-        string? nextPath = $"/me/todo/lists/{listId}/tasks?$top=100";
+        string? nextPath = $"/me/todo/lists/{listId}/tasks?$top=100&$expand=checklistItems";
+        var visited = new HashSet<string>(StringComparer.Ordinal) { nextPath };
         while (nextPath is not null)
         {
-            using var request = CreateRequest(HttpMethod.Get, nextPath);
-            using var document = await SendJsonAsync(request, cancellationToken).ConfigureAwait(false);
+            using var document = await FetchTaskPageAsync(nextPath, cancellationToken).ConfigureAwait(false);
             if (document.RootElement.TryGetProperty("value", out var value))
             {
-                tasks.AddRange(value.EnumerateArray().Select(task => MapTask(task, listId, categories, providerConnectionId)));
+                foreach (var task in value.EnumerateArray())
+                {
+                    var id = task.GetProperty("id").GetString()!;
+                    var checklist = new List<JsonElement>();
+                    if (task.TryGetProperty("checklistItems", out var expanded) && expanded.ValueKind == JsonValueKind.Array)
+                    {
+                        checklist.AddRange(expanded.EnumerateArray().Select(item => item.Clone()));
+                        if (task.TryGetProperty("checklistItems@odata.nextLink", out var nextChecklist))
+                            checklist.AddRange(await FetchChecklistAsync(nextChecklist.GetString()!, cancellationToken).ConfigureAwait(false));
+                    }
+                    else
+                        checklist.AddRange(await FetchChecklistAsync($"/me/todo/lists/{Uri.EscapeDataString(listId)}/tasks/{Uri.EscapeDataString(id)}/checklistItems", cancellationToken).ConfigureAwait(false));
+                    tasks.Add(MapTask(task, listId, categories, providerConnectionId, checklist));
+                }
             }
 
-            nextPath = document.RootElement.TryGetProperty("@odata.nextLink", out var next)
-                ? next.GetString()?.Replace(BaseUrl, string.Empty, StringComparison.Ordinal)
-                : null;
+            nextPath = ReadNextPagePath(document.RootElement, visited);
         }
 
         return tasks;
     }
 
-    private static TaskItem MapTask(JsonElement task, string listId, IReadOnlyDictionary<string, LabelItem> categories, string providerConnectionId)
+    private async Task<JsonDocument> FetchTaskPageAsync(string path, CancellationToken cancellationToken)
+    {
+        using var request = CreateRequest(HttpMethod.Get, path);
+        try { return await SendJsonAsync(request, cancellationToken).ConfigureAwait(false); }
+        catch (HttpRequestException exception) when (path.Contains("$expand=checklistItems", StringComparison.Ordinal) &&
+            exception.StatusCode is HttpStatusCode.BadRequest or HttpStatusCode.NotImplemented)
+        {
+            using var fallback = CreateRequest(HttpMethod.Get, path.Replace("&$expand=checklistItems", string.Empty, StringComparison.Ordinal));
+            return await SendJsonAsync(fallback, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private async Task<IReadOnlyList<JsonElement>> FetchChecklistAsync(string initialPath, CancellationToken cancellationToken)
+    {
+        var items = new List<JsonElement>();
+        string? path = initialPath.Replace(BaseUrl, string.Empty, StringComparison.Ordinal);
+        var visited = new HashSet<string>(StringComparer.Ordinal) { path };
+        while (path is not null)
+        {
+            using var request = CreateRequest(HttpMethod.Get, path);
+            using var document = await SendJsonAsync(request, cancellationToken).ConfigureAwait(false);
+            items.AddRange(document.RootElement.GetProperty("value").EnumerateArray().Select(item => item.Clone()));
+            path = ReadNextPagePath(document.RootElement, visited);
+        }
+        return items;
+    }
+
+    private static string? ReadNextPagePath(JsonElement page, HashSet<string> visited)
+    {
+        var path = page.TryGetProperty("@odata.nextLink", out var next)
+            ? next.GetString()?.Replace(BaseUrl, string.Empty, StringComparison.Ordinal) : null;
+        if (path is not null && !visited.Add(path))
+            throw new InvalidOperationException("Microsoft Graph returned a repeated collection page.");
+        return path;
+    }
+
+    private static TaskItem MapTask(JsonElement task, string listId, IReadOnlyDictionary<string, LabelItem> categories, string providerConnectionId,
+        IReadOnlyList<JsonElement> checklist)
     {
         var id = GetString(task, "id") ?? Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture);
         var due = ParseGraphDate(task, "dueDateTime");
@@ -158,7 +207,7 @@ public sealed class MicrosoftToDoProvider(HttpClient httpClient, string accessTo
             Labels = MapCategories(task, categories, providerConnectionId),
             ProviderMetadataJson = JsonSerializer.Serialize(new
             {
-                msToDo = new { id, listId, synced_at = DateTimeOffset.UtcNow },
+                msToDo = new { id, listId, checklistItems = checklist, synced_at = DateTimeOffset.UtcNow },
             }),
         };
     }
