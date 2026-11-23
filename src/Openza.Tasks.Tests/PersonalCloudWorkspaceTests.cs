@@ -8,6 +8,31 @@ namespace Openza.Tasks.Tests;
 
 public sealed class PersonalCloudWorkspaceTests : IDisposable
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Incoming_workspace_labels_never_resolve_to_same_name_provider_catalog_rows(bool existingLocal)
+    {
+        var store = Store();
+        await store.InitializeAsync();
+        await store.UpsertLabelAsync(new LabelItem { Id = "provider_label", IntegrationId = IntegrationIds.MicrosoftToDo,
+            Name = "Example label", Color = "#32CD32" });
+        if (existingLocal)
+            await store.UpsertLabelAsync(new LabelItem { Id = "local_label", Name = "EXAMPLE LABEL", Color = "#123456" });
+
+        await store.ApplyPersonalCloudChangePageAsync(Instance, Device, Page(1, [Space()], [Project()], [TaskRecord()]));
+
+        var label = Assert.Single((await store.GetTaskAsync("task_test"))!.Labels);
+        Assert.Equal(IntegrationIds.Local, label.IntegrationId);
+        Assert.Equal(existingLocal ? "local_label" : "label_test", label.Id);
+        if (existingLocal) Assert.Equal("#123456", label.Color);
+        await using var connection = new SqliteConnection($"Data Source={store.DatabasePath};Pooling=False");
+        await connection.OpenAsync();
+        var command = connection.CreateCommand();
+        command.CommandText = "SELECT integration_id FROM labels WHERE id='provider_label'";
+        Assert.Equal(IntegrationIds.MicrosoftToDo, await command.ExecuteScalarAsync());
+    }
+
     [Fact]
     public async Task Full_record_keeps_the_authoritative_cloud_modification_time()
     {

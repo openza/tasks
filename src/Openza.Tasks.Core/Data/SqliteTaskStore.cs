@@ -4552,7 +4552,7 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
             }
         }
 
-        var existingId = await FindLabelIdByNameAsync(connection, label.Name, cancellationToken).ConfigureAwait(false);
+        var existingId = await FindLabelIdByNameAsync(connection, label.Name, cancellationToken, label.IntegrationId == IntegrationIds.Local).ConfigureAwait(false);
         if (!string.IsNullOrWhiteSpace(existingId) && !string.Equals(existingId, label.Id, StringComparison.Ordinal))
         {
             return existingId;
@@ -4562,10 +4562,11 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
         return label.Id;
     }
 
-    private static async Task<string?> FindLabelIdByNameAsync(SqliteConnection connection, string name, CancellationToken cancellationToken)
+    private static async Task<string?> FindLabelIdByNameAsync(SqliteConnection connection, string name, CancellationToken cancellationToken, bool localOnly = false)
     {
         var command = connection.CreateCommand();
-        command.CommandText = "SELECT id FROM labels WHERE lower(name) = lower(@name) LIMIT 1";
+        command.CommandText = "SELECT id FROM labels WHERE lower(name) = lower(@name)" +
+            (localOnly ? " AND integration_id='openza_tasks'" : string.Empty) + " LIMIT 1";
         command.Parameters.AddWithValue("@name", name.Trim());
         var result = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
         return result as string;
