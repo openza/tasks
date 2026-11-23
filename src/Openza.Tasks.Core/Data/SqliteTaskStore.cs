@@ -3404,11 +3404,12 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
           DELETE FROM personal_cloud_entity_versions WHERE instance_id=@i AND product='tasks';
           DELETE FROM task_labels WHERE task_id IN(SELECT entity_id FROM personal_cloud_replica_entities WHERE instance_id=@i AND product='tasks');
           DELETE FROM tasks WHERE id IN(SELECT entity_id FROM personal_cloud_replica_entities WHERE instance_id=@i AND product='tasks')
+            AND id NOT IN(SELECT value FROM json_each(@incoming_task_ids))
             AND NOT EXISTS(SELECT 1 FROM personal_cloud_outbox o WHERE o.entity_id=tasks.id AND o.acknowledged_at IS NULL);
           DELETE FROM personal_cloud_replica_entities WHERE instance_id=@i AND product='tasks';
           DELETE FROM personal_cloud_provider_commands WHERE instance_id=@i;
           DELETE FROM personal_cloud_provider_sources WHERE instance_id=@i;
-          """;clear.Parameters.AddWithValue("@i",instanceId);await clear.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+          """;clear.Parameters.AddWithValue("@i",instanceId);clear.Parameters.AddWithValue("@incoming_task_ids",JsonSerializer.Serialize(bootstrap.Snapshot.Tasks.Select(task=>task.Id)));await clear.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         foreach(var space in bootstrap.Snapshot.Spaces.Where(s=>s.DeletedAt is null)){var c=connection.CreateCommand();c.CommandText="INSERT INTO spaces(id,name,created_at) VALUES(@id,@name,@now) ON CONFLICT(id) DO UPDATE SET name=excluded.name";c.Parameters.AddWithValue("@id",space.Id);c.Parameters.AddWithValue("@name",space.Name);c.Parameters.AddWithValue("@now",DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());await c.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);}
         foreach(var project in bootstrap.Snapshot.Projects.Where(p=>p.DeletedAt is null)){var c=connection.CreateCommand();c.CommandText="INSERT INTO projects(id,space_id,integration_id,name,created_at) VALUES(@id,@space,'openza_tasks',@name,@now) ON CONFLICT(id) DO UPDATE SET space_id=excluded.space_id,name=excluded.name";c.Parameters.AddWithValue("@id",project.Id);c.Parameters.AddWithValue("@space",project.SpaceId);c.Parameters.AddWithValue("@name",project.Name);c.Parameters.AddWithValue("@now",DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());await c.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);}
         foreach(var task in bootstrap.Snapshot.Tasks)

@@ -8,7 +8,7 @@ using Openza.Tasks.Core.Sync;
 
 namespace Openza.Tasks.Tests;
 
-public sealed class MicrosoftCategoryAdoptionTests : IDisposable
+public sealed partial class MicrosoftCategoryAdoptionTests : IDisposable
 {
     private readonly string _directory = Path.Combine(Path.GetTempPath(), "openza-microsoft-categories", Guid.NewGuid().ToString("N"));
     private const string Instance = "instance_00000000000000000000000000000001";
@@ -201,6 +201,50 @@ public sealed class MicrosoftCategoryAdoptionTests : IDisposable
         var store = new SqliteTaskStore(Path.Combine(_directory, "tasks.db"));
         await store.InitializeAsync();
         return store;
+    }
+
+    [Fact]
+    public async Task Legacy_replica_replacement_preserves_applied_categories_and_user_label_removal()
+    {
+        var store = await StoreAsync();
+        var source = Source("Release");
+        var task = await AdoptAsync(store, source);
+        await store.SetTaskLabelsAsync(task.Id, []);
+        var descriptor = PersonalCloudK0Mapper.CreateSafeSourceDescriptor(task)!;
+        const string stamp = "2026-11-23T00:00:00.000Z";
+        var bootstrap = PersonalCloudK0Codec.Serialize(new PersonalCloudBootstrap
+        {
+            ProtocolVersion = 1, Product = "tasks", Checkpoint = 1,
+            Snapshot = new PersonalCloudBootstrapSnapshot
+            {
+                Spaces = [new(SpaceIds.Default, "My space", null)], Projects = [], Labels = [], TaskLabels = [], Tombstones = [],
+                Tasks = [new(task.Id, SpaceIds.Default, null, null, task.Title, "open", "inbox", 2, null, null, null, null, null, stamp, 1, null)],
+                SourceDescriptors = [new(task.Id, descriptor.IntegrationKind, descriptor.ExternalIdHash, descriptor.SourceUrl,
+                    descriptor.Title, descriptor.Description, descriptor.ProjectName, descriptor.Priority, descriptor.PlannedOn,
+                    descriptor.PlannedAt, descriptor.DeadlineOn, descriptor.DeadlineAt, descriptor.RecurrenceRule, stamp)],
+            },
+        });
+        await using (var connection = new SqliteConnection($"Data Source={store.DatabasePath};Pooling=False"))
+        {
+            await connection.OpenAsync();
+            var track = connection.CreateCommand();
+            track.CommandText = "INSERT INTO personal_cloud_replica_entities(instance_id,product,entity_id) VALUES(@i,'tasks',@t)";
+            track.Parameters.AddWithValue("@i", Instance);
+            track.Parameters.AddWithValue("@t", task.Id);
+            await track.ExecuteNonQueryAsync();
+        }
+        await CloudAsync(store, false);
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            await store.ReplacePersonalCloudReplicaFromBootstrapAsync(Instance, Device, bootstrap);
+            store = new SqliteTaskStore(store.DatabasePath);
+            await CloudAsync(store, false);
+            await store.UpsertProviderSourceItemAsync(source);
+            var refreshed = (await store.GetTaskAsync(task.Id))!;
+            Assert.Empty(refreshed.Labels);
+            Assert.True(Applied(refreshed));
+            Assert.Empty(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device));
+        }
     }
 
     private static async Task CloudAsync(SqliteTaskStore store, bool workspace)
