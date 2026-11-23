@@ -45,14 +45,8 @@ public sealed class MicrosoftToDoProvider(HttpClient httpClient, string accessTo
 
     private async Task<IReadOnlyList<ProjectItem>> FetchListsAsync(CancellationToken cancellationToken)
     {
-        using var request = CreateRequest(HttpMethod.Get, "/me/todo/lists");
-        using var document = await SendJsonAsync(request, cancellationToken).ConfigureAwait(false);
-        if (!document.RootElement.TryGetProperty("value", out var value))
-        {
-            return [];
-        }
-
-        return value.EnumerateArray().Select(list =>
+        var lists = await FetchCollectionAsync("/me/todo/lists", cancellationToken).ConfigureAwait(false);
+        return lists.Select(list =>
         {
             var id = GetString(list, "id") ?? Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture);
             var wellKnown = GetString(list, "wellknownListName");
@@ -75,14 +69,8 @@ public sealed class MicrosoftToDoProvider(HttpClient httpClient, string accessTo
     {
         try
         {
-            using var request = CreateRequest(HttpMethod.Get, "/me/outlook/masterCategories");
-            using var document = await SendJsonAsync(request, cancellationToken).ConfigureAwait(false);
-            if (!document.RootElement.TryGetProperty("value", out var value))
-            {
-                return [];
-            }
-
-            return value.EnumerateArray()
+            var categories = await FetchCollectionAsync("/me/outlook/masterCategories", cancellationToken).ConfigureAwait(false);
+            return categories
                 .Select(category =>
                 {
                     var name = GetString(category, "displayName") ?? "Category";
@@ -100,10 +88,26 @@ public sealed class MicrosoftToDoProvider(HttpClient httpClient, string accessTo
                 })
                 .ToList();
         }
-        catch
+        catch (Exception exception) when (exception is not (OperationCanceledException or MicrosoftPagingException))
         {
             return [];
         }
+    }
+
+    private async Task<IReadOnlyList<JsonElement>> FetchCollectionAsync(string path, CancellationToken cancellationToken)
+    {
+        var items = new List<JsonElement>();
+        string? nextPath = path;
+        var visited = new HashSet<string>(StringComparer.Ordinal) { path };
+        while (nextPath is not null)
+        {
+            using var request = CreateRequest(HttpMethod.Get, nextPath);
+            using var document = await SendJsonAsync(request, cancellationToken).ConfigureAwait(false);
+            if (document.RootElement.TryGetProperty("value", out var values))
+                items.AddRange(values.EnumerateArray().Select(value => value.Clone()));
+            nextPath = ReadNextPagePath(document.RootElement, visited);
+        }
+        return items;
     }
 
     private sealed class ChecklistExpansion
@@ -185,9 +189,11 @@ public sealed class MicrosoftToDoProvider(HttpClient httpClient, string accessTo
         var path = page.TryGetProperty("@odata.nextLink", out var next)
             ? next.GetString()?.Replace(BaseUrl, string.Empty, StringComparison.Ordinal) : null;
         if (path is not null && !visited.Add(path))
-            throw new InvalidOperationException("Microsoft Graph returned a repeated collection page.");
+            throw new MicrosoftPagingException("Microsoft Graph returned a repeated collection page.");
         return path;
     }
+
+    private sealed class MicrosoftPagingException(string message) : InvalidOperationException(message);
 
     private static TaskItem MapTask(JsonElement task, string listId, IReadOnlyDictionary<string, LabelItem> categories, string providerConnectionId,
         IReadOnlyList<JsonElement>? checklist)
@@ -195,7 +201,9 @@ public sealed class MicrosoftToDoProvider(HttpClient httpClient, string accessTo
         var id = GetString(task, "id") ?? Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture);
         var due = ParseGraphDate(task, "dueDateTime");
         var status = GetString(task, "status");
+        var labels = MapCategories(task, categories, providerConnectionId);
         var metadata = new Dictionary<string, object> { ["id"] = id, ["listId"] = listId, ["synced_at"] = DateTimeOffset.UtcNow };
+        metadata["categories"] = labels.Select(label => new { name = label.Name, color = label.Color });
         if (checklist is not null) metadata["checklistItems"] = checklist;
         return new TaskItem
         {
@@ -222,7 +230,7 @@ public sealed class MicrosoftToDoProvider(HttpClient httpClient, string accessTo
             RecurrenceRule = ParseGraphRecurrence(task),
             CreatedAt = ParseDate(GetString(task, "createdDateTime")) ?? DateTimeOffset.UtcNow,
             CompletedAt = ParseGraphDate(task, "completedDateTime"),
-            Labels = MapCategories(task, categories, providerConnectionId),
+            Labels = labels,
             ProviderMetadataJson = JsonSerializer.Serialize(new
             {
                 msToDo = metadata,

@@ -79,6 +79,85 @@ public sealed class PersonalCloudCatalogTests : IDisposable
     }
 
     [Fact]
+    public async Task Microsoft_catalog_adoption_keeps_categories_and_steps_together()
+    {
+        var store = await StoreAsync();
+        var local = Local() with { IntegrationId = IntegrationIds.MicrosoftToDo, ProviderConnectionId = "mstodo_default",
+            SnapshotJson = """{"msToDo":{"categories":[{"name":"Release"}],"checklistItems":[{"displayName":"First step","isChecked":true}]}}""" };
+        await store.UpsertProviderSourceItemAsync(local);
+        await store.ApplyPersonalCloudChangePageAsync(Instance, Device, PersonalCloudWorkspaceTests.Page(1, catalog: [Catalog(Source(local))]));
+        await store.PreparePersonalCloudCatalogIntentAsync(Instance, Device, Intent(), "account", "mstodo_default", null);
+        await store.ApplyPersonalCloudSourceIntentAsync(Instance, Device, Intent("started", 2), local.Id);
+        var action = (await store.GetPersonalCloudCatalogActionAsync(Instance, "intent_test"))!;
+        var parent = (await store.GetTaskAsync(action.AdoptedTaskId!))!;
+        Assert.Equal("Release", Assert.Single(parent.Labels).Name);
+        Assert.Contains("\"msToDoCategoriesApplied\":true", parent.SourceMetadataJson);
+        Assert.Contains("\"msToDoStepsApplied\":true", parent.SourceMetadataJson);
+        var child = Assert.Single(await store.GetTasksAsync(new() { ParentId = parent.Id, IncludeSubtasks = true }));
+        Assert.True(child.IsCompleted);
+        var entries = await store.GetPendingPersonalCloudOutboxAsync(Instance, Device);
+        var create = Assert.Single(entries, entry => entry.EntityId == parent.Id && entry.Operation == "task.createRich");
+        using var json = JsonDocument.Parse(create.CanonicalJson);
+        Assert.Equal(Assert.Single(parent.Labels).Id, Assert.Single(json.RootElement.GetProperty("payload").GetProperty("task").GetProperty("labels").EnumerateArray()).GetProperty("id").GetString());
+        Assert.DoesNotContain(entries, entry => entry.EntityId == child.Id);
+    }
+
+    [Fact]
+    public async Task Microsoft_catalog_adoption_creates_local_category_labels_in_rich_intent()
+    {
+        var store = await StoreAsync();
+        var local = Local() with { IntegrationId = IntegrationIds.MicrosoftToDo, ProviderConnectionId = "mstodo_default",
+            SnapshotJson = """{"msToDo":{"categories":[{"name":"Release","color":"#32CD32"},{"name":"release","color":"#32CD32"}]}}""" };
+        await store.UpsertProviderSourceItemAsync(local);
+        await store.ApplyPersonalCloudChangePageAsync(Instance, Device, PersonalCloudWorkspaceTests.Page(1, catalog: [Catalog(Source(local))]));
+        await store.PreparePersonalCloudCatalogIntentAsync(Instance, Device, Intent(), "account", "mstodo_default", null);
+        await store.ApplyPersonalCloudSourceIntentAsync(Instance, Device, Intent("started", 2), local.Id);
+        var action = (await store.GetPersonalCloudCatalogActionAsync(Instance, "intent_test"))!;
+        var task = (await store.GetTaskAsync(action.AdoptedTaskId!))!;
+        var label = Assert.Single(task.Labels);
+        Assert.Equal(IntegrationIds.Local, label.IntegrationId);
+        Assert.Equal("#32CD32", label.Color);
+        Assert.True(JsonDocument.Parse(task.SourceMetadataJson!).RootElement.GetProperty("msToDoCategoriesApplied").GetBoolean());
+        var create = Assert.Single(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device), item => item.Operation == "task.createRich");
+        using var json = JsonDocument.Parse(create.CanonicalJson);
+        Assert.Equal(label.Id, Assert.Single(json.RootElement.GetProperty("payload").GetProperty("task").GetProperty("labels").EnumerateArray()).GetProperty("id").GetString());
+    }
+
+    [Fact]
+    public async Task Microsoft_catalog_cached_snapshot_waits_for_publication_and_post_pull_backfill()
+    {
+        var store = await StoreAsync();
+        var local = Local() with { IntegrationId = IntegrationIds.MicrosoftToDo, ProviderConnectionId = "mstodo_default",
+            SnapshotJson = """{"msToDo":{"id":"cached-task","listId":"cached-list"}}""" };
+        await store.UpsertProviderSourceItemAsync(local);
+        await store.ApplyPersonalCloudChangePageAsync(Instance, Device, PersonalCloudWorkspaceTests.Page(1, catalog: [Catalog(Source(local))]));
+        await store.PreparePersonalCloudCatalogIntentAsync(Instance, Device, Intent(), "account", "mstodo_default", null);
+        await store.ApplyPersonalCloudSourceIntentAsync(Instance, Device, Intent("started", 2), local.Id);
+        var taskId = (await store.GetPersonalCloudCatalogActionAsync(Instance, "intent_test"))!.AdoptedTaskId!;
+        var task = (await store.GetTaskAsync(taskId))!;
+        using (var metadata = JsonDocument.Parse(task.SourceMetadataJson!))
+            Assert.False(metadata.RootElement.TryGetProperty("msToDoCategoriesApplied", out _));
+
+        await store.UpsertProviderSourceItemAsync(local with
+        {
+            SnapshotJson = """{"msToDo":{"categories":[{"name":"Release","color":"#32CD32"}]}}""",
+        });
+        Assert.Empty((await store.GetTaskAsync(taskId))!.Labels);
+        Assert.DoesNotContain("msToDoCategoriesApplied", (await store.GetTaskAsync(taskId))!.SourceMetadataJson!);
+        foreach (var entry in await store.GetPendingPersonalCloudOutboxAsync(Instance, Device))
+            await store.AcknowledgePersonalCloudMutationAsync(Instance, Device, Receipt(entry, entry.Operation == "task.createRich" ? 1 : 2));
+        Assert.Equal(1, await store.ApplyPendingMicrosoftCategoriesAfterPullAsync(new()
+        {
+            InstanceId = Instance, DeviceId = Device, ServiceOrigin = new("https://catalog.example.test"),
+            ArtifactVersion = "test", ConnectedAt = DateTimeOffset.UtcNow,
+        }));
+        var refreshed = (await store.GetTaskAsync(taskId))!;
+        Assert.Equal("Release", Assert.Single(refreshed.Labels).Name);
+        using var applied = JsonDocument.Parse(refreshed.SourceMetadataJson!);
+        Assert.True(applied.RootElement.GetProperty("msToDoCategoriesApplied").GetBoolean());
+    }
+
+    [Fact]
     public async Task Unverified_legacy_adoption_is_omitted_instead_of_offered_as_duplicate_adoption()
     {
         var store = await StoreAsync(); var local = Local() with { AdoptedTaskId = "task_legacy", AdoptionState = ProviderSourceAdoptionStates.Adopted };

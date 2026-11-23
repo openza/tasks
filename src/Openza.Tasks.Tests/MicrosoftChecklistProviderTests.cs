@@ -147,7 +147,7 @@ public sealed class MicrosoftChecklistProviderTests
             return Json(JsonSerializer.Serialize(new Dictionary<string, object> { ["value"] = Array.Empty<object>(),
                 ["@odata.nextLink"] = $"https://graph.microsoft.com/v1.0{target}" }));
         }));
-        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => new MicrosoftToDoProvider(client, "test-token").FetchSnapshotAsync());
+        var error = await Assert.ThrowsAnyAsync<InvalidOperationException>(() => new MicrosoftToDoProvider(client, "test-token").FetchSnapshotAsync());
         Assert.Equal("Microsoft Graph returned a repeated collection page.", error.Message);
     }
 

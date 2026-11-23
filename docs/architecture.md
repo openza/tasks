@@ -191,4 +191,4 @@ The V3 schema already includes route-level sync tables:
 - `sync_operations`
 - `sync_runs`
 
-The current Todoist and Microsoft To Do integrations do not yet populate the full route ledger. They use source snapshots, explicit add-to-Inbox, and the completion/reopen outbox. Future routes such as Todoist to Obsidian should use `sync_item_links`, `sync_field_state`, and `sync_operations` instead of adding provider-specific columns to `tasks`.
+The current Todoist and Microsoft To Do integrations do not yet populate the full route ledger. They use source snapshots, explicit add-to-Inbox, and the completion/reopen outbox. [Microsoft categories](microsoft-to-do-integration.md) become local labels once on adoption or the first refresh of an older adoption; Todoist labels remain source metadata. Future routes such as Todoist to Obsidian should use `sync_item_links`, `sync_field_state`, and `sync_operations` instead of adding provider-specific columns to `tasks`.

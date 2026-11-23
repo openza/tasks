@@ -290,9 +290,94 @@ public sealed class SyncProviderTests
         Assert.Equal(1, task.Priority);
         Assert.Equal("weekly", task.RecurrenceRule);
         Assert.Equal("Release", Assert.Single(task.Labels).Name);
+        using var metadata = JsonDocument.Parse(task.ProviderMetadataJson!);
+        var category = Assert.Single(metadata.RootElement.GetProperty("msToDo").GetProperty("categories").EnumerateArray());
+        Assert.Equal("Release", category.GetProperty("name").GetString());
+        Assert.Equal("#0078D4", category.GetProperty("color").GetString());
         var completionRequest = Assert.Single(handler.Requests, request => request.Method == HttpMethod.Patch);
         Assert.Equal("/v1.0/me/todo/lists/list1/tasks/task1", completionRequest.Uri.AbsolutePath);
         Assert.Contains("\"notStarted\"", completionRequest.Content);
+    }
+
+    [Fact]
+    public async Task MicrosoftToDoProvider_follows_list_and_category_pages_and_preserves_category_colors()
+    {
+        var handler = new FakeHttpMessageHandler(request => request.RequestUri?.PathAndQuery switch
+        {
+            "/v1.0/me/todo/lists" => Json("""{"value":[{"id":"first","displayName":"First"}],"@odata.nextLink":"https://graph.microsoft.com/v1.0/me/todo/lists?$skip=1"}"""),
+            "/v1.0/me/todo/lists?$skip=1" => Json("""{"value":[{"id":"second","displayName":"Second"}]}"""),
+            "/v1.0/me/outlook/masterCategories" => Json("""{"value":[{"displayName":"Other","color":"preset0"}],"@odata.nextLink":"https://graph.microsoft.com/v1.0/me/outlook/masterCategories?$skip=1"}"""),
+            "/v1.0/me/outlook/masterCategories?$skip=1" => Json("""{"value":[{"displayName":"Release","color":"preset3"}]}"""),
+            "/v1.0/me/todo/lists/first/tasks?$top=100&$expand=checklistItems" => Json("""{"value":[]}"""),
+            "/v1.0/me/todo/lists/second/tasks?$top=100&$expand=checklistItems" => Json("""{"value":[{"id":"task","title":"Paged","categories":["Release","Unknown"],"checklistItems":[{"displayName":"First","isChecked":true}]}]}"""),
+            _ => Empty(HttpStatusCode.NotFound),
+        });
+        var snapshot = await new MicrosoftToDoProvider(new HttpClient(handler), "token").FetchSnapshotAsync();
+        Assert.Equal(2, snapshot.Projects.Count);
+        Assert.Equal(2, snapshot.Labels.Count);
+        var task = Assert.Single(snapshot.Tasks);
+        var source = TaskSyncEngine.ToProviderSourceItem(task, "mstodo_default", new Dictionary<string, string>());
+        using var metadata = JsonDocument.Parse(source.SnapshotJson!);
+        var categories = metadata.RootElement.GetProperty("msToDo").GetProperty("categories").EnumerateArray().ToArray();
+        Assert.Equal("Release", categories[0].GetProperty("name").GetString());
+        Assert.Equal("#32CD32", categories[0].GetProperty("color").GetString());
+        Assert.Equal("#0078D4", categories[1].GetProperty("color").GetString());
+        Assert.Equal("First", Assert.Single(metadata.RootElement.GetProperty("msToDo").GetProperty("checklistItems").EnumerateArray()).GetProperty("displayName").GetString());
+    }
+
+    [Fact]
+    public async Task MicrosoftToDoProvider_preserves_task_categories_when_catalog_is_unavailable()
+    {
+        var handler = new FakeHttpMessageHandler(request => request.RequestUri?.AbsolutePath switch
+        {
+            "/v1.0/me/todo/lists" => Json("""{"value":[{"id":"list"}]}"""),
+            "/v1.0/me/todo/lists/list/tasks" => Json("""{"value":[{"id":"task","categories":["Release"]}]}"""),
+            _ => Empty(HttpStatusCode.Forbidden),
+        });
+        var snapshot = await new MicrosoftToDoProvider(new HttpClient(handler), "token").FetchSnapshotAsync();
+        Assert.Empty(snapshot.Labels);
+        var label = Assert.Single(Assert.Single(snapshot.Tasks).Labels);
+        Assert.Equal("Release", label.Name);
+        Assert.Equal("#0078D4", label.Color);
+    }
+
+    [Theory]
+    [InlineData("lists", false)]
+    [InlineData("categories", false)]
+    [InlineData("tasks", false)]
+    [InlineData("lists", true)]
+    [InlineData("categories", true)]
+    [InlineData("tasks", true)]
+    public async Task MicrosoftToDoProvider_rejects_repeated_pages_without_publishing_a_partial_snapshot(string collection, bool cycle)
+    {
+        var repeatedRequests = 0;
+        var path = collection switch
+        {
+            "lists" => "/v1.0/me/todo/lists",
+            "categories" => "/v1.0/me/outlook/masterCategories",
+            _ => "/v1.0/me/todo/lists/list/tasks?$top=100&$expand=checklistItems",
+        };
+        var secondPath = path + (path.Contains('?') ? "&page=2" : "?page=2");
+        var handler = new FakeHttpMessageHandler(request =>
+        {
+            if (request.RequestUri!.PathAndQuery == path || request.RequestUri.PathAndQuery == secondPath)
+            {
+                if (++repeatedRequests > 4) throw new InvalidOperationException("Test stopped unbounded paging.");
+                return Json(JsonSerializer.Serialize(new Dictionary<string, object>
+                {
+                    ["value"] = Array.Empty<object>(),
+                    ["@odata.nextLink"] = "https://graph.microsoft.com" + (cycle && repeatedRequests == 1 ? secondPath : path),
+                }));
+            }
+            return request.RequestUri.AbsolutePath == "/v1.0/me/todo/lists"
+                ? Json("""{"value":[{"id":"list"}]}""") : Json("""{"value":[]}""");
+        });
+
+        var error = await Assert.ThrowsAnyAsync<InvalidOperationException>(() =>
+            new MicrosoftToDoProvider(new HttpClient(handler), "token").FetchSnapshotAsync());
+
+        Assert.Equal("Microsoft Graph returned a repeated collection page.", error.Message);
+        Assert.InRange(repeatedRequests, 1, 2);
     }
 
     private static HttpResponseMessage Json(string value) =>

@@ -3,14 +3,11 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Data.Sqlite;
 using Openza.Tasks.Core.Models;
-using Openza.Tasks.Core.PersonalCloud;
 
 namespace Openza.Tasks.Core.Data;
 
 public sealed partial class SqliteTaskStore
 {
-    public Func<PersonalCloudConnectionProfile?>? PersonalCloudConnection { get; set; }
-
     private async Task<(string? Metadata, IReadOnlyList<TaskItem> Children)> ApplyMicrosoftStepsAsync(
         SqliteConnection connection, ProviderSourceItem source, string taskId, CancellationToken cancellationToken)
     {

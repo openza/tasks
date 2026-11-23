@@ -2383,7 +2383,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
         DetailProject?.ProjectId,
         DetailDate is null ? null : DateOnly.FromDateTime(DetailDate.Value.LocalDateTime),
         DetailDeadline is null ? null : DateOnly.FromDateTime(DetailDeadline.Value.LocalDateTime),
-        ParseLabels(DetailLabels),
+        DetailLabels == string.Join(", ", DetailLabelItems)
+            ? ResolveLabels(DetailLabelItems, SelectedTask?.Task.Labels)
+            : ParseLabels(DetailLabels),
         _sourceDateMismatchAcknowledgementKey,
         _detailEditVersion);
 
@@ -3220,11 +3222,15 @@ public sealed partial class MainWindowViewModel : ObservableObject
     };
 
     private IReadOnlyList<LabelItem> ParseLabels(string labelsText)
+        => ResolveLabels(labelsText.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+
+    private IReadOnlyList<LabelItem> ResolveLabels(IEnumerable<string> labelNames, IReadOnlyList<LabelItem>? existingLabels = null)
     {
-        return labelsText
-            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+        return labelNames
             .Distinct(StringComparer.CurrentCultureIgnoreCase)
-            .Select(name => _labels.FirstOrDefault(label =>
+            .Select(name => existingLabels?.FirstOrDefault(label =>
+                    string.Equals(label.Name, name, StringComparison.CurrentCultureIgnoreCase))
+                ?? _labels.FirstOrDefault(label =>
                     string.Equals(label.Name, name, StringComparison.CurrentCultureIgnoreCase))
                 ?? new LabelItem
                 {

@@ -7,6 +7,10 @@ All notable changes to Openza Tasks will be documented in this file.
 ### Added
 - Microsoft To Do checklist items import once as local subtasks in Graph order, including mixed checked state and completion time, with upgrade backfill and Personal Cloud publication. Later syncs and source reconnection preserve local subtask edits and deletions.
 
+### Fixed
+- Microsoft To Do categories become local labels on adoption, retaining category colors and existing local labels. Previously adopted tasks receive categories once on their next sync; later provider changes do not overwrite user label edits. Microsoft list and category catalogs now follow all Graph pages.
+- Published-task category backfill waits for Personal Cloud to pull current versions, including after reconnecting. Category adoption ignores provider-catalog matches and skips already-attached names. Removed categories stay removed after provider relinking, and category imports respect the 32-label task limit.
+
 ## [1.4.0] - 2026-11-22
 
 ### Added
