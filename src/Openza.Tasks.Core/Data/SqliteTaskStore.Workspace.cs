@@ -313,7 +313,21 @@ public sealed partial class SqliteTaskStore
         WorkspaceExecuteAsync(connection, """
             UPDATE tasks SET parent_id=NULL, revision=revision+1
             WHERE integration_id='openza_tasks' AND parent_id IS NOT NULL AND (
-                parent_id IN (SELECT entity_id FROM personal_cloud_tombstones WHERE instance_id=@i AND product='tasks') OR
+                parent_id IN (
+                    SELECT t.entity_id FROM personal_cloud_tombstones t
+                    WHERE t.product='tasks' AND (
+                        (@missing=1 AND t.instance_id<>@i) OR
+                        (t.instance_id=@i AND NOT EXISTS(
+                            SELECT 1 FROM personal_cloud_outbox o
+                            WHERE o.instance_id=t.instance_id AND o.entity_id=t.entity_id AND o.acknowledged_at IS NULL
+                              AND o.operation='task.delete'
+                        ) AND NOT EXISTS(
+                            SELECT 1 FROM personal_cloud_task_conflicts c
+                            WHERE c.instance_id=t.instance_id AND c.entity_id=t.entity_id
+                              AND json_extract(c.canonical_json,'$.operation')='task.delete'
+                        ))
+                    )
+                ) OR
                 parent_id IN (SELECT entity_id FROM personal_cloud_workspace_records
                     WHERE instance_id=@i AND kind='tasks' AND json_extract(canonical_json,'$.deletedAt') IS NOT NULL) OR
                 parent_id IN (SELECT entity_id FROM personal_cloud_deferred_changes

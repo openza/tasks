@@ -100,6 +100,43 @@ public sealed partial class PersonalCloudBatchSyncTests
         }
     }
 
+    [Fact]
+    public async Task A_rejected_parent_deletion_does_not_change_the_step_relationship()
+    {
+        var (store, handler) = await ConflictStoreAsync();
+        var step = new TaskItem { Id = "task_step", Title = "Keep the relationship", SpaceId = "space_test", ParentId = "task_test" };
+        await store.UpsertTaskAsync(step);
+        await store.DeleteTaskWithPersonalCloudIntentAsync("task_test", DateTimeOffset.UtcNow, 1, Instance, Device);
+        handler.ConflictEntity = "task_test";
+        handler.ConflictOperation = "task.delete";
+
+        await (await CreateClientAsync(store, handler)).SyncAsync();
+        Assert.Equal(step.ParentId, (await store.GetTaskAsync(step.Id))!.ParentId);
+        await store.ResolvePersonalCloudTaskConflictAsync(Instance, "task_test", keepDesktop: false);
+        Assert.NotNull(await store.GetTaskAsync("task_test"));
+        Assert.Equal(step.ParentId, (await store.GetTaskAsync(step.Id))!.ParentId);
+    }
+
+    [Fact]
+    public async Task A_step_is_staged_as_top_level_when_the_old_clouds_parent_is_hidden()
+    {
+        const string replacement = "instance_replacement";
+        var (store, _) = await ConflictStoreAsync();
+        var step = new TaskItem { Id = "task_step", Title = "Send to replacement", SpaceId = "space_test", ParentId = "task_test" };
+        await store.UpsertTaskAsync(step);
+        var deletion = await store.DeleteTaskWithPersonalCloudIntentAsync("task_test", DateTimeOffset.UtcNow, 1, Instance, Device);
+        await store.ApplyPersonalCloudChangePageAsync(replacement, Device, PersonalCloudWorkspaceTests.Page(1,
+            [PersonalCloudWorkspaceTests.Space()], [PersonalCloudWorkspaceTests.Project()]));
+
+        await store.StageUnpublishedTasksForPersonalCloudAsync(replacement, Device);
+
+        Assert.Null((await store.GetTaskAsync(step.Id))!.ParentId);
+        var pending = await store.GetPendingPersonalCloudOutboxAsync(replacement, Device);
+        Assert.Equal("task.createRich", Assert.Single(pending, entry => entry.EntityId == step.Id).Operation);
+        Assert.DoesNotContain(pending, entry => entry.EntityId == step.ParentId);
+        Assert.Equal(deletion, Assert.Single(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device)));
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
