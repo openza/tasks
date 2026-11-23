@@ -259,6 +259,7 @@ public sealed partial class SqliteTaskStore
             var steps = await ApplyMicrosoftStepsAsync(connection, source, task.Id, cancellationToken).ConfigureAwait(false);
             if (steps.Metadata is not null) task = task with { SourceMetadataJson = steps.Metadata };
             await UpsertProviderSourceItemCoreAsync(connection, source with { AdoptionState = ProviderSourceAdoptionStates.Adopted, AdoptedTaskId = task.Id }, cancellationToken).ConfigureAwait(false);
+            await ApplyMicrosoftReminderAsync(connection, source, task.Id, cancellationToken).ConfigureAwait(false);
             await AppendRichTaskAsync(connection, task, instanceId, deviceId, descriptor, cancellationToken).ConfigureAwait(false);
         }
         else if (action is "skip" or "restore")

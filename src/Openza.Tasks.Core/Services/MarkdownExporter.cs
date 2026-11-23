@@ -120,7 +120,7 @@ public static class MarkdownExporter
 
         var data = new ParsedTask(task.Title, task.IsCompleted)
         {
-            Priority = task.Priority, PlannedOn = task.PlannedOn, DeadlineOn = task.DeadlineOn,
+            Priority = task.Priority, PlannedOn = task.PlannedOn, DeadlineOn = task.DeadlineOn, ReminderAt = task.ReminderAt,
             Notes = task.Notes, ProjectName = projectName, WorkflowStatus = task.WorkflowStatus,
             CompletionState = task.CompletionState,
             Labels = task.Labels.Select(label => new LabelItem { Name = label.Name, Color = label.Color }).ToArray(),

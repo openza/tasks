@@ -204,6 +204,9 @@ public sealed class MicrosoftToDoProvider(HttpClient httpClient, string accessTo
         var labels = MapCategories(task, categories, providerConnectionId);
         var metadata = new Dictionary<string, object> { ["id"] = id, ["listId"] = listId, ["synced_at"] = DateTimeOffset.UtcNow };
         metadata["categories"] = labels.Select(label => new { name = label.Name, color = label.Color });
+        if (task.TryGetProperty("isReminderOn", out var reminderOn))
+            metadata["reminder"] = new { isReminderOn = reminderOn.Clone(),
+                reminderDateTime = task.TryGetProperty("reminderDateTime", out var reminderDate) ? reminderDate.Clone() : (JsonElement?)null };
         if (checklist is not null) metadata["checklistItems"] = checklist;
         return new TaskItem
         {

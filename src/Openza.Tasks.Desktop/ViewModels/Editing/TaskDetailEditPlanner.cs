@@ -6,7 +6,7 @@ namespace Openza.Tasks.Desktop.ViewModels.Editing;
 public sealed record TaskDetailDraft(
     string TaskId, string Title, string Notes, TaskItemStatus Status, int Priority,
     string? ProjectId, DateOnly? PlannedOn, DateOnly? DeadlineOn,
-    IReadOnlyList<LabelItem> Labels, string? SourceDateMismatchAcknowledgementKey, long Version);
+    IReadOnlyList<LabelItem> Labels, string? SourceDateMismatchAcknowledgementKey, long Version, DateTimeOffset? ReminderAt = null);
 
 /// <summary>Plans the editor's explicit changes without persisting or owning async UI state.</summary>
 public static class TaskDetailEditPlanner
@@ -31,6 +31,7 @@ public static class TaskDetailEditPlanner
             Project = draft.ProjectId == baseline.ProjectId ? default : OptionalValue<string?>.Set(draft.ProjectId),
             PlannedOn = draft.PlannedOn == DisplayPlannedOn(baseline) ? default : OptionalValue<DateOnly?>.Set(draft.PlannedOn),
             DeadlineOn = draft.DeadlineOn == DisplayDeadlineOn(baseline) ? default : OptionalValue<DateOnly?>.Set(draft.DeadlineOn),
+            ReminderAt = draft.ReminderAt == baseline.ReminderAt ? default : OptionalValue<DateTimeOffset?>.Set(draft.ReminderAt),
             Labels = SameLabels(baseline.Labels, draft.Labels) ? default : OptionalValue<IReadOnlyList<string>>.Set(draft.Labels.Select(label => label.Name).ToArray()),
             LocalMetadataJson = draft.SourceDateMismatchAcknowledgementKey == TaskSourceDateChoice.ReadAcknowledgement(baseline.LocalMetadataJson) ? default : OptionalValue<string?>.Set(localMetadataJson),
         };
@@ -48,6 +49,7 @@ public static class TaskDetailEditPlanner
             || !string.Equals(original.ProjectId, draft.ProjectId, StringComparison.Ordinal)
             || DisplayPlannedOn(original) != draft.PlannedOn
             || DisplayDeadlineOn(original) != draft.DeadlineOn
+            || original.ReminderAt != draft.ReminderAt
             || !string.Equals(original.LocalMetadataJson, localMetadataJson, StringComparison.Ordinal)
             || !SameLabels(original.Labels, draft.Labels);
     }
@@ -69,6 +71,7 @@ public static class TaskDetailEditPlanner
         PlannedAt = draft.PlannedOn == DisplayPlannedOn(baseline) ? baseline.PlannedAt : null,
         DeadlineOn = draft.DeadlineOn == DisplayDeadlineOn(baseline) ? baseline.DeadlineOn : draft.DeadlineOn,
         DeadlineAt = draft.DeadlineOn == DisplayDeadlineOn(baseline) ? baseline.DeadlineAt : null,
+        ReminderAt = draft.ReminderAt,
         Labels = draft.Labels,
         LocalMetadataJson = TaskSourceDateChoice.WithAcknowledgement(baseline.LocalMetadataJson, draft.SourceDateMismatchAcknowledgementKey),
     };

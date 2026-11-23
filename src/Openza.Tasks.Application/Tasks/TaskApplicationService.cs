@@ -60,6 +60,7 @@ public sealed class TaskApplicationService(
             Priority = ValidatePriority(request.Priority),
             PlannedOn = request.PlannedOn,
             DeadlineOn = request.DeadlineOn,
+            ReminderAt = request.ReminderAt?.ToUniversalTime(),
             CreatedAt = now,
             UpdatedAt = now,
             Labels = await ResolveLabelsAsync(request.Labels, cancellationToken).ConfigureAwait(false),
@@ -173,6 +174,13 @@ public sealed class TaskApplicationService(
             (request.Space.IsSpecified ? 1 : 0) +
             (request.Project.IsSpecified ? 1 : 0) +
             (request.Labels.IsSpecified ? 1 : 0);
+        if (request.ReminderAt.IsSpecified && cloudScalarChangeCount + cloudRelationshipChangeCount == 0 &&
+            !request.LocalMetadataJson.IsSpecified && Store is SqliteTaskStore reminderStore)
+        {
+            if (!await reminderStore.TrySetTaskReminderAsync(original.Id, request.ReminderAt.Value, expectedRevision, cancellationToken).ConfigureAwait(false))
+                throw new TaskConflictException(original.Id);
+            return await RequireTaskAsync(original.Id, cancellationToken).ConfigureAwait(false);
+        }
         if (cloudScalarChangeCount + cloudRelationshipChangeCount > 0 &&
             PersonalCloudTarget() is { } target && Store is SqliteTaskStore sqliteStore &&
             !await sqliteStore.IsPersonalCloudTaskRecoveryCopyAsync(target.InstanceId, original.Id, cancellationToken).ConfigureAwait(false))
@@ -309,6 +317,12 @@ public sealed class TaskApplicationService(
                     throw new TaskConflictException(original.Id);
                 changed = true;
             }
+            if (request.ReminderAt.IsSpecified)
+            {
+                if (!await sqliteStore.TrySetTaskReminderAsync(original.Id, request.ReminderAt.Value, cancellationToken: cancellationToken).ConfigureAwait(false))
+                    throw new TaskConflictException(original.Id);
+                changed = true;
+            }
             return changed
                 ? await RequireTaskAsync(original.Id, cancellationToken).ConfigureAwait(false)
                 : original;
@@ -328,6 +342,7 @@ public sealed class TaskApplicationService(
             PlannedAt = request.PlannedOn.IsSpecified
                 ? ProviderWriteBackPlanner.PreserveExactTime(plannedOn, original.PlannedOn, original.PlannedAt)
                 : original.PlannedAt,
+            ReminderAt = request.ReminderAt.IsSpecified ? request.ReminderAt.Value?.ToUniversalTime() : original.ReminderAt,
             DeadlineOn = deadlineOn,
             DeadlineAt = request.DeadlineOn.IsSpecified
                 ? ProviderWriteBackPlanner.PreserveExactTime(deadlineOn, original.DeadlineOn, original.DeadlineAt)

@@ -13,6 +13,27 @@ Graph order is encoded with strictly increasing, one-second-spaced creation time
 Import sets `msToDoStepsApplied` in the parent task's source metadata. Previously adopted tasks receive a one-time backfill on their next provider refresh; existing local children are retained. The backfill adds checklist children without matching by title, since different checklist items can legitimately share a name. Once marked, later provider changes cannot rename, recheck, recreate or delete children. User edits and child deletions persist, including after legacy cloud bootstrap replacement and source disappearance/relink. Detachment clears provider identity and source context but retains the applied marker. Snapshots without checklist data remain unmarked so a fresh sync can import them; explicit empty checklists are marked.
 
 To Do adoption and backfill write only local child rows and the applied marker. They never resolve a cloud target, take a Personal Cloud authoring lease, or queue cloud mutations. Normal Personal Cloud sync downloads capabilities and the workspace baseline first, then publishes unpublished children through existing task-create, parent-relationship and completion mutations, with consecutive per-entity versions in workspace and legacy modes. This also avoids seeding workspace metadata before an upgraded cloud's versions have downloaded. Cloud catalog adoption applies the same one-time mapping. No changes to Todoist source-label or task behavior are made.
+
+## Reminders
+
+Microsoft To Do reminders import once into an editable local Reminder field. Enabled
+reminders are converted to UTC using their IANA or Windows time zone. Explicitly
+disabled reminders mark the import complete without setting a reminder. Cached
+snapshots without reminder fields, malformed dates and unknown zones leave the
+import pending for a later fetch; unknown zones are logged and skipped.
+
+Previously adopted tasks are backfilled once, without replacing an existing local
+reminder. The independent `msToDoReminderApplied` marker survives provider refresh,
+detachment/relink and cloud hydration. Later Microsoft changes do not overwrite
+local reminder edits or restore a cleared reminder after import.
+
+Reminders stay on this device and do not produce Personal Cloud edits. Cloud pulls
+and baseline replacements preserve the local reminder and its import marker.
+Backup/restore and task export/import retain reminder definitions. Desktop's
+inspector provides date, time and Clear controls. CLI accepts `--reminder` with an
+ISO 8601 instant including `Z` or a UTC offset, and `--clear-reminder` on updates.
+Openza does not send reminder notifications yet; nothing fires at the stored time.
+
 ## Categories
 
 Categories and checklist items are imported independently. The parent retains both

@@ -384,17 +384,18 @@ internal static partial class OpenzaCli
         var priority = CreatePriorityOption(requiredDefault: "normal");
         var date = CreateDateOption("--date");
         var deadline = CreateDateOption("--deadline");
+        var reminder = CreateReminderOption();
         var labels = new Option<string[]>("--label") { AllowMultipleArgumentsPerToken = true, DefaultValueFactory = _ => [] };
         var command = new Command("add", "Create a local task.");
         command.Arguments.Add(title);
-        foreach (var option in new Option[] { notes, space, project, status, priority, date, deadline, labels }) command.Options.Add(option);
+        foreach (var option in new Option[] { notes, space, project, status, priority, date, deadline, reminder, labels }) command.Options.Add(option);
         command.SetAction(async (parseResult, cancellationToken) => await ExecuteAsync(parseResult, format, async context =>
         {
             var created = await context.Service.CreateTaskAsync(new CreateTaskRequest
             {
                 Title = parseResult.GetValue(title)!, Notes = parseResult.GetValue(notes), Space = parseResult.GetValue(space), Project = parseResult.GetValue(project),
                 Status = ParseStatus(parseResult.GetValue(status)), Priority = ParsePriority(parseResult.GetValue(priority)), PlannedOn = parseResult.GetValue(date),
-                DeadlineOn = parseResult.GetValue(deadline), Labels = parseResult.GetValue(labels) ?? [],
+                ReminderAt = parseResult.GetValue(reminder), DeadlineOn = parseResult.GetValue(deadline), Labels = parseResult.GetValue(labels) ?? [],
             }, cancellationToken);
             WriteTaskDetails(context.Output, created);
             return Success;
@@ -416,17 +417,19 @@ internal static partial class OpenzaCli
         var date = CreateDateOption("--date");
         var clearDate = new Option<bool>("--clear-date");
         var deadline = CreateDateOption("--deadline");
+        var reminder = CreateReminderOption();
         var clearDeadline = new Option<bool>("--clear-deadline");
+        var clearReminder = new Option<bool>("--clear-reminder");
         var labels = new Option<string[]>("--label") { AllowMultipleArgumentsPerToken = true };
         var clearLabels = new Option<bool>("--clear-labels");
         var revision = new Option<long?>("--revision") { Description = "Expected task revision for conflict detection." };
         var command = new Command("update", "Update specified fields on a task.");
         command.Arguments.Add(id);
-        foreach (var option in new Option[] { title, notes, clearNotes, space, project, clearProject, status, priority, date, clearDate, deadline, clearDeadline, labels, clearLabels, revision }) command.Options.Add(option);
+        foreach (var option in new Option[] { title, notes, clearNotes, space, project, clearProject, status, priority, date, clearDate, deadline, clearDeadline, reminder, clearReminder, labels, clearLabels, revision }) command.Options.Add(option);
         command.SetAction(async (parseResult, cancellationToken) => await ExecuteAsync(parseResult, format, async context =>
         {
             EnsureNotBoth(parseResult, project, clearProject); EnsureNotBoth(parseResult, notes, clearNotes); EnsureNotBoth(parseResult, date, clearDate);
-            EnsureNotBoth(parseResult, deadline, clearDeadline); EnsureNotBoth(parseResult, labels, clearLabels);
+            EnsureNotBoth(parseResult, reminder, clearReminder); EnsureNotBoth(parseResult, deadline, clearDeadline); EnsureNotBoth(parseResult, labels, clearLabels);
             var updated = await context.Service.UpdateTaskAsync(new UpdateTaskRequest
             {
                 TaskId = parseResult.GetValue(id)!, ExpectedRevision = parseResult.GetValue(revision),
@@ -434,6 +437,7 @@ internal static partial class OpenzaCli
                 Project = FromOptionOrClear(parseResult, project, clearProject),
                 Status = parseResult.GetResult(status) is null ? default : OptionalValue<TaskWorkflowStatus>.Set(ParseStatus(parseResult.GetValue(status))),
                 Priority = parseResult.GetResult(priority) is null ? default : OptionalValue<int>.Set(ParsePriority(parseResult.GetValue(priority))),
+                ReminderAt = FromOptionOrClear(parseResult, reminder, clearReminder),
                 PlannedOn = FromOptionOrClear(parseResult, date, clearDate), DeadlineOn = FromOptionOrClear(parseResult, deadline, clearDeadline),
                 Labels = parseResult.GetValue(clearLabels) ? OptionalValue<IReadOnlyList<string>>.Set([])
                     : parseResult.GetResult(labels) is null ? default : OptionalValue<IReadOnlyList<string>>.Set(parseResult.GetValue(labels) ?? []),
@@ -542,7 +546,7 @@ internal static partial class OpenzaCli
     {
         var rows = tasks.Select(task => new TaskRow(task.Id, task.Title, task.SpaceId, task.ProjectId, task.WorkflowStatus.ToString().ToLowerInvariant(),
             task.IsCompleted, PriorityName(task.Priority), task.Priority, task.PlannedOn, task.DeadlineOn, task.Notes,
-            task.Labels.Select(label => label.Name).ToArray(), !string.IsNullOrWhiteSpace(task.RecurrenceRule), task.RecurrenceRule, task.Revision)).ToList();
+            task.Labels.Select(label => label.Name).ToArray(), !string.IsNullOrWhiteSpace(task.RecurrenceRule), task.RecurrenceRule, task.Revision, task.ReminderAt)).ToList();
         output.Write(rows,
             rows.Select(x => new[] { x.Id, x.Title, x.Status, x.Priority, x.PlannedOn?.ToString("yyyy-MM-dd") ?? "", x.Completed.ToString() }),
             ["id", "title", "status", "priority", "planned_on", "completed"],
@@ -553,7 +557,7 @@ internal static partial class OpenzaCli
     {
         var row = new TaskRow(task.Id, task.Title, task.SpaceId, task.ProjectId, task.WorkflowStatus.ToString().ToLowerInvariant(),
             task.IsCompleted, PriorityName(task.Priority), task.Priority, task.PlannedOn, task.DeadlineOn, task.Notes,
-            task.Labels.Select(label => label.Name).ToArray(), !string.IsNullOrWhiteSpace(task.RecurrenceRule), task.RecurrenceRule, task.Revision);
+            task.Labels.Select(label => label.Name).ToArray(), !string.IsNullOrWhiteSpace(task.RecurrenceRule), task.RecurrenceRule, task.Revision, task.ReminderAt);
         var textValues = new[]
         {
             row.Id, row.Title, row.SpaceId, row.ProjectId ?? "", row.Status, row.Completed.ToString().ToLowerInvariant(), row.Priority,
@@ -565,7 +569,7 @@ internal static partial class OpenzaCli
         output.WriteTaskDetails(
             row,
             textValues,
-            tsvValues);
+            tsvValues, task.ReminderAt);
     }
 
     private static OptionalValue<T> FromOption<T>(ParseResult result, Option<T> option) => result.GetResult(option) is null ? default : OptionalValue<T>.Set(result.GetValue(option));
@@ -592,6 +596,20 @@ internal static partial class OpenzaCli
     private static int ParsePriority(string? value) => value?.ToLowerInvariant() switch
     { "highest" => 1, "high" => 2, "normal" => 3, "low" => 4, _ => throw new ArgumentException($"Unknown priority '{value}'.") };
     private static string PriorityName(int value) => value switch { 1 => "highest", 2 => "high", 3 => "normal", _ => "low" };
+
+    private static Option<DateTimeOffset?> CreateReminderOption()
+    {
+        var option = new Option<DateTimeOffset?>("--reminder") { Description = "Local-only reminder instant in ISO 8601 with Z or UTC offset; no notifications." };
+        option.Validators.Add(result =>
+        {
+            if (result.Tokens.Count == 0) return;
+            var value = result.Tokens[0].Value;
+            if (!DateTimeOffset.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.None, out _) ||
+                !System.Text.RegularExpressions.Regex.IsMatch(value, @"T.*(Z|[+-]\d{2}:\d{2})$", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                result.AddError("--reminder must be an ISO 8601 instant with Z or a UTC offset.");
+        });
+        return option;
+    }
 
     private static Option<DateOnly?> CreateDateOption(string name)
     {
@@ -678,7 +696,7 @@ internal static partial class OpenzaCli
         string[] Labels,
         bool IsRecurring,
         string? RecurrenceRule,
-        long Revision);
+        long Revision, DateTimeOffset? ReminderAt);
 }
 
 internal sealed record CliDependencies(
@@ -715,7 +733,7 @@ internal sealed class CliOutput(string format)
         foreach (var row in rows) Console.WriteLine(string.Join("  ", row));
     }
 
-    public void WriteTaskDetails<T>(T data, string[] textValues, string[] tsvValues)
+    public void WriteTaskDetails<T>(T data, string[] textValues, string[] tsvValues, DateTimeOffset? reminderAt)
     {
         if (format == "json")
         {
@@ -731,6 +749,7 @@ internal sealed class CliOutput(string format)
         {
             Console.WriteLine($"{TaskDetailColumns[index]}  {textValues[index]}");
         }
+        Console.WriteLine($"reminder_at  {reminderAt?.ToString("O") ?? ""}");
     }
 
     public void WriteError(int exitCode, string code, string message)

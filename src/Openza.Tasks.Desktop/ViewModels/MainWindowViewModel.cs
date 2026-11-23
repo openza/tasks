@@ -74,6 +74,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private int _detailPriorityIndex = 1;
     private DateTimeOffset? _detailDate;
     private DateTimeOffset? _detailDeadline;
+    private DateTimeOffset? _detailReminder;
     private string _detailLabels = string.Empty;
     private ProjectOptionViewModel? _detailProject;
     private string _newProjectName = string.Empty;
@@ -725,6 +726,34 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 OnPropertyChanged(nameof(DetailCalendarDate));
                 NotifySourceDateMismatchChanged();
             }
+        }
+    }
+
+    public DateTimeOffset? DetailReminder
+    {
+        get => _detailReminder;
+        set
+        {
+            if (!SetProperty(ref _detailReminder, value)) return;
+            if (!IsUpdatingDetails) _detailEditVersion++;
+            OnPropertyChanged(nameof(DetailReminderDate));
+            OnPropertyChanged(nameof(DetailReminderTime));
+        }
+    }
+
+    public DateTime? DetailReminderDate
+    {
+        get => DetailReminder?.LocalDateTime.Date;
+        set => DetailReminder = value is { } date
+            ? new DateTimeOffset(date.Date + (DetailReminder?.LocalDateTime.TimeOfDay ?? TimeSpan.FromHours(9))) : null;
+    }
+
+    public TimeSpan? DetailReminderTime
+    {
+        get => DetailReminder?.LocalDateTime.TimeOfDay;
+        set
+        {
+            if (value is { } time) DetailReminder = new DateTimeOffset((DetailReminder?.LocalDateTime.Date ?? DateTime.Today) + time);
         }
     }
 
@@ -2387,7 +2416,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             ? ResolveLabels(DetailLabelItems, SelectedTask?.Task.Labels)
             : ParseLabels(DetailLabels),
         _sourceDateMismatchAcknowledgementKey,
-        _detailEditVersion);
+        _detailEditVersion, DetailReminder);
 
     public async Task DeleteSelectedAsync()
     {
@@ -3041,6 +3070,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         _sourceDateMismatchAcknowledgementKey = TaskSourceDateChoice.ReadAcknowledgement(task?.LocalMetadataJson);
         DetailTitle = task?.Title ?? string.Empty;
         DetailNotes = task?.Notes ?? string.Empty;
+        DetailReminder = task?.ReminderAt;
         DetailStatusIndex = StatusIndex(task?.Status ?? TaskItemStatus.Inbox);
         DetailPriorityIndex = Math.Clamp((task?.Priority ?? 2) - 1, 0, 3);
         DetailDate = TaskDetailEditPlanner.DisplayPlannedOn(task) is { } date
