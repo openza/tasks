@@ -37,7 +37,7 @@ public sealed partial class MicrosoftCategoryAdoptionTests
         var result = await engine.SyncAsync(provider);
 
         Assert.True(result.Success, result.Error);
-        Assert.Equal(tasks.Length + 1, targetReads);
+        Assert.Equal(2, targetReads);
         Assert.Equal(tasks.Length, (await store.GetTasksAsync(new TaskQuery { Kind = TaskListKind.All })).Count(task => task.Labels.Count == 1));
         var before = (await store.GetPendingPersonalCloudOutboxAsync(Instance, Device)).Count;
         targetReads = 0;
@@ -99,7 +99,7 @@ public sealed partial class MicrosoftCategoryAdoptionTests
         var result = await new TaskSyncEngine(store).SyncAsync(new CategoryBatchProvider([remote]));
 
         Assert.True(result.Success, result.Error);
-        Assert.Equal(1, targetReads);
+        Assert.Equal(0, targetReads);
         Assert.True(Applied((await store.GetTaskAsync(task.Id))!));
         Assert.Empty(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device));
     }

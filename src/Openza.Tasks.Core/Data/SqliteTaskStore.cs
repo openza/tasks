@@ -500,10 +500,11 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
         await UpsertProviderSourceItemWithCategoriesAsync(item, true, cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task<bool> UpsertProviderSourceItemWithCategoriesAsync(ProviderSourceItem item, bool stageCategories, CancellationToken cancellationToken)
+    private async Task<bool> UpsertProviderSourceItemWithCategoriesAsync(ProviderSourceItem item, bool stageCategories, CancellationToken cancellationToken,
+        MicrosoftCategoryAuthoring? batchAuthoring = null)
     {
-        using var cloudLease = item.IntegrationId == IntegrationIds.MicrosoftToDo && PersonalCloudConnection is not null
-            ? PersonalCloudConnectionLease.AcquireAuthoring(DatabasePath) : null;
+        using var ownedAuthoring = batchAuthoring is null ? new MicrosoftCategoryAuthoring(this) : null;
+        var authoring = batchAuthoring ?? ownedAuthoring!;
         await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         var existing = await ReadProviderSourceItemByExternalAsync(connection, item.ProviderConnectionId, item.ExternalId, cancellationToken).ConfigureAwait(false);
@@ -559,12 +560,12 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
             {
                 var task = (await SqliteTaskReadQueries.ReadTasksAsync(connection, cancellationToken, taskId).ConfigureAwait(false)).FirstOrDefault();
                 if (task is not null)
-                    (_, needsCloudStaging) = await ApplyMicrosoftCategoriesAsync(connection, source, task, cancellationToken).ConfigureAwait(false);
+                    (_, needsCloudStaging) = await ApplyMicrosoftCategoriesAsync(connection, source, task, cancellationToken, authoring: authoring).ConfigureAwait(false);
             }
         }
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         if (needsCloudStaging && stageCategories)
-            await StageMicrosoftCategoryTasksAsync(cancellationToken).ConfigureAwait(false);
+            await StageMicrosoftCategoryTasksAsync(authoring.Cloud, cancellationToken).ConfigureAwait(false);
         return needsCloudStaging;
     }
 
@@ -630,7 +631,7 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
 
     public async Task<TaskItem?> AdoptProviderSourceItemAsync(string sourceItemId, string spaceId = SpaceIds.Default, CancellationToken cancellationToken = default)
     {
-        using var cloudLease = PersonalCloudConnection is null ? null : PersonalCloudConnectionLease.AcquireAuthoring(DatabasePath);
+        using var authoring = new MicrosoftCategoryAuthoring(this);
         await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         var source = await ReadProviderSourceItemByIdAsync(connection, sourceItemId, cancellationToken).ConfigureAwait(false);
@@ -667,10 +668,10 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
             UpdatedAt = now,
         };
         await UpsertProviderSourceItemCoreAsync(connection, adopted, cancellationToken).ConfigureAwait(false);
-        (task, var needsCloudStaging) = await ApplyMicrosoftCategoriesAsync(connection, source, task, cancellationToken).ConfigureAwait(false);
+        (task, var needsCloudStaging) = await ApplyMicrosoftCategoriesAsync(connection, source, task, cancellationToken, authoring: authoring).ConfigureAwait(false);
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         if (needsCloudStaging)
-            await StageMicrosoftCategoryTasksAsync(cancellationToken).ConfigureAwait(false);
+            await StageMicrosoftCategoryTasksAsync(authoring.Cloud, cancellationToken).ConfigureAwait(false);
         return task;
     }
 

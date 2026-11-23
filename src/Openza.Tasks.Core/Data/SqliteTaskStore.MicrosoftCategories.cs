@@ -11,7 +11,7 @@ public sealed partial class SqliteTaskStore
     public Func<PersonalCloudConnectionProfile?>? PersonalCloudConnection { get; set; }
 
     private async Task<(TaskItem Task, bool NeedsCloudStaging)> ApplyMicrosoftCategoriesAsync(SqliteConnection connection, ProviderSourceItem source,
-        TaskItem task, CancellationToken cancellationToken, bool creatingCloudTask = false)
+        TaskItem task, CancellationToken cancellationToken, bool creatingCloudTask = false, MicrosoftCategoryAuthoring? authoring = null)
     {
         if (source.IntegrationId != IntegrationIds.MicrosoftToDo) return (task, false);
         var metadata = JsonNode.Parse(task.SourceMetadataJson ?? "{}")!.AsObject();
@@ -23,8 +23,9 @@ public sealed partial class SqliteTaskStore
             return (task, false);
 
         var labels = task.Labels.ToList();
-        var cloud = creatingCloudTask ? null : PersonalCloudConnection?.Invoke();
-        var version = cloud is null ? null : await ReadPersonalCloudEntityVersionAsync(connection, cloud.InstanceId, task.Id, cancellationToken).ConfigureAwait(false);
+        PersonalCloudConnectionProfile? cloud = null;
+        long? version = null;
+        var cloudResolved = false;
         var localLabels = new List<LabelItem>();
         var read = connection.CreateCommand();
         read.CommandText = "SELECT id,external_id,integration_id,provider_connection_id,name,color,description,sort_order,is_favorite,provider_metadata,created_at FROM labels WHERE integration_id='openza_tasks'";
@@ -36,14 +37,25 @@ public sealed partial class SqliteTaskStore
             var name = category.GetProperty("name").GetString()?.Trim();
             if (string.IsNullOrWhiteSpace(name)) continue;
             var label = localLabels.FirstOrDefault(item => string.Equals(item.Name.Trim(), name, StringComparison.OrdinalIgnoreCase));
+            var isNew = label is null;
             if (label is null)
             {
                 label = new LabelItem { Id = $"label_{Guid.NewGuid():N}", Name = name,
                     Color = category.TryGetProperty("color", out var color) ? color.GetString() ?? "#0078D4" : "#0078D4" };
+            }
+            if (labels.Any(item => item.Id == label.Id)) continue;
+            if (!cloudResolved)
+            {
+                if (!creatingCloudTask) authoring?.Acquire();
+                cloud = creatingCloudTask ? null : authoring?.Cloud;
+                version = cloud is null ? null : await ReadPersonalCloudEntityVersionAsync(connection, cloud.InstanceId, task.Id, cancellationToken).ConfigureAwait(false);
+                cloudResolved = true;
+            }
+            if (isNew)
+            {
                 await UpsertLabelCoreAsync(connection, label, cancellationToken).ConfigureAwait(false);
                 localLabels.Add(label);
             }
-            if (labels.Any(item => item.Id == label.Id)) continue;
             labels.Add(label);
             if (cloud is not null && version is not null)
             {
@@ -64,11 +76,33 @@ public sealed partial class SqliteTaskStore
             labels.Count > task.Labels.Count && cloud is not null && version is null);
     }
 
-    private async Task StageMicrosoftCategoryTasksAsync(CancellationToken cancellationToken)
+    private async Task StageMicrosoftCategoryTasksAsync(PersonalCloudConnectionProfile? cloud, CancellationToken cancellationToken)
     {
-        using var lease = PersonalCloudConnection is null ? null : PersonalCloudConnectionLease.AcquireAuthoring(DatabasePath);
-        if (PersonalCloudConnection?.Invoke() is { } cloud)
+        if (cloud is not null)
             await StageUnpublishedTasksForPersonalCloudAsync(cloud.InstanceId, cloud.DeviceId, cancellationToken).ConfigureAwait(false);
+    }
+
+    private sealed class MicrosoftCategoryAuthoring(SqliteTaskStore store) : IDisposable
+    {
+        private PersonalCloudConnectionLease? lease;
+        private bool resolved;
+        public PersonalCloudConnectionProfile? Cloud { get; private set; }
+
+        public void Acquire()
+        {
+            if (resolved) return;
+            resolved = true;
+            if (store.PersonalCloudConnection?.Invoke() is null) return;
+            lease = PersonalCloudConnectionLease.AcquireAuthoring(store.DatabasePath);
+            Cloud = store.PersonalCloudConnection?.Invoke();
+            if (Cloud is null)
+            {
+                lease.Dispose();
+                lease = null;
+            }
+        }
+
+        public void Dispose() => lease?.Dispose();
     }
 
     internal MicrosoftCategorySyncBatch BeginMicrosoftCategorySyncBatch(CancellationToken cancellationToken) => new(this, cancellationToken);
@@ -77,28 +111,28 @@ public sealed partial class SqliteTaskStore
     {
         private readonly SqliteTaskStore store;
         private readonly CancellationToken cancellationToken;
-        private readonly IDisposable? lease;
+        private readonly MicrosoftCategoryAuthoring authoring;
         private bool needsStaging;
 
         internal MicrosoftCategorySyncBatch(SqliteTaskStore store, CancellationToken cancellationToken)
         {
             this.store = store;
             this.cancellationToken = cancellationToken;
-            lease = store.PersonalCloudConnection is null ? null : PersonalCloudConnectionLease.AcquireAuthoring(store.DatabasePath);
+            authoring = new(store);
         }
 
         internal async Task UpsertAsync(ProviderSourceItem source)
         {
-            needsStaging |= await store.UpsertProviderSourceItemWithCategoriesAsync(source, false, cancellationToken).ConfigureAwait(false);
+            needsStaging |= await store.UpsertProviderSourceItemWithCategoriesAsync(source, false, cancellationToken, authoring).ConfigureAwait(false);
         }
 
         public async ValueTask DisposeAsync()
         {
             try
             {
-                if (needsStaging) await store.StageMicrosoftCategoryTasksAsync(cancellationToken).ConfigureAwait(false);
+                if (needsStaging) await store.StageMicrosoftCategoryTasksAsync(authoring.Cloud, cancellationToken).ConfigureAwait(false);
             }
-            finally { lease?.Dispose(); }
+            finally { authoring.Dispose(); }
         }
     }
 }
