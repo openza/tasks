@@ -224,8 +224,72 @@ public sealed class MicrosoftReminderTests : IDisposable
             Assert.Equal(pendingBefore, (await store.GetPendingPersonalCloudOutboxAsync(Instance, Device)).Count);
             Assert.Equal(versionBefore, await store.GetPersonalCloudEntityVersionAsync(Instance, task.Id));
         }
-        else await saving;
+        else
+        {
+            await saving;
+            Assert.Equal("Edited notes", (await store.GetTaskAsync(task.Id))!.Notes);
+            Assert.Equal(pendingBefore + 1, (await store.GetPendingPersonalCloudOutboxAsync(Instance, Device)).Count);
+            Assert.Equal(versionBefore + 1, await store.GetPersonalCloudEntityVersionAsync(Instance, task.Id));
+        }
         Assert.Equal(concurrentEdit ? Instant.AddHours(1) : (DateTimeOffset?)null, (await store.GetTaskAsync(task.Id))!.ReminderAt);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task Rejected_source_title_rolls_back_reminder_and_cloud_staging(bool workspace, bool published)
+    {
+        var store = await Store();
+        if (workspace) await store.SavePersonalCloudWorkspaceCapabilitiesAsync(Instance, true, true);
+        var task = await Adopt(store, Reminder());
+        if (published) await store.EnqueueExistingTaskForPersonalCloudAsync(task.Id, Instance, Device);
+        var before = JsonSerializer.Serialize(await store.GetTaskAsync(task.Id));
+        var outboxBefore = JsonSerializer.Serialize(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device));
+        var versionBefore = await store.GetPersonalCloudEntityVersionAsync(Instance, task.Id);
+        var service = new TaskApplicationService(store, () => new() { InstanceId = Instance, DeviceId = Device,
+            ServiceOrigin = new Uri("https://synthetic.invalid"), ArtifactVersion = "test", ConnectedAt = DateTimeOffset.UtcNow });
+
+        await Assert.ThrowsAsync<PersonalCloudK0ContractException>(() => service.UpdateTaskAsync(new()
+        {
+            TaskId = task.Id, Title = OptionalValue<string?>.Set("Rejected source title"),
+            ReminderAt = OptionalValue<DateTimeOffset?>.Set(null),
+        }));
+
+        Assert.Equal(before, JsonSerializer.Serialize(await store.GetTaskAsync(task.Id)));
+        Assert.Equal(outboxBefore, JsonSerializer.Serialize(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device)));
+        Assert.Equal(versionBefore, await store.GetPersonalCloudEntityVersionAsync(Instance, task.Id));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Combined_cloud_save_rolls_back_earlier_fields_and_intents_on_validation_error(bool workspace)
+    {
+        var store = await Store();
+        var task = new TaskItem { Id = "task_reminder_rollback", Title = "Synthetic reminder", ReminderAt = Instant };
+        if (workspace)
+        {
+            await store.SavePersonalCloudWorkspaceCapabilitiesAsync(Instance, true, true);
+            await store.CreateRichTaskWithPersonalCloudIntentAsync(task, Instance, Device);
+        }
+        else await store.CreateTaskWithPersonalCloudIntentAsync(task, Instance, Device);
+        var before = JsonSerializer.Serialize(await store.GetTaskAsync(task.Id));
+        var outboxBefore = JsonSerializer.Serialize(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device));
+        var versionBefore = await store.GetPersonalCloudEntityVersionAsync(Instance, task.Id);
+        var service = new TaskApplicationService(store, () => new() { InstanceId = Instance, DeviceId = Device,
+            ServiceOrigin = new Uri("https://synthetic.invalid"), ArtifactVersion = "test", ConnectedAt = DateTimeOffset.UtcNow });
+
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => service.UpdateTaskAsync(new()
+        {
+            TaskId = task.Id, Status = OptionalValue<TaskWorkflowStatus>.Set(TaskWorkflowStatus.Waiting),
+            Priority = OptionalValue<int>.Set(99), ReminderAt = OptionalValue<DateTimeOffset?>.Set(null),
+        }));
+
+        Assert.Equal(before, JsonSerializer.Serialize(await store.GetTaskAsync(task.Id)));
+        Assert.Equal(outboxBefore, JsonSerializer.Serialize(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device)));
+        Assert.Equal(versionBefore, await store.GetPersonalCloudEntityVersionAsync(Instance, task.Id));
     }
 
     [Fact]

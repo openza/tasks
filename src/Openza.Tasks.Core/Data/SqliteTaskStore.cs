@@ -4726,8 +4726,11 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
         CreatedAt = ReadDate(reader, 10) ?? DateTimeOffset.UtcNow,
     };
 
-    private async Task<SqliteConnection> OpenConnectionAsync(CancellationToken cancellationToken)
+    private async Task<ConnectionLease> OpenConnectionAsync(CancellationToken cancellationToken)
     {
+        if (_transactionConnection.Value is { } current)
+            return new ConnectionLease(current, ownsConnection: false);
+
         var connection = new SqliteConnection(new SqliteConnectionStringBuilder
         {
             DataSource = DatabasePath,
@@ -4744,7 +4747,7 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
         }
         await ExecutePragmaAsync(connection, "PRAGMA busy_timeout = 5000", cancellationToken).ConfigureAwait(false);
         await ExecutePragmaAsync(connection, "PRAGMA foreign_keys = ON", cancellationToken).ConfigureAwait(false);
-        return connection;
+        return new ConnectionLease(connection, ownsConnection: true);
     }
 
     private static async Task CreateSchemaAsync(SqliteConnection connection, CancellationToken cancellationToken)
