@@ -4552,15 +4552,15 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
         if (preserveExistingId)
         {
             var idCommand = connection.CreateCommand();
-            idCommand.CommandText = "SELECT integration_id FROM labels WHERE id = @id LIMIT 1";
+            idCommand.CommandText = "SELECT id FROM labels WHERE id = @id LIMIT 1";
             idCommand.Parameters.AddWithValue("@id", label.Id);
-            if (await idCommand.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is string integrationId)
+            if (await idCommand.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is string existingExactId)
             {
-                return label.Id;
+                return existingExactId;
             }
         }
 
-        var existingId = localOnly ? null : await FindLabelIdByNameAsync(connection, label.Name, cancellationToken).ConfigureAwait(false);
+        var existingId = await FindLabelIdByNameAsync(connection, label.Name, cancellationToken, localOnly).ConfigureAwait(false);
         if (!string.IsNullOrWhiteSpace(existingId) && !string.Equals(existingId, label.Id, StringComparison.Ordinal))
         {
             return existingId;

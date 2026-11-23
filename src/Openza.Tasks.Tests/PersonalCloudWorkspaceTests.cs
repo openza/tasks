@@ -13,7 +13,7 @@ public sealed class PersonalCloudWorkspaceTests : IDisposable
     [InlineData(true, false)]
     [InlineData(false, true)]
     [InlineData(true, true)]
-    public async Task Incoming_workspace_labels_keep_authoritative_ids_without_name_matching(bool existingLocal, bool sameId)
+    public async Task Incoming_workspace_labels_keep_known_ids_and_only_match_local_names_for_unknown_ids(bool existingLocal, bool sameId)
     {
         var store = Store();
         await store.InitializeAsync();
@@ -32,7 +32,7 @@ public sealed class PersonalCloudWorkspaceTests : IDisposable
         await store.ApplyPersonalCloudChangePageAsync(Instance, Device, Page(1, [Space()], [Project()], [TaskRecord()]));
 
         var label = Assert.Single((await store.GetTaskAsync("task_test"))!.Labels);
-        Assert.Equal("label_test", label.Id);
+        Assert.Equal(existingLocal && !sameId ? "local_label" : "label_test", label.Id);
         Assert.Equal(sameId ? IntegrationIds.MicrosoftToDo : IntegrationIds.Local, label.IntegrationId);
         if (existingLocal) Assert.Contains(await store.GetLabelsAsync(), item => item.Id == "local_label" && item.Color == "#123456");
         await using var connection = new SqliteConnection($"Data Source={store.DatabasePath};Pooling=False");

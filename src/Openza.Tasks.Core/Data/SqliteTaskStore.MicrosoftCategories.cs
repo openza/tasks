@@ -84,6 +84,7 @@ public sealed partial class SqliteTaskStore
         {
             var name = category.GetProperty("name").GetString()?.Trim();
             if (string.IsNullOrWhiteSpace(name)) continue;
+            if (labels.Any(item => string.Equals(item.Name.Trim(), name, StringComparison.OrdinalIgnoreCase))) continue;
             var label = localLabels.FirstOrDefault(item => string.Equals(item.Name.Trim(), name, StringComparison.OrdinalIgnoreCase));
             var isNew = label is null;
             if (label is null)

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.Data.Sqlite;
 using Openza.Tasks.Application.Tasks;
 using Openza.Tasks.Core.Models;
 
@@ -6,6 +7,33 @@ namespace Openza.Tasks.Tests;
 
 public sealed partial class MicrosoftCategoryAdoptionTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Category_backfill_keeps_the_attached_label_when_another_id_has_the_same_name(bool providerAttachment)
+    {
+        var store = await StoreAsync();
+        var task = await AdoptAsync(store, Source() with { SnapshotJson = "{}" });
+        await using (var connection = new SqliteConnection($"Data Source={store.DatabasePath};Pooling=False"))
+        {
+            await connection.OpenAsync();
+            var command = connection.CreateCommand();
+            command.CommandText = """
+                INSERT INTO labels(id,integration_id,name,color,created_at) VALUES
+                  ('label_first','openza_tasks','Release','#123456',0),
+                  ('label_second',@integration,'Release','#123456',0);
+                """;
+            command.Parameters.AddWithValue("@integration", providerAttachment ? IntegrationIds.Todoist : IntegrationIds.Local);
+            await command.ExecuteNonQueryAsync();
+        }
+        await store.SetTaskLabelsAsync(task.Id, [new() { Id = "label_second", Name = "Release" }]);
+        await store.UpsertProviderSourceItemAsync(Source(" release ", "RELEASE"));
+        var updated = (await store.GetTaskAsync(task.Id))!;
+        Assert.Equal("label_second", Assert.Single(updated.Labels).Id);
+        Assert.True(Applied(updated));
+        Assert.Empty(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device));
+    }
+
     [Fact]
     public async Task Workspace_catalog_label_collision_keeps_the_cloud_id_when_removing_the_chip()
     {

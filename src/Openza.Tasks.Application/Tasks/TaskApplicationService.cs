@@ -154,7 +154,7 @@ public sealed class TaskApplicationService(
         var deadlineOn = request.DeadlineOn.IsSpecified ? request.DeadlineOn.Value : original.DeadlineOn;
         var notes = request.Notes.IsSpecified ? NullIfEmpty(request.Notes.Value) : original.Notes;
         var labels = request.Labels.IsSpecified
-            ? await ResolveLabelsAsync(request.Labels.Value ?? [], cancellationToken).ConfigureAwait(false)
+            ? await ResolveLabelsAsync(request.Labels.Value ?? [], cancellationToken, original.Labels).ConfigureAwait(false)
             : original.Labels;
         var targetCompletionState = request.Completed.IsSpecified
             ? request.Completed.Value ? TaskCompletionState.Completed : TaskCompletionState.Open
@@ -536,16 +536,25 @@ public sealed class TaskApplicationService(
         return Resolve(value, projects, item => item.Id, item => item.Name, "project");
     }
 
-    private async Task<IReadOnlyList<LabelItem>> ResolveLabelsAsync(IReadOnlyList<string> values, CancellationToken cancellationToken)
+    private async Task<IReadOnlyList<LabelItem>> ResolveLabelsAsync(IReadOnlyList<string> values, CancellationToken cancellationToken,
+        IReadOnlyList<LabelItem>? attachedLabels = null)
     {
         var existing = await Store.GetLabelsAsync(cancellationToken).ConfigureAwait(false);
         var labels = new List<LabelItem>();
         foreach (var value in values.Select(value => value.Trim()).Where(value => value.Length > 0).Distinct(StringComparer.CurrentCultureIgnoreCase))
         {
-            var exactId = existing.FirstOrDefault(label => string.Equals(label.Id, value, StringComparison.Ordinal));
+            var exactId = (attachedLabels ?? []).Concat(existing).FirstOrDefault(label => string.Equals(label.Id, value, StringComparison.Ordinal));
             if (exactId is not null)
             {
                 labels.Add(exactId);
+                continue;
+            }
+
+            var attachedMatches = (attachedLabels ?? [])
+                .Where(label => string.Equals(label.Name.Trim(), value, StringComparison.CurrentCultureIgnoreCase)).ToArray();
+            if (attachedMatches.Length > 0)
+            {
+                labels.AddRange(attachedMatches);
                 continue;
             }
 
