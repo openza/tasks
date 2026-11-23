@@ -169,6 +169,57 @@ public sealed class MicrosoftReminderTests : IDisposable
         }
     }
 
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task Combined_cloud_save_does_not_clear_a_reminder_changed_after_the_read(bool workspace, bool concurrentEdit)
+    {
+        var store = await Store();
+        var task = new TaskItem { Id = "task_reminder_race", Title = "Synthetic reminder", ReminderAt = Instant };
+        if (workspace)
+        {
+            await store.SavePersonalCloudWorkspaceCapabilitiesAsync(Instance, true, true);
+            await store.CreateRichTaskWithPersonalCloudIntentAsync(task, Instance, Device);
+        }
+        else await store.CreateTaskWithPersonalCloudIntentAsync(task, Instance, Device);
+        var read = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var resume = new ManualResetEventSlim();
+        var service = new TaskApplicationService(store, () =>
+        {
+            read.TrySetResult();
+            if (!resume.Wait(TimeSpan.FromSeconds(30))) throw new TimeoutException("The paused save was not resumed.");
+            return new() { InstanceId = Instance, DeviceId = Device, ServiceOrigin = new Uri("https://synthetic.invalid"),
+                ArtifactVersion = "test", ConnectedAt = DateTimeOffset.UtcNow };
+        });
+        var saving = Task.Run(() => service.UpdateTaskAsync(new()
+        {
+            TaskId = task.Id, Notes = OptionalValue<string?>.Set("Edited notes"),
+            ReminderAt = OptionalValue<DateTimeOffset?>.Set(null),
+        }));
+        try
+        {
+            await read.Task.WaitAsync(TimeSpan.FromSeconds(30));
+            if (concurrentEdit)
+            {
+                var secondStore = new SqliteTaskStore(store.DatabasePath);
+                var version = await store.GetPersonalCloudEntityVersionAsync(Instance, task.Id);
+                var pending = (await store.GetPendingPersonalCloudOutboxAsync(Instance, Device)).Count;
+                await new TaskApplicationService(secondStore).UpdateTaskAsync(new()
+                {
+                    TaskId = task.Id, ReminderAt = OptionalValue<DateTimeOffset?>.Set(Instant.AddHours(1)),
+                });
+                Assert.Equal(version, await store.GetPersonalCloudEntityVersionAsync(Instance, task.Id));
+                Assert.Equal(pending, (await store.GetPendingPersonalCloudOutboxAsync(Instance, Device)).Count);
+            }
+        }
+        finally { resume.Set(); }
+        if (concurrentEdit) await Assert.ThrowsAsync<TaskConflictException>(() => saving);
+        else await saving;
+        Assert.Equal(concurrentEdit ? Instant.AddHours(1) : (DateTimeOffset?)null, (await store.GetTaskAsync(task.Id))!.ReminderAt);
+    }
+
     [Fact]
     public async Task Reminder_edit_checks_revision_and_missing_tasks_without_changing_the_value()
     {
@@ -176,6 +227,10 @@ public sealed class MicrosoftReminderTests : IDisposable
         var task = await Adopt(store, Reminder());
         Assert.False(await store.TrySetTaskReminderAsync("missing", null));
         Assert.False(await store.TrySetTaskReminderAsync(task.Id, null, task.Revision + 1));
+        Assert.False(await store.TryReplaceTaskReminderAsync("missing", null, Instant));
+        Assert.False(await store.TryReplaceTaskReminderAsync(task.Id, null, Instant));
+        Assert.True(await store.TryReplaceTaskReminderAsync(task.Id, Instant, null));
+        Assert.True(await store.TryReplaceTaskReminderAsync(task.Id, null, Instant));
         var service = new TaskApplicationService(store);
         await Assert.ThrowsAsync<TaskConflictException>(() => service.UpdateTaskAsync(new()
         {
@@ -255,6 +310,69 @@ public sealed class MicrosoftReminderTests : IDisposable
         await store.TrySetTaskReminderAsync(task.Id, null);
         await backups.RestoreBackupAsync(backup);
         Assert.Equal(Instant, (await store.GetTaskAsync(task.Id))!.ReminderAt);
+    }
+
+    [Fact]
+    public async Task Application_rejects_reminders_outside_the_storage_range_before_writing()
+    {
+        var store = await Store();
+        var service = new TaskApplicationService(store);
+        var maximum = DateTimeOffset.FromUnixTimeSeconds(100_000_000_000);
+        var task = await service.CreateTaskAsync(new() { Title = "Boundary reminder", ReminderAt = maximum });
+        Assert.Equal(maximum, task.ReminderAt);
+        foreach (var invalid in new[] { maximum.AddMilliseconds(1), DateTimeOffset.Parse("5200-07-01T09:30:00Z") })
+        {
+            var create = await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => service.CreateTaskAsync(new()
+            {
+                Title = "Invalid reminder", ReminderAt = invalid,
+            }));
+            Assert.Contains("Reminder must be on or before", create.Message);
+            await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => service.UpdateTaskAsync(new()
+            {
+                TaskId = task.Id, Notes = OptionalValue<string?>.Set("Must not be saved"),
+                ReminderAt = OptionalValue<DateTimeOffset?>.Set(invalid),
+            }));
+            Assert.Null((await store.GetTaskAsync(task.Id))!.Notes);
+            Assert.Equal(maximum, (await store.GetTaskAsync(task.Id))!.ReminderAt);
+        }
+        Assert.Single(await store.GetTasksAsync(new() { Kind = TaskListKind.All }));
+        var minimum = await service.UpdateTaskAsync(new()
+        {
+            TaskId = task.Id, ReminderAt = OptionalValue<DateTimeOffset?>.Set(DateTimeOffset.MinValue),
+        });
+        Assert.Equal(DateTimeOffset.MinValue, minimum.ReminderAt);
+    }
+
+    [Theory]
+    [InlineData(3, 14, 2, false, "2027-03-14T10:30:00Z")]
+    [InlineData(11, 7, 1, true, "2027-11-07T09:30:00Z")]
+    public async Task Desktop_rejects_dst_gaps_and_uses_standard_time_for_repeated_times(int month, int day, int hour, bool valid, string expected)
+    {
+        var store = await Store();
+        var task = await Adopt(store, Reminder());
+        var preferences = new DesktopPreferencesStore(Path.Combine(directory, "preferences.json"));
+        await preferences.SaveAsync(new() { ShowGetStarted = false });
+        var vm = new MainWindowViewModel(store, new InMemoryCredentialStore(), preferencesStore: preferences,
+            reminderTimeZone: TimeZoneInfo.FindSystemTimeZoneById("America/Los_Angeles"));
+        await vm.InitializeAsync();
+        await vm.SelectTaskAsync(vm.Tasks.Single(item => item.Task.Id == task.Id));
+        vm.DetailReminderDate = new DateTime(2027, month, day);
+        vm.DetailReminderTime = new TimeSpan(hour, 30, 0);
+        Assert.Equal(valid, await vm.SaveSelectedAsync());
+        if (!valid)
+        {
+            Assert.Contains("reminder time does not exist", vm.StatusMessage);
+            Assert.Equal(Instant, (await store.GetTaskAsync(task.Id))!.ReminderAt);
+            Assert.Equal(new TimeSpan(hour, 30, 0), vm.DetailReminderTime);
+            vm.DetailReminderTime = new TimeSpan(3, 30, 0);
+            Assert.True(await vm.SaveSelectedAsync());
+        }
+        Assert.Equal(DateTimeOffset.Parse(expected), (await store.GetTaskAsync(task.Id))!.ReminderAt);
+        Assert.Equal(new TimeSpan(valid ? 1 : 3, 30, 0), vm.DetailReminderTime);
+        vm.DetailReminderDate = new DateTime(5200, 7, 1);
+        Assert.False(await vm.SaveSelectedAsync());
+        Assert.Contains("Reminder must be on or before", vm.StatusMessage);
+        Assert.Equal(DateTimeOffset.Parse(expected), (await store.GetTaskAsync(task.Id))!.ReminderAt);
     }
 
     [Fact]

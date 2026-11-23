@@ -20,6 +20,18 @@ public sealed partial class SqliteTaskStore
         return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) == 1;
     }
 
+    public async Task<bool> TryReplaceTaskReminderAsync(string taskId, DateTimeOffset? expectedReminderAt,
+        DateTimeOffset? reminderAt, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        var command = connection.CreateCommand();
+        command.CommandText = "UPDATE tasks SET reminder_at=@r,revision=revision+1 WHERE id=@id AND reminder_at IS @expected";
+        command.Parameters.AddWithValue("@id", taskId);
+        command.Parameters.AddWithValue("@r", ToDbTaskInstant(reminderAt?.ToUniversalTime()));
+        command.Parameters.AddWithValue("@expected", ToDbTaskInstant(expectedReminderAt));
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) == 1;
+    }
+
     private static async Task ApplyMicrosoftReminderAsync(SqliteConnection connection, ProviderSourceItem source,
         string taskId, CancellationToken cancellationToken)
     {

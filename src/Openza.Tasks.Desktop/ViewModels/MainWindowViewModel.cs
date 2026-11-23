@@ -75,6 +75,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private DateTimeOffset? _detailDate;
     private DateTimeOffset? _detailDeadline;
     private DateTimeOffset? _detailReminder;
+    private DateTime? _detailReminderDate;
+    private TimeSpan? _detailReminderTime;
+    private string? _detailReminderValidationError;
+    private readonly TimeZoneInfo _reminderTimeZone;
     private string _detailLabels = string.Empty;
     private ProjectOptionViewModel? _detailProject;
     private string _newProjectName = string.Empty;
@@ -125,9 +129,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
         BackupService? backupService = null,
         GitHubIssueService? gitHubIssueService = null,
         IPersonalCloudSetupService? personalCloudSetup = null,
-        Openza.Tasks.Desktop.Services.Continuity.WindowsContinuitySession? continuitySession = null)
+        Openza.Tasks.Desktop.Services.Continuity.WindowsContinuitySession? continuitySession = null,
+        TimeZoneInfo? reminderTimeZone = null)
     {
         _store = store;
+        _reminderTimeZone = reminderTimeZone ?? TimeZoneInfo.Local;
         _continuitySession = continuitySession ?? Openza.Tasks.Desktop.Services.Continuity.WindowsContinuityHost.Session;
         _personalCloudSetup = personalCloudSetup is not null && _continuitySession is not null ? _continuitySession.GuardCloudService(personalCloudSetup) : personalCloudSetup;
         if (_personalCloudSetup is IPersonalCloudInitialSyncProgressService progressService)
@@ -734,8 +740,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
         get => _detailReminder;
         set
         {
-            if (!SetProperty(ref _detailReminder, value)) return;
-            if (!IsUpdatingDetails) _detailEditVersion++;
+            var changed = SetProperty(ref _detailReminder, value);
+            _detailReminderValidationError = null;
+            var local = value is { } instant ? TimeZoneInfo.ConvertTime(instant, _reminderTimeZone).DateTime : (DateTime?)null;
+            _detailReminderDate = local?.Date;
+            _detailReminderTime = local?.TimeOfDay;
+            if (changed) MarkDetailEdited();
             OnPropertyChanged(nameof(DetailReminderDate));
             OnPropertyChanged(nameof(DetailReminderTime));
         }
@@ -743,18 +753,42 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     public DateTime? DetailReminderDate
     {
-        get => DetailReminder?.LocalDateTime.Date;
-        set => DetailReminder = value is { } date
-            ? new DateTimeOffset(date.Date + (DetailReminder?.LocalDateTime.TimeOfDay ?? TimeSpan.FromHours(9))) : null;
+        get => _detailReminderDate;
+        set
+        {
+            if (!SetProperty(ref _detailReminderDate, value?.Date)) return;
+            if (value is null) DetailReminder = null;
+            else UpdateReminderFromLocalTime();
+        }
     }
 
     public TimeSpan? DetailReminderTime
     {
-        get => DetailReminder?.LocalDateTime.TimeOfDay;
+        get => _detailReminderTime;
         set
         {
-            if (value is { } time) DetailReminder = new DateTimeOffset((DetailReminder?.LocalDateTime.Date ?? DateTime.Today) + time);
+            if (value is not null && SetProperty(ref _detailReminderTime, value)) UpdateReminderFromLocalTime();
         }
+    }
+
+    private void UpdateReminderFromLocalTime()
+    {
+        var date = _detailReminderDate ?? TimeZoneInfo.ConvertTime(DateTimeOffset.Now, _reminderTimeZone).Date;
+        var local = DateTime.SpecifyKind(date + (_detailReminderTime ?? TimeSpan.FromHours(9)), DateTimeKind.Unspecified);
+        if (_reminderTimeZone.IsInvalidTime(local))
+        {
+            _detailReminderValidationError = "This reminder time does not exist because clocks move forward. Choose another time.";
+            MarkDetailEdited();
+            return;
+        }
+        DetailReminder = new DateTimeOffset(TimeZoneInfo.ConvertTimeToUtc(local, _reminderTimeZone), TimeSpan.Zero);
+    }
+
+    private bool ValidateDetailReminder()
+    {
+        if (_detailReminderValidationError is null) return true;
+        StatusMessage = _detailReminderValidationError;
+        return false;
     }
 
     public DateTimeOffset? DetailDeadline
@@ -2351,6 +2385,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
 
         var baseline = SelectedTask.Task;
+        if (!ValidateDetailReminder()) return false;
         var draft = CaptureDetailSaveDraft(baseline.Id);
         var valid = true;
         var succeeded = await RunBusyAsync(async () =>
@@ -2374,6 +2409,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
                 if (draft.Version != _detailEditVersion)
                 {
+                    if (!ValidateDetailReminder())
+                    {
+                        valid = false;
+                        return;
+                    }
                     if (string.IsNullOrWhiteSpace(DetailTitle))
                     {
                         StatusMessage = "A task title is required.";

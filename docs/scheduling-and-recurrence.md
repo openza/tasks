@@ -14,6 +14,11 @@ Personal Cloud. There is no notification delivery yet: storing a reminder does n
 schedule an alarm, background wakeup or server notification. Delivery attempts and
 multi-device notification behavior remain separate future work.
 
+The editor rejects local times skipped by a daylight-saving clock change rather
+than shifting them silently. Repeated fall-back times use the standard-time
+occurrence. Reminder edits must be no later than November 16, 5138 at 09:46:40 UTC,
+the upper bound of the existing instant storage convention.
+
 ## Intended meanings
 
 | Concept | Durable meaning |

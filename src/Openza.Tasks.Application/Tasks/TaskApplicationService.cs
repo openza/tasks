@@ -60,7 +60,7 @@ public sealed class TaskApplicationService(
             Priority = ValidatePriority(request.Priority),
             PlannedOn = request.PlannedOn,
             DeadlineOn = request.DeadlineOn,
-            ReminderAt = request.ReminderAt?.ToUniversalTime(),
+            ReminderAt = ValidateReminder(request.ReminderAt),
             CreatedAt = now,
             UpdatedAt = now,
             Labels = await ResolveLabelsAsync(request.Labels, cancellationToken).ConfigureAwait(false),
@@ -122,6 +122,7 @@ public sealed class TaskApplicationService(
     {
         using var connectionLease = AcquirePersonalCloudAuthoringLease();
         var original = await RequireTaskAsync(request.TaskId, cancellationToken).ConfigureAwait(false);
+        var reminderAt = request.ReminderAt.IsSpecified ? ValidateReminder(request.ReminderAt.Value) : original.ReminderAt;
         var expectedRevision = request.ExpectedRevision ?? original.Revision;
         var targetSpace = request.Space.IsSpecified
             ? await ResolveSpaceAsync(request.Space.Value, cancellationToken).ConfigureAwait(false)
@@ -177,7 +178,7 @@ public sealed class TaskApplicationService(
         if (request.ReminderAt.IsSpecified && cloudScalarChangeCount + cloudRelationshipChangeCount == 0 &&
             !request.LocalMetadataJson.IsSpecified && Store is SqliteTaskStore reminderStore)
         {
-            if (!await reminderStore.TrySetTaskReminderAsync(original.Id, request.ReminderAt.Value, expectedRevision, cancellationToken).ConfigureAwait(false))
+            if (!await reminderStore.TrySetTaskReminderAsync(original.Id, reminderAt, expectedRevision, cancellationToken).ConfigureAwait(false))
                 throw new TaskConflictException(original.Id);
             return await RequireTaskAsync(original.Id, cancellationToken).ConfigureAwait(false);
         }
@@ -319,7 +320,7 @@ public sealed class TaskApplicationService(
             }
             if (request.ReminderAt.IsSpecified)
             {
-                if (!await sqliteStore.TrySetTaskReminderAsync(original.Id, request.ReminderAt.Value, cancellationToken: cancellationToken).ConfigureAwait(false))
+                if (!await sqliteStore.TryReplaceTaskReminderAsync(original.Id, original.ReminderAt, reminderAt, cancellationToken).ConfigureAwait(false))
                     throw new TaskConflictException(original.Id);
                 changed = true;
             }
@@ -342,7 +343,7 @@ public sealed class TaskApplicationService(
             PlannedAt = request.PlannedOn.IsSpecified
                 ? ProviderWriteBackPlanner.PreserveExactTime(plannedOn, original.PlannedOn, original.PlannedAt)
                 : original.PlannedAt,
-            ReminderAt = request.ReminderAt.IsSpecified ? request.ReminderAt.Value?.ToUniversalTime() : original.ReminderAt,
+            ReminderAt = reminderAt,
             DeadlineOn = deadlineOn,
             DeadlineAt = request.DeadlineOn.IsSpecified
                 ? ProviderWriteBackPlanner.PreserveExactTime(deadlineOn, original.DeadlineOn, original.DeadlineAt)
@@ -462,6 +463,14 @@ public sealed class TaskApplicationService(
     private async Task<TaskItem> RequireTaskAsync(string id, CancellationToken cancellationToken) =>
         await Store.GetTaskAsync(id, cancellationToken).ConfigureAwait(false)
         ?? throw new KeyNotFoundException($"Task '{id}' was not found.");
+
+    private static DateTimeOffset? ValidateReminder(DateTimeOffset? value)
+    {
+        var maximum = DateTimeOffset.FromUnixTimeSeconds(100_000_000_000);
+        if (value > maximum)
+            throw new ArgumentOutOfRangeException(nameof(value), "Reminder must be on or before 5138-11-16 09:46:40 UTC.");
+        return value?.ToUniversalTime();
+    }
 
     private PersonalCloudConnectionProfile? PersonalCloudTarget() => personalCloudConnection?.Invoke();
 

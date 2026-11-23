@@ -23,6 +23,9 @@ public sealed partial class CliContractTests
         Assert.Equal(DateTimeOffset.Parse("2027-07-01T09:30:00Z"), created.RootElement.GetProperty("data").GetProperty("reminderAt").GetDateTimeOffset());
         Assert.NotEqual(0, (await RunAsync("task", "update", "task_reminder", "--reminder", "2027-07-01")).ExitCode);
         Assert.NotEqual(0, (await RunAsync("task", "update", "task_reminder", "--reminder", "bad-date")).ExitCode);
+        var outOfRange = await RunAsync("task", "add", "Invalid reminder", "--reminder", "5200-07-01T09:30:00Z");
+        Assert.NotEqual(0, outOfRange.ExitCode);
+        Assert.Contains("Reminder must be on or before", outOfRange.Stderr);
         Assert.NotEqual(0, (await RunAsync("task", "update", "task_reminder", "--reminder", "2027-07-01T10:00:00Z", "--clear-reminder")).ExitCode);
         AssertSuccess(await RunAsync("task", "update", "task_reminder", "--clear-reminder"));
         Assert.Null((await store.GetTaskAsync("task_reminder"))!.ReminderAt);
