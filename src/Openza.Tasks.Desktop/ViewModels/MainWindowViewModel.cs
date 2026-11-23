@@ -136,8 +136,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 else Avalonia.Threading.Dispatcher.UIThread.Post(() => ApplyInitialSyncProgress(progress));
             };
         _taskService = new TaskApplicationService(store, () => _personalCloudSetup?.CurrentConnection);
-        if (store is Openza.Tasks.Core.Data.SqliteTaskStore categoryStore)
-            categoryStore.PersonalCloudConnection = () => _personalCloudSetup?.CurrentConnection;
+        if (store is SqliteTaskStore sqlite) sqlite.PersonalCloudConnection = () => _personalCloudSetup?.CurrentConnection;
         _credentials = _continuitySession?.AppCredentials ?? credentials;
         _microsoftAuth = microsoftAuth ?? new DesktopMicrosoftAuthService(_credentials);
         _microsoftSyncProviderFactory = microsoftSyncProviderFactory ?? (token => new MicrosoftToDoProvider(_httpClient, token));
@@ -2751,6 +2750,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
             SpaceId = SelectedTask.Task.SpaceId,
             ParentId = SelectedTask.Task.Id,
             Kind = TaskListKind.All,
+            SortMode = TaskSortMode.CreatedNewest,
+            SortDirection = TaskSortDirection.Descending,
             IncludeSubtasks = true,
         });
         foreach (var task in items)

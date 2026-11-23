@@ -249,11 +249,12 @@ public sealed class SyncProviderTests
                   ]
                 }
                 """),
-            "/v1.0/me/todo/lists/list1/tasks?$top=100" => Json("""
+            "/v1.0/me/todo/lists/list1/tasks?$top=100&$expand=checklistItems" => Json("""
                 {
                   "value": [
                     {
                       "id": "task1",
+                      "checklistItems": [],
                       "title": "Review package",
                       "body": { "content": "Store readiness" },
                       "importance": "high",
@@ -307,8 +308,8 @@ public sealed class SyncProviderTests
             "/v1.0/me/todo/lists?$skip=1" => Json("""{"value":[{"id":"second","displayName":"Second"}]}"""),
             "/v1.0/me/outlook/masterCategories" => Json("""{"value":[{"displayName":"Other","color":"preset0"}],"@odata.nextLink":"https://graph.microsoft.com/v1.0/me/outlook/masterCategories?$skip=1"}"""),
             "/v1.0/me/outlook/masterCategories?$skip=1" => Json("""{"value":[{"displayName":"Release","color":"preset3"}]}"""),
-            "/v1.0/me/todo/lists/first/tasks?$top=100" => Json("""{"value":[]}"""),
-            "/v1.0/me/todo/lists/second/tasks?$top=100" => Json("""{"value":[{"id":"task","title":"Paged","categories":["Release","Unknown"]}]}"""),
+            "/v1.0/me/todo/lists/first/tasks?$top=100&$expand=checklistItems" => Json("""{"value":[]}"""),
+            "/v1.0/me/todo/lists/second/tasks?$top=100&$expand=checklistItems" => Json("""{"value":[{"id":"task","title":"Paged","categories":["Release","Unknown"],"checklistItems":[{"displayName":"First","isChecked":true}]}]}"""),
             _ => Empty(HttpStatusCode.NotFound),
         });
         var snapshot = await new MicrosoftToDoProvider(new HttpClient(handler), "token").FetchSnapshotAsync();
@@ -321,6 +322,7 @@ public sealed class SyncProviderTests
         Assert.Equal("Release", categories[0].GetProperty("name").GetString());
         Assert.Equal("#32CD32", categories[0].GetProperty("color").GetString());
         Assert.Equal("#0078D4", categories[1].GetProperty("color").GetString());
+        Assert.Equal("First", Assert.Single(metadata.RootElement.GetProperty("msToDo").GetProperty("checklistItems").EnumerateArray()).GetProperty("displayName").GetString());
     }
 
     [Fact]
@@ -353,7 +355,7 @@ public sealed class SyncProviderTests
         {
             "lists" => "/v1.0/me/todo/lists",
             "categories" => "/v1.0/me/outlook/masterCategories",
-            _ => "/v1.0/me/todo/lists/list/tasks?$top=100",
+            _ => "/v1.0/me/todo/lists/list/tasks?$top=100&$expand=checklistItems",
         };
         var secondPath = path + (path.Contains('?') ? "&page=2" : "?page=2");
         var handler = new FakeHttpMessageHandler(request =>

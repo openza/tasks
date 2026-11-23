@@ -447,6 +447,66 @@ public sealed class DesktopTaskCreationTests : IDisposable
         Assert.Equal("Show fewer", viewModel.SubtasksToggleText);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Subtask_inspector_keeps_creation_order_across_mixed_completion_priority_and_date(bool imported)
+    {
+        var store = await CreateStoreAsync();
+        TaskItem parent;
+        if (imported)
+        {
+            var source = new ProviderSourceItem { Id = "ordered-source", IntegrationId = IntegrationIds.MicrosoftToDo,
+                ProviderConnectionId = "mstodo_default", ExternalId = "ordered", Title = "Ordered parent",
+                SnapshotJson = """{"msToDo":{"checklistItems":[{"displayName":"Zulu checked first","isChecked":true},{"displayName":"Middle open","isChecked":false},{"displayName":"Alpha checked last","isChecked":true}]}}""" };
+            await store.UpsertProviderSourceItemAsync(source);
+            parent = (await store.AdoptProviderSourceItemAsync(source.Id))!;
+        }
+        else
+        {
+            parent = CreateTask("ordered-parent", "Ordered parent");
+            await store.UpsertTaskAsync(parent);
+            var now = DateTimeOffset.UtcNow;
+            var titles = new[] { "Zulu checked first", "Middle open", "Alpha checked last" };
+            for (var index = 0; index < titles.Length; index++)
+                await store.UpsertTaskAsync(CreateTask($"ordered-child-{index}", titles[index]) with
+                {
+                    ParentId = parent.Id, CreatedAt = now.AddSeconds(index - titles.Length), Priority = 3 - index,
+                    PlannedOn = DateOnly.FromDateTime(now.Date.AddDays(index)),
+                    CompletionState = index == 1 ? TaskCompletionState.Open : TaskCompletionState.Completed,
+                });
+        }
+        var vm = new MainWindowViewModel(store, new InMemoryCredentialStore());
+        await vm.SelectNavigationAsync(vm.NavigationItems.Single(item => item.Kind == TaskListKind.Open));
+        await vm.SelectTaskAsync(vm.Tasks.Single(item => item.Task.Id == parent.Id));
+        var expected = new[] { "Zulu checked first", "Middle open", "Alpha checked last" };
+        Assert.Equal(expected, vm.Subtasks.Select(child => child.Title));
+        Assert.Equal(expected, vm.VisibleSubtasks.Select(child => child.Title));
+        Assert.Equal("2/3", vm.SubtasksProgressText);
+        Assert.Equal("2/3 subtasks", vm.Tasks.Single(item => item.Task.Id == parent.Id).SubtaskProgressText);
+        await vm.ToggleSubtaskCompletionAsync(vm.Subtasks[0]);
+        Assert.Equal(expected, vm.Subtasks.Select(child => child.Title));
+        Assert.Equal("1/3", vm.SubtasksProgressText);
+        await store.UpsertTaskAsync(CreateTask("later-child", "Added later") with { ParentId = parent.Id, CreatedAt = DateTimeOffset.UtcNow });
+        await vm.SelectNavigationAsync(vm.NavigationItems.Single(item => item.Kind == TaskListKind.Open));
+        await vm.SelectTaskAsync(vm.Tasks.Single(item => item.Task.Id == parent.Id));
+        Assert.Equal(expected.Append("Added later"), vm.Subtasks.Select(child => child.Title));
+    }
+
+    [Fact]
+    public void Oldest_first_subtask_order_breaks_equal_timestamps_by_id_without_completion_grouping()
+    {
+        var stamp = DateTimeOffset.Parse("2026-10-12T00:00:00Z");
+        var children = new[]
+        {
+            new TaskItem { Id = "b", ParentId = "parent", CreatedAt = stamp },
+            new TaskItem { Id = "a", ParentId = "parent", CreatedAt = stamp, CompletionState = TaskCompletionState.Completed },
+        };
+        var ordered = TaskListProjection.Build(children, new() { ParentId = "parent", SortMode = TaskSortMode.CreatedNewest,
+            SortDirection = TaskSortDirection.Descending, IncludeSubtasks = true });
+        Assert.Equal(new[] { "a", "b" }, ordered.Select(child => child.Id));
+    }
+
     [Fact]
     public async Task Provider_date_mismatch_can_be_acknowledged_and_persisted()
     {

@@ -223,6 +223,7 @@ public sealed partial class SqliteTaskStore
 
     public async Task ApplyPersonalCloudSourceIntentAsync(string instanceId, string deviceId, JsonElement intent, string sourceId, CancellationToken cancellationToken = default)
     {
+        using var cloudLease = PersonalCloudConnectionLease.AcquireAuthoring(DatabasePath);
         await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         var source = await ReadProviderSourceItemByIdAsync(connection, sourceId, cancellationToken).ConfigureAwait(false) ?? throw PersonalCloudWorkspaceCodec.Invalid();
@@ -255,6 +256,8 @@ public sealed partial class SqliteTaskStore
             await UpsertTaskCoreAsync(connection, task, cancellationToken).ConfigureAwait(false);
             await SetTaskLabelsCoreAsync(connection, task.Id, task.Labels, cancellationToken).ConfigureAwait(false);
             task = await ApplyMicrosoftCategoriesAsync(connection, source, task, cancellationToken, creatingCloudTask: true).ConfigureAwait(false);
+            var steps = await ApplyMicrosoftStepsAsync(connection, source, task.Id, cancellationToken).ConfigureAwait(false);
+            if (steps.Metadata is not null) task = task with { SourceMetadataJson = steps.Metadata };
             await UpsertProviderSourceItemCoreAsync(connection, source with { AdoptionState = ProviderSourceAdoptionStates.Adopted, AdoptedTaskId = task.Id }, cancellationToken).ConfigureAwait(false);
             await AppendRichTaskAsync(connection, task, instanceId, deviceId, descriptor, cancellationToken).ConfigureAwait(false);
         }
