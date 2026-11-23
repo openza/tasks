@@ -10,7 +10,7 @@ Please do not open public issues for security reports.
 
 Use **Report a vulnerability** on the repository's Security page to open a private report.
 
-If private vulnerability reporting is unavailable, contact the maintainer listed in the README with a private message and include:
+If private vulnerability reporting is unavailable, email [hello@openza.org](mailto:hello@openza.org) and include:
 - A clear description of the issue
 - Steps to reproduce
 - Impact assessment

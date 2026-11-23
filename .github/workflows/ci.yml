@@ -69,7 +69,6 @@ jobs:
           key: nuget-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('global.json', '**/*.csproj', '**/*.props', '**/*.targets', '**/packages.lock.json', '**/[Nn]u[Gg]et.[Cc]onfig') }}
 
       - name: Install desktop metadata validators
-        if: needs.changes.outputs.code == 'true'
         run: sudo apt-get update && sudo apt-get install --yes appstream desktop-file-utils
 
       - name: Restore desktop app

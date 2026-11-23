@@ -1,6 +1,6 @@
 # Privacy Policy
 
-Openza Tasks does not collect telemetry, analytics, or personal usage data. Openza Tasks is maintained by Deependra Solanky; contact: `deependra@solanky.dev`.
+Openza Tasks does not collect telemetry, analytics, or personal usage data. Openza Tasks is maintained by Deependra Solanky; contact: [hello@openza.org](mailto:hello@openza.org).
 
 Task data, provider snapshots, account identifiers, and preferences are stored locally on your device. The Windows Store app uses its package data folder, with restore points in `LocalState`. The Linux Snap stores its database, settings, and restore points under `$SNAP_USER_COMMON/tasks`; Snap revisions share this directory. Source Dev runs use a separate data directory. Local restore points support rollback, but durable backup means optional OneDrive app-folder backup or an explicit user export to a location you retain independently of the app.
 
