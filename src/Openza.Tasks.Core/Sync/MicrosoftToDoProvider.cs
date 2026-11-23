@@ -135,6 +135,7 @@ public sealed class MicrosoftToDoProvider(HttpClient httpClient, string accessTo
         var id = GetString(task, "id") ?? Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture);
         var due = ParseGraphDate(task, "dueDateTime");
         var status = GetString(task, "status");
+        var labels = MapCategories(task, categories, providerConnectionId);
         return new TaskItem
         {
             Id = $"mstodo_{id}",
@@ -160,10 +161,10 @@ public sealed class MicrosoftToDoProvider(HttpClient httpClient, string accessTo
             RecurrenceRule = ParseGraphRecurrence(task),
             CreatedAt = ParseDate(GetString(task, "createdDateTime")) ?? DateTimeOffset.UtcNow,
             CompletedAt = ParseGraphDate(task, "completedDateTime"),
-            Labels = MapCategories(task, categories, providerConnectionId),
+            Labels = labels,
             ProviderMetadataJson = JsonSerializer.Serialize(new
             {
-                msToDo = new { id, listId, categories = MapCategories(task, categories, providerConnectionId)
+                msToDo = new { id, listId, categories = labels
                     .Select(label => new { name = label.Name, color = label.Color }), synced_at = DateTimeOffset.UtcNow },
             }),
         };

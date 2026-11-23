@@ -544,8 +544,15 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
 
         if (source.IntegrationId == IntegrationIds.MicrosoftToDo && source.AdoptedTaskId is { } taskId)
         {
-            var task = (await ReadTasksAsync(connection, cancellationToken).ConfigureAwait(false)).Single(item => item.Id == taskId);
-            await ApplyMicrosoftCategoriesAsync(connection, source, task, cancellationToken).ConfigureAwait(false);
+            var marker = connection.CreateCommand();
+            marker.CommandText = "SELECT COALESCE(json_extract(source_metadata, '$.msToDoCategoriesApplied'), 0) FROM tasks WHERE id=@id";
+            marker.Parameters.AddWithValue("@id", taskId);
+            if (Convert.ToInt64(await marker.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) ?? 0) == 0)
+            {
+                var task = (await SqliteTaskReadQueries.ReadTasksAsync(connection, cancellationToken, taskId).ConfigureAwait(false)).FirstOrDefault();
+                if (task is not null)
+                    await ApplyMicrosoftCategoriesAsync(connection, source, task, cancellationToken).ConfigureAwait(false);
+            }
         }
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         await StageMicrosoftCategoryTaskAsync(source, cancellationToken).ConfigureAwait(false);
@@ -2443,11 +2450,22 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
         string taskId, string operation, string? relatedId, string? relatedName, long baseEntityVersion,
         string instanceId, string deviceId, CancellationToken cancellationToken = default)
     {
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        var entry = await MutateTaskRelationshipWithPersonalCloudIntentCoreAsync(connection, taskId, operation, relatedId,
+            relatedName, baseEntityVersion, instanceId, deviceId, cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return entry;
+    }
+
+    private static async Task<PersonalCloudK1OutboxEntry> MutateTaskRelationshipWithPersonalCloudIntentCoreAsync(
+        SqliteConnection connection, string taskId, string operation, string? relatedId, string? relatedName,
+        long baseEntityVersion, string instanceId, string deviceId, CancellationToken cancellationToken)
+    {
         var allowed=new[]{"task.setProject","task.move","task.addLabel","task.removeLabel","task.setParent"};
         if(!allowed.Contains(operation,StringComparer.Ordinal)) throw new PersonalCloudK0ContractException("invalid_request","The relationship operation is unsupported.");
         if((operation is "task.move" or "task.addLabel" or "task.removeLabel") && string.IsNullOrWhiteSpace(relatedId)) throw new PersonalCloudK0ContractException("invalid_request","A related entity ID is required.");
         if(((operation=="task.setProject" && relatedId is not null) || operation is "task.move" or "task.addLabel") && string.IsNullOrWhiteSpace(relatedName)) throw new PersonalCloudK0ContractException("invalid_request","A related entity name is required.");
-        await using var connection=await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);await using var transaction=await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         var read=connection.CreateCommand();read.CommandText="SELECT space_id,integration_id FROM tasks WHERE id=@id";read.Parameters.AddWithValue("@id",taskId);
         string spaceId,integration;await using(var reader=await read.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false)){if(!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))throw new PersonalCloudK0ContractException("entity_not_found","The task does not exist.");spaceId=reader.GetString(0);integration=reader.GetString(1);}
         if(integration!=IntegrationIds.Local)throw new PersonalCloudK0ContractException("invalid_request","Only a local Openza task can be changed here.");
@@ -2469,7 +2487,7 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
           """;outbox.Parameters.AddWithValue("@m",mutationId);outbox.Parameters.AddWithValue("@i",instanceId);outbox.Parameters.AddWithValue("@d",deviceId);outbox.Parameters.AddWithValue("@q",sequence);outbox.Parameters.AddWithValue("@o",operation);outbox.Parameters.AddWithValue("@e",taskId);outbox.Parameters.AddWithValue("@j",json);outbox.Parameters.AddWithValue("@h",hash);outbox.Parameters.AddWithValue("@a",now.ToUnixTimeMilliseconds());var localSequence=Convert.ToInt64(await outbox.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false));
         var advance=connection.CreateCommand();advance.CommandText="UPDATE personal_cloud_device_state SET next_device_sequence=@next WHERE instance_id=@i AND device_id=@d AND next_device_sequence=@q";advance.Parameters.AddWithValue("@next",sequence+1);advance.Parameters.AddWithValue("@i",instanceId);advance.Parameters.AddWithValue("@d",deviceId);advance.Parameters.AddWithValue("@q",sequence);if(await advance.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false)!=1)throw new InvalidOperationException("The device sequence could not advance.");
         await ParkNewTaskMutationAsync(connection, instanceId, deviceId, mutationId, cancellationToken).ConfigureAwait(false);
-        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);return new PersonalCloudK1OutboxEntry{LocalSequence=localSequence,MutationId=mutationId,Product="tasks",InstanceId=instanceId,DeviceId=deviceId,DeviceSequence=sequence,Operation=operation,EntityId=taskId,CanonicalJson=json,CanonicalHash=hash,CreatedAt=now};
+        return new PersonalCloudK1OutboxEntry{LocalSequence=localSequence,MutationId=mutationId,Product="tasks",InstanceId=instanceId,DeviceId=deviceId,DeviceSequence=sequence,Operation=operation,EntityId=taskId,CanonicalJson=json,CanonicalHash=hash,CreatedAt=now};
     }
 
     public async Task<IReadOnlyList<PersonalCloudK1OutboxEntry>> MoveTaskTreeToSpaceWithPersonalCloudIntentAsync(

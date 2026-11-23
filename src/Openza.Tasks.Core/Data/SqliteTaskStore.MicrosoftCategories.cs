@@ -18,7 +18,8 @@ public sealed partial class SqliteTaskStore
         if (metadata["msToDoCategoriesApplied"]?.GetValue<bool>() == true) return task;
 
         var labels = task.Labels.ToList();
-        var added = new List<LabelItem>();
+        var cloud = creatingCloudTask ? null : PersonalCloudConnection?.Invoke();
+        var version = cloud is null ? null : await ReadPersonalCloudEntityVersionAsync(connection, cloud.InstanceId, task.Id, cancellationToken).ConfigureAwait(false);
         var localLabels = new List<LabelItem>();
         var read = connection.CreateCommand();
         read.CommandText = "SELECT id,external_id,integration_id,provider_connection_id,name,color,description,sort_order,is_favorite,provider_metadata,created_at FROM labels WHERE integration_id='openza_tasks'";
@@ -43,19 +44,18 @@ public sealed partial class SqliteTaskStore
                 }
                 if (labels.Any(item => item.Id == label.Id)) continue;
                 labels.Add(label);
-                added.Add(label);
-                await WorkspaceExecuteAsync(connection, "INSERT OR IGNORE INTO task_labels(task_id,label_id) VALUES(@t,@l)",
-                    cancellationToken, ("@t", task.Id), ("@l", label.Id)).ConfigureAwait(false);
+                if (cloud is not null && version is not null)
+                {
+                    await MutateTaskRelationshipWithPersonalCloudIntentCoreAsync(connection, task.Id, "task.addLabel", label.Id,
+                        label.Name, version.Value, cloud.InstanceId, cloud.DeviceId, cancellationToken).ConfigureAwait(false);
+                    version = await ReadPersonalCloudEntityVersionAsync(connection, cloud.InstanceId, task.Id, cancellationToken).ConfigureAwait(false);
+                }
+                else
+                    await WorkspaceExecuteAsync(connection, "INSERT OR IGNORE INTO task_labels(task_id,label_id) VALUES(@t,@l)",
+                        cancellationToken, ("@t", task.Id), ("@l", label.Id)).ConfigureAwait(false);
             }
         }
 
-        if (!creatingCloudTask && PersonalCloudConnection?.Invoke() is { } cloud &&
-            await ReadPersonalCloudEntityVersionAsync(connection, cloud.InstanceId, task.Id, cancellationToken).ConfigureAwait(false) is { } version)
-        {
-            foreach (var label in added)
-                await AppendWorkspaceMutationAsync(connection, cloud.InstanceId, cloud.DeviceId, "task.addLabel", task.Id,
-                    version++, new { label = new { id = label.Id, name = label.Name } }, cancellationToken).ConfigureAwait(false);
-        }
         metadata["msToDoCategoriesApplied"] = true;
         var json = metadata.ToJsonString();
         await WorkspaceExecuteAsync(connection, "UPDATE tasks SET source_metadata=@m,revision=revision+1 WHERE id=@t",
