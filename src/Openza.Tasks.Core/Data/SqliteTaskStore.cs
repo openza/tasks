@@ -4527,7 +4527,7 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    private static async Task SetTaskLabelsCoreAsync(SqliteConnection connection, string taskId, IReadOnlyList<LabelItem> labels, CancellationToken cancellationToken)
+    private static async Task SetTaskLabelsCoreAsync(SqliteConnection connection, string taskId, IReadOnlyList<LabelItem> labels, CancellationToken cancellationToken, bool localOnly = false)
     {
         var deleteCommand = connection.CreateCommand();
         deleteCommand.CommandText = "DELETE FROM task_labels WHERE task_id = @task_id";
@@ -4536,7 +4536,7 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
 
         foreach (var label in labels)
         {
-            var labelId = await ResolveAndUpsertLabelCoreAsync(connection, label, cancellationToken).ConfigureAwait(false);
+            var labelId = await ResolveAndUpsertLabelCoreAsync(connection, label, cancellationToken, localOnly: localOnly).ConfigureAwait(false);
             var command = connection.CreateCommand();
             command.CommandText = "INSERT OR IGNORE INTO task_labels (task_id, label_id) VALUES (@task_id, @label_id)";
             command.Parameters.AddWithValue("@task_id", taskId);
@@ -4549,20 +4549,22 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
         SqliteConnection connection,
         LabelItem label,
         CancellationToken cancellationToken,
-        bool preserveExistingId = true)
+        bool preserveExistingId = true,
+        bool localOnly = false)
     {
         if (preserveExistingId)
         {
             var idCommand = connection.CreateCommand();
-            idCommand.CommandText = "SELECT id FROM labels WHERE id = @id LIMIT 1";
+            idCommand.CommandText = "SELECT integration_id FROM labels WHERE id = @id LIMIT 1";
             idCommand.Parameters.AddWithValue("@id", label.Id);
-            if (await idCommand.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is string existingExactId)
+            if (await idCommand.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is string integrationId)
             {
-                return existingExactId;
+                if (!localOnly || integrationId == IntegrationIds.Local) return label.Id;
+                label = label with { Id = $"label_{Guid.NewGuid():N}" };
             }
         }
 
-        var existingId = await FindLabelIdByNameAsync(connection, label.Name, cancellationToken, label.IntegrationId == IntegrationIds.Local).ConfigureAwait(false);
+        var existingId = await FindLabelIdByNameAsync(connection, label.Name, cancellationToken, localOnly).ConfigureAwait(false);
         if (!string.IsNullOrWhiteSpace(existingId) && !string.Equals(existingId, label.Id, StringComparison.Ordinal))
         {
             return existingId;
