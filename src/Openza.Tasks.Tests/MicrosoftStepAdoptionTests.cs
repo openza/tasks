@@ -216,6 +216,7 @@ public sealed class MicrosoftStepAdoptionTests : IDisposable
         var source = Source();
         var parent = backfill ? await Adopt(store, Source("{}")) : null;
         if (!backfill) await store.UpsertProviderSourceItemAsync(source);
+        await store.SavePersonalCloudWorkspaceCapabilitiesAsync(Instance, false, false);
         store.PersonalCloudConnection = Cloud;
         using (PersonalCloudConnectionLease.AcquireReplacement(store.DatabasePath))
         {
@@ -272,6 +273,7 @@ public sealed class MicrosoftStepAdoptionTests : IDisposable
                 Title = source.Title, ProviderMetadataJson = Checklist });
         }
         var targetReads = 0;
+        await store.SavePersonalCloudWorkspaceCapabilitiesAsync(Instance, false, false);
         store.PersonalCloudConnection = () => { targetReads++; return Cloud(); };
         var engine = new TaskSyncEngine(store);
         var provider = new SnapshotProvider(tasks);
