@@ -184,6 +184,8 @@ public sealed class MicrosoftReminderTests : IDisposable
             await store.CreateRichTaskWithPersonalCloudIntentAsync(task, Instance, Device);
         }
         else await store.CreateTaskWithPersonalCloudIntentAsync(task, Instance, Device);
+        var pendingBefore = (await store.GetPendingPersonalCloudOutboxAsync(Instance, Device)).Count;
+        var versionBefore = await store.GetPersonalCloudEntityVersionAsync(Instance, task.Id);
         var read = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var resume = new ManualResetEventSlim();
         var service = new TaskApplicationService(store, () =>
@@ -215,7 +217,13 @@ public sealed class MicrosoftReminderTests : IDisposable
             }
         }
         finally { resume.Set(); }
-        if (concurrentEdit) await Assert.ThrowsAsync<TaskConflictException>(() => saving);
+        if (concurrentEdit)
+        {
+            await Assert.ThrowsAsync<TaskConflictException>(() => saving);
+            Assert.Null((await store.GetTaskAsync(task.Id))!.Notes);
+            Assert.Equal(pendingBefore, (await store.GetPendingPersonalCloudOutboxAsync(Instance, Device)).Count);
+            Assert.Equal(versionBefore, await store.GetPersonalCloudEntityVersionAsync(Instance, task.Id));
+        }
         else await saving;
         Assert.Equal(concurrentEdit ? Instant.AddHours(1) : (DateTimeOffset?)null, (await store.GetTaskAsync(task.Id))!.ReminderAt);
     }

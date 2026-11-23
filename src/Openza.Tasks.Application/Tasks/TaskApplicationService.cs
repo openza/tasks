@@ -189,9 +189,13 @@ public sealed class TaskApplicationService(
             if (expectedRevision != original.Revision)
                 throw new TaskConflictException(original.Id);
 
+            if (request.ReminderAt.IsSpecified &&
+                !await sqliteStore.TryReplaceTaskReminderAsync(original.Id, original.ReminderAt, reminderAt, cancellationToken).ConfigureAwait(false))
+                throw new TaskConflictException(original.Id);
+
             var entityVersion = await ResolvePersonalCloudEntityVersionAsync(
                 sqliteStore, target, original.Id, cancellationToken).ConfigureAwait(false);
-            var changed = false;
+            var changed = request.ReminderAt.IsSpecified;
             var reopening = request.Completed.IsSpecified && original.IsCompleted && !completed;
             if (reopening)
             {
@@ -315,12 +319,6 @@ public sealed class TaskApplicationService(
                 if (!await Store.TryUpsertTaskWithPendingUpdatesAsync(
                     current with { LocalMetadataJson = request.LocalMetadataJson.Value, UpdatedAt = now },
                     current.Revision, null, null, cancellationToken).ConfigureAwait(false))
-                    throw new TaskConflictException(original.Id);
-                changed = true;
-            }
-            if (request.ReminderAt.IsSpecified)
-            {
-                if (!await sqliteStore.TryReplaceTaskReminderAsync(original.Id, original.ReminderAt, reminderAt, cancellationToken).ConfigureAwait(false))
                     throw new TaskConflictException(original.Id);
                 changed = true;
             }
