@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Data.Sqlite;
+using Openza.Tasks.Core.Models;
 using Openza.Tasks.Core.PersonalCloud;
 
 namespace Openza.Tasks.Core.Data;
@@ -367,10 +368,20 @@ public sealed partial class SqliteTaskStore
             await WorkspaceExecuteAsync(connection, "DELETE FROM pending_task_date_updates WHERE task_id IN(SELECT value FROM json_each(@ids))", cancellationToken,
                 ("@ids", JsonSerializer.Serialize(dateTasks))).ConfigureAwait(false);
             foreach (var recovery in conflict.Dependents.Prepend(conflict).Where(c => c.RetainsRecoveryCopy))
+            {
                 await WorkspaceExecuteAsync(connection, """
                     INSERT OR IGNORE INTO personal_cloud_task_recovery(instance_id,task_id)
                     SELECT @i,id FROM tasks WHERE id=@e
                     """, cancellationToken, ("@i", instanceId), ("@e", recovery.Id)).ConfigureAwait(false);
+                await WorkspaceExecuteAsync(connection, """
+                    UPDATE provider_source_items SET adoption_state=@unadopted, adopted_task_id=NULL, updated_at=@now
+                    WHERE adopted_task_id=@e;
+                    UPDATE tasks SET source_integration_id=NULL, source_connection_id=NULL, source_external_id=NULL,
+                        source_provider_task_id=NULL, revision=revision+1
+                    WHERE id=@e AND source_integration_id IS NOT NULL;
+                    """, cancellationToken, ("@e", recovery.Id), ("@unadopted", ProviderSourceAdoptionStates.NotAdopted),
+                    ("@now", ToDbDate(DateTimeOffset.UtcNow))).ConfigureAwait(false);
+            }
         }
         var records = new List<JsonObject>();
         foreach (var id in conflict.TaskIds.Where(id => id != conflict.Id))

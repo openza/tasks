@@ -67,6 +67,14 @@ public sealed partial class PersonalCloudBatchSyncTests
             SourceIntegrationId = IntegrationIds.Todoist, SourceExternalId = "duplicate", SourceProviderTaskId = "duplicate",
         };
         await store.CreateRichTaskWithPersonalCloudIntentAsync(task, Instance, Device);
+        var source = new ProviderSourceItem
+        {
+            Id = "provider_rejected_create", IntegrationId = IntegrationIds.Todoist, ProviderConnectionId = "todoist_default",
+            ExternalId = "duplicate", ProviderTaskId = "duplicate", Title = "Source title",
+            AdoptionState = ProviderSourceAdoptionStates.Adopted, AdoptedTaskId = task.Id,
+            PlannedOn = new DateOnly(2026, 10, 15),
+        };
+        await store.UpsertProviderSourceItemAsync(source);
         handler.ConflictEntity = task.Id;
         handler.ConflictCode = "source_identity_conflict";
         await (await CreateClientAsync(store, handler)).SyncAsync();
@@ -93,6 +101,12 @@ public sealed partial class PersonalCloudBatchSyncTests
         });
         Assert.Equal("Editable local copy", updated.Title);
         Assert.True(updated.IsCompleted);
+        await reopened.UpsertProviderSourceItemAsync(source);
+        var refreshed = (await reopened.GetTaskAsync(task.Id))!;
+        Assert.True(refreshed.IsCompleted);
+        Assert.Equal(new DateOnly(2026, 10, 16), refreshed.PlannedOn);
+        Assert.Null(refreshed.SourceIntegrationId);
+        Assert.Null(Assert.Single(await reopened.GetProviderSourceItemsAsync(IntegrationIds.Todoist, includeAdopted: true)).AdoptedTaskId);
         Assert.False((await actions.SetCompletedAsync(task.Id, false)).IsCompleted);
         Assert.Empty(await reopened.GetPendingCompletionsAsync(IntegrationIds.Todoist));
         Assert.Empty(await reopened.GetPendingTaskDateUpdatesAsync(IntegrationIds.Todoist));
