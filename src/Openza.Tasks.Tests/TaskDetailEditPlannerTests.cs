@@ -76,7 +76,7 @@ public sealed class TaskDetailEditPlannerTests
         Assert.True(TaskDetailEditPlanner.HasChanges(baseline, draft));
         var request = TaskDetailEditPlanner.CreateRequest(baseline, baseline, draft)!;
         Assert.True(request.Labels.IsSpecified);
-        Assert.Equal(new[] { "Example", "New" }, request.Labels.Value);
+        Assert.Equal(new[] { "label-test", "New" }, request.Labels.Value);
     }
 
     [Fact]

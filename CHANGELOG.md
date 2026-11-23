@@ -8,7 +8,7 @@ All notable changes to Openza Tasks will be documented in this file.
 - Microsoft To Do checklist items import once as local subtasks in Graph order, including mixed checked state and completion time, with upgrade backfill and Personal Cloud publication. Later syncs and source reconnection preserve local subtask edits and deletions.
 
 ### Fixed
-- Editing task labels preserves existing cloud attachment IDs, including legacy provider-catalog IDs and labels whose names are shared with other local labels.
+- Workspace hydration and Desktop edits preserve exact cloud label IDs, including legacy provider-catalog IDs. Ambiguous CLI label names require an exact ID.
 
 ## [1.4.0] - 2026-11-22
 
