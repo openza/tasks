@@ -374,12 +374,15 @@ public sealed partial class SqliteTaskStore
                     SELECT @i,id FROM tasks WHERE id=@e
                     """, cancellationToken, ("@i", instanceId), ("@e", recovery.Id)).ConfigureAwait(false);
                 await WorkspaceExecuteAsync(connection, """
-                    UPDATE provider_source_items SET adoption_state=@ignored, adopted_task_id=NULL, updated_at=@now
+                    UPDATE provider_source_items SET
+                        adoption_state=CASE WHEN adoption_state=@adopted THEN @ignored ELSE adoption_state END,
+                        adopted_task_id=NULL, updated_at=@now
                     WHERE adopted_task_id=@e;
                     UPDATE tasks SET source_integration_id=NULL, source_connection_id=NULL, source_external_id=NULL,
                         source_provider_task_id=NULL, source_url=NULL, source_metadata=NULL, revision=revision+1
                     WHERE id=@e AND source_integration_id IS NOT NULL;
                     """, cancellationToken, ("@e", recovery.Id), ("@ignored", ProviderSourceAdoptionStates.Ignored),
+                    ("@adopted", ProviderSourceAdoptionStates.Adopted),
                     ("@now", ToDbDate(DateTimeOffset.UtcNow))).ConfigureAwait(false);
             }
         }

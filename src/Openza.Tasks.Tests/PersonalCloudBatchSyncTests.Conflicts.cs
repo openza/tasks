@@ -57,8 +57,10 @@ public sealed partial class PersonalCloudBatchSyncTests
         Assert.Empty(await store.GetPersonalCloudTaskConflictsAsync(Instance));
     }
 
-    [Fact]
-    public async Task Resolving_a_rejected_create_keeps_a_recovery_copy_without_staging_it_again()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Resolving_a_rejected_create_keeps_a_recovery_copy_without_staging_it_again(bool providerTaskMissing)
     {
         var (store, handler) = await ConflictStoreAsync();
         var task = new TaskItem
@@ -82,6 +84,8 @@ public sealed partial class PersonalCloudBatchSyncTests
         Assert.Equal(task.Id, Assert.Single(await store.GetPersonalCloudTaskConflictsAsync(Instance)).TaskId);
         await store.StageUnpublishedTasksForPersonalCloudAsync(Instance, Device);
         Assert.DoesNotContain(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device), entry => entry.EntityId == task.Id);
+        if (providerTaskMissing)
+            await store.DetachProviderSourceItemAsync(source.Id);
         await store.ResolvePersonalCloudTaskConflictAsync(Instance, task.Id, keepDesktop: false);
 
         var reopened = new SqliteTaskStore(store.DatabasePath);
@@ -102,16 +106,23 @@ public sealed partial class PersonalCloudBatchSyncTests
         });
         Assert.Equal("Editable local copy", updated.Title);
         Assert.True(updated.IsCompleted);
-        await reopened.UpsertProviderSourceItemAsync(source);
+        if (!providerTaskMissing)
+            await reopened.UpsertProviderSourceItemAsync(source);
         var refreshed = (await reopened.GetTaskAsync(task.Id))!;
         Assert.True(refreshed.IsCompleted);
         Assert.Equal(new DateOnly(2026, 10, 16), refreshed.PlannedOn);
         Assert.Null(refreshed.SourceIntegrationId);
         Assert.Null(refreshed.EffectiveRecurrenceRule);
-        var originalSource = Assert.Single(await reopened.GetProviderSourceItemsAsync(IntegrationIds.Todoist, includeAdopted: true, includeIgnored: true));
-        Assert.Equal(ProviderSourceAdoptionStates.Ignored, originalSource.AdoptionState);
-        Assert.Null(originalSource.AdoptedTaskId);
-        Assert.Equal(source.RecurrenceRule, originalSource.RecurrenceRule);
+        var sources = await reopened.GetProviderSourceItemsAsync(IntegrationIds.Todoist, includeAdopted: true, includeIgnored: true);
+        if (providerTaskMissing)
+            Assert.Empty(sources);
+        else
+        {
+            var originalSource = Assert.Single(sources);
+            Assert.Equal(ProviderSourceAdoptionStates.Ignored, originalSource.AdoptionState);
+            Assert.Null(originalSource.AdoptedTaskId);
+            Assert.Equal(source.RecurrenceRule, originalSource.RecurrenceRule);
+        }
         Assert.DoesNotContain(await reopened.GetTasksAsync(new TaskQuery { Kind = TaskListKind.All, IncludeSubtasks = true }),
             item => item.SourceExternalId == source.ExternalId);
         Assert.False((await actions.SetCompletedAsync(task.Id, false)).IsCompleted);
