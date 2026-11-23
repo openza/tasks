@@ -497,6 +497,11 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
 
     public async Task UpsertProviderSourceItemAsync(ProviderSourceItem item, CancellationToken cancellationToken = default)
     {
+        await UpsertProviderSourceItemWithCategoriesAsync(item, true, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<bool> UpsertProviderSourceItemWithCategoriesAsync(ProviderSourceItem item, bool stageCategories, CancellationToken cancellationToken)
+    {
         using var cloudLease = item.IntegrationId == IntegrationIds.MicrosoftToDo && PersonalCloudConnection is not null
             ? PersonalCloudConnectionLease.AcquireAuthoring(DatabasePath) : null;
         await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
@@ -544,6 +549,7 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
                 cancellationToken).ConfigureAwait(false);
         }
 
+        var needsCloudStaging = false;
         if (source.IntegrationId == IntegrationIds.MicrosoftToDo && source.AdoptedTaskId is { } taskId)
         {
             var marker = connection.CreateCommand();
@@ -553,11 +559,13 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
             {
                 var task = (await SqliteTaskReadQueries.ReadTasksAsync(connection, cancellationToken, taskId).ConfigureAwait(false)).FirstOrDefault();
                 if (task is not null)
-                    await ApplyMicrosoftCategoriesAsync(connection, source, task, cancellationToken).ConfigureAwait(false);
+                    (_, needsCloudStaging) = await ApplyMicrosoftCategoriesAsync(connection, source, task, cancellationToken).ConfigureAwait(false);
             }
         }
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-        await StageMicrosoftCategoryTaskAsync(source, cancellationToken).ConfigureAwait(false);
+        if (needsCloudStaging && stageCategories)
+            await StageMicrosoftCategoryTasksAsync(cancellationToken).ConfigureAwait(false);
+        return needsCloudStaging;
     }
 
     public async Task DetachProviderSourceItemAsync(string sourceItemId, CancellationToken cancellationToken = default)
@@ -659,9 +667,10 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
             UpdatedAt = now,
         };
         await UpsertProviderSourceItemCoreAsync(connection, adopted, cancellationToken).ConfigureAwait(false);
-        task = await ApplyMicrosoftCategoriesAsync(connection, source, task, cancellationToken).ConfigureAwait(false);
+        (task, var needsCloudStaging) = await ApplyMicrosoftCategoriesAsync(connection, source, task, cancellationToken).ConfigureAwait(false);
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-        await StageMicrosoftCategoryTaskAsync(adopted, cancellationToken).ConfigureAwait(false);
+        if (needsCloudStaging)
+            await StageMicrosoftCategoryTasksAsync(cancellationToken).ConfigureAwait(false);
         return task;
     }
 

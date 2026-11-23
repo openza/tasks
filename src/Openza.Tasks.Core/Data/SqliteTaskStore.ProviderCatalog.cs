@@ -254,7 +254,7 @@ public sealed partial class SqliteTaskStore
             adoptedId = task.Id;
             await UpsertTaskCoreAsync(connection, task, cancellationToken).ConfigureAwait(false);
             await SetTaskLabelsCoreAsync(connection, task.Id, task.Labels, cancellationToken).ConfigureAwait(false);
-            task = await ApplyMicrosoftCategoriesAsync(connection, source, task, cancellationToken, creatingCloudTask: true).ConfigureAwait(false);
+            (task, _) = await ApplyMicrosoftCategoriesAsync(connection, source, task, cancellationToken, creatingCloudTask: true).ConfigureAwait(false);
             await UpsertProviderSourceItemCoreAsync(connection, source with { AdoptionState = ProviderSourceAdoptionStates.Adopted, AdoptedTaskId = task.Id }, cancellationToken).ConfigureAwait(false);
             await AppendRichTaskAsync(connection, task, instanceId, deviceId, descriptor, cancellationToken).ConfigureAwait(false);
         }

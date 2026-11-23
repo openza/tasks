@@ -10,17 +10,17 @@ public sealed partial class SqliteTaskStore
 {
     public Func<PersonalCloudConnectionProfile?>? PersonalCloudConnection { get; set; }
 
-    private async Task<TaskItem> ApplyMicrosoftCategoriesAsync(SqliteConnection connection, ProviderSourceItem source,
+    private async Task<(TaskItem Task, bool NeedsCloudStaging)> ApplyMicrosoftCategoriesAsync(SqliteConnection connection, ProviderSourceItem source,
         TaskItem task, CancellationToken cancellationToken, bool creatingCloudTask = false)
     {
-        if (source.IntegrationId != IntegrationIds.MicrosoftToDo) return task;
+        if (source.IntegrationId != IntegrationIds.MicrosoftToDo) return (task, false);
         var metadata = JsonNode.Parse(task.SourceMetadataJson ?? "{}")!.AsObject();
-        if (metadata["msToDoCategoriesApplied"]?.GetValue<bool>() == true) return task;
+        if (metadata["msToDoCategoriesApplied"]?.GetValue<bool>() == true) return (task, false);
 
         using var snapshot = JsonDocument.Parse(source.SnapshotJson ?? "{}");
         if (!snapshot.RootElement.TryGetProperty("msToDo", out var microsoft) ||
             !microsoft.TryGetProperty("categories", out var categories) || categories.ValueKind != JsonValueKind.Array)
-            return task;
+            return (task, false);
 
         var labels = task.Labels.ToList();
         var cloud = creatingCloudTask ? null : PersonalCloudConnection?.Invoke();
@@ -60,14 +60,45 @@ public sealed partial class SqliteTaskStore
         var json = metadata.ToJsonString();
         await WorkspaceExecuteAsync(connection, "UPDATE tasks SET source_metadata=@m,revision=revision+1 WHERE id=@t",
             cancellationToken, ("@m", json), ("@t", task.Id)).ConfigureAwait(false);
-        return task with { Labels = labels, SourceMetadataJson = json, Revision = task.Revision + 1 };
+        return (task with { Labels = labels, SourceMetadataJson = json, Revision = task.Revision + 1 },
+            labels.Count > task.Labels.Count && cloud is not null && version is null);
     }
 
-    private async Task StageMicrosoftCategoryTaskAsync(ProviderSourceItem source, CancellationToken cancellationToken)
+    private async Task StageMicrosoftCategoryTasksAsync(CancellationToken cancellationToken)
     {
-        if (source.IntegrationId == IntegrationIds.MicrosoftToDo && source.AdoptedTaskId is not null &&
-            PersonalCloudConnection?.Invoke() is { } cloud &&
-            await GetPersonalCloudEntityVersionAsync(cloud.InstanceId, source.AdoptedTaskId, cancellationToken).ConfigureAwait(false) is null)
+        using var lease = PersonalCloudConnection is null ? null : PersonalCloudConnectionLease.AcquireAuthoring(DatabasePath);
+        if (PersonalCloudConnection?.Invoke() is { } cloud)
             await StageUnpublishedTasksForPersonalCloudAsync(cloud.InstanceId, cloud.DeviceId, cancellationToken).ConfigureAwait(false);
+    }
+
+    internal MicrosoftCategorySyncBatch BeginMicrosoftCategorySyncBatch(CancellationToken cancellationToken) => new(this, cancellationToken);
+
+    internal sealed class MicrosoftCategorySyncBatch : IAsyncDisposable
+    {
+        private readonly SqliteTaskStore store;
+        private readonly CancellationToken cancellationToken;
+        private readonly IDisposable? lease;
+        private bool needsStaging;
+
+        internal MicrosoftCategorySyncBatch(SqliteTaskStore store, CancellationToken cancellationToken)
+        {
+            this.store = store;
+            this.cancellationToken = cancellationToken;
+            lease = store.PersonalCloudConnection is null ? null : PersonalCloudConnectionLease.AcquireAuthoring(store.DatabasePath);
+        }
+
+        internal async Task UpsertAsync(ProviderSourceItem source)
+        {
+            needsStaging |= await store.UpsertProviderSourceItemWithCategoriesAsync(source, false, cancellationToken).ConfigureAwait(false);
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            try
+            {
+                if (needsStaging) await store.StageMicrosoftCategoryTasksAsync(cancellationToken).ConfigureAwait(false);
+            }
+            finally { lease?.Dispose(); }
+        }
     }
 }

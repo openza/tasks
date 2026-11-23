@@ -14,6 +14,15 @@ public sealed class TaskSyncEngine(ITaskStore store)
             var dateUpdatesSynced = await SyncPendingTaskDateUpdatesAsync(provider, cancellationToken).ConfigureAwait(false);
             var completionsSynced = await SyncPendingCompletionsAsync(provider, cancellationToken).ConfigureAwait(false);
             var snapshot = await provider.FetchSnapshotAsync(cancellationToken).ConfigureAwait(false);
+            await using var categoryBatch = provider.IntegrationId == IntegrationIds.MicrosoftToDo && store is SqliteTaskStore sqlite
+                ? sqlite.BeginMicrosoftCategorySyncBatch(cancellationToken) : null;
+            async Task SaveSourceAsync(ProviderSourceItem source)
+            {
+                if (categoryBatch is null)
+                    await store.UpsertProviderSourceItemAsync(source, cancellationToken).ConfigureAwait(false);
+                else
+                    await categoryBatch.UpsertAsync(source).ConfigureAwait(false);
+            }
             var providerConnectionId = provider.ProviderConnectionId;
             var existing = await store.GetProviderSourceItemsAsync(provider.IntegrationId, includeAdopted: true, includeIgnored: true, cancellationToken: cancellationToken).ConfigureAwait(false);
             var existingByExternalId = existing
@@ -63,7 +72,7 @@ public sealed class TaskSyncEngine(ITaskStore store)
                         .ConfigureAwait(false);
                 }
 
-                await store.UpsertProviderSourceItemAsync(ToProviderSourceItem(routedTask, providerConnectionId, projectNames), cancellationToken).ConfigureAwait(false);
+                await SaveSourceAsync(ToProviderSourceItem(routedTask, providerConnectionId, projectNames)).ConfigureAwait(false);
                 if (!isNewSourceItem)
                 {
                     sourceItemsUpdated++;
@@ -87,7 +96,7 @@ public sealed class TaskSyncEngine(ITaskStore store)
                 }
 
                 var mergedTask = MergeCompletedTask(completedTask, existingSource, providerConnectionId);
-                await store.UpsertProviderSourceItemAsync(ToProviderSourceItem(mergedTask, providerConnectionId, projectNames), cancellationToken).ConfigureAwait(false);
+                await SaveSourceAsync(ToProviderSourceItem(mergedTask, providerConnectionId, projectNames)).ConfigureAwait(false);
                 remoteExternalIds.Add(completedTask.ExternalId);
                 sourceItemsUpdated++;
             }
