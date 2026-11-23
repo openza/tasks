@@ -86,7 +86,7 @@ public sealed class MicrosoftToDoProvider(HttpClient httpClient, string accessTo
                 })
                 .ToList();
         }
-        catch (Exception exception) when (exception is not OperationCanceledException)
+        catch (Exception exception) when (exception is not (OperationCanceledException or MicrosoftPagingException))
         {
             return [];
         }
@@ -96,15 +96,14 @@ public sealed class MicrosoftToDoProvider(HttpClient httpClient, string accessTo
     {
         var items = new List<JsonElement>();
         string? nextPath = path;
+        var visited = new HashSet<string>(StringComparer.Ordinal) { path };
         while (nextPath is not null)
         {
             using var request = CreateRequest(HttpMethod.Get, nextPath);
             using var document = await SendJsonAsync(request, cancellationToken).ConfigureAwait(false);
             if (document.RootElement.TryGetProperty("value", out var values))
                 items.AddRange(values.EnumerateArray().Select(value => value.Clone()));
-            nextPath = document.RootElement.TryGetProperty("@odata.nextLink", out var next)
-                ? next.GetString()?.Replace(BaseUrl, string.Empty, StringComparison.Ordinal)
-                : null;
+            nextPath = ReadNextPagePath(document.RootElement, visited);
         }
         return items;
     }
@@ -113,6 +112,7 @@ public sealed class MicrosoftToDoProvider(HttpClient httpClient, string accessTo
     {
         var tasks = new List<TaskItem>();
         string? nextPath = $"/me/todo/lists/{listId}/tasks?$top=100";
+        var visited = new HashSet<string>(StringComparer.Ordinal) { nextPath };
         while (nextPath is not null)
         {
             using var request = CreateRequest(HttpMethod.Get, nextPath);
@@ -122,13 +122,22 @@ public sealed class MicrosoftToDoProvider(HttpClient httpClient, string accessTo
                 tasks.AddRange(value.EnumerateArray().Select(task => MapTask(task, listId, categories, providerConnectionId)));
             }
 
-            nextPath = document.RootElement.TryGetProperty("@odata.nextLink", out var next)
-                ? next.GetString()?.Replace(BaseUrl, string.Empty, StringComparison.Ordinal)
-                : null;
+            nextPath = ReadNextPagePath(document.RootElement, visited);
         }
 
         return tasks;
     }
+
+    private static string? ReadNextPagePath(JsonElement page, HashSet<string> visited)
+    {
+        var path = page.TryGetProperty("@odata.nextLink", out var next)
+            ? next.GetString()?.Replace(BaseUrl, string.Empty, StringComparison.Ordinal) : null;
+        if (path is not null && !visited.Add(path))
+            throw new MicrosoftPagingException("Microsoft Graph returned a repeated collection page.");
+        return path;
+    }
+
+    private sealed class MicrosoftPagingException(string message) : InvalidOperationException(message);
 
     private static TaskItem MapTask(JsonElement task, string listId, IReadOnlyDictionary<string, LabelItem> categories, string providerConnectionId)
     {

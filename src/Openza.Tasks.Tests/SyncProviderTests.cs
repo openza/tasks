@@ -339,6 +339,45 @@ public sealed class SyncProviderTests
         Assert.Equal("#0078D4", label.Color);
     }
 
+    [Theory]
+    [InlineData("lists", false)]
+    [InlineData("categories", false)]
+    [InlineData("tasks", false)]
+    [InlineData("lists", true)]
+    [InlineData("categories", true)]
+    [InlineData("tasks", true)]
+    public async Task MicrosoftToDoProvider_rejects_repeated_pages_without_publishing_a_partial_snapshot(string collection, bool cycle)
+    {
+        var repeatedRequests = 0;
+        var path = collection switch
+        {
+            "lists" => "/v1.0/me/todo/lists",
+            "categories" => "/v1.0/me/outlook/masterCategories",
+            _ => "/v1.0/me/todo/lists/list/tasks?$top=100",
+        };
+        var secondPath = path + (path.Contains('?') ? "&page=2" : "?page=2");
+        var handler = new FakeHttpMessageHandler(request =>
+        {
+            if (request.RequestUri!.PathAndQuery == path || request.RequestUri.PathAndQuery == secondPath)
+            {
+                if (++repeatedRequests > 4) throw new InvalidOperationException("Test stopped unbounded paging.");
+                return Json(JsonSerializer.Serialize(new Dictionary<string, object>
+                {
+                    ["value"] = Array.Empty<object>(),
+                    ["@odata.nextLink"] = "https://graph.microsoft.com" + (cycle && repeatedRequests == 1 ? secondPath : path),
+                }));
+            }
+            return request.RequestUri.AbsolutePath == "/v1.0/me/todo/lists"
+                ? Json("""{"value":[{"id":"list"}]}""") : Json("""{"value":[]}""");
+        });
+
+        var error = await Assert.ThrowsAnyAsync<InvalidOperationException>(() =>
+            new MicrosoftToDoProvider(new HttpClient(handler), "token").FetchSnapshotAsync());
+
+        Assert.Equal("Microsoft Graph returned a repeated collection page.", error.Message);
+        Assert.InRange(repeatedRequests, 1, 2);
+    }
+
     private static HttpResponseMessage Json(string value) =>
         new(HttpStatusCode.OK)
         {
