@@ -8,41 +8,6 @@ namespace Openza.Tasks.Tests;
 
 public sealed class PersonalCloudWorkspaceTests : IDisposable
 {
-    [Theory]
-    [InlineData(false, false)]
-    [InlineData(true, false)]
-    [InlineData(false, true)]
-    [InlineData(true, true)]
-    public async Task Incoming_workspace_labels_preserve_ids_regardless_of_same_name_catalog_rows(bool existingLocal, bool sameId)
-    {
-        var store = Store();
-        await store.InitializeAsync();
-        var providerId = sameId ? "label_test" : "provider_label";
-        await store.UpsertLabelAsync(new LabelItem { Id = providerId, IntegrationId = IntegrationIds.MicrosoftToDo,
-            Name = "Example label", Color = "#32CD32" });
-        if (existingLocal)
-        {
-            await using var seed = new SqliteConnection($"Data Source={store.DatabasePath};Pooling=False");
-            await seed.OpenAsync();
-            var insert = seed.CreateCommand();
-            insert.CommandText = "INSERT INTO labels(id,integration_id,name,color,created_at) VALUES('local_label','openza_tasks','EXAMPLE LABEL','#123456',0)";
-            await insert.ExecuteNonQueryAsync();
-        }
-
-        await store.ApplyPersonalCloudChangePageAsync(Instance, Device, Page(1, [Space()], [Project()], [TaskRecord()]));
-
-        var label = Assert.Single((await store.GetTaskAsync("task_test"))!.Labels);
-        Assert.Equal("label_test", label.Id);
-        Assert.Equal(sameId ? IntegrationIds.MicrosoftToDo : IntegrationIds.Local, label.IntegrationId);
-        if (existingLocal) Assert.Contains(await store.GetLabelsAsync(), item => item.Id == "local_label" && item.Color == "#123456");
-        await using var connection = new SqliteConnection($"Data Source={store.DatabasePath};Pooling=False");
-        await connection.OpenAsync();
-        var command = connection.CreateCommand();
-        command.CommandText = "SELECT integration_id FROM labels WHERE id=@provider";
-        command.Parameters.AddWithValue("@provider", providerId);
-        Assert.Equal(IntegrationIds.MicrosoftToDo, await command.ExecuteScalarAsync());
-    }
-
     [Fact]
     public async Task Full_record_keeps_the_authoritative_cloud_modification_time()
     {

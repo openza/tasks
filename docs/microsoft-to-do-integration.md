@@ -19,11 +19,9 @@ A task has at most 32 attached labels, matching the Desktop workspace protocol.
 Category import keeps existing labels and adds categories in snapshot order until
 that limit is reached. Extra categories are skipped and the import is marked
 complete; it does not retry them after a later label removal.
-Incoming cloud attachments always retain their exact IDs, including legacy IDs
-shared with a provider catalog. Hydration never remaps an attachment by name.
-Desktop retains existing chips by ID; ambiguous CLI label names require an exact
-ID. Category adoption matches only local labels, never provider-catalog names,
+Category adoption matches only local labels, never provider-catalog names,
 and does not add a second label when the task already has that name attached.
+Workspace hydration and label editing retain ordinary Openza behavior.
 
 Category imports never stage unpublished tasks or workspace metadata. Normal
 Personal Cloud sync downloads capabilities and cloud versions first, then includes

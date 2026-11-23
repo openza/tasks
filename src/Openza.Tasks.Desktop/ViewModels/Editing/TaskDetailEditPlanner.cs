@@ -31,8 +31,7 @@ public static class TaskDetailEditPlanner
             Project = draft.ProjectId == baseline.ProjectId ? default : OptionalValue<string?>.Set(draft.ProjectId),
             PlannedOn = draft.PlannedOn == DisplayPlannedOn(baseline) ? default : OptionalValue<DateOnly?>.Set(draft.PlannedOn),
             DeadlineOn = draft.DeadlineOn == DisplayDeadlineOn(baseline) ? default : OptionalValue<DateOnly?>.Set(draft.DeadlineOn),
-            Labels = SameLabels(baseline.Labels, draft.Labels) ? default : OptionalValue<IReadOnlyList<string>>.Set(draft.Labels.Select(label =>
-                baseline.Labels.Any(item => item.Id == label.Id) || current.Labels.Any(item => item.Id == label.Id) ? label.Id : label.Name).ToArray()),
+            Labels = SameLabels(baseline.Labels, draft.Labels) ? default : OptionalValue<IReadOnlyList<string>>.Set(draft.Labels.Select(label => label.Name).ToArray()),
             LocalMetadataJson = draft.SourceDateMismatchAcknowledgementKey == TaskSourceDateChoice.ReadAcknowledgement(baseline.LocalMetadataJson) ? default : OptionalValue<string?>.Set(localMetadataJson),
         };
     }
@@ -55,9 +54,9 @@ public static class TaskDetailEditPlanner
 
     private static bool SameLabels(IReadOnlyList<LabelItem> left, IReadOnlyList<LabelItem> right)
     {
-        var comparer = StringComparer.Ordinal;
-        return left.Select(label => label.Id).Order(comparer)
-            .SequenceEqual(right.Select(label => label.Id).Order(comparer), comparer);
+        var comparer = StringComparer.CurrentCultureIgnoreCase;
+        return left.Select(label => label.Name).Order(comparer)
+            .SequenceEqual(right.Select(label => label.Name).Order(comparer), comparer);
     }
 
     // Rebase on what the editor just submitted, never on a provider refresh that

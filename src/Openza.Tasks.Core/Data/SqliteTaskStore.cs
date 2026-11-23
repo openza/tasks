@@ -4524,7 +4524,7 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    private static async Task SetTaskLabelsCoreAsync(SqliteConnection connection, string taskId, IReadOnlyList<LabelItem> labels, CancellationToken cancellationToken, bool matchByName = true)
+    private static async Task SetTaskLabelsCoreAsync(SqliteConnection connection, string taskId, IReadOnlyList<LabelItem> labels, CancellationToken cancellationToken)
     {
         var deleteCommand = connection.CreateCommand();
         deleteCommand.CommandText = "DELETE FROM task_labels WHERE task_id = @task_id";
@@ -4533,7 +4533,7 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
 
         foreach (var label in labels)
         {
-            var labelId = await ResolveAndUpsertLabelCoreAsync(connection, label, cancellationToken, matchByName: matchByName).ConfigureAwait(false);
+            var labelId = await ResolveAndUpsertLabelCoreAsync(connection, label, cancellationToken).ConfigureAwait(false);
             var command = connection.CreateCommand();
             command.CommandText = "INSERT OR IGNORE INTO task_labels (task_id, label_id) VALUES (@task_id, @label_id)";
             command.Parameters.AddWithValue("@task_id", taskId);
@@ -4546,8 +4546,7 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
         SqliteConnection connection,
         LabelItem label,
         CancellationToken cancellationToken,
-        bool preserveExistingId = true,
-        bool matchByName = true)
+        bool preserveExistingId = true)
     {
         if (preserveExistingId)
         {
@@ -4560,7 +4559,7 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
             }
         }
 
-        var existingId = matchByName ? await FindLabelIdByNameAsync(connection, label.Name, cancellationToken).ConfigureAwait(false) : null;
+        var existingId = await FindLabelIdByNameAsync(connection, label.Name, cancellationToken).ConfigureAwait(false);
         if (!string.IsNullOrWhiteSpace(existingId) && !string.Equals(existingId, label.Id, StringComparison.Ordinal))
         {
             return existingId;
