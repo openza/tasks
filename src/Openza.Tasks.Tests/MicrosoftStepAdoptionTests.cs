@@ -134,7 +134,7 @@ public sealed class MicrosoftStepAdoptionTests : IDisposable
     }
 
     [Fact]
-    public async Task Refresh_does_not_hydrate_unrelated_tasks_or_stage_after_marking_and_lease_blocks_disconnect_race()
+    public async Task Marked_refresh_does_not_hydrate_unrelated_tasks_stage_or_acquire_a_cloud_lease()
     {
         var store = await StoreAsync();
         var task = await Adopt(store, Source());
@@ -150,12 +150,105 @@ public sealed class MicrosoftStepAdoptionTests : IDisposable
         await store.UpsertProviderSourceItemAsync(Source());
         using (PersonalCloudConnectionLease.AcquireReplacement(store.DatabasePath))
         {
-            var error = await Assert.ThrowsAsync<PersonalCloudK0ContractException>(() => store.UpsertProviderSourceItemAsync(Source()));
-            Assert.Equal("connection_busy", error.Code);
-            error = await Assert.ThrowsAsync<PersonalCloudK0ContractException>(() => store.AdoptProviderSourceItemAsync("other"));
-            Assert.Equal("connection_busy", error.Code);
+            await store.UpsertProviderSourceItemAsync(Source());
+            Assert.Null(await store.AdoptProviderSourceItemAsync("other"));
+            var result = await new TaskSyncEngine(store).SyncAsync(new SnapshotProvider([new() { Id = "remote", ExternalId = Source().ExternalId,
+                IntegrationId = IntegrationIds.MicrosoftToDo, Title = Source().Title, ProviderMetadataJson = Checklist }]));
+            Assert.True(result.Success, result.Error);
         }
     }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Todoist_adoption_does_not_acquire_a_Microsoft_step_lease(bool connected)
+    {
+        var store = await StoreAsync();
+        var source = Source() with { IntegrationId = IntegrationIds.Todoist, ProviderConnectionId = "todoist_default" };
+        await store.UpsertProviderSourceItemAsync(source);
+        store.PersonalCloudConnection = () => connected ? Cloud() : null;
+        using (PersonalCloudConnectionLease.AcquireReplacement(store.DatabasePath))
+        {
+            var task = (await store.AdoptProviderSourceItemAsync(source.Id))!;
+            Assert.Empty(await Children(store, task.Id));
+        }
+        Assert.Empty(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device));
+    }
+
+    [Fact]
+    public async Task Unpaired_Microsoft_step_backfill_does_not_block_a_cloud_connection_change()
+    {
+        var store = await StoreAsync();
+        var parent = await Adopt(store, Source("{}"));
+        store.PersonalCloudConnection = () => null;
+        using (PersonalCloudConnectionLease.AcquireReplacement(store.DatabasePath))
+        {
+            var result = await new TaskSyncEngine(store).SyncAsync(new SnapshotProvider([new() { Id = "remote", ExternalId = Source().ExternalId,
+                IntegrationId = IntegrationIds.MicrosoftToDo, Title = Source().Title, ProviderMetadataJson = Checklist }]));
+            Assert.True(result.Success, result.Error);
+            Assert.Equal(3, (await Children(store, parent.Id)).Count);
+        }
+        Assert.Empty(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device));
+    }
+
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("{\"msToDo\":{\"checklistItems\":[]}}")]
+    public async Task Connected_adoption_without_step_children_does_not_acquire_cloud_lease(string snapshot)
+    {
+        var store = await StoreAsync();
+        await store.UpsertProviderSourceItemAsync(Source(snapshot));
+        store.PersonalCloudConnection = Cloud;
+        using (PersonalCloudConnectionLease.AcquireReplacement(store.DatabasePath))
+        {
+            var task = (await store.AdoptProviderSourceItemAsync(Source().Id))!;
+            Assert.Empty(await Children(store, task.Id));
+        }
+        Assert.Empty(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Connected_step_adoption_and_backfill_block_disconnect_before_creating_children(bool backfill)
+    {
+        var store = await StoreAsync();
+        var source = Source();
+        var parent = backfill ? await Adopt(store, Source("{}")) : null;
+        if (!backfill) await store.UpsertProviderSourceItemAsync(source);
+        store.PersonalCloudConnection = Cloud;
+        using (PersonalCloudConnectionLease.AcquireReplacement(store.DatabasePath))
+        {
+            var error = await Assert.ThrowsAsync<PersonalCloudK0ContractException>(async () =>
+            {
+                if (backfill) await store.UpsertProviderSourceItemAsync(source);
+                else await store.AdoptProviderSourceItemAsync(source.Id);
+            });
+            Assert.Equal("connection_busy", error.Code);
+            if (parent is not null) Assert.Empty(await Children(store, parent.Id));
+            Assert.Empty(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device));
+        }
+        if (backfill) await store.UpsertProviderSourceItemAsync(source);
+        else parent = await store.AdoptProviderSourceItemAsync(source.Id);
+        Assert.Equal(3, (await Children(store, parent!.Id)).Count);
+        Assert.NotEmpty(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device));
+    }
+
+    [Fact]
+    public async Task Cloud_connection_is_rechecked_under_the_lease_before_staging_steps()
+    {
+        var store = await StoreAsync();
+        var reads = 0;
+        store.PersonalCloudConnection = () => ++reads == 1 ? Cloud() : null;
+        var parent = await Adopt(store, Source());
+        Assert.Equal(2, reads);
+        Assert.Equal(3, (await Children(store, parent.Id)).Count);
+        Assert.Empty(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device));
+        using var replacement = PersonalCloudConnectionLease.AcquireReplacement(store.DatabasePath);
+    }
+
+    private static PersonalCloudConnectionProfile Cloud() => new() { InstanceId = Instance, DeviceId = Device,
+        ServiceOrigin = new("https://example.test"), ArtifactVersion = "test", ConnectedAt = DateTimeOffset.UtcNow };
 
     [Fact]
     public async Task Todoist_snapshots_never_promote_checklists()

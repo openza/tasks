@@ -497,13 +497,14 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
 
     public async Task UpsertProviderSourceItemAsync(ProviderSourceItem item, CancellationToken cancellationToken = default)
     {
-        await UpsertProviderSourceWithStepsAsync(item, true, cancellationToken).ConfigureAwait(false);
+        await UpsertProviderSourceWithStepsAsync(item, cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task<bool> UpsertProviderSourceWithStepsAsync(ProviderSourceItem item, bool stageSteps, CancellationToken cancellationToken)
+    private async Task<bool> UpsertProviderSourceWithStepsAsync(ProviderSourceItem item, CancellationToken cancellationToken,
+        MicrosoftStepAuthoring? batchAuthoring = null)
     {
-        using var cloudLease = item.IntegrationId == IntegrationIds.MicrosoftToDo && PersonalCloudConnection is not null
-            ? PersonalCloudConnectionLease.AcquireAuthoring(DatabasePath) : null;
+        using var ownedAuthoring = batchAuthoring is null ? new MicrosoftStepAuthoring(this) : null;
+        var authoring = batchAuthoring ?? ownedAuthoring!;
         await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         var existing = await ReadProviderSourceItemByExternalAsync(connection, item.ProviderConnectionId, item.ExternalId, cancellationToken).ConfigureAwait(false);
@@ -550,10 +551,10 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
         }
 
         var steps = source.AdoptedTaskId is { } taskId
-            ? await ApplyMicrosoftStepsAsync(connection, source, taskId, cancellationToken).ConfigureAwait(false) : default;
+            ? await ApplyMicrosoftStepsAsync(connection, source, taskId, cancellationToken, authoring).ConfigureAwait(false) : default;
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         var changed = steps.Children?.Count > 0;
-        if (changed && stageSteps) await StageMicrosoftStepTasksAsync(cancellationToken).ConfigureAwait(false);
+        if (changed && batchAuthoring is null) await StageMicrosoftStepTasksAsync(authoring.Cloud, cancellationToken).ConfigureAwait(false);
         return changed;
     }
 
@@ -620,7 +621,7 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
 
     public async Task<TaskItem?> AdoptProviderSourceItemAsync(string sourceItemId, string spaceId = SpaceIds.Default, CancellationToken cancellationToken = default)
     {
-        using var cloudLease = PersonalCloudConnection is null ? null : PersonalCloudConnectionLease.AcquireAuthoring(DatabasePath);
+        using var authoring = new MicrosoftStepAuthoring(this);
         await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         var source = await ReadProviderSourceItemByIdAsync(connection, sourceItemId, cancellationToken).ConfigureAwait(false);
@@ -657,10 +658,10 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
             UpdatedAt = now,
         };
         await UpsertProviderSourceItemCoreAsync(connection, adopted, cancellationToken).ConfigureAwait(false);
-        var steps = await ApplyMicrosoftStepsAsync(connection, source, task.Id, cancellationToken).ConfigureAwait(false);
+        var steps = await ApplyMicrosoftStepsAsync(connection, source, task.Id, cancellationToken, authoring).ConfigureAwait(false);
         if (steps.Metadata is not null) task = task with { SourceMetadataJson = steps.Metadata, Revision = task.Revision + 1 };
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-        if (steps.Children.Count > 0) await StageMicrosoftStepTasksAsync(cancellationToken).ConfigureAwait(false);
+        if (steps.Children.Count > 0) await StageMicrosoftStepTasksAsync(authoring.Cloud, cancellationToken).ConfigureAwait(false);
         return task;
     }
 

@@ -12,7 +12,8 @@ public sealed partial class SqliteTaskStore
     public Func<PersonalCloudConnectionProfile?>? PersonalCloudConnection { get; set; }
 
     private async Task<(string? Metadata, IReadOnlyList<TaskItem> Children)> ApplyMicrosoftStepsAsync(
-        SqliteConnection connection, ProviderSourceItem source, string taskId, CancellationToken cancellationToken)
+        SqliteConnection connection, ProviderSourceItem source, string taskId, CancellationToken cancellationToken,
+        MicrosoftStepAuthoring? authoring = null)
     {
         if (source.IntegrationId != IntegrationIds.MicrosoftToDo) return (null, []);
         var read = connection.CreateCommand();
@@ -40,6 +41,7 @@ public sealed partial class SqliteTaskStore
         {
             var title = item.TryGetProperty("displayName", out var name) && name.ValueKind == JsonValueKind.String ? name.GetString() : null;
             if (string.IsNullOrWhiteSpace(title)) continue;
+            authoring?.Acquire();
             var completed = item.TryGetProperty("isChecked", out var check) && check.ValueKind == JsonValueKind.True;
             var completedAt = item.TryGetProperty("checkedDateTime", out var stamp) && stamp.ValueKind == JsonValueKind.String &&
                 DateTimeOffset.TryParse(stamp.GetString(), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var parsed)
@@ -62,10 +64,33 @@ public sealed partial class SqliteTaskStore
         return (json, children);
     }
 
-    private async Task StageMicrosoftStepTasksAsync(CancellationToken cancellationToken)
+    private async Task StageMicrosoftStepTasksAsync(PersonalCloudConnectionProfile? cloud, CancellationToken cancellationToken)
     {
-        if (PersonalCloudConnection?.Invoke() is { } cloud)
+        if (cloud is not null)
             await StageUnpublishedTasksForPersonalCloudAsync(cloud.InstanceId, cloud.DeviceId, cancellationToken).ConfigureAwait(false);
+    }
+
+    private sealed class MicrosoftStepAuthoring(SqliteTaskStore store) : IDisposable
+    {
+        private PersonalCloudConnectionLease? lease;
+        private bool resolved;
+        public PersonalCloudConnectionProfile? Cloud { get; private set; }
+
+        public void Acquire()
+        {
+            if (resolved) return;
+            resolved = true;
+            if (store.PersonalCloudConnection?.Invoke() is null) return;
+            lease = PersonalCloudConnectionLease.AcquireAuthoring(store.DatabasePath);
+            Cloud = store.PersonalCloudConnection?.Invoke();
+            if (Cloud is null)
+            {
+                lease.Dispose();
+                lease = null;
+            }
+        }
+
+        public void Dispose() => lease?.Dispose();
     }
 
     internal MicrosoftStepSyncBatch BeginMicrosoftStepSyncBatch(CancellationToken cancellationToken) => new(this, cancellationToken);
@@ -74,27 +99,27 @@ public sealed partial class SqliteTaskStore
     {
         private readonly SqliteTaskStore store;
         private readonly CancellationToken cancellationToken;
-        private readonly IDisposable? lease;
+        private readonly MicrosoftStepAuthoring authoring;
         private bool changed;
 
         internal MicrosoftStepSyncBatch(SqliteTaskStore store, CancellationToken cancellationToken)
         {
             this.store = store;
             this.cancellationToken = cancellationToken;
-            lease = store.PersonalCloudConnection is null ? null : PersonalCloudConnectionLease.AcquireAuthoring(store.DatabasePath);
+            authoring = new(store);
         }
 
         internal async Task UpsertAsync(ProviderSourceItem source) =>
-            changed |= await store.UpsertProviderSourceWithStepsAsync(source, false, cancellationToken).ConfigureAwait(false);
+            changed |= await store.UpsertProviderSourceWithStepsAsync(source, cancellationToken, authoring).ConfigureAwait(false);
 
         internal async Task StageAsync()
         {
-            if (changed) await store.StageMicrosoftStepTasksAsync(cancellationToken).ConfigureAwait(false);
+            if (changed) await store.StageMicrosoftStepTasksAsync(authoring.Cloud, cancellationToken).ConfigureAwait(false);
         }
 
         public ValueTask DisposeAsync()
         {
-            lease?.Dispose();
+            authoring.Dispose();
             return ValueTask.CompletedTask;
         }
     }
