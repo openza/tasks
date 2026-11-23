@@ -290,6 +290,7 @@ public sealed partial class PersonalCloudSetupService(
 
     public async Task RemoveAsync(CancellationToken cancellationToken = default)
     {
+        using var connectionLease = taskStore is null ? null : PersonalCloudConnectionLease.AcquireReplacement(taskStore.DatabasePath);
         var current = RequireConnection();
         if (management is null || deviceIdentity is null || connectionStore is null)
             throw new PersonalCloudK0ContractException("management_unavailable", "Personal Cloud management is not available in this build.");
