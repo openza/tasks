@@ -56,6 +56,27 @@ public sealed partial class PersonalCloudBatchSyncTests
         Assert.Empty(await store.GetPersonalCloudTaskConflictsAsync(Instance));
     }
 
+    [Fact]
+    public async Task Resolving_a_rejected_create_keeps_a_recovery_copy_without_staging_it_again()
+    {
+        var (store, handler) = await ConflictStoreAsync();
+        var task = new TaskItem { Id = "task_rejected_create", Title = "Local recovery copy", SpaceId = "space_test" };
+        await store.CreateRichTaskWithPersonalCloudIntentAsync(task, Instance, Device);
+        handler.ConflictEntity = task.Id;
+        handler.ConflictCode = "source_identity_conflict";
+        await (await CreateClientAsync(store, handler)).SyncAsync();
+        Assert.Equal(task.Id, Assert.Single(await store.GetPersonalCloudTaskConflictsAsync(Instance)).TaskId);
+        await store.StageUnpublishedTasksForPersonalCloudAsync(Instance, Device);
+        Assert.DoesNotContain(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device), entry => entry.EntityId == task.Id);
+        await store.ResolvePersonalCloudTaskConflictAsync(Instance, task.Id, keepDesktop: false);
+
+        var reopened = new SqliteTaskStore(store.DatabasePath);
+        await reopened.StageUnpublishedTasksForPersonalCloudAsync(Instance, Device);
+        Assert.Empty(await reopened.GetPersonalCloudTaskConflictsAsync(Instance));
+        Assert.DoesNotContain(await reopened.GetPendingPersonalCloudOutboxAsync(Instance, Device), entry => entry.EntityId == task.Id);
+        Assert.Equal(task.Title, (await reopened.GetTaskAsync(task.Id))!.Title);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -117,8 +138,10 @@ public sealed partial class PersonalCloudBatchSyncTests
         Assert.Equal(step.ParentId, (await store.GetTaskAsync(step.Id))!.ParentId);
     }
 
-    [Fact]
-    public async Task A_step_is_staged_as_top_level_when_the_old_clouds_parent_is_hidden()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_step_is_staged_as_top_level_when_the_old_clouds_parent_is_hidden(bool workspace)
     {
         const string replacement = "instance_replacement";
         var (store, _) = await ConflictStoreAsync();
@@ -127,12 +150,14 @@ public sealed partial class PersonalCloudBatchSyncTests
         var deletion = await store.DeleteTaskWithPersonalCloudIntentAsync("task_test", DateTimeOffset.UtcNow, 1, Instance, Device);
         await store.ApplyPersonalCloudChangePageAsync(replacement, Device, PersonalCloudWorkspaceTests.Page(1,
             [PersonalCloudWorkspaceTests.Space()], [PersonalCloudWorkspaceTests.Project()]));
+        await store.SavePersonalCloudWorkspaceCapabilitiesAsync(replacement, workspace, providerCatalog: false);
 
         await store.StageUnpublishedTasksForPersonalCloudAsync(replacement, Device);
 
         Assert.Null((await store.GetTaskAsync(step.Id))!.ParentId);
         var pending = await store.GetPendingPersonalCloudOutboxAsync(replacement, Device);
-        Assert.Equal("task.createRich", Assert.Single(pending, entry => entry.EntityId == step.Id).Operation);
+        Assert.Contains(pending, entry => entry.EntityId == step.Id && entry.Operation == (workspace ? "task.createRich" : "task.create"));
+        Assert.DoesNotContain(pending, entry => entry.EntityId == step.Id && entry.Operation == "task.setParent");
         Assert.DoesNotContain(pending, entry => entry.EntityId == step.ParentId);
         Assert.Equal(deletion, Assert.Single(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device)));
     }

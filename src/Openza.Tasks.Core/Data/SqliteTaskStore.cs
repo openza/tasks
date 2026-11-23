@@ -1220,6 +1220,8 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
             UNION
             SELECT entity_id FROM personal_cloud_replica_entities
             WHERE instance_id=@instance_id AND product=@product
+            UNION
+            SELECT task_id FROM personal_cloud_task_recovery WHERE instance_id=@instance_id
             """;
         publishedCommand.Parameters.AddWithValue("@instance_id", instanceId);
         publishedCommand.Parameters.AddWithValue("@product", PersonalCloudK0Protocol.TasksProduct);
@@ -4713,6 +4715,13 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
             await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
         await AddColumnIfMissingAsync(connection, "personal_cloud_task_conflicts", "rejection_code", "TEXT", cancellationToken).ConfigureAwait(false);
+        using (var source = typeof(SqliteTaskStore).Assembly.GetManifestResourceStream("Openza.Tasks.Core.Data.Migrations.0013_personal_cloud_task_recovery.sql")
+            ?? throw new InvalidOperationException("The task recovery migration script is missing."))
+        using (var reader = new StreamReader(source))
+        {
+            command.CommandText = await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
+            await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
         await ExecutePragmaAsync(connection, $"PRAGMA user_version = {CurrentSchemaVersion}", cancellationToken).ConfigureAwait(false);
     }
 

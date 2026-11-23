@@ -307,20 +307,26 @@ public sealed partial class SqliteTaskStore
         await DetachPersonalCloudOrphansAsync(connection, instanceId, includeMissing: true, cancellationToken).ConfigureAwait(false);
         var tasks = (await ReadTasksAsync(connection, cancellationToken).ConfigureAwait(false)).Where(t => t.IntegrationId == IntegrationIds.Local).ToList();
         var published = connection.CreateCommand(); published.CommandText = """
-            SELECT entity_id FROM personal_cloud_outbox WHERE instance_id=@i AND operation IN('task.create','task.createRich')
-            UNION SELECT entity_id FROM personal_cloud_replica_entities WHERE instance_id=@i AND product='tasks'
-            UNION SELECT entity_id FROM personal_cloud_task_conflicts
+            SELECT entity_id,0 FROM personal_cloud_outbox WHERE instance_id=@i AND operation IN('task.create','task.createRich')
+            UNION SELECT entity_id,0 FROM personal_cloud_replica_entities WHERE instance_id=@i AND product='tasks'
+            UNION SELECT entity_id,1 FROM personal_cloud_task_conflicts
               WHERE instance_id=@i AND json_extract(canonical_json,'$.operation') IN('task.create','task.createRich')
+            UNION SELECT task_id,1 FROM personal_cloud_task_recovery WHERE instance_id=@i
             """; published.Parameters.AddWithValue("@i", instanceId);
         var known = new HashSet<string>(StringComparer.Ordinal);
+        var localOnly = new HashSet<string>(StringComparer.Ordinal);
         await using (var reader = await published.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
-            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) known.Add(reader.GetString(0));
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                known.Add(reader.GetString(0));
+                if (reader.GetBoolean(1)) localOnly.Add(reader.GetString(0));
+            }
         foreach (var task in tasks.Where(t => !known.Contains(t.Id)))
         {
             await AppendRichTaskAsync(connection, task with { ParentId = null }, instanceId, deviceId, PersonalCloudK0Mapper.CreateSafeSourceDescriptor(task), cancellationToken).ConfigureAwait(false);
             count += task.IsCompleted ? 2 : 1;
         }
-        foreach (var task in tasks.Where(t => !known.Contains(t.Id) && t.ParentId is not null))
+        foreach (var task in tasks.Where(t => !known.Contains(t.Id) && t.ParentId is not null && !localOnly.Contains(t.ParentId)))
         {
             await AppendWorkspaceMutationAsync(connection, instanceId, deviceId, "task.setParent", task.Id, task.IsCompleted ? 2 : 1, new { parentId = task.ParentId }, cancellationToken).ConfigureAwait(false); count++;
         }

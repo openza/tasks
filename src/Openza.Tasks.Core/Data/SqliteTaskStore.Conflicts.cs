@@ -104,6 +104,7 @@ public sealed partial class SqliteTaskStore
 
     private sealed record ConflictState(string Id, string DeviceId, JsonObject? Base, JsonObject? Cloud, JsonObject Fields, bool Supported, IReadOnlyList<string> Operations)
     {
+        public bool RetainsRecoveryCopy => Cloud is null && Base is null && Operations.Any(operation => operation is "task.create" or "task.createRich");
         public string? RejectionCode { get; init; }
         public IReadOnlyList<string> TaskIds { get; init; } = [Id];
         public IReadOnlyList<ConflictState> Dependents { get; init; } = [];
@@ -226,7 +227,9 @@ public sealed partial class SqliteTaskStore
             {
                 RevisionToken = c.RevisionToken,
                 CanKeepDesktop = reason is null,
-                ResolutionNotice = (c.Cloud is null
+                ResolutionNotice = (c.RetainsRecoveryCopy
+                    ? "Use cloud version keeps this task as a local recovery copy without uploading it to this cloud."
+                    : c.Cloud is null
                     ? "No cached cloud record is available. Use cloud version discards the parked changes and restores the last known base when available; otherwise the local task is kept as a recovery copy until the next cloud download."
                     : reason is not null ? reason + " Only Use cloud version is available; it discards all parked desktop changes for this task."
                     : fields.Count == 0 ? "These field values already match the cloud. Choose a version to clear the parked changes." : string.Empty)
@@ -350,6 +353,11 @@ public sealed partial class SqliteTaskStore
                 .Where(c => c.Fields.ContainsKey("plannedOn") || c.Fields.ContainsKey("plannedAt")).Select(c => c.Id);
             await WorkspaceExecuteAsync(connection, "DELETE FROM pending_task_date_updates WHERE task_id IN(SELECT value FROM json_each(@ids))", cancellationToken,
                 ("@ids", JsonSerializer.Serialize(dateTasks))).ConfigureAwait(false);
+            foreach (var recovery in conflict.Dependents.Prepend(conflict).Where(c => c.RetainsRecoveryCopy))
+                await WorkspaceExecuteAsync(connection, """
+                    INSERT OR IGNORE INTO personal_cloud_task_recovery(instance_id,task_id)
+                    SELECT @i,id FROM tasks WHERE id=@e
+                    """, cancellationToken, ("@i", instanceId), ("@e", recovery.Id)).ConfigureAwait(false);
         }
         var records = new List<JsonObject>();
         foreach (var id in conflict.TaskIds.Where(id => id != conflict.Id))
