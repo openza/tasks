@@ -578,7 +578,8 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
                     source_external_id = NULL,
                     source_provider_task_id = NULL,
                     source_url = NULL,
-                    source_metadata = NULL,
+                    source_metadata = CASE WHEN json_extract(source_metadata,'$.msToDoStepsApplied')=1
+                        THEN '{"msToDoStepsApplied":true}' ELSE NULL END,
                     updated_at = @updated_at,
                     revision = revision + 1
                 WHERE id = @task_id
