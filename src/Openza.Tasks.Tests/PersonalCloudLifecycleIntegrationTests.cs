@@ -78,7 +78,7 @@ public sealed partial class PersonalCloudLifecycleIntegrationTests
     {
         using var f = await Fixture.CreateAsync();
         await f.Service.UpgradeAsync();
-        Assert.Equal(new[] { "oauth-token", "accounts", "databases", "subdomain", "bindings", "history", "checksum", "deploy", "history", "checksum", "migrate", "health", "oauth-revoke" }, f.Events);
+        Assert.Equal(new[] { "oauth-token", "accounts", "databases", "subdomain", "bindings", "history", "checksum", "deploy", "history", "checksum", "migrate", "health", "oauth-revoke", "health" }, f.Events);
         Assert.Equal("openza-personal-test", f.Deployment.ResourceName);
         Assert.Equal("database_test", f.Deployment.DatabaseId);
         Assert.Equal("2.0.0", f.Connections.Load()!.ArtifactVersion);
@@ -325,6 +325,7 @@ public sealed partial class PersonalCloudLifecycleIntegrationTests
         public string Resources { get; set; } = "normal";
         public string HealthVersion { get; set; } = "2.0.0";
         public int HealthSchema { get; set; } = 17;
+        public bool HealthWorkspace { get; set; }
         public bool FailHealthOnce { get; set; }
         public bool MismatchedMigration { get; set; }
         public string Subdomain { get; set; } = "example";
@@ -354,7 +355,7 @@ public sealed partial class PersonalCloudLifecycleIntegrationTests
                 if (BeforeDeviceRevoke is not null) await BeforeDeviceRevoke();
                 return Reply("device-revoke", """{"protocolVersion":1,"outcome":"revoked","deviceId":"device_test"}""", FailDeviceRevoke ? HttpStatusCode.BadRequest : HttpStatusCode.OK);
             }
-            if (path == "/health") { var fail = FailHealthOnce || HealthUnreadyUntilMigrated && !_migrationApplied; FailHealthOnce = false; return Reply("health", $"{{\"status\":\"ok\",\"protocolVersion\":1,\"product\":\"tasks\",\"artifactVersion\":\"{HealthVersion}\",\"schemaVersion\":{HealthSchema}}}", fail ? HttpStatusCode.ServiceUnavailable : HttpStatusCode.OK); }
+            if (path == "/health") { var fail = FailHealthOnce || HealthUnreadyUntilMigrated && !_migrationApplied; FailHealthOnce = false; return Reply("health", System.Text.Json.JsonSerializer.Serialize(new { status = "ok", protocolVersion = 1, product = "tasks", artifactVersion = HealthVersion, schemaVersion = HealthSchema, capabilities = HealthWorkspace ? new { workspace = new { protocolVersion = 1, path = "/v1/tasks/mutations", schemaVersion = HealthSchema } } : null }), fail ? HttpStatusCode.ServiceUnavailable : HttpStatusCode.OK); }
             if (path == "/client/v4/accounts") return Reply("accounts", Resources == "account-ambiguous" ? """{"success":true,"result":[{"id":"account_test","name":"Test"},{"id":"account_other","name":"Other"}]}""" : """{"success":true,"result":[{"id":"account_test","name":"Test"}]}""");
             Assert.StartsWith("/client/v4/accounts/account_test/", path, StringComparison.Ordinal);
             if (path.EndsWith("/workers/subdomain", StringComparison.Ordinal)) return Reply("subdomain", System.Text.Json.JsonSerializer.Serialize(new { success = true, result = new { subdomain = Subdomain } }));

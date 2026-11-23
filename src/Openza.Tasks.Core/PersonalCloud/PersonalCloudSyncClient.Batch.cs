@@ -126,7 +126,9 @@ public sealed partial class PersonalCloudSyncClient
             await store.SavePersonalCloudWorkspaceCapabilitiesAsync(connection.InstanceId, health.SupportsWorkspace, health.SupportsProviderCatalog, cancellationToken, health.ProviderCatalogProtocolVersion).ConfigureAwait(false);
         }
         catch (PersonalCloudK0ContractException exception) when (exception.Code == "health_unsupported" && !_supportsWorkspace && catalogProtocol == 0)
-        { /* Only an unnegotiated legacy connection may use exact single-envelope delivery. */ }
+        {
+            await store.SavePersonalCloudWorkspaceCapabilitiesAsync(connection.InstanceId, false, false, cancellationToken).ConfigureAwait(false);
+        }
         _batchCapabilityKnown = true;
     }
 

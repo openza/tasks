@@ -1196,9 +1196,20 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
     public async Task<int> StageUnpublishedTasksForPersonalCloudAsync(
         string instanceId,
         string deviceId,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool requireNegotiatedCapabilities = false)
     {
-        if (await SupportsPersonalCloudWorkspaceAsync(instanceId, cancellationToken).ConfigureAwait(false))
+        bool workspace;
+        await using (var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false))
+        {
+            var command = connection.CreateCommand();
+            command.CommandText = "SELECT workspace FROM personal_cloud_workspace_capabilities WHERE instance_id=@i";
+            command.Parameters.AddWithValue("@i", instanceId);
+            var capability = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+            if (capability is null or DBNull && requireNegotiatedCapabilities) return 0;
+            workspace = capability is not (null or DBNull) && Convert.ToInt64(capability) == 1;
+        }
+        if (workspace)
             return await StagePersonalCloudWorkspaceSeedAsync(instanceId, deviceId, cancellationToken).ConfigureAwait(false);
         return await StageLegacyTasksAsync(null, instanceId, deviceId, cancellationToken).ConfigureAwait(false);
     }
@@ -1215,6 +1226,11 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
     {
         await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        if (createdTask is null && await WorkspaceEnabledAsync(connection, instanceId, cancellationToken).ConfigureAwait(false))
+        {
+            await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
+            return await StagePersonalCloudWorkspaceSeedAsync(instanceId, deviceId, cancellationToken).ConfigureAwait(false);
+        }
         if (createdTask is not null)
         {
             var check = connection.CreateCommand();

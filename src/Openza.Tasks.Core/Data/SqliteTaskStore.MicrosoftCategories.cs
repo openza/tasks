@@ -79,7 +79,7 @@ public sealed partial class SqliteTaskStore
     private async Task StageMicrosoftCategoryTasksAsync(PersonalCloudConnectionProfile? cloud, CancellationToken cancellationToken)
     {
         if (cloud is not null)
-            await StageUnpublishedTasksForPersonalCloudAsync(cloud.InstanceId, cloud.DeviceId, cancellationToken).ConfigureAwait(false);
+            await StageUnpublishedTasksForPersonalCloudAsync(cloud.InstanceId, cloud.DeviceId, cancellationToken, requireNegotiatedCapabilities: true).ConfigureAwait(false);
     }
 
     private sealed class MicrosoftCategoryAuthoring(SqliteTaskStore store) : IDisposable
