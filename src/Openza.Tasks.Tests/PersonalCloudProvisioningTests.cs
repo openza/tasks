@@ -89,6 +89,50 @@ public sealed class PersonalCloudProvisioningTests
     }
 
     [Fact]
+    public async Task Target_with_pending_edits_does_not_replace_the_current_credential_on_the_same_origin()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "openza-rejected-pair", Guid.NewGuid().ToString("N"));
+        try
+        {
+            var origin = new Uri("https://synthetic.example.test/");
+            const string grant = "pairing-grant-synthetic-123456";
+            const string oldResponse = """{"protocolVersion":1,"instanceId":"instance_current","deviceId":"device_current","refreshCredential":"synthetic-current-refresh-123456","capabilities":["desktop_sync"],"refreshExpiresAt":"2099-01-01T00:00:00Z"}""";
+            const string newResponse = """{"protocolVersion":1,"instanceId":"instance_target","deviceId":"device_target","refreshCredential":"synthetic-target-refresh-123456","capabilities":["desktop_sync"],"refreshExpiresAt":"2099-01-01T00:00:00Z"}""";
+            using var http = new HttpClient(new RecordingHandler(
+                Json(HttpStatusCode.Created, oldResponse),
+                Json(HttpStatusCode.OK, """{"status":"ok","protocolVersion":1,"product":"tasks","artifactVersion":"1.2.3","schemaVersion":17}"""),
+                Json(HttpStatusCode.Created, newResponse)));
+            var store = new SqliteTaskStore(Path.Combine(directory, "tasks.db"));
+            await store.InitializeAsync();
+            var pending = await store.CreateTaskWithPersonalCloudIntentAsync(new TaskItem { Id = "task_pending", Title = "Unsent edit" },
+                "instance_target", "device_previous");
+            var credentials = new RecordingCredentialStore();
+            var identity = new PersonalCloudDeviceIdentityClient(http, credentials);
+            var previous = await identity.PairAsync(origin, grant, "Desktop", false);
+            var previousCredential = Assert.Single(credentials.Values);
+            var connections = new JsonPersonalCloudConnectionStore(Path.Combine(directory, "connection.json"));
+            var profile = new PersonalCloudConnectionProfile
+            {
+                ServiceOrigin = origin, InstanceId = previous.InstanceId, DeviceId = previous.DeviceId,
+                ArtifactVersion = "1.2.3", ConnectedAt = DateTimeOffset.UtcNow,
+            };
+            await connections.SaveAsync(profile);
+            var coordinator = new PersonalCloudProvisioningCoordinator(new CloudflareOAuthClient(http, Configuration),
+                new CallbackBroker(CallbackFor), new RecordingGateway(), new MemoryStateStore(), identity);
+            var service = new PersonalCloudSetupService(coordinator, "1.2.3", connectionStore: connections, deviceIdentity: identity, syncHttp: http, taskStore: store);
+
+            var error = await Assert.ThrowsAsync<PersonalCloudK0ContractException>(() => service.PairExistingAsync(origin, grant, "Desktop", false));
+
+            Assert.Equal("pending_intents", error.Code);
+            Assert.Equal(profile, service.CurrentConnection);
+            Assert.Equal(previous, await identity.GetStoredDeviceAsync(origin));
+            Assert.Equal(previousCredential, Assert.Single(credentials.Values));
+            Assert.Equal(pending, Assert.Single(await store.GetPendingPersonalCloudOutboxAsync("instance_target", "device_previous")));
+        }
+        finally { TestDirectory.Delete(directory); }
+    }
+
+    [Fact]
     public void Pkce_authorization_uses_S256_state_and_no_client_secret()
     {
         var client = new CloudflareOAuthClient(new HttpClient(), Configuration);

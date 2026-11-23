@@ -217,8 +217,8 @@ public sealed partial class PersonalCloudSetupService(
 
         var health = await new PersonalCloudHealthClient(syncHttp)
             .InspectAsync(serviceOrigin, cancellationToken).ConfigureAwait(false);
-        var paired = await deviceIdentity.PairAsync(serviceOrigin, grant, deviceName, providerBridge, cancellationToken)
-            .ConfigureAwait(false);
+        var paired = await deviceIdentity.PairAsync(serviceOrigin, grant, deviceName, providerBridge,
+            taskStore.EnsureNoPendingPersonalCloudIntentsAsync, cancellationToken).ConfigureAwait(false);
         var connection = new PersonalCloudConnectionProfile
         {
             ServiceOrigin = paired.ServiceOrigin,
@@ -229,9 +229,6 @@ public sealed partial class PersonalCloudSetupService(
         };
         try
         {
-            // A removed cloud's journal stays on disk. Only edits for the
-            // target cloud could be stranded by replacing its device identity.
-            await taskStore.EnsureNoPendingPersonalCloudIntentsAsync(connection.InstanceId, cancellationToken).ConfigureAwait(false);
             await taskStore.BeginPersonalCloudInitialSyncAsync(connection.InstanceId, connection.DeviceId, CancellationToken.None).ConfigureAwait(false);
             await connectionStore.SaveAsync(connection, cancellationToken).ConfigureAwait(false);
         }
