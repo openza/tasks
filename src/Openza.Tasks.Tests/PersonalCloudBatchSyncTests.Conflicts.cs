@@ -63,7 +63,7 @@ public sealed partial class PersonalCloudBatchSyncTests
         var (store, handler) = await ConflictStoreAsync();
         var task = new TaskItem
         {
-            Id = "task_rejected_create", Title = "Local recovery copy", SpaceId = "space_test",
+            Id = "task_rejected_create", Title = "Local recovery copy", SpaceId = "space_test", ParentId = "task_test",
             SourceIntegrationId = IntegrationIds.Todoist, SourceExternalId = "duplicate", SourceProviderTaskId = "duplicate",
         };
         await store.CreateRichTaskWithPersonalCloudIntentAsync(task, Instance, Device);
@@ -96,7 +96,16 @@ public sealed partial class PersonalCloudBatchSyncTests
         Assert.False((await actions.SetCompletedAsync(task.Id, false)).IsCompleted);
         Assert.Empty(await reopened.GetPendingCompletionsAsync(IntegrationIds.Todoist));
         Assert.Empty(await reopened.GetPendingTaskDateUpdatesAsync(IntegrationIds.Todoist));
-        Assert.Equal("space_destination", (await actions.MoveTaskToSpaceAsync(task.Id, "space_destination")).SpaceId);
+        Assert.Equal("task_test", updated.ParentId);
+        var moved = await actions.UpdateTaskAsync(new UpdateTaskRequest
+        {
+            TaskId = task.Id, Space = OptionalValue<string?>.Set("space_destination"),
+        });
+        Assert.Equal("space_destination", moved.SpaceId);
+        Assert.Null(moved.ParentId);
+        Assert.Contains(await reopened.GetTasksAsync(new TaskQuery { SpaceId = "space_destination", Kind = TaskListKind.All }),
+            item => item.Id == task.Id);
+        Assert.Equal("space_test", (await actions.MoveTaskToSpaceAsync(task.Id, "space_test")).SpaceId);
         await reopened.StageUnpublishedTasksForPersonalCloudAsync(Instance, Device);
         Assert.DoesNotContain(await reopened.GetPendingPersonalCloudOutboxAsync(Instance, Device), entry => entry.EntityId == task.Id);
         await actions.DeleteTaskAsync(task.Id);

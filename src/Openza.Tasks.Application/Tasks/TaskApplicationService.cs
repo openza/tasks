@@ -319,6 +319,7 @@ public sealed class TaskApplicationService(
             Notes = notes,
             SpaceId = targetSpaceId,
             ProjectId = targetProjectId,
+            ParentId = targetSpaceId == original.SpaceId ? original.ParentId : null,
             WorkflowStatus = request.Status.IsSpecified ? request.Status.Value : original.WorkflowStatus,
             CompletionState = targetCompletionState,
             CompletedAt = completed ? original.CompletedAt ?? now : null,
