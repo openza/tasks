@@ -112,6 +112,7 @@ public sealed class PersonalCloudK0ContractException(string code, string message
 {
     public string Code { get; } = code;
     public PersonalCloudDispatchStatus? DispatchStatus { get; init; }
+    internal bool IsDefinitiveMutationRejection { get; init; }
 }
 
 public static class PersonalCloudK0Mapper

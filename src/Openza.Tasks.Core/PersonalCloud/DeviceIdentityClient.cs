@@ -27,11 +27,20 @@ public sealed class PersonalCloudDeviceIdentityClient(HttpClient http, ICredenti
         UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
     };
 
-    public async Task<PersonalCloudStoredDevice> PairAsync(
+    public Task<PersonalCloudStoredDevice> PairAsync(
         Uri serviceOrigin,
         string grant,
         string deviceName,
         bool providerBridge,
+        CancellationToken cancellationToken = default) =>
+        PairAsync(serviceOrigin, grant, deviceName, providerBridge, validateTarget: null, cancellationToken);
+
+    internal async Task<PersonalCloudStoredDevice> PairAsync(
+        Uri serviceOrigin,
+        string grant,
+        string deviceName,
+        bool providerBridge,
+        Func<string, CancellationToken, Task>? validateTarget,
         CancellationToken cancellationToken = default)
     {
         var origin = NormalizeOrigin(serviceOrigin);
@@ -55,6 +64,8 @@ public sealed class PersonalCloudDeviceIdentityClient(HttpClient http, ICredenti
             body.Capabilities.Any(value => value is not ("desktop_sync" or "provider_bridge")))
             throw Invalid("The pairing response contains invalid device authority.");
 
+        if (validateTarget is not null)
+            await validateTarget(body.InstanceId, cancellationToken).ConfigureAwait(false);
         var stored = new StoredCredential(origin.AbsoluteUri, body.InstanceId, body.DeviceId, body.RefreshCredential);
         await credentials.SaveAsync(CredentialKey(origin), JsonSerializer.Serialize(stored, Json), cancellationToken)
             .ConfigureAwait(false);
