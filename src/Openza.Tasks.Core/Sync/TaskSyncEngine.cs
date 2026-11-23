@@ -118,6 +118,7 @@ public sealed class TaskSyncEngine(ITaskStore store)
             }
 
             await store.UpdateIntegrationSyncAsync(provider.IntegrationId, DateTimeOffset.UtcNow, snapshot.SyncToken, cancellationToken).ConfigureAwait(false);
+            if (stepBatch is not null) await stepBatch.StageAsync().ConfigureAwait(false);
             return new SyncSummary(
                 provider.IntegrationId,
                 true,

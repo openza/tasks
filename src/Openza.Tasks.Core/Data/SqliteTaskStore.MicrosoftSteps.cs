@@ -87,13 +87,15 @@ public sealed partial class SqliteTaskStore
         internal async Task UpsertAsync(ProviderSourceItem source) =>
             changed |= await store.UpsertProviderSourceWithStepsAsync(source, false, cancellationToken).ConfigureAwait(false);
 
-        public async ValueTask DisposeAsync()
+        internal async Task StageAsync()
         {
-            try
-            {
-                if (changed) await store.StageMicrosoftStepTasksAsync(cancellationToken).ConfigureAwait(false);
-            }
-            finally { lease?.Dispose(); }
+            if (changed) await store.StageMicrosoftStepTasksAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        public ValueTask DisposeAsync()
+        {
+            lease?.Dispose();
+            return ValueTask.CompletedTask;
         }
     }
 }
