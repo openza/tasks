@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
+using Openza.Tasks.Application.Tasks;
 using Openza.Tasks.Core.Data;
 using Openza.Tasks.Core.Models;
 using Openza.Tasks.Core.PersonalCloud;
@@ -91,6 +92,34 @@ public sealed class MicrosoftStepAdoptionTests : IDisposable
         await store.UpsertProviderSourceItemAsync(bad);
         await Assert.ThrowsAsync<InvalidOperationException>(() => store.AdoptProviderSourceItemAsync(bad.Id));
         Assert.Single(await store.GetTasksAsync(new() { Kind = TaskListKind.All, IncludeSubtasks = true }));
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task Checking_or_reopening_an_unpublished_step_uses_the_last_staged_entity_version(bool workspace, bool initiallyCompleted)
+    {
+        var store = await StoreAsync();
+        await store.SavePersonalCloudWorkspaceCapabilitiesAsync(Instance, workspace, workspace);
+        store.PersonalCloudConnection = Cloud;
+        var parent = await Adopt(store, Source());
+        var child = (await Children(store, parent.Id)).First(item => item.IsCompleted == initiallyCompleted);
+        Assert.Empty(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device));
+        var service = new TaskApplicationService(store, store.PersonalCloudConnection);
+        Assert.Equal(!initiallyCompleted, (await service.SetCompletedAsync(child.Id, !initiallyCompleted, child.Revision)).IsCompleted);
+        var entries = (await store.GetPendingPersonalCloudOutboxAsync(Instance, Device))
+            .Where(entry => entry.EntityId == child.Id).ToArray();
+        Assert.Equal((workspace ? 3 : 4) + (initiallyCompleted ? 1 : 0), entries.Length);
+        Assert.Equal(initiallyCompleted ? "task.reopen" : "task.complete", entries[^1].Operation);
+        foreach (var pair in entries.Skip(1).Select((entry, index) => (entry, index)))
+        {
+            using var json = JsonDocument.Parse(pair.entry.CanonicalJson);
+            Assert.Equal(pair.index + 1L, json.RootElement.GetProperty("baseEntityVersion").GetInt64());
+        }
+        Assert.Equal(entries.Length, await store.GetPersonalCloudEntityVersionAsync(Instance, child.Id));
+        Assert.Empty(await store.GetPersonalCloudTaskConflictsAsync(Instance));
     }
 
     [Theory]
