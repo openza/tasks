@@ -41,6 +41,28 @@ public sealed partial class MicrosoftCategoryAdoptionTests : IDisposable
     }
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Completing_an_unpublished_categorized_task_uses_the_last_staged_entity_version(bool workspace)
+    {
+        var store = await StoreAsync();
+        await CloudAsync(store, workspace);
+        Assert.Equal(workspace, await store.SupportsPersonalCloudWorkspaceAsync(Instance));
+        var task = await AdoptAsync(store, Source("Release", "Planning"));
+        Assert.Empty(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device));
+        var service = new TaskApplicationService(store, store.PersonalCloudConnection);
+        Assert.True((await service.SetCompletedAsync(task.Id, true, task.Revision)).IsCompleted);
+        var entries = (await store.GetPendingPersonalCloudOutboxAsync(Instance, Device))
+            .Where(entry => entry.EntityId == task.Id).ToArray();
+        Assert.Equal(workspace ? 2 : 4, entries.Length);
+        Assert.Equal("task.complete", entries[^1].Operation);
+        foreach (var pair in entries.Skip(1).Select((entry, index) => (entry, index)))
+            Assert.Equal(pair.index + 1L, BaseVersion(pair.entry));
+        Assert.Equal(entries.Length, await store.GetPersonalCloudEntityVersionAsync(Instance, task.Id));
+        Assert.Empty(await store.GetPersonalCloudTaskConflictsAsync(Instance));
+    }
+
+    [Theory]
     [InlineData(true)]
     [InlineData(false)]
     public async Task Adoption_publishes_labels_to_workspace_and_legacy_cloud(bool workspace)
