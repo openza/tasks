@@ -41,6 +41,7 @@ public sealed partial class PersonalCloudLifecycleIntegrationTests
             Assert.NotNull(f.Service.CurrentConnection);
             await f.Tasks.UpsertProviderSourceItemAsync(sources[1]);
         }
+        await f.Tasks.ApplyPendingMicrosoftCategoriesAfterPullAsync(f.Service.CurrentConnection!);
         await f.Tasks.StageUnpublishedTasksForPersonalCloudAsync(original.InstanceId, original.DeviceId);
         var outbox = await f.Tasks.GetPendingPersonalCloudOutboxAsync(original.InstanceId, original.DeviceId);
         Assert.Single(outbox, entry => entry.EntityId == parents[1].Id && entry.Operation == "task.addLabel");

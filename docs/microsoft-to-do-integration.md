@@ -24,9 +24,11 @@ IDs shared with a provider catalog. Names alone never select a provider catalog 
 
 Category imports never stage unpublished tasks or workspace metadata. Normal
 Personal Cloud sync downloads capabilities and cloud versions first, then includes
-new tasks' local labels in workspace creation or legacy per-field creation intents. Backfilling an already published
-task queues a separate add-label intent for each new attachment under the narrow
-authoring lease. This payload atomically upserts the label by ID/name and never
-references a Space or project. A parent with a pending create is left unmarked
-until a later refresh can attach categories after publication. Category colors
+new tasks' local labels in workspace creation or legacy per-field creation intents.
+Provider sync leaves previously published tasks unchanged and unmarked, including
+while disconnected. After Personal Cloud pulls current task versions, it retries
+cached categories and queues a separate add-label intent for each new attachment
+under the authoring lease. Tasks with pending edits or unresolved conflicts wait
+for a later successful pull. This payload atomically upserts the label by ID/name
+and never references a Space or project. Category colors
 are local presentation metadata; the cloud label relationship carries ID/name.

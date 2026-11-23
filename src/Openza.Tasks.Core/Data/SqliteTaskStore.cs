@@ -502,7 +502,6 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
 
     private async Task UpsertProviderSourceItemWithCategoriesAsync(ProviderSourceItem item, CancellationToken cancellationToken)
     {
-        using var authoring = new MicrosoftCategoryAuthoring(this);
         await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         var existing = await ReadProviderSourceItemByExternalAsync(connection, item.ProviderConnectionId, item.ExternalId, cancellationToken).ConfigureAwait(false);
@@ -557,7 +556,7 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
             {
                 var task = (await SqliteTaskReadQueries.ReadTasksAsync(connection, cancellationToken, taskId).ConfigureAwait(false)).FirstOrDefault();
                 if (task is not null)
-                    await ApplyMicrosoftCategoriesAsync(connection, source, task, cancellationToken, authoring: authoring).ConfigureAwait(false);
+                    await ApplyMicrosoftCategoriesAsync(connection, source, task, cancellationToken).ConfigureAwait(false);
             }
         }
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
@@ -626,7 +625,6 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
 
     public async Task<TaskItem?> AdoptProviderSourceItemAsync(string sourceItemId, string spaceId = SpaceIds.Default, CancellationToken cancellationToken = default)
     {
-        using var authoring = new MicrosoftCategoryAuthoring(this);
         await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         var source = await ReadProviderSourceItemByIdAsync(connection, sourceItemId, cancellationToken).ConfigureAwait(false);
@@ -663,7 +661,7 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
             UpdatedAt = now,
         };
         await UpsertProviderSourceItemCoreAsync(connection, adopted, cancellationToken).ConfigureAwait(false);
-        task = await ApplyMicrosoftCategoriesAsync(connection, source, task, cancellationToken, authoring: authoring).ConfigureAwait(false);
+        task = await ApplyMicrosoftCategoriesAsync(connection, source, task, cancellationToken).ConfigureAwait(false);
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return task;
     }

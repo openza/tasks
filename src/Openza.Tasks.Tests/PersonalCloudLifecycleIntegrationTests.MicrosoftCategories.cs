@@ -9,7 +9,7 @@ public sealed partial class PersonalCloudLifecycleIntegrationTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task Disconnect_blocks_Microsoft_category_adoption_and_backfill_after_pending_check(bool backfill)
+    public async Task Disconnect_allows_local_category_adoption_but_defers_published_backfill(bool backfill)
     {
         using var f = await Fixture.CreateAsync();
         var source = new ProviderSourceItem
@@ -46,12 +46,7 @@ public sealed partial class PersonalCloudLifecycleIntegrationTests
                 Assert.NotNull(await f.Tasks.AdoptProviderSourceItemAsync(source.Id));
                 return;
             }
-            var error = await Assert.ThrowsAsync<PersonalCloudK0ContractException>(async () =>
-            {
-                if (backfill) await f.Tasks.UpsertProviderSourceItemAsync(source);
-                else await f.Tasks.AdoptProviderSourceItemAsync(source.Id);
-            });
-            Assert.Equal("connection_busy", error.Code);
+            await f.Tasks.UpsertProviderSourceItemAsync(source);
         };
 
         await f.Service.DisconnectAsync();

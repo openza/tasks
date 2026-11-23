@@ -81,7 +81,7 @@ public sealed partial class MicrosoftCategoryAdoptionTests
         var reads = 0;
         store.PersonalCloudConnection = () => ++reads == 1 ? CategoryCloud() : null;
         var parent = await AdoptAsync(store, Source("Release"));
-        Assert.Equal(1, reads);
+        Assert.Equal(0, reads);
         Assert.Single(parent.Labels);
         Assert.Empty(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device));
         using var replacement = PersonalCloudConnectionLease.AcquireReplacement(store.DatabasePath);

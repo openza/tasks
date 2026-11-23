@@ -100,7 +100,7 @@ public sealed class PersonalCloudCatalogTests : IDisposable
     }
 
     [Fact]
-    public async Task Microsoft_catalog_cached_snapshot_waits_for_categories_on_next_provider_refresh()
+    public async Task Microsoft_catalog_cached_snapshot_waits_for_publication_and_post_pull_backfill()
     {
         var store = await StoreAsync();
         var local = Local() with { IntegrationId = IntegrationIds.MicrosoftToDo, ProviderConnectionId = "mstodo_default",
@@ -118,6 +118,15 @@ public sealed class PersonalCloudCatalogTests : IDisposable
         {
             SnapshotJson = """{"msToDo":{"categories":[{"name":"Release","color":"#32CD32"}]}}""",
         });
+        Assert.Empty((await store.GetTaskAsync(taskId))!.Labels);
+        Assert.DoesNotContain("msToDoCategoriesApplied", (await store.GetTaskAsync(taskId))!.SourceMetadataJson!);
+        foreach (var entry in await store.GetPendingPersonalCloudOutboxAsync(Instance, Device))
+            await store.AcknowledgePersonalCloudMutationAsync(Instance, Device, Receipt(entry, entry.Operation == "task.createRich" ? 1 : 2));
+        Assert.Equal(1, await store.ApplyPendingMicrosoftCategoriesAfterPullAsync(new()
+        {
+            InstanceId = Instance, DeviceId = Device, ServiceOrigin = new("https://catalog.example.test"),
+            ArtifactVersion = "test", ConnectedAt = DateTimeOffset.UtcNow,
+        }));
         var refreshed = (await store.GetTaskAsync(taskId))!;
         Assert.Equal("Release", Assert.Single(refreshed.Labels).Name);
         using var applied = JsonDocument.Parse(refreshed.SourceMetadataJson!);

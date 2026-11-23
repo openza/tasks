@@ -121,6 +121,7 @@ public sealed partial class MicrosoftCategoryAdoptionTests : IDisposable
         var version = (await store.GetPersonalCloudEntityVersionAsync(Instance, task.Id))!.Value;
 
         await store.UpsertProviderSourceItemAsync(source);
+        await store.ApplyPendingMicrosoftCategoriesAfterPullAsync(store.PersonalCloudConnection!()!);
         var backfilled = (await store.GetTaskAsync(task.Id))!;
         Assert.Equal(new[] { "Mine", "Planning", "Release" }, backfilled.Labels.Select(label => label.Name).Order().ToArray());
         Assert.True(Applied(backfilled));
@@ -302,6 +303,7 @@ public sealed partial class MicrosoftCategoryAdoptionTests : IDisposable
         Assert.DoesNotContain("msToDoCategoriesApplied", (await store.GetTaskAsync(task.Id))!.SourceMetadataJson!);
         await AcknowledgeCategoryOutboxAsync(store);
         await store.UpsertProviderSourceItemAsync(Source("Release"));
+        await store.ApplyPendingMicrosoftCategoriesAfterPullAsync(store.PersonalCloudConnection!()!);
         var intent = Assert.Single(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device));
         Assert.Equal("task.addLabel", intent.Operation);
         using var json = JsonDocument.Parse(intent.CanonicalJson);
