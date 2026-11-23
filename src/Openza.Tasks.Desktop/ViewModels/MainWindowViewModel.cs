@@ -136,6 +136,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 else Avalonia.Threading.Dispatcher.UIThread.Post(() => ApplyInitialSyncProgress(progress));
             };
         _taskService = new TaskApplicationService(store, () => _personalCloudSetup?.CurrentConnection);
+        if (store is Openza.Tasks.Core.Data.SqliteTaskStore categoryStore)
+            categoryStore.PersonalCloudConnection = () => _personalCloudSetup?.CurrentConnection;
         _credentials = _continuitySession?.AppCredentials ?? credentials;
         _microsoftAuth = microsoftAuth ?? new DesktopMicrosoftAuthService(_credentials);
         _microsoftSyncProviderFactory = microsoftSyncProviderFactory ?? (token => new MicrosoftToDoProvider(_httpClient, token));
@@ -2382,7 +2384,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
         DetailProject?.ProjectId,
         DetailDate is null ? null : DateOnly.FromDateTime(DetailDate.Value.LocalDateTime),
         DetailDeadline is null ? null : DateOnly.FromDateTime(DetailDeadline.Value.LocalDateTime),
-        ParseLabels(DetailLabels),
+        DetailLabels == string.Join(", ", DetailLabelItems)
+            ? ResolveLabels(DetailLabelItems, SelectedTask?.Task.Labels)
+            : ParseLabels(DetailLabels),
         _sourceDateMismatchAcknowledgementKey,
         _detailEditVersion);
 
@@ -3217,11 +3221,15 @@ public sealed partial class MainWindowViewModel : ObservableObject
     };
 
     private IReadOnlyList<LabelItem> ParseLabels(string labelsText)
+        => ResolveLabels(labelsText.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+
+    private IReadOnlyList<LabelItem> ResolveLabels(IEnumerable<string> labelNames, IReadOnlyList<LabelItem>? existingLabels = null)
     {
-        return labelsText
-            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+        return labelNames
             .Distinct(StringComparer.CurrentCultureIgnoreCase)
-            .Select(name => _labels.FirstOrDefault(label =>
+            .Select(name => existingLabels?.FirstOrDefault(label =>
+                    string.Equals(label.Name, name, StringComparison.CurrentCultureIgnoreCase))
+                ?? _labels.FirstOrDefault(label =>
                     string.Equals(label.Name, name, StringComparison.CurrentCultureIgnoreCase))
                 ?? new LabelItem
                 {

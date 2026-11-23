@@ -466,7 +466,9 @@ public sealed class TaskApplicationService(
 
         await store.EnqueueExistingTaskForPersonalCloudAsync(
             taskId, target.InstanceId, target.DeviceId, cancellationToken).ConfigureAwait(false);
-        return 1;
+        return await store.GetPersonalCloudEntityVersionAsync(
+            target.InstanceId, taskId, cancellationToken).ConfigureAwait(false)
+            ?? throw new InvalidOperationException("The staged task has no Personal Cloud entity version.");
     }
 
     private async Task<IReadOnlyDictionary<string, long>> ResolvePersonalCloudTreeVersionsAsync(

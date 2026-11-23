@@ -64,7 +64,8 @@ public sealed partial class PersonalCloudSetupService
             if (firstPass.BlockedCode is not null)
                 return await FinishAsync(firstPass).ConfigureAwait(false);
 
-            var staged = await taskStore.StageUnpublishedTasksForPersonalCloudAsync(current.InstanceId, current.DeviceId, cancellationToken).ConfigureAwait(false);
+            var staged = await taskStore.ApplyPendingMicrosoftCategoriesAfterPullAsync(current, cancellationToken).ConfigureAwait(false);
+            staged += await taskStore.StageUnpublishedTasksForPersonalCloudAsync(current.InstanceId, current.DeviceId, cancellationToken).ConfigureAwait(false);
             var pushed = firstPass.PushedMutations;
             var pulled = firstPass.PulledChanges;
             var checkpoint = firstPass.Checkpoint;

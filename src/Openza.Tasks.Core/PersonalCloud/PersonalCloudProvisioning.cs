@@ -134,7 +134,12 @@ public sealed partial class PersonalCloudSetupService(
         await CreateProviderBridge().RetryAsync(taskId, cancellationToken).ConfigureAwait(false);
     }
     public bool IsConfigured => artifactSlot is not null || !string.IsNullOrWhiteSpace(artifactVersion);
-    public PersonalCloudConnectionProfile? CurrentConnection { get; private set; } = connectionStore?.Load();
+    private PersonalCloudConnectionProfile? _currentConnection = connectionStore?.Load();
+    public PersonalCloudConnectionProfile? CurrentConnection
+    {
+        get => connectionStore is null ? _currentConnection : connectionStore.Load();
+        private set => _currentConnection = value;
+    }
 
     public Task OpenAsync(CancellationToken cancellationToken = default)
     {
@@ -188,6 +193,7 @@ public sealed partial class PersonalCloudSetupService(
             if (taskStore is not null)
             {
                 await taskStore.EnsureNoPendingPersonalCloudIntentsAsync(connection.InstanceId, cancellationToken).ConfigureAwait(false);
+                await RecordWorkspaceCapabilitiesAsync(connection, cancellationToken).ConfigureAwait(false);
                 await taskStore.BeginPersonalCloudInitialSyncAsync(connection.InstanceId, connection.DeviceId, CancellationToken.None).ConfigureAwait(false);
             }
             await connectionStore.SaveAsync(connection, cancellationToken).ConfigureAwait(false);
@@ -229,6 +235,7 @@ public sealed partial class PersonalCloudSetupService(
         };
         try
         {
+            await taskStore.SavePersonalCloudWorkspaceCapabilitiesAsync(connection.InstanceId, health.SupportsWorkspace, health.SupportsProviderCatalog, cancellationToken, health.ProviderCatalogProtocolVersion).ConfigureAwait(false);
             await taskStore.BeginPersonalCloudInitialSyncAsync(connection.InstanceId, connection.DeviceId, CancellationToken.None).ConfigureAwait(false);
             await connectionStore.SaveAsync(connection, cancellationToken).ConfigureAwait(false);
         }
@@ -273,10 +280,18 @@ public sealed partial class PersonalCloudSetupService(
             await artifactSlot.PrepareForUpgradeAsync(await DeployedAsync(current, cancellationToken).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
         var result = await management.UpgradeAsync(current, cancellationToken).ConfigureAwait(false);
         var updated = current with { ArtifactVersion = result.ArtifactVersion };
+        await RecordWorkspaceCapabilitiesAsync(updated, cancellationToken).ConfigureAwait(false);
         await connectionStore.SaveAsync(updated, cancellationToken).ConfigureAwait(false);
         CurrentConnection = updated;
         if (artifactSlot is not null) await artifactSlot.RecordInstalledAsync(updated).ConfigureAwait(false);
         return result;
+    }
+
+    private async Task RecordWorkspaceCapabilitiesAsync(PersonalCloudConnectionProfile connection, CancellationToken cancellationToken)
+    {
+        if (taskStore is null || syncHttp is null) return;
+        var health = await new PersonalCloudHealthClient(syncHttp).InspectAsync(connection.ServiceOrigin, cancellationToken).ConfigureAwait(false);
+        await taskStore.SavePersonalCloudWorkspaceCapabilitiesAsync(connection.InstanceId, health.SupportsWorkspace, health.SupportsProviderCatalog, cancellationToken, health.ProviderCatalogProtocolVersion).ConfigureAwait(false);
     }
 
     public async Task DisconnectAsync(CancellationToken cancellationToken = default)
