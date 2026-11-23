@@ -25,7 +25,8 @@ public sealed class MicrosoftStepAdoptionTests : IDisposable
         return store;
     }
     private static Task<IReadOnlyList<TaskItem>> Children(SqliteTaskStore store, string id) =>
-        store.GetTasksAsync(new() { ParentId = id, Kind = TaskListKind.All, IncludeSubtasks = true });
+        store.GetTasksAsync(new() { ParentId = id, Kind = TaskListKind.All, IncludeSubtasks = true,
+            SortMode = TaskSortMode.CreatedNewest, SortDirection = TaskSortDirection.Descending });
     private static async Task<TaskItem> Adopt(SqliteTaskStore store, ProviderSourceItem source)
     {
         await store.UpsertProviderSourceItemAsync(source);
@@ -39,7 +40,8 @@ public sealed class MicrosoftStepAdoptionTests : IDisposable
         var task = await Adopt(store, Source());
         var children = await Children(store, task.Id);
         Assert.Equal(new[] { "Zulu first", "Alpha second", "Review complete" }, children.Select(child => child.Title));
-        Assert.True(children[0].CreatedAt > children[1].CreatedAt && children[1].CreatedAt > children[2].CreatedAt);
+        Assert.True(children[0].CreatedAt < children[1].CreatedAt && children[1].CreatedAt < children[2].CreatedAt);
+        Assert.All(children, child => Assert.True(child.CreatedAt < DateTimeOffset.UtcNow));
         Assert.All(children, child =>
         {
             Assert.Equal(IntegrationIds.Local, child.IntegrationId);

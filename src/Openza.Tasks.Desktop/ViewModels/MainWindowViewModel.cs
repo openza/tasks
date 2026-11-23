@@ -2748,6 +2748,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
             SpaceId = SelectedTask.Task.SpaceId,
             ParentId = SelectedTask.Task.Id,
             Kind = TaskListKind.All,
+            SortMode = TaskSortMode.CreatedNewest,
+            SortDirection = TaskSortDirection.Descending,
             IncludeSubtasks = true,
         });
         foreach (var task in items)

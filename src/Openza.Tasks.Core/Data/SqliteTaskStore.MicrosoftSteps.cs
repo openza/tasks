@@ -49,7 +49,7 @@ public sealed partial class SqliteTaskStore
                 Id = $"local_{Guid.NewGuid():N}", ParentId = taskId, SpaceId = spaceId, ProjectId = projectId, Title = title,
                 WorkflowStatus = TaskWorkflowStatus.None,
                 CompletionState = completed ? TaskCompletionState.Completed : TaskCompletionState.Open,
-                CompletedAt = completed ? completedAt : null, CreatedAt = now.AddSeconds(-children.Count),
+                CompletedAt = completed ? completedAt : null, CreatedAt = now.AddSeconds(children.Count - checklist.GetArrayLength()),
             };
             await UpsertTaskCoreAsync(connection, child, cancellationToken).ConfigureAwait(false);
             children.Add(child);

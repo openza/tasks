@@ -5,7 +5,7 @@ All notable changes to Openza Tasks will be documented in this file.
 ## [Unreleased]
 
 ### Added
-- Microsoft To Do checklist items import once as local subtasks, including checked state and completion time, with upgrade backfill and Personal Cloud publication. Later syncs preserve local subtask edits and deletions.
+- Microsoft To Do checklist items import once as local subtasks in Graph order, including mixed checked state and completion time, with upgrade backfill and Personal Cloud publication. Later syncs and source reconnection preserve local subtask edits and deletions.
 
 ## [1.4.0] - 2026-11-22
 
