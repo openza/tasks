@@ -21,11 +21,12 @@ public sealed class MicrosoftToDoProvider(HttpClient httpClient, string accessTo
             .GroupBy(label => label.Name, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
         var tasks = new List<TaskItem>();
+        var expansion = new ChecklistExpansion();
         foreach (var list in lists)
         {
             if (list.ExternalId is not null)
             {
-                tasks.AddRange(await FetchTasksAsync(list.ExternalId, categories, cancellationToken).ConfigureAwait(false));
+                tasks.AddRange(await FetchTasksAsync(list.ExternalId, categories, expansion, cancellationToken).ConfigureAwait(false));
             }
         }
 
@@ -105,28 +106,31 @@ public sealed class MicrosoftToDoProvider(HttpClient httpClient, string accessTo
         }
     }
 
-    private async Task<IReadOnlyList<TaskItem>> FetchTasksAsync(string listId, IReadOnlyDictionary<string, LabelItem> categories, CancellationToken cancellationToken)
+    private sealed class ChecklistExpansion
+    {
+        public bool Enabled { get; set; } = true;
+    }
+
+    private async Task<IReadOnlyList<TaskItem>> FetchTasksAsync(string listId, IReadOnlyDictionary<string, LabelItem> categories,
+        ChecklistExpansion expansion, CancellationToken cancellationToken)
     {
         var tasks = new List<TaskItem>();
         string? nextPath = $"/me/todo/lists/{listId}/tasks?$top=100&$expand=checklistItems";
         var visited = new HashSet<string>(StringComparer.Ordinal) { nextPath };
         while (nextPath is not null)
         {
-            using var document = await FetchTaskPageAsync(nextPath, cancellationToken).ConfigureAwait(false);
+            using var document = await FetchTaskPageAsync(nextPath, expansion, cancellationToken).ConfigureAwait(false);
             if (document.RootElement.TryGetProperty("value", out var value))
             {
                 foreach (var task in value.EnumerateArray())
                 {
-                    var id = task.GetProperty("id").GetString()!;
-                    var checklist = new List<JsonElement>();
-                    if (task.TryGetProperty("checklistItems", out var expanded) && expanded.ValueKind == JsonValueKind.Array)
+                    List<JsonElement>? checklist = null;
+                    if (expansion.Enabled && task.TryGetProperty("checklistItems", out var expanded) && expanded.ValueKind == JsonValueKind.Array)
                     {
-                        checklist.AddRange(expanded.EnumerateArray().Select(item => item.Clone()));
+                        checklist = expanded.EnumerateArray().Select(item => item.Clone()).ToList();
                         if (task.TryGetProperty("checklistItems@odata.nextLink", out var nextChecklist))
                             checklist.AddRange(await FetchChecklistAsync(nextChecklist.GetString()!, cancellationToken).ConfigureAwait(false));
                     }
-                    else
-                        checklist.AddRange(await FetchChecklistAsync($"/me/todo/lists/{Uri.EscapeDataString(listId)}/tasks/{Uri.EscapeDataString(id)}/checklistItems", cancellationToken).ConfigureAwait(false));
                     tasks.Add(MapTask(task, listId, categories, providerConnectionId, checklist));
                 }
             }
@@ -137,16 +141,28 @@ public sealed class MicrosoftToDoProvider(HttpClient httpClient, string accessTo
         return tasks;
     }
 
-    private async Task<JsonDocument> FetchTaskPageAsync(string path, CancellationToken cancellationToken)
+    private async Task<JsonDocument> FetchTaskPageAsync(string path, ChecklistExpansion expansion, CancellationToken cancellationToken)
     {
+        var withoutExpansion = RemoveChecklistExpansion(path);
+        if (!expansion.Enabled) path = withoutExpansion;
         using var request = CreateRequest(HttpMethod.Get, path);
         try { return await SendJsonAsync(request, cancellationToken).ConfigureAwait(false); }
-        catch (HttpRequestException exception) when (path.Contains("$expand=checklistItems", StringComparison.Ordinal) &&
+        catch (HttpRequestException exception) when (path != withoutExpansion &&
             exception.StatusCode is HttpStatusCode.BadRequest or HttpStatusCode.NotImplemented)
         {
-            using var fallback = CreateRequest(HttpMethod.Get, path.Replace("&$expand=checklistItems", string.Empty, StringComparison.Ordinal));
+            expansion.Enabled = false;
+            using var fallback = CreateRequest(HttpMethod.Get, withoutExpansion);
             return await SendJsonAsync(fallback, cancellationToken).ConfigureAwait(false);
         }
+    }
+
+    private static string RemoveChecklistExpansion(string path)
+    {
+        var queryStart = path.IndexOf('?');
+        if (queryStart < 0) return path;
+        var query = string.Join("&", path[(queryStart + 1)..].Split('&').Where(parameter =>
+            !Uri.UnescapeDataString(parameter.Split('=', 2)[0]).Equals("$expand", StringComparison.OrdinalIgnoreCase)));
+        return path[..queryStart] + (query.Length == 0 ? string.Empty : $"?{query}");
     }
 
     private async Task<IReadOnlyList<JsonElement>> FetchChecklistAsync(string initialPath, CancellationToken cancellationToken)
@@ -174,11 +190,13 @@ public sealed class MicrosoftToDoProvider(HttpClient httpClient, string accessTo
     }
 
     private static TaskItem MapTask(JsonElement task, string listId, IReadOnlyDictionary<string, LabelItem> categories, string providerConnectionId,
-        IReadOnlyList<JsonElement> checklist)
+        IReadOnlyList<JsonElement>? checklist)
     {
         var id = GetString(task, "id") ?? Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture);
         var due = ParseGraphDate(task, "dueDateTime");
         var status = GetString(task, "status");
+        var metadata = new Dictionary<string, object> { ["id"] = id, ["listId"] = listId, ["synced_at"] = DateTimeOffset.UtcNow };
+        if (checklist is not null) metadata["checklistItems"] = checklist;
         return new TaskItem
         {
             Id = $"mstodo_{id}",
@@ -207,7 +225,7 @@ public sealed class MicrosoftToDoProvider(HttpClient httpClient, string accessTo
             Labels = MapCategories(task, categories, providerConnectionId),
             ProviderMetadataJson = JsonSerializer.Serialize(new
             {
-                msToDo = new { id, listId, checklistItems = checklist, synced_at = DateTimeOffset.UtcNow },
+                msToDo = metadata,
             }),
         };
     }
