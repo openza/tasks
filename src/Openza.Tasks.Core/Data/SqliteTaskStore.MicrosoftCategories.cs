@@ -17,6 +17,11 @@ public sealed partial class SqliteTaskStore
         var metadata = JsonNode.Parse(task.SourceMetadataJson ?? "{}")!.AsObject();
         if (metadata["msToDoCategoriesApplied"]?.GetValue<bool>() == true) return task;
 
+        using var snapshot = JsonDocument.Parse(source.SnapshotJson ?? "{}");
+        if (!snapshot.RootElement.TryGetProperty("msToDo", out var microsoft) ||
+            !microsoft.TryGetProperty("categories", out var categories) || categories.ValueKind != JsonValueKind.Array)
+            return task;
+
         var labels = task.Labels.ToList();
         var cloud = creatingCloudTask ? null : PersonalCloudConnection?.Invoke();
         var version = cloud is null ? null : await ReadPersonalCloudEntityVersionAsync(connection, cloud.InstanceId, task.Id, cancellationToken).ConfigureAwait(false);
@@ -26,34 +31,29 @@ public sealed partial class SqliteTaskStore
         await using (var reader = await read.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
             while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) localLabels.Add(ReadLabel(reader));
 
-        using var snapshot = JsonDocument.Parse(source.SnapshotJson ?? "{}");
-        if (snapshot.RootElement.TryGetProperty("msToDo", out var microsoft) &&
-            microsoft.TryGetProperty("categories", out var categories) && categories.ValueKind == JsonValueKind.Array)
+        foreach (var category in categories.EnumerateArray())
         {
-            foreach (var category in categories.EnumerateArray())
+            var name = category.GetProperty("name").GetString()?.Trim();
+            if (string.IsNullOrWhiteSpace(name)) continue;
+            var label = localLabels.FirstOrDefault(item => string.Equals(item.Name.Trim(), name, StringComparison.OrdinalIgnoreCase));
+            if (label is null)
             {
-                var name = category.GetProperty("name").GetString()?.Trim();
-                if (string.IsNullOrWhiteSpace(name)) continue;
-                var label = localLabels.FirstOrDefault(item => string.Equals(item.Name.Trim(), name, StringComparison.OrdinalIgnoreCase));
-                if (label is null)
-                {
-                    label = new LabelItem { Id = $"label_{Guid.NewGuid():N}", Name = name,
-                        Color = category.TryGetProperty("color", out var color) ? color.GetString() ?? "#0078D4" : "#0078D4" };
-                    await UpsertLabelCoreAsync(connection, label, cancellationToken).ConfigureAwait(false);
-                    localLabels.Add(label);
-                }
-                if (labels.Any(item => item.Id == label.Id)) continue;
-                labels.Add(label);
-                if (cloud is not null && version is not null)
-                {
-                    await MutateTaskRelationshipWithPersonalCloudIntentCoreAsync(connection, task.Id, "task.addLabel", label.Id,
-                        label.Name, version.Value, cloud.InstanceId, cloud.DeviceId, cancellationToken).ConfigureAwait(false);
-                    version = await ReadPersonalCloudEntityVersionAsync(connection, cloud.InstanceId, task.Id, cancellationToken).ConfigureAwait(false);
-                }
-                else
-                    await WorkspaceExecuteAsync(connection, "INSERT OR IGNORE INTO task_labels(task_id,label_id) VALUES(@t,@l)",
-                        cancellationToken, ("@t", task.Id), ("@l", label.Id)).ConfigureAwait(false);
+                label = new LabelItem { Id = $"label_{Guid.NewGuid():N}", Name = name,
+                    Color = category.TryGetProperty("color", out var color) ? color.GetString() ?? "#0078D4" : "#0078D4" };
+                await UpsertLabelCoreAsync(connection, label, cancellationToken).ConfigureAwait(false);
+                localLabels.Add(label);
             }
+            if (labels.Any(item => item.Id == label.Id)) continue;
+            labels.Add(label);
+            if (cloud is not null && version is not null)
+            {
+                await MutateTaskRelationshipWithPersonalCloudIntentCoreAsync(connection, task.Id, "task.addLabel", label.Id,
+                    label.Name, version.Value, cloud.InstanceId, cloud.DeviceId, cancellationToken).ConfigureAwait(false);
+                version = await ReadPersonalCloudEntityVersionAsync(connection, cloud.InstanceId, task.Id, cancellationToken).ConfigureAwait(false);
+            }
+            else
+                await WorkspaceExecuteAsync(connection, "INSERT OR IGNORE INTO task_labels(task_id,label_id) VALUES(@t,@l)",
+                    cancellationToken, ("@t", task.Id), ("@l", label.Id)).ConfigureAwait(false);
         }
 
         metadata["msToDoCategoriesApplied"] = true;

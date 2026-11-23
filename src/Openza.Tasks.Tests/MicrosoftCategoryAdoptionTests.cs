@@ -163,6 +163,27 @@ public sealed class MicrosoftCategoryAdoptionTests : IDisposable
         Assert.Empty((await store.GetTaskAsync(task.Id))!.Labels);
     }
 
+    [Theory]
+    [InlineData(null)]
+    [InlineData("{}")]
+    [InlineData("{\"msToDo\":{\"id\":\"old-task\",\"listId\":\"old-list\"}}")]
+    public async Task Cached_snapshot_without_categories_waits_for_fresh_categories_before_marking(string? snapshot)
+    {
+        var store = await StoreAsync();
+        var task = await AdoptAsync(store, Source() with { SnapshotJson = snapshot });
+        Assert.Empty(task.Labels);
+        using (var metadata = JsonDocument.Parse(task.SourceMetadataJson!))
+            Assert.False(metadata.RootElement.TryGetProperty("msToDoCategoriesApplied", out _));
+
+        await store.UpsertProviderSourceItemAsync(Source("Release"));
+        var refreshed = (await store.GetTaskAsync(task.Id))!;
+        Assert.Equal("Release", Assert.Single(refreshed.Labels).Name);
+        Assert.True(Applied(refreshed));
+        await store.SetTaskLabelsAsync(task.Id, []);
+        await store.UpsertProviderSourceItemAsync(Source("Release"));
+        Assert.Empty((await store.GetTaskAsync(task.Id))!.Labels);
+    }
+
     [Fact]
     public async Task Malformed_categories_roll_back_adoption()
     {

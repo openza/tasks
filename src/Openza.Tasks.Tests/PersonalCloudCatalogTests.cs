@@ -100,6 +100,31 @@ public sealed class PersonalCloudCatalogTests : IDisposable
     }
 
     [Fact]
+    public async Task Microsoft_catalog_cached_snapshot_waits_for_categories_on_next_provider_refresh()
+    {
+        var store = await StoreAsync();
+        var local = Local() with { IntegrationId = IntegrationIds.MicrosoftToDo, ProviderConnectionId = "mstodo_default",
+            SnapshotJson = """{"msToDo":{"id":"cached-task","listId":"cached-list"}}""" };
+        await store.UpsertProviderSourceItemAsync(local);
+        await store.ApplyPersonalCloudChangePageAsync(Instance, Device, PersonalCloudWorkspaceTests.Page(1, catalog: [Catalog(Source(local))]));
+        await store.PreparePersonalCloudCatalogIntentAsync(Instance, Device, Intent(), "account", "mstodo_default", null);
+        await store.ApplyPersonalCloudSourceIntentAsync(Instance, Device, Intent("started", 2), local.Id);
+        var taskId = (await store.GetPersonalCloudCatalogActionAsync(Instance, "intent_test"))!.AdoptedTaskId!;
+        var task = (await store.GetTaskAsync(taskId))!;
+        using (var metadata = JsonDocument.Parse(task.SourceMetadataJson!))
+            Assert.False(metadata.RootElement.TryGetProperty("msToDoCategoriesApplied", out _));
+
+        await store.UpsertProviderSourceItemAsync(local with
+        {
+            SnapshotJson = """{"msToDo":{"categories":[{"name":"Release","color":"#32CD32"}]}}""",
+        });
+        var refreshed = (await store.GetTaskAsync(taskId))!;
+        Assert.Equal("Release", Assert.Single(refreshed.Labels).Name);
+        using var applied = JsonDocument.Parse(refreshed.SourceMetadataJson!);
+        Assert.True(applied.RootElement.GetProperty("msToDoCategoriesApplied").GetBoolean());
+    }
+
+    [Fact]
     public async Task Unverified_legacy_adoption_is_omitted_instead_of_offered_as_duplicate_adoption()
     {
         var store = await StoreAsync(); var local = Local() with { AdoptedTaskId = "task_legacy", AdoptionState = ProviderSourceAdoptionStates.Adopted };
