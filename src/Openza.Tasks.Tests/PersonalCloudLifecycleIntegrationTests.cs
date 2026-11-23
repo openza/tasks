@@ -334,6 +334,7 @@ public sealed partial class PersonalCloudLifecycleIntegrationTests
         public bool HealthUnreadyUntilMigrated { get; set; }
         public bool FailDatabaseDeleteOnce { get; set; }
         public bool FailDeviceRevoke { get; set; }
+        public Func<Task>? BeforeWorkerDelete { get; set; }
         public Func<Task>? BeforeDeviceRevoke { get; set; }
         public bool FailOAuthRevoke { get; set; }
         public bool RevocationWasCancelled { get; private set; }
@@ -366,7 +367,7 @@ public sealed partial class PersonalCloudLifecycleIntegrationTests
             }
             if (path.EndsWith("/d1/database", StringComparison.Ordinal)) return Reply("databases", Resources switch { "none" => """{"success":true,"result":[]}""", "ambiguous" => """{"success":true,"result":[{"uuid":"database_test","name":"openza-personal-test"},{"uuid":"database_other","name":"openza-personal-test"}]}""", _ => """{"success":true,"result":[{"uuid":"database_test","name":"openza-personal-test"},{"uuid":"database_unrelated","name":"unrelated"}]}""" });
             if (path.EndsWith("/export", StringComparison.Ordinal)) { Assert.EndsWith("/database_test/export", path, StringComparison.Ordinal); if (CancelOnExport is not null) { events.Add("export"); CancelOnExport.Cancel(); throw new OperationCanceledException(cancellationToken); } return Reply("export", """{"success":true,"result":{"status":"complete","result":{"filename":"backup.sql","signed_url":"https://downloads.example.test/backup.sql"}}}"""); }
-            if (request.Method == HttpMethod.Delete && path.EndsWith("/workers/scripts/openza-personal-test", StringComparison.Ordinal)) { var already = _workerDeleted; _workerDeleted = true; return Reply("worker-delete", """{"success":true}""", already ? HttpStatusCode.NotFound : HttpStatusCode.OK); }
+            if (request.Method == HttpMethod.Delete && path.EndsWith("/workers/scripts/openza-personal-test", StringComparison.Ordinal)) { if (BeforeWorkerDelete is not null) await BeforeWorkerDelete(); var already = _workerDeleted; _workerDeleted = true; return Reply("worker-delete", """{"success":true}""", already ? HttpStatusCode.NotFound : HttpStatusCode.OK); }
             if (request.Method == HttpMethod.Delete && path.EndsWith("/d1/database/database_test", StringComparison.Ordinal)) { var fail = FailDatabaseDeleteOnce; FailDatabaseDeleteOnce = false; return Reply("database-delete", """{"success":true}""", fail ? HttpStatusCode.ServiceUnavailable : HttpStatusCode.OK); }
             if (path.EndsWith("/database_test/query", StringComparison.Ordinal))
             {
