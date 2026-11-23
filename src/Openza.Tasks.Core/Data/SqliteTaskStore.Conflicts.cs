@@ -240,6 +240,19 @@ public sealed partial class SqliteTaskStore
         return result;
     }
 
+    public async Task<bool> IsPersonalCloudTaskRecoveryCopyAsync(string instanceId, string taskId, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT EXISTS(SELECT 1 FROM personal_cloud_task_recovery WHERE instance_id=@i AND task_id=@e)
+              AND NOT EXISTS(SELECT 1 FROM personal_cloud_replica_entities WHERE instance_id=@i AND entity_id=@e AND product='tasks')
+            """;
+        command.Parameters.AddWithValue("@i", instanceId);
+        command.Parameters.AddWithValue("@e", taskId);
+        return Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)) != 0;
+    }
+
     private static string DisplayConflictValue(JsonNode? value) => value is null ? "(empty)" : value is JsonValue v && v.TryGetValue<string>(out var s) ? s : value.ToJsonString();
 
     private static async Task<string> DisplayConflictFieldValueAsync(SqliteConnection connection, string instanceId, string field, JsonNode? value, CancellationToken cancellationToken)

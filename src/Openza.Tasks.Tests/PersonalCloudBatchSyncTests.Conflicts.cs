@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Data.Sqlite;
+using Openza.Tasks.Application.Tasks;
 using Openza.Tasks.Core.Data;
 using Openza.Tasks.Core.Models;
 using Openza.Tasks.Core.PersonalCloud;
@@ -75,6 +76,21 @@ public sealed partial class PersonalCloudBatchSyncTests
         Assert.Empty(await reopened.GetPersonalCloudTaskConflictsAsync(Instance));
         Assert.DoesNotContain(await reopened.GetPendingPersonalCloudOutboxAsync(Instance, Device), entry => entry.EntityId == task.Id);
         Assert.Equal(task.Title, (await reopened.GetTaskAsync(task.Id))!.Title);
+
+        var actions = new TaskApplicationService(reopened, () => new PersonalCloudConnectionProfile
+        {
+            InstanceId = Instance, DeviceId = Device, ServiceOrigin = new("https://synthetic.example.test/"),
+            ArtifactVersion = "1.2.3", ConnectedAt = DateTimeOffset.UtcNow,
+        });
+        var updated = await actions.UpdateTaskAsync(new UpdateTaskRequest { TaskId = task.Id, Title = OptionalValue<string?>.Set("Editable local copy") });
+        Assert.Equal("Editable local copy", updated.Title);
+        Assert.True((await actions.SetCompletedAsync(task.Id, true)).IsCompleted);
+        Assert.Equal("space_destination", (await actions.MoveTaskToSpaceAsync(task.Id, "space_destination")).SpaceId);
+        await reopened.StageUnpublishedTasksForPersonalCloudAsync(Instance, Device);
+        Assert.DoesNotContain(await reopened.GetPendingPersonalCloudOutboxAsync(Instance, Device), entry => entry.EntityId == task.Id);
+        await actions.DeleteTaskAsync(task.Id);
+        Assert.Null(await reopened.GetTaskAsync(task.Id));
+        Assert.False(await reopened.IsPersonalCloudTaskRecoveryCopyAsync(Instance, task.Id));
     }
 
     [Theory]

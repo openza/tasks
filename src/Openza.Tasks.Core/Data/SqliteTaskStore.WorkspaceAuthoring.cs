@@ -311,7 +311,8 @@ public sealed partial class SqliteTaskStore
             UNION SELECT entity_id,0 FROM personal_cloud_replica_entities WHERE instance_id=@i AND product='tasks'
             UNION SELECT entity_id,1 FROM personal_cloud_task_conflicts
               WHERE instance_id=@i AND json_extract(canonical_json,'$.operation') IN('task.create','task.createRich')
-            UNION SELECT task_id,1 FROM personal_cloud_task_recovery WHERE instance_id=@i
+            UNION SELECT task_id,1 FROM personal_cloud_task_recovery r WHERE r.instance_id=@i AND NOT EXISTS(
+              SELECT 1 FROM personal_cloud_replica_entities p WHERE p.instance_id=r.instance_id AND p.entity_id=r.task_id AND p.product='tasks')
             """; published.Parameters.AddWithValue("@i", instanceId);
         var known = new HashSet<string>(StringComparer.Ordinal);
         var localOnly = new HashSet<string>(StringComparer.Ordinal);

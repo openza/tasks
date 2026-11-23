@@ -174,7 +174,8 @@ public sealed class TaskApplicationService(
             (request.Project.IsSpecified ? 1 : 0) +
             (request.Labels.IsSpecified ? 1 : 0);
         if (cloudScalarChangeCount + cloudRelationshipChangeCount > 0 &&
-            PersonalCloudTarget() is { } target && Store is SqliteTaskStore sqliteStore)
+            PersonalCloudTarget() is { } target && Store is SqliteTaskStore sqliteStore &&
+            !await sqliteStore.IsPersonalCloudTaskRecoveryCopyAsync(target.InstanceId, original.Id, cancellationToken).ConfigureAwait(false))
         {
             if (expectedRevision != original.Revision)
                 throw new TaskConflictException(original.Id);
@@ -360,7 +361,8 @@ public sealed class TaskApplicationService(
         if (string.Equals(original.SpaceId, target.Id, StringComparison.Ordinal))
             return original;
 
-        if (PersonalCloudTarget() is { } cloud && Store is SqliteTaskStore sqliteStore)
+        if (PersonalCloudTarget() is { } cloud && Store is SqliteTaskStore sqliteStore &&
+            !await sqliteStore.IsPersonalCloudTaskRecoveryCopyAsync(cloud.InstanceId, original.Id, cancellationToken).ConfigureAwait(false))
         {
             var rootVersion = await ResolvePersonalCloudEntityVersionAsync(
                 sqliteStore, cloud, original.Id, cancellationToken).ConfigureAwait(false);
@@ -389,7 +391,8 @@ public sealed class TaskApplicationService(
         if (expectedRevision is not null && expectedRevision.Value != original.Revision)
             throw new TaskConflictException(id);
         var now = DateTimeOffset.UtcNow;
-        if (PersonalCloudTarget() is { } target && Store is SqliteTaskStore sqliteStore)
+        if (PersonalCloudTarget() is { } target && Store is SqliteTaskStore sqliteStore &&
+            !await sqliteStore.IsPersonalCloudTaskRecoveryCopyAsync(target.InstanceId, original.Id, cancellationToken).ConfigureAwait(false))
         {
             var entityVersion = await ResolvePersonalCloudEntityVersionAsync(
                 sqliteStore, target, original.Id, cancellationToken).ConfigureAwait(false);
@@ -425,7 +428,8 @@ public sealed class TaskApplicationService(
         var original = await RequireTaskAsync(id, cancellationToken).ConfigureAwait(false);
         if (expectedRevision is not null && expectedRevision.Value != original.Revision)
             throw new TaskConflictException(id);
-        if (PersonalCloudTarget() is { } target && Store is SqliteTaskStore sqliteStore)
+        if (PersonalCloudTarget() is { } target && Store is SqliteTaskStore sqliteStore &&
+            !await sqliteStore.IsPersonalCloudTaskRecoveryCopyAsync(target.InstanceId, original.Id, cancellationToken).ConfigureAwait(false))
         {
             var entityVersion = await ResolvePersonalCloudEntityVersionAsync(
                 sqliteStore, target, original.Id, cancellationToken).ConfigureAwait(false);
