@@ -334,6 +334,7 @@ public sealed partial class PersonalCloudLifecycleIntegrationTests
         public bool HealthUnreadyUntilMigrated { get; set; }
         public bool FailDatabaseDeleteOnce { get; set; }
         public bool FailDeviceRevoke { get; set; }
+        public Func<Task>? BeforeDeviceRevoke { get; set; }
         public bool FailOAuthRevoke { get; set; }
         public bool RevocationWasCancelled { get; private set; }
         public CancellationTokenSource? CancelOnExport { get; set; }
@@ -347,7 +348,11 @@ public sealed partial class PersonalCloudLifecycleIntegrationTests
             cancellationToken.ThrowIfCancellationRequested();
             if (path == "/auth/pair") return Reply("pair", """{"protocolVersion":1,"instanceId":"instance_test","deviceId":"device_test","refreshCredential":"synthetic-refresh-1234567890","capabilities":["desktop_sync"],"refreshExpiresAt":"2099-01-01T00:00:00Z"}""");
             if (path == "/auth/device/token") return Reply("device-token", """{"protocolVersion":1,"accessToken":"synthetic-access-1234567890","capabilities":["desktop_sync"],"expiresAt":"2099-01-01T00:00:00Z"}""");
-            if (path == "/auth/device/revoke") return Reply("device-revoke", """{"protocolVersion":1,"outcome":"revoked","deviceId":"device_test"}""", FailDeviceRevoke ? HttpStatusCode.BadRequest : HttpStatusCode.OK);
+            if (path == "/auth/device/revoke")
+            {
+                if (BeforeDeviceRevoke is not null) await BeforeDeviceRevoke();
+                return Reply("device-revoke", """{"protocolVersion":1,"outcome":"revoked","deviceId":"device_test"}""", FailDeviceRevoke ? HttpStatusCode.BadRequest : HttpStatusCode.OK);
+            }
             if (path == "/health") { var fail = FailHealthOnce || HealthUnreadyUntilMigrated && !_migrationApplied; FailHealthOnce = false; return Reply("health", $"{{\"status\":\"ok\",\"protocolVersion\":1,\"product\":\"tasks\",\"artifactVersion\":\"{HealthVersion}\",\"schemaVersion\":{HealthSchema}}}", fail ? HttpStatusCode.ServiceUnavailable : HttpStatusCode.OK); }
             if (path == "/client/v4/accounts") return Reply("accounts", Resources == "account-ambiguous" ? """{"success":true,"result":[{"id":"account_test","name":"Test"},{"id":"account_other","name":"Other"}]}""" : """{"success":true,"result":[{"id":"account_test","name":"Test"}]}""");
             Assert.StartsWith("/client/v4/accounts/account_test/", path, StringComparison.Ordinal);
