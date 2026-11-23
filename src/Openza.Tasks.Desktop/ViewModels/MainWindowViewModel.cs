@@ -2383,7 +2383,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         DetailProject?.ProjectId,
         DetailDate is null ? null : DateOnly.FromDateTime(DetailDate.Value.LocalDateTime),
         DetailDeadline is null ? null : DateOnly.FromDateTime(DetailDeadline.Value.LocalDateTime),
-        ResolveLabels(DetailLabels.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries), SelectedTask?.Task.Labels),
+        ParseLabels(DetailLabels),
         _sourceDateMismatchAcknowledgementKey,
         _detailEditVersion);
 
@@ -3220,18 +3220,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
     };
 
     private IReadOnlyList<LabelItem> ParseLabels(string labelsText)
-        => ResolveLabels(labelsText.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
-
-    private IReadOnlyList<LabelItem> ResolveLabels(IEnumerable<string> labelNames, IReadOnlyList<LabelItem>? existingLabels = null)
     {
-        return labelNames
+        return labelsText
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Distinct(StringComparer.CurrentCultureIgnoreCase)
-            .SelectMany(name =>
-            {
-                var attached = existingLabels?.Where(label =>
-                    string.Equals(label.Name, name, StringComparison.CurrentCultureIgnoreCase)).ToArray();
-                if (attached is { Length: > 0 }) return attached;
-                return new[] { _labels.FirstOrDefault(label =>
+            .Select(name => _labels.FirstOrDefault(label =>
                     string.Equals(label.Name, name, StringComparison.CurrentCultureIgnoreCase))
                 ?? new LabelItem
                 {
@@ -3239,8 +3232,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                     IntegrationId = IntegrationIds.Local,
                     Name = name,
                     CreatedAt = DateTimeOffset.UtcNow,
-                } };
-            })
+                })
             .ToList();
     }
 
