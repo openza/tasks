@@ -53,11 +53,7 @@ public sealed partial class PersonalCloudSyncClient(
         if (!catchupUploadReady && prefix.Items.Count > 0)
             blockedCode = "catchup_status_unavailable";
         else if (prefix.Items.Count > 0)
-        {
-            (pushed, blockedCode) = await PushPendingAsync(prefix.Items, access.AccessToken, cancellationToken).ConfigureAwait(false);
-            if (blockedCode is null && pushed == prefix.Items.Count && prefix.PauseAfter && PersonalCloudDispatchHttp.PolicyFor(http) is { } dispatch)
-                blockedCode = (await dispatch.PauseBudgetAsync(connection.ServiceOrigin, prefix.OversizedUnits, cancellationToken).ConfigureAwait(false)).Code;
-        }
+            (pushed, blockedCode) = await PushBudgetedPendingAsync(prefix, access.AccessToken, cancellationToken).ConfigureAwait(false);
         else if (prefix.PauseAfter && PersonalCloudDispatchHttp.PolicyFor(http) is { } pausedDispatch)
             blockedCode = (await pausedDispatch.GetStatusAsync(connection.ServiceOrigin, cancellationToken).ConfigureAwait(false)).Code;
 
@@ -84,7 +80,7 @@ public sealed partial class PersonalCloudSyncClient(
             try { pageJson = await SendForJsonAsync(request, cancellationToken).ConfigureAwait(false); }
             catch (PersonalCloudK0ContractException exception) when (exception.Code == "checkpoint_expired")
             {
-                try { await store.EnsureNoPendingPersonalCloudIntentsAsync(cancellationToken).ConfigureAwait(false); }
+                try { await store.EnsureNoPendingPersonalCloudIntentsAsync(connection.InstanceId, cancellationToken).ConfigureAwait(false); }
                 catch (PersonalCloudK0ContractException pendingException) when (pendingException.Code == "pending_intents")
                 {
                     throw new PersonalCloudK0ContractException("checkpoint_expired_pending",
@@ -194,6 +190,7 @@ public sealed partial class PersonalCloudSyncClient(
         var json = Encoding.UTF8.GetString(destination.GetBuffer(), 0, checked((int)destination.Length));
         if (!response.IsSuccessStatusCode)
         {
+            var retryableError = false;
             var code = response.StatusCode is System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden
                 ? "unauthorized" : "sync_failed";
             if (code != "unauthorized")
@@ -208,7 +205,10 @@ public sealed partial class PersonalCloudSyncClient(
                          returnedCode == "fanout_bound_exceeded" && response.StatusCode == System.Net.HttpStatusCode.Conflict &&
                          _supportsFanoutBudget && request.Options.TryGetValue(PersonalCloudMutationCost.GuardedFanoutBound, out _) &&
                          error.TryGetProperty("retryable", out var retryable) && retryable.ValueKind == JsonValueKind.True))
+                    {
                         code = returnedCode;
+                        retryableError = error.TryGetProperty("retryable", out var retry) && retry.ValueKind != JsonValueKind.False;
+                    }
                 }
                 catch (JsonException) { /* Do not expose untrusted response contents. */ }
             }
@@ -217,7 +217,10 @@ public sealed partial class PersonalCloudSyncClient(
                 "bootstrap_changed" => "Personal Cloud changed while downloading its baseline. Retry Sync to download a consistent snapshot.",
                 "response_too_large" => "A Personal Cloud record exceeds the supported response size. The current replica and pending edits have been preserved.",
                 _ => "Personal Cloud could not complete the sync request. Pending edits have been preserved.",
-            });
+            })
+            {
+                IsDefinitiveMutationRejection = (!retryableError || code == "parent_not_found") && (int)response.StatusCode is 400 or 404 or 409 or 422,
+            };
         }
         return json;
     }

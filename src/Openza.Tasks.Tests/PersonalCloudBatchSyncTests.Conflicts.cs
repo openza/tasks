@@ -2,12 +2,104 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Data.Sqlite;
 using Openza.Tasks.Core.Data;
+using Openza.Tasks.Core.Models;
 using Openza.Tasks.Core.PersonalCloud;
 
 namespace Openza.Tasks.Tests;
 
 public sealed partial class PersonalCloudBatchSyncTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Definitive_rejection_keeps_local_edits_and_uploads_unrelated_suffix(bool batch)
+    {
+        var (store, handler) = await ConflictStoreAsync(batch);
+        var prefix = await PatchAsync(store, "task_second", "notes", "First upload");
+        var rejected = await PatchAsync(store, "task_test", "title", "Keep this edit");
+        await PatchAsync(store, "task_test", "priority", 1);
+        var suffix = await PatchAsync(store, "task_third", "notes", "Later upload");
+        handler.ConflictEntity = rejected.EntityId;
+        handler.ConflictCode = "invalid_transition";
+
+        var result = await (await CreateClientAsync(store, handler)).SyncAsync();
+
+        Assert.Null(result.BlockedCode);
+        Assert.Equal(2, result.PushedMutations);
+        Assert.Equal(prefix.CanonicalJson, handler.Envelopes[0]);
+        Assert.NotEqual(suffix.CanonicalJson, handler.Envelopes[1]);
+        Assert.Equal(2, handler.LastAcceptedSequence);
+        Assert.Empty(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device));
+        var reopened = new SqliteTaskStore(store.DatabasePath);
+        var conflict = Assert.Single(await reopened.GetPersonalCloudTaskConflictsAsync(Instance));
+        Assert.False(conflict.CanKeepDesktop);
+        Assert.Contains("invalid_transition", conflict.ResolutionNotice);
+        Assert.Equal("Keep this edit", (await reopened.GetTaskAsync(rejected.EntityId))!.Title);
+        Assert.Equal(1, (await reopened.GetTaskAsync(rejected.EntityId))!.Priority);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Retryable_rejection_does_not_rewrite_the_queue(bool batch)
+    {
+        var (store, handler) = await ConflictStoreAsync(batch);
+        await PatchAsync(store, "task_test", "title", "Still pending");
+        await PatchAsync(store, "task_second", "notes", "Still behind first");
+        var original = await store.GetPendingPersonalCloudOutboxAsync(Instance, Device);
+        handler.ConflictEntity = "task_test";
+        handler.ConflictCode = "invalid_transition";
+        handler.ConflictRetryable = true;
+
+        Assert.Equal("invalid_transition", (await (await CreateClientAsync(store, handler)).SyncAsync()).BlockedCode);
+        Assert.Equal(original, await store.GetPendingPersonalCloudOutboxAsync(Instance, Device));
+        Assert.Empty(await store.GetPersonalCloudTaskConflictsAsync(Instance));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_step_survives_remote_parent_deletion_even_with_an_already_staged_relationship(bool alreadyStaged)
+    {
+        var (store, handler) = await ConflictStoreAsync();
+        var child = new TaskItem { Id = "task_step", Title = "Keep this step", ParentId = "task_test", SpaceId = "space_test", Notes = "Step details" };
+        if (alreadyStaged)
+            await store.CreateRichTaskWithPersonalCloudIntentAsync(child, Instance, Device);
+        else
+            await store.UpsertTaskAsync(child);
+
+        var removed = JsonSerializer.SerializeToNode(CloudTask())!;
+        removed["deletedAt"] = "2026-10-14T00:00:00.000Z";
+        handler.CurrentCheckpoint = 2;
+        handler.ChangePageJson = PersonalCloudWorkspaceTests.Page(2, tasks: [removed]);
+        handler.ConflictEntity = child.Id;
+        handler.ConflictOperation = "task.setParent";
+        handler.ConflictCode = "parent_not_found";
+        handler.ConflictRetryable = true;
+        if (alreadyStaged)
+            await PatchAsync(store, "task_second", "notes", "Must upload behind the rejected relationship");
+
+        var result = await (await CreateClientAsync(store, handler)).SyncAsync();
+
+        Assert.Null(result.BlockedCode);
+        Assert.Null(await store.GetTaskAsync("task_test"));
+        var step = Assert.Single(await store.GetTasksAsync(new TaskQuery { Kind = TaskListKind.All }), x => x.Id == child.Id);
+        Assert.Null(step.ParentId);
+        Assert.Equal(child.Notes, step.Notes);
+        if (alreadyStaged)
+        {
+            Assert.Equal(2, result.PushedMutations);
+            Assert.Empty(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device));
+            Assert.Equal(child.Id, Assert.Single(await store.GetPersonalCloudTaskConflictsAsync(Instance)).TaskId);
+        }
+        else
+        {
+            await store.StageUnpublishedTasksForPersonalCloudAsync(Instance, Device);
+            var create = Assert.Single(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device), entry => entry.EntityId == child.Id);
+            Assert.Equal("task.createRich", create.Operation);
+        }
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

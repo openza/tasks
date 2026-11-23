@@ -304,10 +304,13 @@ public sealed partial class SqliteTaskStore
                 stagedProjects.Add(project.Id); projects.Remove(project);
             }
         }
+        await DetachPersonalCloudOrphansAsync(connection, instanceId, includeMissing: true, cancellationToken).ConfigureAwait(false);
         var tasks = (await ReadTasksAsync(connection, cancellationToken).ConfigureAwait(false)).Where(t => t.IntegrationId == IntegrationIds.Local).ToList();
         var published = connection.CreateCommand(); published.CommandText = """
             SELECT entity_id FROM personal_cloud_outbox WHERE instance_id=@i AND operation IN('task.create','task.createRich')
             UNION SELECT entity_id FROM personal_cloud_replica_entities WHERE instance_id=@i AND product='tasks'
+            UNION SELECT entity_id FROM personal_cloud_task_conflicts
+              WHERE instance_id=@i AND json_extract(canonical_json,'$.operation') IN('task.create','task.createRich')
             """; published.Parameters.AddWithValue("@i", instanceId);
         var known = new HashSet<string>(StringComparer.Ordinal);
         await using (var reader = await published.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))

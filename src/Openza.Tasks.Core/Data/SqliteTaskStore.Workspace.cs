@@ -218,7 +218,7 @@ public sealed partial class SqliteTaskStore
         var (checkpoint, snapshot) = PersonalCloudWorkspaceCodec.ParseBootstrap(json);
         await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-        await EnsureNoPendingPersonalCloudIntentsAsync(connection, cancellationToken).ConfigureAwait(false);
+        await EnsureNoPendingPersonalCloudIntentsAsync(connection, instanceId, cancellationToken).ConfigureAwait(false);
         await CreateIncomingWorkspaceTasksAsync(connection, cancellationToken).ConfigureAwait(false);
         await AddIncomingWorkspaceTasksAsync(connection, snapshot, cancellationToken).ConfigureAwait(false);
         await PrepareWorkspaceBootstrapReplacementAsync(connection, instanceId, cancellationToken).ConfigureAwait(false);
@@ -303,10 +303,23 @@ public sealed partial class SqliteTaskStore
 
     private static async Task FinishWorkspaceBootstrapAsync(SqliteConnection connection, string instanceId, string deviceId, long checkpoint, CancellationToken cancellationToken)
     {
+        await DetachPersonalCloudOrphansAsync(connection, instanceId, includeMissing: true, cancellationToken).ConfigureAwait(false);
         await WorkspaceExecuteAsync(connection, "INSERT INTO personal_cloud_checkpoints(instance_id,device_id,product,last_change_seq,updated_at) VALUES(@i,@d,'tasks',@q,@now)", cancellationToken,
             ("@i", instanceId), ("@d", deviceId), ("@q", checkpoint), ("@now", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds())).ConfigureAwait(false);
         await WorkspaceExecuteAsync(connection, "UPDATE personal_cloud_workspace_capabilities SET hydrated=1 WHERE instance_id=@i", cancellationToken, ("@i", instanceId)).ConfigureAwait(false);
     }
+
+    private static Task DetachPersonalCloudOrphansAsync(SqliteConnection connection, string instanceId, bool includeMissing, CancellationToken cancellationToken) =>
+        WorkspaceExecuteAsync(connection, """
+            UPDATE tasks SET parent_id=NULL, revision=revision+1
+            WHERE integration_id='openza_tasks' AND parent_id IS NOT NULL AND (
+                parent_id IN (SELECT entity_id FROM personal_cloud_tombstones WHERE instance_id=@i AND product='tasks') OR
+                parent_id IN (SELECT entity_id FROM personal_cloud_workspace_records
+                    WHERE instance_id=@i AND kind='tasks' AND json_extract(canonical_json,'$.deletedAt') IS NOT NULL) OR
+                parent_id IN (SELECT entity_id FROM personal_cloud_deferred_changes
+                    WHERE instance_id=@i AND product='tasks' AND json_extract(canonical_json,'$.operation')='task.deleted') OR
+                (@missing=1 AND NOT EXISTS(SELECT 1 FROM tasks parent WHERE parent.id=tasks.parent_id)))
+            """, cancellationToken, ("@i", instanceId), ("@missing", includeMissing ? 1 : 0));
 
     private static string? WText(JsonElement item, string key) => PersonalCloudWorkspaceCodec.Text(item, key);
     private static DateTimeOffset? WMoment(JsonElement item, string key) => WText(item, key) is { } stamp ? ParseProtocolTimestamp(stamp) : null;
