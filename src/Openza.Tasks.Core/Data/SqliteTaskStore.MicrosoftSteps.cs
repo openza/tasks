@@ -38,9 +38,9 @@ public sealed partial class SqliteTaskStore
         var now = DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.ToUnixTimeSeconds());
         foreach (var item in checklist.EnumerateArray())
         {
-            var title = item.GetProperty("displayName").GetString();
+            var title = item.TryGetProperty("displayName", out var name) && name.ValueKind == JsonValueKind.String ? name.GetString() : null;
             if (string.IsNullOrWhiteSpace(title)) continue;
-            var completed = item.TryGetProperty("isChecked", out var check) && check.GetBoolean();
+            var completed = item.TryGetProperty("isChecked", out var check) && check.ValueKind == JsonValueKind.True;
             var completedAt = item.TryGetProperty("checkedDateTime", out var stamp) && stamp.ValueKind == JsonValueKind.String &&
                 DateTimeOffset.TryParse(stamp.GetString(), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var parsed)
                 ? parsed : now;

@@ -122,6 +122,18 @@ public sealed class MicrosoftStepAdoptionTests : IDisposable
     }
 
     [Fact]
+    public async Task Incomplete_checklist_fields_skip_missing_names_and_treat_null_or_missing_checks_as_open()
+    {
+        var store = await StoreAsync();
+        var task = await Adopt(store, Source("""{"msToDo":{"checklistItems":[{"isChecked":true},{"displayName":null,"isChecked":true},{"displayName":"Null check","isChecked":null},{"displayName":"Missing check"},{"displayName":"Checked","isChecked":true}]}}"""));
+        var children = await Children(store, task.Id);
+        Assert.Equal(new[] { "Null check", "Missing check", "Checked" }, children.Select(child => child.Title));
+        Assert.False(children[0].IsCompleted);
+        Assert.False(children[1].IsCompleted);
+        Assert.True(children[2].IsCompleted);
+    }
+
+    [Fact]
     public async Task Refresh_does_not_hydrate_unrelated_tasks_or_stage_after_marking_and_lease_blocks_disconnect_race()
     {
         var store = await StoreAsync();
