@@ -15,6 +15,13 @@ on the next sync, without removing existing labels. Afterward, changing provider
 categories does not change local labels, and removing an imported label sticks.
 Todoist labels remain source metadata and are not promoted.
 
+A task has at most 32 attached labels, matching the Desktop workspace protocol.
+Category import keeps existing labels and adds categories in snapshot order until
+that limit is reached. Extra categories are skipped and the import is marked
+complete; it does not retry them after a later label removal.
+Incoming cloud attachments retain their authoritative label IDs, including legacy
+IDs shared with a provider catalog. Names alone never select a provider catalog row.
+
 Category imports never stage unpublished tasks or workspace metadata. Normal
 Personal Cloud sync downloads capabilities and cloud versions first, then includes
 new tasks' local labels in workspace creation or legacy per-field creation intents. Backfilling an already published

@@ -13,7 +13,7 @@ public sealed class PersonalCloudWorkspaceTests : IDisposable
     [InlineData(true, false)]
     [InlineData(false, true)]
     [InlineData(true, true)]
-    public async Task Incoming_workspace_labels_never_resolve_to_same_name_provider_catalog_rows(bool existingLocal, bool sameId)
+    public async Task Incoming_workspace_labels_keep_authoritative_ids_without_name_matching(bool existingLocal, bool sameId)
     {
         var store = Store();
         await store.InitializeAsync();
@@ -32,11 +32,9 @@ public sealed class PersonalCloudWorkspaceTests : IDisposable
         await store.ApplyPersonalCloudChangePageAsync(Instance, Device, Page(1, [Space()], [Project()], [TaskRecord()]));
 
         var label = Assert.Single((await store.GetTaskAsync("task_test"))!.Labels);
-        Assert.Equal(IntegrationIds.Local, label.IntegrationId);
-        if (existingLocal) Assert.Equal("local_label", label.Id);
-        else if (!sameId) Assert.Equal("label_test", label.Id);
-        Assert.NotEqual(providerId, label.Id);
-        if (existingLocal) Assert.Equal("#123456", label.Color);
+        Assert.Equal("label_test", label.Id);
+        Assert.Equal(sameId ? IntegrationIds.MicrosoftToDo : IntegrationIds.Local, label.IntegrationId);
+        if (existingLocal) Assert.Contains(await store.GetLabelsAsync(), item => item.Id == "local_label" && item.Color == "#123456");
         await using var connection = new SqliteConnection($"Data Source={store.DatabasePath};Pooling=False");
         await connection.OpenAsync();
         var command = connection.CreateCommand();

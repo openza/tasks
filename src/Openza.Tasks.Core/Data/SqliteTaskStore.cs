@@ -584,7 +584,8 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
                     source_external_id = NULL,
                     source_provider_task_id = NULL,
                     source_url = NULL,
-                    source_metadata = NULL,
+                    source_metadata = CASE WHEN json_extract(source_metadata,'$.msToDoCategoriesApplied')=1
+                        THEN '{"msToDoCategoriesApplied":true}' ELSE NULL END,
                     updated_at = @updated_at,
                     revision = revision + 1
                 WHERE id = @task_id
@@ -4557,12 +4558,11 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
             idCommand.Parameters.AddWithValue("@id", label.Id);
             if (await idCommand.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is string integrationId)
             {
-                if (!localOnly || integrationId == IntegrationIds.Local) return label.Id;
-                label = label with { Id = $"label_{Guid.NewGuid():N}" };
+                return label.Id;
             }
         }
 
-        var existingId = await FindLabelIdByNameAsync(connection, label.Name, cancellationToken, localOnly).ConfigureAwait(false);
+        var existingId = localOnly ? null : await FindLabelIdByNameAsync(connection, label.Name, cancellationToken).ConfigureAwait(false);
         if (!string.IsNullOrWhiteSpace(existingId) && !string.Equals(existingId, label.Id, StringComparison.Ordinal))
         {
             return existingId;

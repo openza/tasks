@@ -44,6 +44,7 @@ public sealed partial class SqliteTaskStore
                     Color = category.TryGetProperty("color", out var color) ? color.GetString() ?? "#0078D4" : "#0078D4" };
             }
             if (labels.Any(item => item.Id == label.Id)) continue;
+            if (labels.Count >= 32) break;
             if (!cloudResolved)
             {
                 var target = creatingCloudTask ? null : PersonalCloudConnection?.Invoke();
