@@ -61,7 +61,11 @@ public sealed partial class PersonalCloudBatchSyncTests
     public async Task Resolving_a_rejected_create_keeps_a_recovery_copy_without_staging_it_again()
     {
         var (store, handler) = await ConflictStoreAsync();
-        var task = new TaskItem { Id = "task_rejected_create", Title = "Local recovery copy", SpaceId = "space_test" };
+        var task = new TaskItem
+        {
+            Id = "task_rejected_create", Title = "Local recovery copy", SpaceId = "space_test",
+            SourceIntegrationId = IntegrationIds.Todoist, SourceExternalId = "duplicate", SourceProviderTaskId = "duplicate",
+        };
         await store.CreateRichTaskWithPersonalCloudIntentAsync(task, Instance, Device);
         handler.ConflictEntity = task.Id;
         handler.ConflictCode = "source_identity_conflict";
@@ -82,9 +86,16 @@ public sealed partial class PersonalCloudBatchSyncTests
             InstanceId = Instance, DeviceId = Device, ServiceOrigin = new("https://synthetic.example.test/"),
             ArtifactVersion = "1.2.3", ConnectedAt = DateTimeOffset.UtcNow,
         });
-        var updated = await actions.UpdateTaskAsync(new UpdateTaskRequest { TaskId = task.Id, Title = OptionalValue<string?>.Set("Editable local copy") });
+        var updated = await actions.UpdateTaskAsync(new UpdateTaskRequest
+        {
+            TaskId = task.Id, Title = OptionalValue<string?>.Set("Editable local copy"),
+            PlannedOn = OptionalValue<DateOnly?>.Set(new DateOnly(2026, 10, 16)), Completed = OptionalValue<bool>.Set(true),
+        });
         Assert.Equal("Editable local copy", updated.Title);
-        Assert.True((await actions.SetCompletedAsync(task.Id, true)).IsCompleted);
+        Assert.True(updated.IsCompleted);
+        Assert.False((await actions.SetCompletedAsync(task.Id, false)).IsCompleted);
+        Assert.Empty(await reopened.GetPendingCompletionsAsync(IntegrationIds.Todoist));
+        Assert.Empty(await reopened.GetPendingTaskDateUpdatesAsync(IntegrationIds.Todoist));
         Assert.Equal("space_destination", (await actions.MoveTaskToSpaceAsync(task.Id, "space_destination")).SpaceId);
         await reopened.StageUnpublishedTasksForPersonalCloudAsync(Instance, Device);
         Assert.DoesNotContain(await reopened.GetPendingPersonalCloudOutboxAsync(Instance, Device), entry => entry.EntityId == task.Id);

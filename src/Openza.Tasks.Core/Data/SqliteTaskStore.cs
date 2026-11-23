@@ -3487,14 +3487,7 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         await UpsertTaskCoreAsync(connection, task, cancellationToken).ConfigureAwait(false);
         await SetTaskLabelsCoreAsync(connection, task.Id, task.Labels, cancellationToken).ConfigureAwait(false);
-        if (completion is not null)
-        {
-            await QueueCompletionCoreAsync(connection, completion, cancellationToken).ConfigureAwait(false);
-        }
-        if (dateUpdate is not null)
-        {
-            await QueueTaskDateUpdateCoreAsync(connection, dateUpdate, cancellationToken).ConfigureAwait(false);
-        }
+        await QueueLocalTaskProviderUpdatesAsync(connection, task.Id, completion, dateUpdate, cancellationToken).ConfigureAwait(false);
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
     }
 
@@ -3519,6 +3512,21 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
 
         await UpsertTaskCoreAsync(connection, task, cancellationToken).ConfigureAwait(false);
         await SetTaskLabelsCoreAsync(connection, task.Id, task.Labels, cancellationToken).ConfigureAwait(false);
+        await QueueLocalTaskProviderUpdatesAsync(connection, task.Id, completion, dateUpdate, cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return true;
+    }
+
+    private static async Task QueueLocalTaskProviderUpdatesAsync(SqliteConnection connection, string taskId,
+        PendingCompletion? completion, PendingTaskDateUpdate? dateUpdate, CancellationToken cancellationToken)
+    {
+        if (completion is null && dateUpdate is null)
+            return;
+        var recovery = connection.CreateCommand();
+        recovery.CommandText = "SELECT EXISTS(SELECT 1 FROM personal_cloud_task_recovery WHERE task_id=@id)";
+        recovery.Parameters.AddWithValue("@id", taskId);
+        if (Convert.ToInt64(await recovery.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)) != 0)
+            return;
         if (completion is not null)
         {
             await QueueCompletionCoreAsync(connection, completion, cancellationToken).ConfigureAwait(false);
@@ -3527,8 +3535,6 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
         {
             await QueueTaskDateUpdateCoreAsync(connection, dateUpdate, cancellationToken).ConfigureAwait(false);
         }
-        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-        return true;
     }
 
     public async Task MoveTaskToSpaceAsync(string taskId, string targetSpaceId, CancellationToken cancellationToken = default)
