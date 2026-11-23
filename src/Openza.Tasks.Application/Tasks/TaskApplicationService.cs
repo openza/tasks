@@ -550,14 +550,6 @@ public sealed class TaskApplicationService(
                 continue;
             }
 
-            var attachedMatches = (attachedLabels ?? [])
-                .Where(label => string.Equals(label.Name.Trim(), value, StringComparison.CurrentCultureIgnoreCase)).ToArray();
-            if (attachedMatches.Length > 0)
-            {
-                labels.AddRange(attachedMatches);
-                continue;
-            }
-
             var nameMatches = existing
                 .Where(label => string.Equals(label.Name, value, StringComparison.CurrentCultureIgnoreCase))
                 .ToList();

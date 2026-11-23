@@ -4524,7 +4524,7 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    private static async Task SetTaskLabelsCoreAsync(SqliteConnection connection, string taskId, IReadOnlyList<LabelItem> labels, CancellationToken cancellationToken, bool localOnly = false)
+    private static async Task SetTaskLabelsCoreAsync(SqliteConnection connection, string taskId, IReadOnlyList<LabelItem> labels, CancellationToken cancellationToken, bool matchByName = true)
     {
         var deleteCommand = connection.CreateCommand();
         deleteCommand.CommandText = "DELETE FROM task_labels WHERE task_id = @task_id";
@@ -4533,7 +4533,7 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
 
         foreach (var label in labels)
         {
-            var labelId = await ResolveAndUpsertLabelCoreAsync(connection, label, cancellationToken, localOnly: localOnly).ConfigureAwait(false);
+            var labelId = await ResolveAndUpsertLabelCoreAsync(connection, label, cancellationToken, matchByName: matchByName).ConfigureAwait(false);
             var command = connection.CreateCommand();
             command.CommandText = "INSERT OR IGNORE INTO task_labels (task_id, label_id) VALUES (@task_id, @label_id)";
             command.Parameters.AddWithValue("@task_id", taskId);
@@ -4547,7 +4547,7 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
         LabelItem label,
         CancellationToken cancellationToken,
         bool preserveExistingId = true,
-        bool localOnly = false)
+        bool matchByName = true)
     {
         if (preserveExistingId)
         {
@@ -4560,7 +4560,7 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
             }
         }
 
-        var existingId = await FindLabelIdByNameAsync(connection, label.Name, cancellationToken, localOnly).ConfigureAwait(false);
+        var existingId = matchByName ? await FindLabelIdByNameAsync(connection, label.Name, cancellationToken).ConfigureAwait(false) : null;
         if (!string.IsNullOrWhiteSpace(existingId) && !string.Equals(existingId, label.Id, StringComparison.Ordinal))
         {
             return existingId;
@@ -4570,11 +4570,10 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
         return label.Id;
     }
 
-    private static async Task<string?> FindLabelIdByNameAsync(SqliteConnection connection, string name, CancellationToken cancellationToken, bool localOnly = false)
+    private static async Task<string?> FindLabelIdByNameAsync(SqliteConnection connection, string name, CancellationToken cancellationToken)
     {
         var command = connection.CreateCommand();
-        command.CommandText = "SELECT id FROM labels WHERE lower(name) = lower(@name)" +
-            (localOnly ? " AND integration_id='openza_tasks'" : string.Empty) + " LIMIT 1";
+        command.CommandText = "SELECT id FROM labels WHERE lower(name) = lower(@name) LIMIT 1";
         command.Parameters.AddWithValue("@name", name.Trim());
         var result = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
         return result as string;

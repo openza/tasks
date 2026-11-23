@@ -19,11 +19,11 @@ A task has at most 32 attached labels, matching the Desktop workspace protocol.
 Category import keeps existing labels and adds categories in snapshot order until
 that limit is reached. Extra categories are skipped and the import is marked
 complete; it does not retry them after a later label removal.
-Incoming cloud attachments retain IDs already known locally, including legacy IDs
-shared with a provider catalog. Unknown IDs reuse a same-name local label before
-creating a new one; names alone never select a provider catalog row. Editing other
-chips preserves existing attachment identities, and category import does not add
-a second label when the task already has that name attached.
+Incoming cloud attachments always retain their exact IDs, including legacy IDs
+shared with a provider catalog. Hydration never remaps an attachment by name.
+Desktop retains existing chips by ID; ambiguous CLI label names require an exact
+ID. Category adoption matches only local labels, never provider-catalog names,
+and does not add a second label when the task already has that name attached.
 
 Category imports never stage unpublished tasks or workspace metadata. Normal
 Personal Cloud sync downloads capabilities and cloud versions first, then includes

@@ -193,7 +193,7 @@ public sealed partial class SqliteTaskStore
                 SourceMetadataJson = source is null ? null : PersonalCloudK0Codec.Serialize(source),
             };
             await UpsertTaskCoreAsync(connection, task, cancellationToken).ConfigureAwait(false);
-            await SetTaskLabelsCoreAsync(connection, id, item.GetProperty("labels").EnumerateArray().Select(l => new LabelItem { Id = WText(l, "id")!, Name = WText(l, "name")!, IntegrationId = IntegrationIds.Local }).ToArray(), cancellationToken, localOnly: true).ConfigureAwait(false);
+            await SetTaskLabelsCoreAsync(connection, id, item.GetProperty("labels").EnumerateArray().Select(l => new LabelItem { Id = WText(l, "id")!, Name = WText(l, "name")!, IntegrationId = IntegrationIds.Local }).ToArray(), cancellationToken, matchByName: false).ConfigureAwait(false);
             await WorkspaceExecuteAsync(connection, "INSERT OR IGNORE INTO personal_cloud_replica_entities(instance_id,product,entity_id) VALUES(@i,'tasks',@e)", cancellationToken, ("@i", instanceId), ("@e", id)).ConfigureAwait(false);
             if (source is not null) await SaveBridgeSourceAsync(connection, instanceId, id, source, cancellationToken).ConfigureAwait(false);
             else await WorkspaceExecuteAsync(connection, "DELETE FROM personal_cloud_provider_sources WHERE instance_id=@i AND task_id=@e", cancellationToken, ("@i", instanceId), ("@e", id)).ConfigureAwait(false);
