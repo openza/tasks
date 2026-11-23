@@ -72,9 +72,10 @@ public sealed partial class PersonalCloudBatchSyncTests
             Id = "provider_rejected_create", IntegrationId = IntegrationIds.Todoist, ProviderConnectionId = "todoist_default",
             ExternalId = "duplicate", ProviderTaskId = "duplicate", Title = "Source title",
             AdoptionState = ProviderSourceAdoptionStates.Adopted, AdoptedTaskId = task.Id,
-            PlannedOn = new DateOnly(2026, 10, 15),
+            PlannedOn = new DateOnly(2026, 10, 15), RecurrenceRule = "FREQ=DAILY",
         };
         await store.UpsertProviderSourceItemAsync(source);
+        Assert.Equal(source.RecurrenceRule, (await store.GetTaskAsync(task.Id))!.EffectiveRecurrenceRule);
         handler.ConflictEntity = task.Id;
         handler.ConflictCode = "source_identity_conflict";
         await (await CreateClientAsync(store, handler)).SyncAsync();
@@ -106,7 +107,13 @@ public sealed partial class PersonalCloudBatchSyncTests
         Assert.True(refreshed.IsCompleted);
         Assert.Equal(new DateOnly(2026, 10, 16), refreshed.PlannedOn);
         Assert.Null(refreshed.SourceIntegrationId);
-        Assert.Null(Assert.Single(await reopened.GetProviderSourceItemsAsync(IntegrationIds.Todoist, includeAdopted: true)).AdoptedTaskId);
+        Assert.Null(refreshed.EffectiveRecurrenceRule);
+        var originalSource = Assert.Single(await reopened.GetProviderSourceItemsAsync(IntegrationIds.Todoist, includeAdopted: true, includeIgnored: true));
+        Assert.Equal(ProviderSourceAdoptionStates.Ignored, originalSource.AdoptionState);
+        Assert.Null(originalSource.AdoptedTaskId);
+        Assert.Equal(source.RecurrenceRule, originalSource.RecurrenceRule);
+        Assert.DoesNotContain(await reopened.GetTasksAsync(new TaskQuery { Kind = TaskListKind.All, IncludeSubtasks = true }),
+            item => item.SourceExternalId == source.ExternalId);
         Assert.False((await actions.SetCompletedAsync(task.Id, false)).IsCompleted);
         Assert.Empty(await reopened.GetPendingCompletionsAsync(IntegrationIds.Todoist));
         Assert.Empty(await reopened.GetPendingTaskDateUpdatesAsync(IntegrationIds.Todoist));
