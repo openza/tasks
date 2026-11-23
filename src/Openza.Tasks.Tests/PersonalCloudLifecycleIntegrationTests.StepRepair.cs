@@ -7,7 +7,7 @@ public sealed partial class PersonalCloudLifecycleIntegrationTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task Step_batch_rechecks_connection_after_repair_between_tasks_or_before_staging(bool pairBeforeSecondTask)
+    public async Task Step_backfill_remains_local_across_pairing_and_normal_sync_publishes_children(bool pairBeforeSecondTask)
     {
         using var f = await Fixture.CreateAsync();
         var original = f.Service.CurrentConnection!;
@@ -23,15 +23,15 @@ public sealed partial class PersonalCloudLifecycleIntegrationTests
         }
         await f.Service.DisconnectAsync();
         f.Tasks.PersonalCloudConnection = () => f.Service.CurrentConnection;
-        await using (var batch = f.Tasks.BeginMicrosoftStepSyncBatch(CancellationToken.None))
         {
-            await batch.UpsertAsync(sources[0]);
+            await f.Tasks.UpsertProviderSourceItemAsync(sources[0]);
             Assert.Empty(await f.Tasks.GetPendingPersonalCloudOutboxAsync(original.InstanceId, original.DeviceId));
             if (pairBeforeSecondTask) await f.Service.PairExistingAsync(Fixture.Origin, "synthetic-pair-code-1234567890", "Paired again", false);
-            await batch.UpsertAsync(sources[1]);
+            await f.Tasks.UpsertProviderSourceItemAsync(sources[1]);
             if (!pairBeforeSecondTask) await f.Service.PairExistingAsync(Fixture.Origin, "synthetic-pair-code-1234567890", "Paired again", false);
-            await batch.StageAsync();
+            Assert.Empty(await f.Tasks.GetPendingPersonalCloudOutboxAsync(original.InstanceId, original.DeviceId));
         }
+        await f.Tasks.StageUnpublishedTasksForPersonalCloudAsync(original.InstanceId, original.DeviceId);
         var outbox = await f.Tasks.GetPendingPersonalCloudOutboxAsync(original.InstanceId, original.DeviceId);
         foreach (var parent in parents)
         {

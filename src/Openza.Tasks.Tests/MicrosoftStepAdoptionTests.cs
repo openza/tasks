@@ -103,6 +103,8 @@ public sealed class MicrosoftStepAdoptionTests : IDisposable
         store.PersonalCloudConnection = () => new() { InstanceId = Instance, DeviceId = Device,
             ServiceOrigin = new("https://example.test"), ArtifactVersion = "test", ConnectedAt = DateTimeOffset.UtcNow };
         var task = await Adopt(store, Source());
+        Assert.Empty(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device));
+        await store.StageUnpublishedTasksForPersonalCloudAsync(Instance, Device);
         var child = (await Children(store, task.Id)).Single(item => item.IsCompleted);
         var entries = (await store.GetPendingPersonalCloudOutboxAsync(Instance, Device)).Where(entry => entry.EntityId == child.Id).ToArray();
         Assert.Equal(workspace ? "task.createRich" : "task.create", entries[0].Operation);
@@ -210,42 +212,20 @@ public sealed class MicrosoftStepAdoptionTests : IDisposable
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task Connected_step_adoption_and_backfill_block_disconnect_before_creating_children(bool backfill)
+    public async Task Connected_step_adoption_and_backfill_are_local_during_connection_changes(bool backfill)
     {
         var store = await StoreAsync();
         var source = Source();
         var parent = backfill ? await Adopt(store, Source("{}")) : null;
         if (!backfill) await store.UpsertProviderSourceItemAsync(source);
-        await store.SavePersonalCloudWorkspaceCapabilitiesAsync(Instance, false, false);
-        store.PersonalCloudConnection = Cloud;
+        store.PersonalCloudConnection = () => throw new InvalidOperationException("Local import must not resolve a cloud target.");
         using (PersonalCloudConnectionLease.AcquireReplacement(store.DatabasePath))
         {
-            var error = await Assert.ThrowsAsync<PersonalCloudK0ContractException>(async () =>
-            {
-                if (backfill) await store.UpsertProviderSourceItemAsync(source);
-                else await store.AdoptProviderSourceItemAsync(source.Id);
-            });
-            Assert.Equal("connection_busy", error.Code);
-            if (parent is not null) Assert.Empty(await Children(store, parent.Id));
-            Assert.Empty(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device));
+            if (backfill) await store.UpsertProviderSourceItemAsync(source);
+            else parent = await store.AdoptProviderSourceItemAsync(source.Id);
         }
-        if (backfill) await store.UpsertProviderSourceItemAsync(source);
-        else parent = await store.AdoptProviderSourceItemAsync(source.Id);
         Assert.Equal(3, (await Children(store, parent!.Id)).Count);
-        Assert.NotEmpty(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device));
-    }
-
-    [Fact]
-    public async Task Cloud_connection_is_rechecked_under_the_lease_before_staging_steps()
-    {
-        var store = await StoreAsync();
-        var reads = 0;
-        store.PersonalCloudConnection = () => ++reads == 1 ? Cloud() : null;
-        var parent = await Adopt(store, Source());
-        Assert.True(reads >= 2);
-        Assert.Equal(3, (await Children(store, parent.Id)).Count);
         Assert.Empty(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device));
-        using var replacement = PersonalCloudConnectionLease.AcquireReplacement(store.DatabasePath);
     }
 
     private static PersonalCloudConnectionProfile Cloud() => new() { InstanceId = Instance, DeviceId = Device,
@@ -261,7 +241,7 @@ public sealed class MicrosoftStepAdoptionTests : IDisposable
     }
 
     [Fact]
-    public async Task Backfill_stages_once_per_sync_batch_and_never_stages_an_unchanged_sync()
+    public async Task Backfill_and_unchanged_sync_never_resolve_a_cloud_target_or_stage()
     {
         var store = await StoreAsync();
         var tasks = new List<TaskItem>();
@@ -278,9 +258,9 @@ public sealed class MicrosoftStepAdoptionTests : IDisposable
         var engine = new TaskSyncEngine(store);
         var provider = new SnapshotProvider(tasks);
         Assert.True((await engine.SyncAsync(provider)).Success);
-        Assert.Equal(2, targetReads);
+        Assert.Equal(0, targetReads);
         Assert.True((await engine.SyncAsync(provider)).Success);
-        Assert.Equal(2, targetReads);
+        Assert.Equal(0, targetReads);
         Assert.Equal(16, (await store.GetTasksAsync(new() { Kind = TaskListKind.All, IncludeSubtasks = true })).Count);
     }
 

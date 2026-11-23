@@ -14,12 +14,9 @@ public sealed class TaskSyncEngine(ITaskStore store)
             var dateUpdatesSynced = await SyncPendingTaskDateUpdatesAsync(provider, cancellationToken).ConfigureAwait(false);
             var completionsSynced = await SyncPendingCompletionsAsync(provider, cancellationToken).ConfigureAwait(false);
             var snapshot = await provider.FetchSnapshotAsync(cancellationToken).ConfigureAwait(false);
-            await using var stepBatch = provider.IntegrationId == IntegrationIds.MicrosoftToDo && store is SqliteTaskStore sqlite
-                ? sqlite.BeginMicrosoftStepSyncBatch(cancellationToken) : null;
             async Task SaveSourceAsync(ProviderSourceItem source)
             {
-                if (stepBatch is null) await store.UpsertProviderSourceItemAsync(source, cancellationToken).ConfigureAwait(false);
-                else await stepBatch.UpsertAsync(source).ConfigureAwait(false);
+                await store.UpsertProviderSourceItemAsync(source, cancellationToken).ConfigureAwait(false);
             }
             var providerConnectionId = provider.ProviderConnectionId;
             var existing = await store.GetProviderSourceItemsAsync(provider.IntegrationId, includeAdopted: true, includeIgnored: true, cancellationToken: cancellationToken).ConfigureAwait(false);
@@ -118,7 +115,6 @@ public sealed class TaskSyncEngine(ITaskStore store)
             }
 
             await store.UpdateIntegrationSyncAsync(provider.IntegrationId, DateTimeOffset.UtcNow, snapshot.SyncToken, cancellationToken).ConfigureAwait(false);
-            if (stepBatch is not null) await stepBatch.StageAsync().ConfigureAwait(false);
             return new SyncSummary(
                 provider.IntegrationId,
                 true,

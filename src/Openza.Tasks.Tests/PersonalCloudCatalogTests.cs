@@ -191,6 +191,7 @@ public sealed class PersonalCloudCatalogTests : IDisposable
                 ServiceOrigin = new("https://example.test"), ArtifactVersion = "test", ConnectedAt = DateTimeOffset.UtcNow };
             await store.UpsertProviderSourceItemAsync(source with { SnapshotJson = checklist });
         }
+        await store.StageUnpublishedTasksForPersonalCloudAsync(Instance, Device);
         var children = await store.GetTasksAsync(new() { ParentId = parent.Id, IncludeSubtasks = true });
         Assert.Equal(new[] { "First step", "Done step" }, children.Select(child => child.Title));
         Assert.True(children[1].IsCompleted);

@@ -259,8 +259,6 @@ public sealed partial class SqliteTaskStore
             if (steps.Metadata is not null) task = task with { SourceMetadataJson = steps.Metadata };
             await UpsertProviderSourceItemCoreAsync(connection, source with { AdoptionState = ProviderSourceAdoptionStates.Adopted, AdoptedTaskId = task.Id }, cancellationToken).ConfigureAwait(false);
             await AppendRichTaskAsync(connection, task, instanceId, deviceId, descriptor, cancellationToken).ConfigureAwait(false);
-            foreach (var child in steps.Children)
-                await AppendRichTaskAsync(connection, child, instanceId, deviceId, null, cancellationToken).ConfigureAwait(false);
         }
         else if (action is "skip" or "restore")
             await UpsertProviderSourceItemCoreAsync(connection, source with { AdoptionState = action == "skip" ? ProviderSourceAdoptionStates.Ignored : ProviderSourceAdoptionStates.NotAdopted }, cancellationToken).ConfigureAwait(false);
