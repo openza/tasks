@@ -85,13 +85,11 @@ public sealed partial class SqliteTaskStore
     private sealed class MicrosoftCategoryAuthoring(SqliteTaskStore store) : IDisposable
     {
         private PersonalCloudConnectionLease? lease;
-        private bool resolved;
         public PersonalCloudConnectionProfile? Cloud { get; private set; }
 
         public void Acquire()
         {
-            if (resolved) return;
-            resolved = true;
+            if (lease is not null) return;
             if (store.PersonalCloudConnection?.Invoke() is null) return;
             lease = PersonalCloudConnectionLease.AcquireAuthoring(store.DatabasePath);
             Cloud = store.PersonalCloudConnection?.Invoke();
