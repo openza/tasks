@@ -258,6 +258,9 @@ public sealed partial class PersonalCloudBatchSyncTests : IDisposable
         public string? CapabilityOverride { get; set; }
         public HttpStatusCode? RouteStatus { get; set; }
         public string? PartialFailure { get; set; }
+        public string ConflictCode { get; set; } = "version_conflict";
+        public string? ConflictOperation { get; set; }
+        public bool ConflictRetryable { get; set; }
         public string? SingleError { get; set; }
         public string? ConflictEntity { get; set; }
         public string? ChangePageJson { get; set; }
@@ -333,8 +336,8 @@ public sealed partial class PersonalCloudBatchSyncTests : IDisposable
                 if (FanoutRejections-- > 0) return Json(HttpStatusCode.Conflict,
                     """{"protocolVersion":1,"product":"tasks","error":{"code":"fanout_bound_exceeded","message":"Synthetic","retryable":true,"requestId":"request_synthetic"}}""");
                 if (SingleError is { } code) return Json(HttpStatusCode.Conflict, JsonSerializer.Serialize(new { error = new { code } }));
-                if (document.RootElement.GetProperty("entityId").GetString() == ConflictEntity)
-                    return Json(HttpStatusCode.Conflict, """{"error":{"code":"version_conflict"}}""");
+                if (Rejects(document.RootElement))
+                    return Json(HttpStatusCode.Conflict, JsonSerializer.Serialize(new { error = new { code = ConflictCode, retryable = ConflictRetryable } }));
                 return Json(HttpStatusCode.Created, JsonSerializer.Serialize(Accept(document.RootElement)));
             }
             BatchPosts++;
@@ -351,8 +354,8 @@ public sealed partial class PersonalCloudBatchSyncTests : IDisposable
                 Assert.Equal(mutations[index - 1].GetProperty("deviceSequence").GetInt64() + 1, mutations[index].GetProperty("deviceSequence").GetInt64());
             var failure = PartialFailure;
             var acceptCount = failure is null ? mutations.Length : 1;
-            var conflictIndex = Array.FindIndex(mutations, m => m.GetProperty("entityId").GetString() == ConflictEntity);
-            if (conflictIndex >= 0) { failure = "version_conflict"; acceptCount = conflictIndex; }
+            var conflictIndex = Array.FindIndex(mutations, Rejects);
+            if (conflictIndex >= 0) { failure = ConflictCode; acceptCount = conflictIndex; }
             var receipts = mutations.Take(acceptCount).Select(Accept).ToList();
             if (LoseResponse) throw new HttpRequestException("Synthetic lost response after durable commit");
             if (ResponseDefect == "order") receipts.Reverse();
@@ -371,7 +374,7 @@ public sealed partial class PersonalCloudBatchSyncTests : IDisposable
                 ["stoppedAt"] = failure is not null ? receipts.Count : ResponseDefect == "stopped" ? 0 : null,
                 ["error"] = failure is null ? null : new Dictionary<string, object?>
                 {
-                    ["code"] = failure, ["message"] = "Synthetic", ["retryable"] = failure is "sync_failed" or "daily_quota_exceeded", ["requestId"] = "request_synthetic",
+                    ["code"] = failure, ["message"] = "Synthetic", ["retryable"] = conflictIndex >= 0 ? ConflictRetryable : failure is "sync_failed" or "daily_quota_exceeded", ["requestId"] = "request_synthetic",
                 },
             };
             if (PartialFailure == "daily_quota_exceeded")
@@ -380,6 +383,9 @@ public sealed partial class PersonalCloudBatchSyncTests : IDisposable
             if (ResponseDefect == "unknown") result["extra"] = 1;
             return Json(HttpStatusCode.OK, JsonSerializer.Serialize(result));
         }
+
+        private bool Rejects(JsonElement mutation) => mutation.GetProperty("entityId").GetString() == ConflictEntity &&
+            (ConflictOperation is null || mutation.GetProperty("operation").GetString() == ConflictOperation);
 
         private object Accept(JsonElement mutation)
         {
