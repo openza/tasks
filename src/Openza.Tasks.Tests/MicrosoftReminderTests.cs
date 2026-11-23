@@ -51,6 +51,7 @@ public sealed class MicrosoftReminderTests : IDisposable
     [InlineData("America/Los_Angeles", "2027-07-01T16:30:00Z", "2027-07-01T16:30:00Z")]
     [InlineData("Pacific Standard Time", "2027-07-01T09:30:00-07:00", "2027-07-01T16:30:00Z")]
     [InlineData("UTC", "2027-07-01T16:30:00.1234567", "2027-07-01T16:30:00.123Z")]
+    [InlineData("UTC", "5138-11-16T09:46:40", "5138-11-16T09:46:40Z")]
     public async Task On_import_converts_windows_and_iana_zones_to_an_instant(string zone, string date, string expected)
     {
         var task = await Adopt(await Store(), Reminder(zone: zone, date: date));
@@ -112,6 +113,49 @@ public sealed class MicrosoftReminderTests : IDisposable
             Assert.Contains("unknown time zone", writer.ToString());
         }
         finally { Trace.Listeners.Remove(listener); }
+    }
+
+    [Theory]
+    [InlineData(false, false, "5200-07-01T09:30:00")]
+    [InlineData(false, true, "5200-07-01T09:30:00")]
+    [InlineData(true, false, "5200-07-01T09:30:00")]
+    [InlineData(true, true, "5200-07-01T09:30:00")]
+    [InlineData(false, false, "5138-11-16T09:46:40.001")]
+    [InlineData(false, true, "5138-11-16T09:46:40.001")]
+    [InlineData(true, false, "5138-11-16T09:46:40.001")]
+    [InlineData(true, true, "5138-11-16T09:46:40.001")]
+    public async Task Out_of_range_import_is_logged_marked_and_allows_combined_cloud_save(bool workspace, bool backfill, string date)
+    {
+        var store = await Store();
+        if (workspace) await store.SavePersonalCloudWorkspaceCapabilitiesAsync(Instance, true, true);
+        var task = backfill ? await Adopt(store, "{}") : null;
+        using var writer = new StringWriter();
+        using var listener = new TextWriterTraceListener(writer);
+        Trace.Listeners.Add(listener);
+        try
+        {
+            await store.UpsertProviderSourceItemAsync(Source(Reminder(date: date)));
+            task = task is null ? await store.AdoptProviderSourceItemAsync(Source("").Id) : await store.GetTaskAsync(task.Id);
+            Assert.NotNull(task);
+            Assert.Null(task.ReminderAt);
+            Applied(task, true);
+            listener.Flush();
+            Assert.Contains("instant outside the supported range", writer.ToString());
+        }
+        finally { Trace.Listeners.Remove(listener); }
+
+        await store.UpsertProviderSourceItemAsync(Source(Reminder()));
+        Assert.Null((await store.GetTaskAsync(task.Id))!.ReminderAt);
+        var service = new TaskApplicationService(store, () => new() { InstanceId = Instance, DeviceId = Device,
+            ServiceOrigin = new Uri("https://synthetic.invalid"), ArtifactVersion = "test", ConnectedAt = DateTimeOffset.UtcNow });
+        var updated = await service.UpdateTaskAsync(new()
+        {
+            TaskId = task.Id, Notes = OptionalValue<string?>.Set("Clearing with notes"),
+            ReminderAt = OptionalValue<DateTimeOffset?>.Set(null),
+        });
+        Assert.Null(updated.ReminderAt);
+        Assert.Equal("Clearing with notes", updated.Notes);
+        Applied(updated, true);
     }
 
     [Theory]
@@ -413,6 +457,33 @@ public sealed class MicrosoftReminderTests : IDisposable
             TaskId = task.Id, ReminderAt = OptionalValue<DateTimeOffset?>.Set(DateTimeOffset.MinValue),
         });
         Assert.Equal(DateTimeOffset.MinValue, minimum.ReminderAt);
+    }
+
+    [Fact]
+    public async Task Store_rejects_out_of_range_reminders_on_all_write_paths()
+    {
+        var store = await Store();
+        var task = await Adopt(store, Reminder());
+        var before = JsonSerializer.Serialize(task);
+        foreach (var invalid in new[] { DateTimeOffset.FromUnixTimeSeconds(100_000_000_000).AddMilliseconds(1), DateTimeOffset.Parse("5200-07-01T09:30:00Z") })
+        {
+            await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => store.TrySetTaskReminderAsync(task.Id, invalid));
+            await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => store.TryReplaceTaskReminderAsync(task.Id, Instant, invalid));
+            await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => store.UpsertTaskAsync(task with
+            {
+                ReminderAt = invalid, Notes = "Must not be saved",
+            }));
+            await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => store.UpsertTaskAsync(task with
+            {
+                Id = "task_invalid_reminder", ReminderAt = invalid,
+            }));
+            Assert.Equal(before, JsonSerializer.Serialize(await store.GetTaskAsync(task.Id)));
+            Assert.Single(await store.GetTasksAsync(new() { Kind = TaskListKind.All }));
+        }
+        Assert.True(await store.TrySetTaskReminderAsync(task.Id, null));
+        var maximum = DateTimeOffset.FromUnixTimeSeconds(100_000_000_000);
+        Assert.True(await store.TryReplaceTaskReminderAsync(task.Id, null, maximum));
+        Assert.Equal(maximum, (await store.GetTaskAsync(task.Id))!.ReminderAt);
     }
 
     [Theory]

@@ -4557,7 +4557,7 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
         command.Parameters.AddWithValue("@updated_at", ToDbValue(task.UpdatedAt));
         command.Parameters.AddWithValue("@completed_at", ToDbValue(task.CompletedAt));
         command.Parameters.AddWithValue("@revision", task.Revision);
-        command.Parameters.AddWithValue("@reminder_at", ToDbTaskInstant(task.ReminderAt));
+        command.Parameters.AddWithValue("@reminder_at", ToDbReminderInstant(task.ReminderAt));
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 

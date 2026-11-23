@@ -21,6 +21,8 @@ reminders are converted to UTC using their IANA or Windows time zone. Explicitly
 disabled reminders mark the import complete without setting a reminder. Cached
 snapshots without reminder fields, malformed dates and unknown zones leave the
 import pending for a later fetch; unknown zones are logged and skipped.
+Reminder instants outside the supported storage range are logged and skipped,
+with the import marked complete because retrying cannot make them representable.
 
 Previously adopted tasks are backfilled once, without replacing an existing local
 reminder. The independent `msToDoReminderApplied` marker survives provider refresh,

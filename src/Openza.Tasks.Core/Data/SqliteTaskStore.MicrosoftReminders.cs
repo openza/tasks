@@ -15,7 +15,7 @@ public sealed partial class SqliteTaskStore
         var command = connection.CreateCommand();
         command.CommandText = "UPDATE tasks SET reminder_at=@r,revision=revision+1 WHERE id=@id AND (@v IS NULL OR revision=@v)";
         command.Parameters.AddWithValue("@id", taskId);
-        command.Parameters.AddWithValue("@r", ToDbTaskInstant(reminderAt?.ToUniversalTime()));
+        command.Parameters.AddWithValue("@r", ToDbReminderInstant(reminderAt));
         command.Parameters.AddWithValue("@v", expectedRevision is { } revision ? revision : DBNull.Value);
         return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) == 1;
     }
@@ -27,7 +27,7 @@ public sealed partial class SqliteTaskStore
         var command = connection.CreateCommand();
         command.CommandText = "UPDATE tasks SET reminder_at=@r,revision=revision+1 WHERE id=@id AND reminder_at IS @expected";
         command.Parameters.AddWithValue("@id", taskId);
-        command.Parameters.AddWithValue("@r", ToDbTaskInstant(reminderAt?.ToUniversalTime()));
+        command.Parameters.AddWithValue("@r", ToDbReminderInstant(reminderAt));
         command.Parameters.AddWithValue("@expected", ToDbTaskInstant(expectedReminderAt));
         return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) == 1;
     }
@@ -69,14 +69,21 @@ public sealed partial class SqliteTaskStore
                 System.Diagnostics.Trace.TraceWarning("Microsoft To Do reminder skipped: invalid time zone.");
                 return;
             }
+            if (!ReminderValues.IsInRange(at))
+            {
+                System.Diagnostics.Trace.TraceWarning("Microsoft To Do reminder skipped: instant outside the supported range.");
+                at = null;
+            }
         }
         await WorkspaceExecuteAsync(connection, """
             UPDATE tasks SET reminder_at=COALESCE(reminder_at,@r),
                 source_metadata=json_set(COALESCE(source_metadata,'{}'),'$.msToDoReminderApplied',json('true')),
                 revision=revision+1
             WHERE id=@id AND COALESCE(json_extract(source_metadata,'$.msToDoReminderApplied'),0)=0
-            """, cancellationToken, ("@id", taskId), ("@r", ToDbTaskInstant(at))).ConfigureAwait(false);
+            """, cancellationToken, ("@id", taskId), ("@r", ToDbReminderInstant(at))).ConfigureAwait(false);
     }
+
+    private static object ToDbReminderInstant(DateTimeOffset? value) => ToDbTaskInstant(ReminderValues.Validate(value));
 
     private static async Task<TaskItem> RetainDeviceReminderAsync(SqliteConnection connection, TaskItem task,
         bool retainValue, CancellationToken cancellationToken)

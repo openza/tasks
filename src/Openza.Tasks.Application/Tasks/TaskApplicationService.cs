@@ -60,7 +60,7 @@ public sealed class TaskApplicationService(
             Priority = ValidatePriority(request.Priority),
             PlannedOn = request.PlannedOn,
             DeadlineOn = request.DeadlineOn,
-            ReminderAt = ValidateReminder(request.ReminderAt),
+            ReminderAt = ReminderValues.Validate(request.ReminderAt),
             CreatedAt = now,
             UpdatedAt = now,
             Labels = await ResolveLabelsAsync(request.Labels, cancellationToken).ConfigureAwait(false),
@@ -134,7 +134,7 @@ public sealed class TaskApplicationService(
     private async Task<TaskItem> UpdateTaskCoreAsync(UpdateTaskRequest request, TaskItem original,
         PersonalCloudConnectionProfile? cloudTarget, CancellationToken cancellationToken)
     {
-        var reminderAt = request.ReminderAt.IsSpecified ? ValidateReminder(request.ReminderAt.Value) : original.ReminderAt;
+        var reminderAt = request.ReminderAt.IsSpecified ? ReminderValues.Validate(request.ReminderAt.Value) : original.ReminderAt;
         var expectedRevision = request.ExpectedRevision ?? original.Revision;
         var targetSpace = request.Space.IsSpecified
             ? await ResolveSpaceAsync(request.Space.Value, cancellationToken).ConfigureAwait(false)
@@ -467,14 +467,6 @@ public sealed class TaskApplicationService(
         request.Title.IsSpecified || request.Status.IsSpecified || request.Priority.IsSpecified ||
         request.PlannedOn.IsSpecified || request.Notes.IsSpecified || request.DeadlineOn.IsSpecified ||
         request.Completed.IsSpecified || request.Space.IsSpecified || request.Project.IsSpecified || request.Labels.IsSpecified;
-
-    private static DateTimeOffset? ValidateReminder(DateTimeOffset? value)
-    {
-        var maximum = DateTimeOffset.FromUnixTimeSeconds(100_000_000_000);
-        if (value > maximum)
-            throw new ArgumentOutOfRangeException(nameof(value), "Reminder must be on or before 5138-11-16 09:46:40 UTC.");
-        return value?.ToUniversalTime();
-    }
 
     private PersonalCloudConnectionProfile? PersonalCloudTarget() => personalCloudConnection?.Invoke();
 
