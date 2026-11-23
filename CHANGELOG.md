@@ -4,6 +4,9 @@ All notable changes to Openza Tasks will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+- Microsoft To Do categories become local labels on adoption, retaining category colors and existing local labels. Previously adopted tasks receive categories once on their next sync; later provider changes do not overwrite user label edits. Microsoft list and category catalogs now follow all Graph pages.
+
 ## [1.4.0] - 2026-11-22
 
 ### Added

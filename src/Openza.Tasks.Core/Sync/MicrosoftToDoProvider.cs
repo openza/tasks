@@ -43,14 +43,8 @@ public sealed class MicrosoftToDoProvider(HttpClient httpClient, string accessTo
 
     private async Task<IReadOnlyList<ProjectItem>> FetchListsAsync(CancellationToken cancellationToken)
     {
-        using var request = CreateRequest(HttpMethod.Get, "/me/todo/lists");
-        using var document = await SendJsonAsync(request, cancellationToken).ConfigureAwait(false);
-        if (!document.RootElement.TryGetProperty("value", out var value))
-        {
-            return [];
-        }
-
-        return value.EnumerateArray().Select(list =>
+        var lists = await FetchCollectionAsync("/me/todo/lists", cancellationToken).ConfigureAwait(false);
+        return lists.Select(list =>
         {
             var id = GetString(list, "id") ?? Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture);
             var wellKnown = GetString(list, "wellknownListName");
@@ -73,14 +67,8 @@ public sealed class MicrosoftToDoProvider(HttpClient httpClient, string accessTo
     {
         try
         {
-            using var request = CreateRequest(HttpMethod.Get, "/me/outlook/masterCategories");
-            using var document = await SendJsonAsync(request, cancellationToken).ConfigureAwait(false);
-            if (!document.RootElement.TryGetProperty("value", out var value))
-            {
-                return [];
-            }
-
-            return value.EnumerateArray()
+            var categories = await FetchCollectionAsync("/me/outlook/masterCategories", cancellationToken).ConfigureAwait(false);
+            return categories
                 .Select(category =>
                 {
                     var name = GetString(category, "displayName") ?? "Category";
@@ -98,10 +86,27 @@ public sealed class MicrosoftToDoProvider(HttpClient httpClient, string accessTo
                 })
                 .ToList();
         }
-        catch
+        catch (Exception exception) when (exception is not OperationCanceledException)
         {
             return [];
         }
+    }
+
+    private async Task<IReadOnlyList<JsonElement>> FetchCollectionAsync(string path, CancellationToken cancellationToken)
+    {
+        var items = new List<JsonElement>();
+        string? nextPath = path;
+        while (nextPath is not null)
+        {
+            using var request = CreateRequest(HttpMethod.Get, nextPath);
+            using var document = await SendJsonAsync(request, cancellationToken).ConfigureAwait(false);
+            if (document.RootElement.TryGetProperty("value", out var values))
+                items.AddRange(values.EnumerateArray().Select(value => value.Clone()));
+            nextPath = document.RootElement.TryGetProperty("@odata.nextLink", out var next)
+                ? next.GetString()?.Replace(BaseUrl, string.Empty, StringComparison.Ordinal)
+                : null;
+        }
+        return items;
     }
 
     private async Task<IReadOnlyList<TaskItem>> FetchTasksAsync(string listId, IReadOnlyDictionary<string, LabelItem> categories, CancellationToken cancellationToken)
@@ -158,7 +163,8 @@ public sealed class MicrosoftToDoProvider(HttpClient httpClient, string accessTo
             Labels = MapCategories(task, categories, providerConnectionId),
             ProviderMetadataJson = JsonSerializer.Serialize(new
             {
-                msToDo = new { id, listId, synced_at = DateTimeOffset.UtcNow },
+                msToDo = new { id, listId, categories = MapCategories(task, categories, providerConnectionId)
+                    .Select(label => new { name = label.Name, color = label.Color }), synced_at = DateTimeOffset.UtcNow },
             }),
         };
     }

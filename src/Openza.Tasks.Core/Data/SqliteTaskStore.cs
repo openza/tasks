@@ -542,7 +542,13 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
                 cancellationToken).ConfigureAwait(false);
         }
 
+        if (source.IntegrationId == IntegrationIds.MicrosoftToDo && source.AdoptedTaskId is { } taskId)
+        {
+            var task = (await ReadTasksAsync(connection, cancellationToken).ConfigureAwait(false)).Single(item => item.Id == taskId);
+            await ApplyMicrosoftCategoriesAsync(connection, source, task, cancellationToken).ConfigureAwait(false);
+        }
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        await StageMicrosoftCategoryTaskAsync(source, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task DetachProviderSourceItemAsync(string sourceItemId, CancellationToken cancellationToken = default)
@@ -643,7 +649,9 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
             UpdatedAt = now,
         };
         await UpsertProviderSourceItemCoreAsync(connection, adopted, cancellationToken).ConfigureAwait(false);
+        task = await ApplyMicrosoftCategoriesAsync(connection, source, task, cancellationToken).ConfigureAwait(false);
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        await StageMicrosoftCategoryTaskAsync(adopted, cancellationToken).ConfigureAwait(false);
         return task;
     }
 
@@ -3183,7 +3191,8 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
                     SET source_integration_id = @integration_id,
                         source_url = @source_url,
                         source_description = @source_description,
-                        source_metadata = @source_metadata,
+                        source_metadata = CASE WHEN json_extract(source_metadata, '$.msToDoCategoriesApplied') = 1
+                            THEN json_set(@source_metadata, '$.msToDoCategoriesApplied', json('true')) ELSE @source_metadata END,
                         updated_at = @updated_at
                     WHERE id = @id
                       AND (source_integration_id IS NULL OR source_integration_id = @integration_id)
@@ -4221,7 +4230,8 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
                 source_external_id = @source_external_id,
                 source_provider_task_id = @source_provider_task_id,
                 source_url = @source_url,
-                source_metadata = @source_metadata,
+                source_metadata = CASE WHEN json_extract(source_metadata, '$.msToDoCategoriesApplied') = 1
+                    THEN json_set(@source_metadata, '$.msToDoCategoriesApplied', json('true')) ELSE @source_metadata END,
                 planned_on = CASE
                     WHEN @sync_planned_date = 1 AND NOT EXISTS (SELECT 1 FROM pending_task_date_updates WHERE task_id = @task_id) THEN @planned_on
                     ELSE planned_on
@@ -4442,7 +4452,8 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
                 recurrence_rule = excluded.recurrence_rule,
                 notes = excluded.notes,
                 provider_metadata = excluded.provider_metadata,
-                source_metadata = excluded.source_metadata,
+                source_metadata = CASE WHEN json_extract(tasks.source_metadata, '$.msToDoCategoriesApplied') = 1
+                    THEN json_set(COALESCE(excluded.source_metadata, '{}'), '$.msToDoCategoriesApplied', json('true')) ELSE excluded.source_metadata END,
                 local_metadata = excluded.local_metadata,
                 updated_at = excluded.updated_at,
                 completed_at = excluded.completed_at,

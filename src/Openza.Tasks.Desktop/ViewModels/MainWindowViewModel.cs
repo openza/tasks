@@ -136,6 +136,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 else Avalonia.Threading.Dispatcher.UIThread.Post(() => ApplyInitialSyncProgress(progress));
             };
         _taskService = new TaskApplicationService(store, () => _personalCloudSetup?.CurrentConnection);
+        if (store is Openza.Tasks.Core.Data.SqliteTaskStore categoryStore)
+            categoryStore.PersonalCloudConnection = () => _personalCloudSetup?.CurrentConnection;
         _credentials = _continuitySession?.AppCredentials ?? credentials;
         _microsoftAuth = microsoftAuth ?? new DesktopMicrosoftAuthService(_credentials);
         _microsoftSyncProviderFactory = microsoftSyncProviderFactory ?? (token => new MicrosoftToDoProvider(_httpClient, token));
