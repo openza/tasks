@@ -732,7 +732,7 @@ public sealed partial class DesktopControlBehaviorTests(EditorTestSession fixtur
         Assert.True(await condition(), diagnostics?.Invoke() ?? "Expected persisted control state was not reached.");
     }
 
-    private Task Run(Func<Context, Task> action) => fixture.Session.Dispatch(async () =>
+    private Task Run(Func<Context, Task> action, double windowWidth = 1440) => fixture.Session.Dispatch(async () =>
     {
         var directory = Path.Combine(Path.GetTempPath(), "openza-controls", Guid.NewGuid().ToString("N"));
         var store = new SqliteTaskStore(Path.Combine(directory, "tasks.db"));
@@ -745,7 +745,7 @@ public sealed partial class DesktopControlBehaviorTests(EditorTestSession fixtur
         await preferences.SaveAsync(new() { AutomaticSyncEnabled = false, AutomaticRestorePointsEnabled = false, ShowGetStarted = false });
         var vm = new MainWindowViewModel(store, new InMemoryCredentialStore(), preferencesStore: preferences);
         // Headless has no OS theme; resolve theme brushes before rendering/hit testing.
-        var window = new MainWindow(vm) { Width = 1440, Height = 900, WindowState = WindowState.Normal,
+        var window = new MainWindow(vm) { Width = windowWidth, Height = 900, WindowState = WindowState.Normal,
             RequestedThemeVariant = Avalonia.Styling.ThemeVariant.Light };
         try
         {

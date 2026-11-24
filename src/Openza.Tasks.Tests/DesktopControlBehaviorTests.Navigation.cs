@@ -1,3 +1,4 @@
+using Avalonia;
 using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Headless;
@@ -247,6 +248,80 @@ public sealed partial class DesktopControlBehaviorTests
         context.Window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
         await Until(() => context.Vm.SelectedTask?.Task.Id == task.Id);
     });
+
+    [Fact]
+    public Task Pointer_completion_after_dirty_title_save_completes_in_one_click() => Run(async context =>
+    {
+        context.Window.UpdateLayout();
+        await Until(() => context.Window.Bounds.Width >= 2000);
+
+        var existing = (await context.Store.GetTaskAsync("task-0"))!;
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        var task = existing with
+        {
+            Title = "Focus task",
+            ParentId = null,
+            PlannedOn = today,
+            CompletionState = TaskCompletionState.Open,
+        };
+        await context.Store.UpsertTaskAsync(task);
+        var yesterdayTask = existing with
+        {
+            Id = "calendar-yesterday",
+            Title = "Yesterday only task",
+            ParentId = null,
+            PlannedOn = today.AddDays(-1),
+            CompletionState = TaskCompletionState.Open,
+        };
+        await context.Store.UpsertTaskAsync(yesterdayTask);
+        await context.Vm.SelectNavigationAsync(context.Vm.NavigationItems.Single(item => item.Kind == TaskListKind.Calendar));
+        context.Vm.SearchText = "Yesterday";
+        await context.Vm.ApplySearchAsync();
+        Assert.Contains(context.Vm.Tasks, item => item.Task.Id == yesterdayTask.Id);
+        Assert.DoesNotContain(context.Vm.Tasks, item => item.Task.Id == task.Id);
+        context.Vm.SetCalendarDayView(true);
+        context.Vm.ToggleCalendarTodayPanel();
+        context.Vm.CalendarDay.TodaySearchText = "Focus";
+        context.Window.UpdateLayout();
+
+        var todayTask = Assert.Single(context.Vm.CalendarDay.FilteredTodayTasks, item => item.Task.Id == task.Id);
+        await context.Vm.SelectTaskAsync(todayTask);
+        await Until(() => context.Vm.SelectedTask?.Task.Id == task.Id && !context.Vm.IsUpdatingDetails && !context.Vm.IsBusy);
+        var title = context.Window.GetVisualDescendants().OfType<TextBox>()
+            .Single(box => AutomationProperties.GetName(box) == "Task title");
+        Assert.True(title.Focus());
+        title.Text = "Focus saved after canceled click";
+
+        var completion = context.Window.GetVisualDescendants().OfType<CheckBox>()
+            .Single(box => box.DataContext is TaskListItemViewModel item && item.Task.Id == task.Id);
+        var point = completion.TranslatePoint(new Point(completion.Bounds.Width / 2, completion.Bounds.Height / 2), context.Window)!.Value;
+        var hit = context.Window.InputHitTest(point) as Visual;
+        Assert.True(hit == completion || hit?.GetVisualAncestors().Contains(completion) == true,
+            $"Pointer at {point} missed Today completion checkbox ({completion.Bounds}); hit {hit?.GetType().Name}.");
+        context.Window.MouseMove(new Point(1, 1));
+        context.Window.MouseMove(point);
+        context.Window.MouseDown(point, MouseButton.Left);
+        context.Window.MouseMove(new Point(1, 1));
+        context.Window.MouseUp(new Point(1, 1), MouseButton.Left);
+        await UntilAsync(async () =>
+        {
+            var saved = await context.Store.GetTaskAsync(task.Id);
+            return saved?.Title == "Focus saved after canceled click" && !saved.IsCompleted;
+        });
+
+        title = context.Window.GetVisualDescendants().OfType<TextBox>()
+            .Single(box => AutomationProperties.GetName(box) == "Task title");
+        Assert.True(title.Focus());
+        title.Text = "Focus completed after one click";
+        completion = context.Window.GetVisualDescendants().OfType<CheckBox>()
+            .Single(box => box.DataContext is TaskListItemViewModel item && item.Task.Id == task.Id);
+        await PointerClick(context.Window, () => completion, rightInset: 14);
+        await UntilAsync(async () =>
+        {
+            var saved = await context.Store.GetTaskAsync(task.Id);
+            return saved?.Title == "Focus completed after one click" && saved.IsCompleted;
+        });
+    }, windowWidth: 2000);
 
     [Theory]
     [InlineData(false, false)]

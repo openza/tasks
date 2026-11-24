@@ -15,6 +15,7 @@ using Openza.Tasks.Desktop.Connected;
 using Openza.Tasks.Desktop.Services;
 using Openza.Tasks.Desktop.Settings;
 using Openza.Tasks.Desktop.ViewModels;
+using Openza.Tasks.Desktop.Views;
 
 namespace Openza.Tasks.Desktop.Shell;
 
@@ -28,6 +29,8 @@ public sealed partial class MainWindow : Window
     private NavigationItemViewModel? _suppressedNavigationItem;
     private NavigationItemViewModel? _pendingNavigationItem;
     private bool _changingTaskSelection;
+    private bool _calendarTodayCompletionPointerPending;
+    private bool _calendarTodayCompletionAutosavePending;
     private readonly SemaphoreSlim _taskSelectionGate = new(1, 1);
     private bool _connectedPaneOpen;
     private bool _navigationCollapsed;
@@ -77,6 +80,8 @@ public sealed partial class MainWindow : Window
         ViewModel.PropertyChanged += OnViewModelPropertyChanged;
         CalendarDayView.TodayTaskSelected += OnCalendarTodayTaskSelected;
         CalendarDayView.TodayTaskCompletionRequested += OnCalendarTodayTaskCompletionRequested;
+        AddHandler(InputElement.PointerPressedEvent, OnPointerPressed, RoutingStrategies.Tunnel);
+        AddHandler(InputElement.PointerReleasedEvent, OnPointerReleased, RoutingStrategies.Bubble, handledEventsToo: true);
         _automaticSyncTimer.Tick += OnAutomaticSyncTick;
         _statusHideTimer.Tick += OnStatusHideTick;
         _taskSearchTimer.Tick += OnTaskSearchTick;
@@ -197,6 +202,8 @@ public sealed partial class MainWindow : Window
         _calendarClockTimer.Stop();
         _calendarClockTimer.Tick -= OnCalendarClockTick;
         ViewModel.PropertyChanged -= OnViewModelPropertyChanged;
+        RemoveHandler(InputElement.PointerPressedEvent, OnPointerPressed);
+        RemoveHandler(InputElement.PointerReleasedEvent, OnPointerReleased);
     }
 
     private async void OnClosing(object? sender, WindowClosingEventArgs e)
@@ -386,6 +393,8 @@ public sealed partial class MainWindow : Window
 
     private async Task<bool> OnCalendarTodayTaskCompletionRequested(TaskListItemViewModel task)
     {
+        _calendarTodayCompletionPointerPending = false;
+        _calendarTodayCompletionAutosavePending = false;
         if (_taskCompletionInProgress) return task.Task.IsCompleted;
         _taskCompletionInProgress = true;
         try
@@ -1388,6 +1397,12 @@ public sealed partial class MainWindow : Window
 
     private void OnDetailEditorLostFocus(object? sender, RoutedEventArgs e)
     {
+        if (_calendarTodayCompletionPointerPending)
+        {
+            _calendarTodayCompletionAutosavePending = true;
+            return;
+        }
+
         if (_initialized && ViewModel.HasSelectedTask && !ViewModel.IsUpdatingDetails)
         {
             var taskId = ViewModel.SelectedTask!.Task.Id;
@@ -1402,6 +1417,28 @@ public sealed partial class MainWindow : Window
                 }
             }, DispatcherPriority.Background);
         }
+    }
+
+    private void OnPointerPressed(object? sender, PointerEventArgs e)
+    {
+        _calendarTodayCompletionPointerPending = IsCalendarTodayCompletionTarget(e.Source);
+    }
+
+    private async void OnPointerReleased(object? sender, PointerEventArgs e)
+    {
+        var saveAfterCancelledClick = _calendarTodayCompletionPointerPending && _calendarTodayCompletionAutosavePending;
+        _calendarTodayCompletionPointerPending = false;
+        _calendarTodayCompletionAutosavePending = false;
+        if (saveAfterCancelledClick && _initialized && ViewModel.HasSelectedTask && !ViewModel.IsUpdatingDetails)
+        {
+            await ViewModel.SaveSelectedAsync();
+        }
+    }
+
+    private static bool IsCalendarTodayCompletionTarget(object? source)
+    {
+        var checkBox = source as CheckBox ?? (source as Visual)?.GetVisualAncestors().OfType<CheckBox>().FirstOrDefault();
+        return checkBox?.GetVisualAncestors().OfType<CalendarDayView>().Any() == true;
     }
 
     private void OnDetailLabelBoxGotFocus(object? sender, RoutedEventArgs e) => DetailLabelsBox.IsDropDownOpen = true;
