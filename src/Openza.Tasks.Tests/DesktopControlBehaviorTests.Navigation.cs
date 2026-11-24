@@ -107,6 +107,36 @@ public sealed partial class DesktopControlBehaviorTests
     });
 
     [Fact]
+    public Task Saving_a_today_task_hidden_by_list_filters_keeps_its_editor_open() => Run(async context =>
+    {
+        var existing = (await context.Store.GetTaskAsync("task-0"))!;
+        var now = DateTimeOffset.Now;
+        var task = existing with
+        {
+            Id = "calendar-filtered-today-task",
+            Title = "Filtered Today task",
+            ParentId = null,
+            PlannedOn = DateOnly.FromDateTime(now.LocalDateTime),
+            ScheduledStart = now.AddMinutes(30),
+            ScheduledEnd = now.AddHours(1),
+        };
+        await context.Store.UpsertTaskAsync(task);
+        await context.Vm.SelectNavigationAsync(context.Vm.NavigationItems.Single(item => item.Kind == TaskListKind.Calendar));
+        context.Vm.SetCalendarDayView(true);
+        context.Vm.SearchText = "not this task";
+        await context.Vm.ApplySearchAsync();
+
+        var todayTask = Assert.Single(context.Vm.CalendarDay.FilteredTodayTasks, item => item.Task.Id == task.Id);
+        await context.Vm.SelectTaskAsync(todayTask);
+        context.Vm.DetailTitle = "Saved from Today";
+        Assert.True(await context.Vm.SaveSelectedAsync());
+
+        Assert.Equal(task.Id, context.Vm.SelectedTask?.Task.Id);
+        Assert.Equal("Saved from Today", context.Vm.DetailTitle);
+        Assert.Equal("Saved from Today", (await context.Store.GetTaskAsync(task.Id))?.Title);
+    });
+
+    [Fact]
     public Task Calendar_today_task_can_be_opened_with_the_keyboard() => Run(async context =>
     {
         var existing = (await context.Store.GetTaskAsync("task-0"))!;

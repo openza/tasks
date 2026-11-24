@@ -2455,7 +2455,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 var selectedId = SelectedTask?.Task.Id;
                 await RefreshAsyncCore(string.Equals(selectedId, original.Id, StringComparison.Ordinal)
                     ? updated?.Id ?? original.Id
-                    : selectedId);
+                    : selectedId, preserveEditor: true);
                 return;
             }
         });
