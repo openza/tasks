@@ -5,7 +5,6 @@ namespace Openza.Tasks.Desktop.ViewModels;
 public sealed class CalendarDayBlockViewModel : ObservableObject
 {
     internal const double MinimumHeight = 32;
-    private const double ResizeHandleHitHeight = 12;
     private readonly DateTime _visibleEnd;
     private readonly TimeSpan _visibleDuration;
     private readonly bool _endIsVisible;
@@ -41,8 +40,6 @@ public sealed class CalendarDayBlockViewModel : ObservableObject
     public DateTime LocalStart { get; }
     public DateTime LocalEnd => _visibleEnd;
     public bool CanResizeEnd => _endIsVisible;
-    public bool IsResizeHandleHit(double pointerY) =>
-        CanResizeEnd && pointerY >= Math.Max(Height / 2, Height - ResizeHandleHitHeight);
     public double Top => LocalStart.TimeOfDay.TotalMinutes * CalendarDayViewModel.HourHeight / 60;
     public double Height
     {

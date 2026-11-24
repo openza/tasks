@@ -331,6 +331,63 @@ public sealed partial class DesktopControlBehaviorTests
     });
 
     [Fact]
+    public Task Calendar_short_end_of_day_block_hit_tests_its_rendered_grip_and_body() => Run(async context =>
+    {
+        var existing = (await context.Store.GetTaskAsync("task-0"))!;
+        var day = new DateOnly(2026, 6, 17);
+        var startLocal = day.ToDateTime(new TimeOnly(23, 50));
+        var endLocal = day.AddDays(1).ToDateTime(TimeOnly.MinValue);
+        var start = new DateTimeOffset(startLocal, TimeZoneInfo.Local.GetUtcOffset(startLocal));
+        var end = new DateTimeOffset(endLocal, TimeZoneInfo.Local.GetUtcOffset(endLocal));
+        var task = existing with
+        {
+            Id = "calendar-short-end-of-day-resize-task",
+            Title = "Calendar short end of day resize task",
+            ParentId = null,
+            PlannedOn = day,
+            ScheduledStart = start,
+            ScheduledEnd = end,
+        };
+        await context.Store.UpsertTaskAsync(task);
+        await context.Vm.SelectNavigationAsync(context.Vm.NavigationItems.Single(item => item.Kind == TaskListKind.Calendar));
+        context.Vm.CalendarDay.SetSelectedDate(day);
+        context.Vm.SetCalendarDayView(true);
+        context.Window.UpdateLayout();
+
+        var dayView = context.Window.FindControl<CalendarDayView>("CalendarDayView")!;
+        Border FindBlock() => Assert.Single(dayView.GetVisualDescendants().OfType<Border>(), border =>
+            border.Classes.Contains("calendar-day-block") &&
+            border.DataContext is CalendarDayBlockViewModel block && block.Task.Id == task.Id);
+        var block = FindBlock();
+        var resizeHandle = Assert.Single(block.GetVisualDescendants().OfType<Border>(), border =>
+            border.Classes.Contains("calendar-block-resize-handle"));
+        var resizeHandleOrigin = resizeHandle.TranslatePoint(default, block)!.Value;
+        Assert.True(block.Bounds.Height < 12);
+        Assert.True(resizeHandle.IsVisible);
+        Assert.InRange(resizeHandleOrigin.Y, 0, block.Bounds.Height);
+        Assert.True(resizeHandleOrigin.Y + resizeHandle.Bounds.Height <= block.Bounds.Height);
+        var resizeGesture = typeof(CalendarDayView).GetField(
+            "_resizeGesture", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+        var pointer = new Pointer(2, PointerType.Mouse, isPrimary: true);
+
+        void AssertResizeGestureAt(Point localPosition, bool expected)
+        {
+            var point = block.TranslatePoint(localPosition, context.Window)!.Value;
+            var pressed = RaisePointerPressed(block, context.Window, pointer, point);
+            Assert.True(pressed.Handled);
+            Assert.Equal(expected, resizeGesture.GetValue(dayView));
+            RaisePointerCaptureLost(block, pointer);
+        }
+
+        var gripPoint = new Point(
+            resizeHandleOrigin.X + resizeHandle.Bounds.Width / 2,
+            resizeHandleOrigin.Y + resizeHandle.Bounds.Height / 2);
+        AssertResizeGestureAt(gripPoint, expected: true);
+        AssertResizeGestureAt(new Point(block.Bounds.Width / 2, resizeHandleOrigin.Y / 2), expected: false);
+        AssertResizeGestureAt(new Point(resizeHandleOrigin.X / 2, gripPoint.Y), expected: false);
+    });
+
+    [Fact]
     public Task Saving_a_today_task_hidden_by_list_filters_keeps_its_editor_open() => Run(async context =>
     {
         var existing = (await context.Store.GetTaskAsync("task-0"))!;
@@ -582,19 +639,23 @@ public sealed partial class DesktopControlBehaviorTests
         await Until(() => !context.Vm.IsBusy && !context.Vm.IsUpdatingDetails);
     });
 
-    private static void RaisePointerPressed(InputElement source, MainWindow window, IPointer pointer) =>
-        source.RaiseEvent(new PointerPressedEventArgs(
+    private static PointerPressedEventArgs RaisePointerPressed(InputElement source, MainWindow window, IPointer pointer, Point? rootPosition = null)
+    {
+        var args = new PointerPressedEventArgs(
             source,
             pointer,
             window,
-            new Point(),
+            rootPosition ?? new Point(),
             1,
-            new PointerPointProperties(),
+            new PointerPointProperties(RawInputModifiers.LeftMouseButton, PointerUpdateKind.LeftButtonPressed),
             KeyModifiers.None,
             1)
         {
             RoutedEvent = InputElement.PointerPressedEvent,
-        });
+        };
+        source.RaiseEvent(args);
+        return args;
+    }
 
     private static void RaisePointerCaptureLost(InputElement source, IPointer pointer) =>
         source.RaiseEvent(new PointerCaptureLostEventArgs(source, pointer)

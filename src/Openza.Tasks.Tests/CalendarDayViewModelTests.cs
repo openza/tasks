@@ -472,7 +472,7 @@ public sealed class CalendarDayViewModelTests
     }
 
     [Fact]
-    public void Short_end_of_day_block_keeps_a_move_region_before_the_resize_hit_area()
+    public void Short_end_of_day_block_is_resizable_when_its_visible_height_is_under_twelve_pixels()
     {
         var viewModel = new CalendarDayViewModel();
         viewModel.SetSelectedDate(TestDay);
@@ -483,7 +483,5 @@ public sealed class CalendarDayViewModelTests
 
         Assert.True(block.Height < 12);
         Assert.True(block.CanResizeEnd);
-        Assert.False(block.IsResizeHandleHit(3));
-        Assert.True(block.IsResizeHandleHit(7));
     }
 }

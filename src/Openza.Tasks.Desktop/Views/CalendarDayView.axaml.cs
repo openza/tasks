@@ -7,6 +7,7 @@ using Avalonia.Interactivity;
 using Avalonia.Input;
 using Avalonia.Media;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using Openza.Tasks.Desktop.ViewModels;
 
 namespace Openza.Tasks.Desktop.Views;
@@ -153,6 +154,7 @@ public sealed partial class CalendarDayView : UserControl
             DataContext = block,
             Width = Math.Max(1, laneWidth - 8),
             Height = block.Height,
+            Padding = new Thickness(0),
             Opacity = block.Opacity,
             Focusable = true,
             Classes = { "calendar-day-block" },
@@ -228,13 +230,15 @@ public sealed partial class CalendarDayView : UserControl
 
     private static Control WithResizeHandle(Control content, CalendarDayBlockViewModel block)
     {
-        if (!block.CanResizeEnd) return content;
         var container = new Grid();
-        container.Children.Add(content);
+        container.Children.Add(new Border { Padding = new Thickness(6, 3), Child = content });
+        if (!block.CanResizeEnd) return container;
+        var handleHeight = Math.Min(3, Math.Max(0, (block.Height - 2) / 2));
+        if (handleHeight <= 0) return container;
         var handle = new Border
         {
-            Height = 3,
-            Margin = new Thickness(5, 0, 5, 1),
+            Height = handleHeight,
+            Margin = new Thickness(5, 0, 5, 0),
             VerticalAlignment = Avalonia.Layout.VerticalAlignment.Bottom,
             IsHitTestVisible = false,
             Classes = { "calendar-block-resize-handle" },
@@ -265,7 +269,7 @@ public sealed partial class CalendarDayView : UserControl
         _pointerOrigin = e.GetPosition(TimelineCanvas);
         _blockTopAtStart = Canvas.GetTop(border);
         _blockHeightAtStart = border.Bounds.Height;
-        _resizeGesture = block.IsResizeHandleHit(e.GetPosition(border).Y);
+        _resizeGesture = IsPointerOnResizeHandle(border, e.GetPosition(border));
         _blockWasDragged = false;
         border.Focus();
         e.Pointer.Capture(border);
@@ -338,6 +342,15 @@ public sealed partial class CalendarDayView : UserControl
         resizeGesture
             ? _viewModel!.ResizeBlockEndBy(block, delta)
             : _viewModel!.MoveBlockBy(block, delta);
+
+    private static bool IsPointerOnResizeHandle(Border block, Point pointerPosition)
+    {
+        var handle = block.GetVisualDescendants().OfType<Border>()
+            .FirstOrDefault(child => child.Classes.Contains("calendar-block-resize-handle"));
+        if (handle is null || handle.TranslatePoint(default, block) is not { } origin) return false;
+        return pointerPosition.X >= origin.X && pointerPosition.X < origin.X + handle.Bounds.Width &&
+            pointerPosition.Y >= origin.Y && pointerPosition.Y < origin.Y + handle.Bounds.Height;
+    }
 
     private void UpdateBlockPreview(Border border, DateTimeOffset start, DateTimeOffset end)
     {
