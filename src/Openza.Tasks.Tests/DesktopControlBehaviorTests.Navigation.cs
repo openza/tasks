@@ -82,6 +82,31 @@ public sealed partial class DesktopControlBehaviorTests
     });
 
     [Fact]
+    public Task Calendar_timeline_blocks_remain_hit_testable_for_short_block_tooltips() => Run(async context =>
+    {
+        var existing = (await context.Store.GetTaskAsync("task-0"))!;
+        var start = DateTimeOffset.Now.AddMinutes(15);
+        var task = existing with
+        {
+            Id = "calendar-tooltip-task",
+            Title = "Calendar tooltip task",
+            ParentId = null,
+            PlannedOn = DateOnly.FromDateTime(start.LocalDateTime),
+            ScheduledStart = start,
+            ScheduledEnd = start.AddMinutes(15),
+        };
+        await context.Store.UpsertTaskAsync(task);
+        await context.Vm.SelectNavigationAsync(context.Vm.NavigationItems.Single(item => item.Kind == TaskListKind.Calendar));
+        context.Vm.SetCalendarDayView(true);
+        context.Window.UpdateLayout();
+
+        var canvas = context.Window.FindControl<Canvas>("TimelineCanvas")!;
+        Assert.True(canvas.IsHitTestVisible);
+        var block = Assert.Single(canvas.Children.OfType<Border>(), child => ToolTip.GetTip(child) is string tip && tip.Contains(task.Title, StringComparison.Ordinal));
+        Assert.Contains(start.ToLocalTime().ToString("HH:mm"), Assert.IsType<string>(ToolTip.GetTip(block)));
+    });
+
+    [Fact]
     public Task Calendar_today_task_can_be_opened_with_the_keyboard() => Run(async context =>
     {
         var existing = (await context.Store.GetTaskAsync("task-0"))!;

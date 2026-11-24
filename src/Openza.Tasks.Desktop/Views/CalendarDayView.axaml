@@ -78,7 +78,7 @@
             <ScrollViewer x:Name="TimelineScrollViewer" Grid.Row="1" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
                 <Grid Height="{Binding TimelineHeight}" ColumnDefinitions="56,*">
                     <Canvas x:Name="HourLabelsCanvas" Grid.Column="0" Width="56" Height="{Binding TimelineHeight}" IsHitTestVisible="False" />
-                    <Canvas x:Name="TimelineCanvas" Grid.Column="1" Height="{Binding TimelineHeight}" SizeChanged="OnTimelineSizeChanged" IsHitTestVisible="False" />
+                    <Canvas x:Name="TimelineCanvas" Grid.Column="1" Height="{Binding TimelineHeight}" SizeChanged="OnTimelineSizeChanged" />
                 </Grid>
             </ScrollViewer>
         </Grid>
