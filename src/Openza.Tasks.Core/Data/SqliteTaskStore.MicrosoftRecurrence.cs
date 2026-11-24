@@ -85,4 +85,43 @@ public sealed partial class SqliteTaskStore
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return staged;
     }
+
+    private static Task CaptureLegacyMicrosoftRecurrenceAsync(SqliteConnection connection, string instanceId, CancellationToken cancellationToken) =>
+        WorkspaceExecuteAsync(connection, """
+            DROP TABLE IF EXISTS temp.legacy_microsoft_recurrence;
+            CREATE TEMP TABLE legacy_microsoft_recurrence AS
+            SELECT t.id,t.recurrence_rule FROM tasks t
+            JOIN incoming_workspace_tasks incoming ON incoming.id=t.id
+            JOIN personal_cloud_entity_versions v ON v.entity_id=t.id AND v.product='tasks' AND v.instance_id=@i
+            WHERE t.recurrence_rule IS NOT NULL
+              AND json_extract(t.source_metadata,'$.msToDoRecurrenceApplied')=1
+              AND NOT EXISTS(SELECT 1 FROM personal_cloud_workspace_capabilities WHERE instance_id=@i AND hydrated=1)
+              AND NOT EXISTS(SELECT 1 FROM personal_cloud_workspace_records WHERE instance_id=@i AND kind='tasks' AND entity_id=t.id)
+            """, cancellationToken, ("@i", instanceId));
+
+    private static async Task StageLegacyMicrosoftRecurrenceAsync(SqliteConnection connection, string instanceId, string deviceId,
+        CancellationToken cancellationToken)
+    {
+        // K0 never stored the local rule, so a null in its first workspace record
+        // does not supersede the device copy. Later workspace records are authoritative.
+        var read = connection.CreateCommand();
+        read.CommandText = """
+            SELECT legacy.id,legacy.recurrence_rule,w.entity_version FROM legacy_microsoft_recurrence legacy
+            JOIN personal_cloud_workspace_records w ON w.instance_id=@i AND w.kind='tasks' AND w.entity_id=legacy.id
+            WHERE json_type(w.canonical_json,'$.recurrenceRule')='null' AND json_type(w.canonical_json,'$.deletedAt')='null'
+            """;
+        read.Parameters.AddWithValue("@i", instanceId);
+        var pending = new List<(string Id, string Rule, long Version)>();
+        await using (var reader = await read.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                pending.Add((reader.GetString(0), reader.GetString(1), reader.GetInt64(2)));
+
+        foreach (var (id, rule, version) in pending)
+        {
+            await WorkspaceExecuteAsync(connection, "UPDATE tasks SET recurrence_rule=@rule WHERE id=@id", cancellationToken,
+                ("@rule", rule), ("@id", id)).ConfigureAwait(false);
+            await AppendWorkspaceMutationAsync(connection, instanceId, deviceId, "task.patch", id, version,
+                new { fields = new { recurrenceRule = rule } }, cancellationToken).ConfigureAwait(false);
+        }
+    }
 }

@@ -115,6 +115,7 @@ public sealed class MicrosoftRecurrenceTests : IDisposable
             SourceExternalId = "external_repeat", SourceMetadataJson = JsonSerializer.Serialize(new { recurrenceRule = Weekly }),
         });
         var remote = JsonSerializer.SerializeToNode(PersonalCloudWorkspaceTests.TaskRecord(projectId: null))!.AsObject();
+        remote["recurrenceRule"] = null;
         remote["source"] = JsonSerializer.SerializeToNode(source, JsonSerializerOptions.Web);
         remote["sourceOwnerDeviceId"] = "device_owner";
         await store.ApplyPersonalCloudChangePageAsync(instance, device,
@@ -169,6 +170,61 @@ public sealed class MicrosoftRecurrenceTests : IDisposable
 
         Assert.Equal(Weekly, (await store.GetTaskAsync(task.Id))!.RecurrenceRule);
         Assert.Empty(await store.GetPendingPersonalCloudOutboxAsync(instance, device));
+    }
+
+    [Theory]
+    [InlineData(null, "Keep my local rule", 1)]
+    [InlineData(Monthly, Monthly, 0)]
+    public async Task First_workspace_baseline_preserves_legacy_recurrence_unless_cloud_already_has_a_rule(
+        string? remoteRule, string expected, int staged)
+    {
+        const string instance = "instance_repeat";
+        const string device = "device_repeat";
+        var store = await CreateStoreAsync();
+        var task = await AdoptAsync(store, Source("weekly", observed: false));
+        await SetPublishedVersionAsync(store, instance, task.Id);
+        await store.SavePersonalCloudWorkspaceCapabilitiesAsync(instance, workspace: false, providerCatalog: false);
+        var cloud = new PersonalCloudConnectionProfile
+        {
+            InstanceId = instance, DeviceId = device, ServiceOrigin = new Uri("https://cloud.example/"),
+            ArtifactVersion = "test", ConnectedAt = DateTimeOffset.UtcNow,
+        };
+        store.PersonalCloudConnection = () => cloud;
+        await store.UpsertProviderSourceItemAsync(Source(Weekly));
+        Assert.Equal(0, await store.ApplyPendingMicrosoftRecurrenceAfterPullAsync(cloud, default));
+        var legacy = (await store.GetTaskAsync(task.Id))!;
+        Assert.Equal(Weekly, legacy.RecurrenceRule);
+        await store.UpsertTaskAsync(legacy with { RecurrenceRule = "Keep my local rule" });
+
+        await store.SavePersonalCloudWorkspaceCapabilitiesAsync(instance, workspace: true, providerCatalog: false);
+        var remote = JsonSerializer.SerializeToNode(PersonalCloudWorkspaceTests.TaskRecord(task.Id, 5, null))!.AsObject();
+        remote["spaceId"] = task.SpaceId;
+        remote["recurrenceRule"] = remoteRule;
+        remote["source"] = JsonSerializer.SerializeToNode(PersonalCloudK0Mapper.CreateSafeSourceDescriptor(legacy), JsonSerializerOptions.Web);
+        remote["sourceOwnerDeviceId"] = device;
+        var bootstrap = PersonalCloudK0Codec.Serialize(new
+        {
+            protocolVersion = 1, product = "tasks", checkpoint = 5, snapshot = new
+            {
+                spaces = new[] { PersonalCloudWorkspaceTests.Space(task.SpaceId) }, tasks = new[] { remote },
+                projects = Array.Empty<object>(), labels = Array.Empty<object>(), taskLabels = Array.Empty<object>(),
+                tombstones = Array.Empty<object>(), sourceDescriptors = Array.Empty<object>(), externalCommands = Array.Empty<object>(),
+                catalog = Array.Empty<object>(), intents = Array.Empty<object>(), routes = Array.Empty<object>(),
+            },
+        });
+        await store.ReplacePersonalCloudWorkspaceFromBootstrapAsync(instance, device, bootstrap);
+
+        Assert.Equal(expected, (await store.GetTaskAsync(task.Id))!.RecurrenceRule);
+        var changes = await store.GetPendingPersonalCloudOutboxAsync(instance, device);
+        Assert.Equal(staged, changes.Count);
+        if (staged == 1)
+        {
+            var change = Assert.Single(changes);
+            Assert.Equal("task.patch", change.Operation);
+            using var payload = JsonDocument.Parse(change.CanonicalJson);
+            Assert.Equal(5, payload.RootElement.GetProperty("baseEntityVersion").GetInt64());
+            Assert.Equal(expected, payload.RootElement.GetProperty("payload").GetProperty("fields").GetProperty("recurrenceRule").GetString());
+        }
     }
 
     private static async Task SetPublishedVersionAsync(SqliteTaskStore store, string instance, string taskId)
