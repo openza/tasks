@@ -6,7 +6,7 @@ Openza Tasks aims for a calm, focused task interface. Its brand palette comes fr
 
 Use Avalonia's built-in controls and `FluentTheme`, following its official [theme](https://docs.avaloniaui.net/docs/styling/themes) and [styling guidance](https://docs.avaloniaui.net/docs/styling/style-best-practices). Keep the existing Avalonia resources, bindings and commands; use theme resources for light/dark variants, readable contrast and focus states. Preserve keyboard and accessibility behavior. Another theme library is not selected.
 
-The [behavior contracts](behavior-contracts.md) define task semantics. Avalonia is the cross-platform desktop host; visual cleanup must not choose a new workflow policy. Linux Snap is the sole current focus until Linux is stable. All Windows work, including continuity policy decisions, is parked unless the maintainer explicitly asks. Keep Core, Application and Desktop code Windows-compatible and free of Linux-only assumptions, with OS specifics behind platform services. Retain the Windows Dev gate and transition design as future reference.
+The [behavior contracts](behavior-contracts.md) define task semantics. Avalonia is the cross-platform desktop host; visual cleanup must not choose a new workflow policy. Linux Snap and Windows (Avalonia MSIX) are both active targets. Keep Core, Application and Desktop code Windows-compatible and free of Linux-only assumptions, with OS specifics behind platform services. Retain the Windows Dev gate and follow the transition design.
 
 ## Historical WinUI design reference
 
