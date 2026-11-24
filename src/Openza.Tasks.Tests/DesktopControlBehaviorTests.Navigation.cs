@@ -227,6 +227,74 @@ public sealed partial class DesktopControlBehaviorTests
     });
 
     [Fact]
+    public Task Calendar_picker_request_guard_is_shared_until_the_handler_finishes() => Run(async _ =>
+    {
+        var dayView = new CalendarDayView { DataContext = new CalendarDayViewModel() };
+        var window = new Window { Width = 1440, Height = 900, Content = dayView };
+        window.Show();
+        window.UpdateLayout();
+        try
+        {
+            var firstRequest = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var requestCount = 0;
+            dayView.BlockPickerRequested += _ => ++requestCount == 1 ? firstRequest.Task : Task.CompletedTask;
+
+            dayView.FindControl<Button>("CalendarAddBlockButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await Until(() => requestCount == 1);
+
+            var timeline = dayView.FindControl<Canvas>("TimelineCanvas")!;
+            var pointer = new Pointer(70, PointerType.Mouse, isPrimary: true);
+            RaisePointerPressed(timeline, window, pointer);
+            Assert.Equal(1, requestCount);
+
+            firstRequest.SetResult();
+            await UntilAsync(() =>
+            {
+                if (requestCount == 1) RaisePointerPressed(timeline, window, pointer);
+                return Task.FromResult(requestCount == 2);
+            });
+        }
+        finally
+        {
+            window.Close();
+        }
+    });
+
+    [Fact]
+    public Task Calendar_picker_request_reports_handler_failures_and_resets_guard() => Run(async _ =>
+    {
+        var dayView = new CalendarDayView { DataContext = new CalendarDayViewModel() };
+        var window = new Window { Width = 1440, Height = 900, Content = dayView };
+        window.Show();
+        window.UpdateLayout();
+        try
+        {
+            var requestCount = 0;
+            var reportedExceptions = new List<Exception>();
+            dayView.BlockPickerRequested += async _ =>
+            {
+                requestCount++;
+                await Task.Yield();
+                if (requestCount == 1) throw new InvalidOperationException("picker failed");
+            };
+            dayView.BlockPickerRequestFailed += reportedExceptions.Add;
+
+            var addButton = dayView.FindControl<Button>("CalendarAddBlockButton")!;
+            addButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await Until(() => reportedExceptions.Count == 1);
+            Assert.Equal("picker failed", reportedExceptions[0].Message);
+
+            addButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await Until(() => requestCount == 2);
+            Assert.Single(reportedExceptions);
+        }
+        finally
+        {
+            window.Close();
+        }
+    });
+
+    [Fact]
     public Task Calendar_picker_warns_before_replacing_an_existing_interval() => Run(async context =>
     {
         var existing = (await context.Store.GetTaskAsync("task-0"))!;
@@ -639,7 +707,7 @@ public sealed partial class DesktopControlBehaviorTests
         await Until(() => !context.Vm.IsBusy && !context.Vm.IsUpdatingDetails);
     });
 
-    private static PointerPressedEventArgs RaisePointerPressed(InputElement source, MainWindow window, IPointer pointer, Point? rootPosition = null)
+    private static PointerPressedEventArgs RaisePointerPressed(InputElement source, Window window, IPointer pointer, Point? rootPosition = null)
     {
         var args = new PointerPressedEventArgs(
             source,

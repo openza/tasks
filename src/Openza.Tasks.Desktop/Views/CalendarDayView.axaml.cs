@@ -23,6 +23,7 @@ public sealed partial class CalendarDayView : UserControl
     private double _blockHeightAtStart;
     private bool _resizeGesture;
     private bool _blockWasDragged;
+    private bool _blockPickerRequestInProgress;
 
     public CalendarDayView()
     {
@@ -33,6 +34,7 @@ public sealed partial class CalendarDayView : UserControl
 
     public event EventHandler<TaskListItemViewModel>? TaskSelected;
     public event Func<DateTimeOffset, Task>? BlockPickerRequested;
+    public event Action<Exception>? BlockPickerRequestFailed;
     public event Func<TaskListItemViewModel, DateTimeOffset?, DateTimeOffset?, Task>? BlockScheduleChangeRequested;
     public event Func<TaskListItemViewModel, DateTimeOffset, DateTimeOffset, Task>? BlockEditRequested;
     public event Func<TaskListItemViewModel, Task<bool>>? TodayTaskCompletionRequested;
@@ -253,7 +255,7 @@ public sealed partial class CalendarDayView : UserControl
         e.Handled = true;
         var position = e.GetPosition(TimelineCanvas);
         var start = _viewModel.TimeAtTimelinePosition(position.Y);
-        if (BlockPickerRequested is { } handler) await handler(start);
+        await RequestBlockPickerAsync(start);
     }
 
     private void OnBlockPointerPressed(object? sender, PointerPressedEventArgs e)
@@ -434,9 +436,27 @@ public sealed partial class CalendarDayView : UserControl
 
     private async void OnAddBlockClicked(object? sender, RoutedEventArgs e)
     {
-        if (_viewModel is null || BlockPickerRequested is not { } handler) return;
+        if (_viewModel is null) return;
         var top = _viewModel.IsSelectedDayToday ? _viewModel.NowTop : 9 * CalendarDayViewModel.HourHeight;
-        await handler(_viewModel.TimeAtTimelinePosition(top));
+        await RequestBlockPickerAsync(_viewModel.TimeAtTimelinePosition(top));
+    }
+
+    private async Task RequestBlockPickerAsync(DateTimeOffset start)
+    {
+        if (_blockPickerRequestInProgress || BlockPickerRequested is not { } handler) return;
+        _blockPickerRequestInProgress = true;
+        try
+        {
+            await handler(start);
+        }
+        catch (Exception exception)
+        {
+            BlockPickerRequestFailed?.Invoke(exception);
+        }
+        finally
+        {
+            _blockPickerRequestInProgress = false;
+        }
     }
 
     private void OnCloseTodayPanelClicked(object? sender, RoutedEventArgs e) => _viewModel?.CloseTodayPanel();

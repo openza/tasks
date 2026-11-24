@@ -82,6 +82,7 @@ public sealed partial class MainWindow : Window
         ViewModel.PropertyChanged += OnViewModelPropertyChanged;
         CalendarDayView.TaskSelected += OnCalendarTaskSelected;
         CalendarDayView.BlockPickerRequested += OnCalendarBlockPickerRequested;
+        CalendarDayView.BlockPickerRequestFailed += OnCalendarBlockPickerRequestFailed;
         CalendarDayView.BlockScheduleChangeRequested += OnCalendarBlockScheduleChangeRequested;
         CalendarDayView.BlockEditRequested += OnCalendarBlockEditRequested;
         CalendarDayView.TodayTaskCompletionRequested += OnCalendarTodayTaskCompletionRequested;
@@ -404,6 +405,9 @@ public sealed partial class MainWindow : Window
         if (await dialog.ShowDialog<CalendarBlockPickerResult?>(this) is not { } result) return;
         await ViewModel.SetCalendarTaskScheduleAsync(result.Item, result.Start, result.End);
     }
+
+    private void OnCalendarBlockPickerRequestFailed(Exception exception) =>
+        ViewModel.ReportError($"Could not complete the time block request: {exception.Message}");
 
     private async Task OnCalendarBlockEditRequested(TaskListItemViewModel task, DateTimeOffset start, DateTimeOffset end)
     {
