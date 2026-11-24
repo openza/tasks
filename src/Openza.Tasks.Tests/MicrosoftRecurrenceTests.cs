@@ -125,6 +125,57 @@ public sealed class MicrosoftRecurrenceTests : IDisposable
         Assert.DoesNotContain("msToDoRecurrenceApplied", task.SourceMetadataJson!);
         Assert.Equal(Weekly, task.SourceRecurrenceRule);
         Assert.Null(task.EffectiveRecurrenceRule);
+
+        remote["recurrenceRule"] = Weekly;
+        remote["workflowStatus"] = "inbox";
+        remote["entityVersion"] = 2;
+        await store.ApplyPersonalCloudChangePageAsync(instance, device, PersonalCloudWorkspaceTests.Page(2, tasks: [remote]));
+        await store.InitializeAsync();
+        var reloaded = (await store.GetTaskAsync(task.Id))!;
+        Assert.Equal(Weekly, reloaded.EffectiveRecurrenceRule);
+        Assert.Equal(TaskWorkflowStatus.Inbox, reloaded.WorkflowStatus);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Clear_before_a_full_observation_does_not_backfill(bool workspace)
+    {
+        var store = await CreateStoreAsync();
+        var task = await AdoptAsync(store, Source("weekly", observed: false));
+        if (!workspace)
+        {
+            await store.UpsertTaskAsync(task with { RecurrenceRule = "My local rule" });
+            await store.UpsertTaskAsync((await store.GetTaskAsync(task.Id))! with { RecurrenceRule = null });
+            await store.UpsertProviderSourceItemAsync(Source(Weekly));
+        }
+        else
+        {
+            const string instance = "instance_repeat";
+            const string device = "device_repeat";
+            var cloud = new PersonalCloudConnectionProfile
+            {
+                InstanceId = instance, DeviceId = device, ServiceOrigin = new Uri("https://cloud.example/"),
+                ArtifactVersion = "test", ConnectedAt = DateTimeOffset.UtcNow,
+            };
+            store.PersonalCloudConnection = () => cloud;
+            await SetPublishedVersionAsync(store, instance, task.Id);
+            await store.SavePersonalCloudWorkspaceCapabilitiesAsync(instance, workspace: true, providerCatalog: false);
+            var edit = await store.PatchTaskWithPersonalCloudIntentAsync(task.Id,
+                new Dictionary<string, object?> { ["recurrenceRule"] = null }, task.Revision, instance, device);
+            await store.AcknowledgePersonalCloudMutationAsync(instance, device, PersonalCloudK0Codec.Serialize(new K0MutationReceipt
+            {
+                ProtocolVersion = 1, Product = "tasks", MutationId = edit.MutationId, Outcome = "accepted", EntityId = task.Id,
+                EntityVersion = 5, ChangeSeq = 1, ServerAcceptedAt = "2026-06-01T00:00:00.000Z",
+            }));
+            await store.UpsertProviderSourceItemAsync(Source(Weekly));
+            Assert.Equal(0, await store.ApplyPendingMicrosoftRecurrenceAfterPullAsync(cloud, default));
+            Assert.Empty(await store.GetPendingPersonalCloudOutboxAsync(instance, device));
+        }
+
+        var reloaded = (await store.GetTaskAsync(task.Id))!;
+        Assert.Null(reloaded.RecurrenceRule);
+        Assert.Null(reloaded.EffectiveRecurrenceRule);
     }
 
     [Fact]

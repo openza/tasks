@@ -245,6 +245,11 @@ public sealed partial class SqliteTaskStore
         }
         if (fields.TryGetValue("workflowStatus", out var requestedStatus) && requestedStatus is not ("none" or "inbox" or "next" or "waiting" or "someday")) throw PersonalCloudWorkspaceCodec.Invalid();
         await UpsertTaskCoreAsync(connection, updated with { UpdatedAt = DateTimeOffset.UtcNow, Revision = updated.Revision + 1 }, cancellationToken).ConfigureAwait(false);
+        if (fields.ContainsKey("recurrenceRule") && updated.SourceIntegrationId == IntegrationIds.MicrosoftToDo)
+            await WorkspaceExecuteAsync(connection, """
+                UPDATE tasks SET source_metadata=json_set(COALESCE(source_metadata,'{}'),'$.msToDoRecurrenceApplied',json('true'))
+                WHERE id=@id
+                """, cancellationToken, ("@id", taskId)).ConfigureAwait(false);
         var entry = await AppendWorkspaceMutationAsync(connection, instanceId, deviceId, "task.patch", taskId, version, new { fields }, cancellationToken).ConfigureAwait(false);
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return entry;

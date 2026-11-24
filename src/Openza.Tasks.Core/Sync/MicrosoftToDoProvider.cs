@@ -207,11 +207,7 @@ public sealed class MicrosoftToDoProvider(HttpClient httpClient, string accessTo
         string? recurrenceRule = null;
         if (task.TryGetProperty("recurrence", out var recurrence))
         {
-            if (recurrence.ValueKind == JsonValueKind.Object &&
-                recurrence.TryGetProperty("pattern", out var pattern) && pattern.ValueKind == JsonValueKind.Object &&
-                pattern.TryGetProperty("type", out var type) && type.ValueKind == JsonValueKind.String &&
-                !string.IsNullOrWhiteSpace(type.GetString()) &&
-                recurrence.TryGetProperty("range", out var range) && range.ValueKind == JsonValueKind.Object)
+            if (HasCompleteRecurrence(recurrence))
             {
                 recurrenceRule = JsonSerializer.Serialize(recurrence);
                 metadata["recurrenceObserved"] = true;
@@ -257,6 +253,43 @@ public sealed class MicrosoftToDoProvider(HttpClient httpClient, string accessTo
             }),
         };
     }
+
+    private static bool HasCompleteRecurrence(JsonElement recurrence)
+    {
+        if (recurrence.ValueKind != JsonValueKind.Object ||
+            !recurrence.TryGetProperty("pattern", out var pattern) || pattern.ValueKind != JsonValueKind.Object ||
+            !recurrence.TryGetProperty("range", out var range) || range.ValueKind != JsonValueKind.Object ||
+            !HasNumber(pattern, "interval", 1, int.MaxValue) || !HasDate(range, "startDate"))
+            return false;
+
+        var hasDays = pattern.TryGetProperty("daysOfWeek", out var days) && days.ValueKind == JsonValueKind.Array &&
+            days.GetArrayLength() > 0 && days.EnumerateArray().All(day => day.ValueKind == JsonValueKind.String &&
+                !string.IsNullOrWhiteSpace(day.GetString()));
+        var validPattern = GetString(pattern, "type") switch
+        {
+            "daily" => true,
+            "weekly" => hasDays,
+            "absoluteMonthly" => HasNumber(pattern, "dayOfMonth", 1, 31),
+            "relativeMonthly" => hasDays,
+            "absoluteYearly" => HasNumber(pattern, "dayOfMonth", 1, 31) && HasNumber(pattern, "month", 1, 12),
+            "relativeYearly" => hasDays && HasNumber(pattern, "month", 1, 12),
+            _ => false,
+        };
+        return validPattern && GetString(range, "type") switch
+        {
+            "noEnd" => true,
+            "endDate" => HasDate(range, "endDate"),
+            "numbered" => HasNumber(range, "numberOfOccurrences", 1, int.MaxValue),
+            _ => false,
+        };
+    }
+
+    private static bool HasNumber(JsonElement value, string name, int min, int max) =>
+        value.TryGetProperty(name, out var field) && field.ValueKind == JsonValueKind.Number &&
+        field.TryGetInt32(out var number) && number >= min && number <= max;
+
+    private static bool HasDate(JsonElement value, string name) =>
+        DateOnly.TryParseExact(GetString(value, name), "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out _);
 
     private HttpRequestMessage CreateRequest(HttpMethod method, string pathOrUrl)
     {

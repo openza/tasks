@@ -4525,10 +4525,15 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
                 source_metadata = CASE WHEN json_extract(tasks.source_metadata,'$.msToDoStepsApplied')=1
                     OR json_extract(tasks.source_metadata,'$.msToDoCategoriesApplied')=1
                     OR json_extract(tasks.source_metadata,'$.msToDoRecurrenceApplied')=1
+                    OR (@retain_imported_recurrence=0 AND tasks.source_integration_id='msToDo'
+                        AND tasks.recurrence_rule IS NOT NULL AND excluded.recurrence_rule IS NULL)
                     THEN json_patch(COALESCE(excluded.source_metadata,'{}'), json_patch(
                         CASE WHEN json_extract(tasks.source_metadata,'$.msToDoCategoriesApplied')=1 THEN '{"msToDoCategoriesApplied":true}' ELSE '{}' END,
                         json_patch(CASE WHEN json_extract(tasks.source_metadata,'$.msToDoStepsApplied')=1 THEN '{"msToDoStepsApplied":true}' ELSE '{}' END,
-                        CASE WHEN json_extract(tasks.source_metadata,'$.msToDoRecurrenceApplied')=1 THEN '{"msToDoRecurrenceApplied":true}' ELSE '{}' END)))
+                        CASE WHEN json_extract(tasks.source_metadata,'$.msToDoRecurrenceApplied')=1
+                            OR (@retain_imported_recurrence=0 AND tasks.source_integration_id='msToDo'
+                                AND tasks.recurrence_rule IS NOT NULL AND excluded.recurrence_rule IS NULL)
+                            THEN '{"msToDoRecurrenceApplied":true}' ELSE '{}' END)))
                     ELSE excluded.source_metadata END,
                 local_metadata = excluded.local_metadata,
                 updated_at = excluded.updated_at,
@@ -5335,6 +5340,7 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
               AND workflow_status = 'inbox'
               AND recurrence_rule IS NOT NULL
               AND TRIM(recurrence_rule) != ''
+              AND COALESCE(source_integration_id,'') <> 'msToDo'
               AND CASE WHEN json_valid(source_metadata)
                     THEN COALESCE(json_extract(source_metadata,'$.msToDoRecurrenceApplied'),0) ELSE 0 END = 0
               AND (
