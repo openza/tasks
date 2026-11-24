@@ -175,4 +175,33 @@ public sealed class CalendarBlockPickerViewModelTests
         Assert.Equal(replacementStart.AddHours(1), result.End);
         Assert.NotEqual(existingStart, result.Start);
     }
+
+    [Fact]
+    public void Picker_warns_for_start_only_schedule_using_timeline_one_hour_fallback()
+    {
+        var timeZone = FindTimeZone("America/New_York", "Eastern Standard Time");
+        var day = new DateOnly(2026, 6, 17);
+        var existingStart = new DateTimeOffset(2026, 6, 17, 13, 0, 0, TimeSpan.Zero);
+        var scheduledTask = new TaskListItemViewModel(Item("Start-only schedule", TaskWorkflowStatus.Next).Task with
+        {
+            ScheduledStart = existingStart,
+            ScheduledEnd = null,
+        }, null);
+        var calendarDay = new CalendarDayViewModel(timeZone);
+        calendarDay.SetSelectedDate(day);
+        calendarDay.SetDayTasks([scheduledTask]);
+        var timelineBlock = Assert.Single(calendarDay.Blocks);
+        var picker = new CalendarBlockPickerViewModel(
+            calendarDay,
+            new DateTimeOffset(2026, 6, 17, 15, 0, 0, TimeSpan.Zero));
+        picker.SelectedTask = scheduledTask;
+
+        Assert.Equal(existingStart.AddHours(1), timelineBlock.End);
+        Assert.True(picker.HasSelectedTaskSchedule);
+        var localStart = calendarDay.LocalDateTimeFor(existingStart);
+        var localEnd = calendarDay.LocalDateTimeFor(existingStart.AddHours(1));
+        Assert.Equal($"Existing interval: {localStart:ddd, d MMM · HH:mm} – {localEnd:ddd, d MMM · HH:mm}", picker.ExistingScheduleText);
+        Assert.Equal("This task already has a scheduled interval. Adding it here will replace that interval.", picker.ReplacementNoticeText);
+        Assert.Equal("Replace scheduled interval", picker.AddActionText);
+    }
 }

@@ -131,10 +131,14 @@ public sealed class CalendarBlockPickerViewModel : ObservableObject
         return false;
     }
 
-    private (DateTimeOffset Start, DateTimeOffset End)? SelectedTaskSchedule =>
-        SelectedTask?.Task.ScheduledStart is { } start && SelectedTask.Task.ScheduledEnd is { } end
-            ? (start, end)
-            : null;
+    private (DateTimeOffset Start, DateTimeOffset End)? SelectedTaskSchedule
+    {
+        get
+        {
+            if (SelectedTask?.Task.ScheduledStart is not { } start) return null;
+            return (start, SelectedTask.Task.ScheduledEnd ?? start.AddHours(1));
+        }
+    }
 
     private void RebuildFilteredTasks()
     {
