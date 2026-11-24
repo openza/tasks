@@ -115,7 +115,7 @@ Smart lists such as Today, Overdue, and Calendar show all dated work together. T
 
 - Today includes open work with a Date, Deadline or scheduled start on today's local day.
 - Calendar includes open work with any Date, Deadline or scheduled start.
-- Overdue includes open work with any such day before today, including planned work and scheduled starts.
+- Overdue includes open work with a Date or Deadline before today. A passed scheduled start or end never makes work Overdue.
 
 Repeating work is an independent facet. Users can choose whether a smart list includes repeating tasks:
 

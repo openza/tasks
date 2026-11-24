@@ -29,11 +29,11 @@ public sealed class TaskListProjectionTests
             Row("done") with { PlannedOn = Today, CompletionState = TaskCompletionState.Completed },
         ];
         Assert.Equal(new[] { "date", "deadline", "instant", "scheduled" }, Ids(rows, TaskListKind.Today));
-        Assert.Equal(new[] { "crossing", "past-planned" }, Ids(rows, TaskListKind.Overdue));
+        Assert.Equal(new[] { "past-planned" }, Ids(rows, TaskListKind.Overdue));
         Assert.Equal(new[] { "crossing", "date", "deadline", "instant", "past-planned", "scheduled" }, Ids(rows, TaskListKind.Calendar));
         Assert.Equal(new[] { "done" }, Ids(rows, TaskListKind.Completed));
         Assert.Equal(4, TaskListProjection.Counts(rows, null, Today).Today);
-        Assert.Equal(2, TaskListProjection.Counts(rows, null, Today).Overdue);
+        Assert.Equal(1, TaskListProjection.Counts(rows, null, Today).Overdue);
     }
 
     [Theory]

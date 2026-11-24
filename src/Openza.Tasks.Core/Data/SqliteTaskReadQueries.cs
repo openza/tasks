@@ -30,8 +30,7 @@ internal static class SqliteTaskReadQueries
                     (COALESCE(planned_on, date(planned_at, 'unixepoch', 'localtime')) IS NOT NULL
                         AND COALESCE(planned_on, date(planned_at, 'unixepoch', 'localtime')) < @today_date) OR
                     (COALESCE(deadline_on, date(deadline_at, 'unixepoch', 'localtime')) IS NOT NULL
-                        AND COALESCE(deadline_on, date(deadline_at, 'unixepoch', 'localtime')) < @today_date) OR
-                    (scheduled_start IS NOT NULL AND scheduled_start < @today_start)
+                        AND COALESCE(deadline_on, date(deadline_at, 'unixepoch', 'localtime')) < @today_date)
                   ) THEN 1 ELSE 0 END) AS overdue,
               SUM(CASE WHEN completion_state = 'open' AND (
                     planned_on IS NOT NULL OR

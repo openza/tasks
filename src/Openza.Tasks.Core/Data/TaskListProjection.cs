@@ -202,9 +202,11 @@ public static class TaskListProjection
         return RelevantDates(task, scope).Any(value => DateOnly.FromDateTime(value.LocalDateTime) == date);
     }
 
+    // A passed scheduled start never makes a task Overdue; only Date and Deadline do.
     private static bool HasRelevantDateBefore(TaskItem task, DateOnly date, TaskDateScope scope)
     {
-        return RelevantDates(task, scope).Any(value => DateOnly.FromDateTime(value.LocalDateTime) < date);
+        return new[] { task.PlannedMoment, task.DeadlineMoment }
+            .Any(value => value is { } moment && DateOnly.FromDateTime(moment.LocalDateTime) < date);
     }
 
     private static DateTimeOffset? RelevantDate(TaskItem task, TaskDateScope scope)

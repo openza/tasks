@@ -123,10 +123,17 @@ public sealed class TaskApplicationService(
         using var connectionLease = AcquirePersonalCloudAuthoringLease();
         var original = await RequireTaskAsync(request.TaskId, cancellationToken).ConfigureAwait(false);
         var target = HasCloudFieldEdits(request) ? PersonalCloudTarget() : null;
-        if (request.ReminderAt.IsSpecified && target is not null && Store is SqliteTaskStore sqliteStore)
+        if ((request.ReminderAt.IsSpecified || request.ScheduledStart.IsSpecified || request.ScheduledEnd.IsSpecified) &&
+            target is not null && Store is SqliteTaskStore sqliteStore)
         {
-            return await sqliteStore.ExecuteInTransactionAsync(
-                () => UpdateTaskCoreAsync(request, original, target, cancellationToken), cancellationToken).ConfigureAwait(false);
+            return await sqliteStore.ExecuteInTransactionAsync(async () =>
+            {
+                // Any write since the snapshot was read is a conflict, even when this edit's own fields are no-ops.
+                var current = await RequireTaskAsync(request.TaskId, cancellationToken).ConfigureAwait(false);
+                if (current.Revision != original.Revision)
+                    throw new TaskConflictException(original.Id);
+                return await UpdateTaskCoreAsync(request, original, target, cancellationToken).ConfigureAwait(false);
+            }, cancellationToken).ConfigureAwait(false);
         }
         return await UpdateTaskCoreAsync(request, original, target, cancellationToken).ConfigureAwait(false);
     }
@@ -166,6 +173,7 @@ public sealed class TaskApplicationService(
 
         var plannedOn = request.PlannedOn.IsSpecified ? request.PlannedOn.Value : original.PlannedOn;
         var deadlineOn = request.DeadlineOn.IsSpecified ? request.DeadlineOn.Value : original.DeadlineOn;
+        var (scheduledStart, scheduledEnd) = ResolveSchedule(request, original);
         var notes = request.Notes.IsSpecified ? NullIfEmpty(request.Notes.Value) : original.Notes;
         var labels = request.Labels.IsSpecified
             ? await ResolveLabelsAsync(request.Labels.Value ?? [], cancellationToken).ConfigureAwait(false)
@@ -176,6 +184,8 @@ public sealed class TaskApplicationService(
         var completed = targetCompletionState == TaskCompletionState.Completed;
         var now = DateTimeOffset.UtcNow;
         var hasCloudFieldEdits = HasCloudFieldEdits(request);
+        if (request.Priority.IsSpecified)
+            ValidatePriority(request.Priority.Value);
         if (request.ReminderAt.IsSpecified && !hasCloudFieldEdits &&
             !request.LocalMetadataJson.IsSpecified && Store is SqliteTaskStore reminderStore)
         {
@@ -197,6 +207,23 @@ public sealed class TaskApplicationService(
             var entityVersion = await ResolvePersonalCloudEntityVersionAsync(
                 sqliteStore, target, original.Id, cancellationToken).ConfigureAwait(false);
             var changed = request.ReminderAt.IsSpecified;
+            var scheduleFields = ScheduleCloudFields(original, scheduledStart, scheduledEnd);
+            if (scheduleFields.Count > 0)
+            {
+                // The transaction already validated the caller's revision; our own reminder write or publish staging may have bumped it since.
+                var current = await RequireTaskAsync(original.Id, cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    await sqliteStore.PatchTaskWithPersonalCloudIntentAsync(
+                        original.Id, scheduleFields, current.Revision, target.InstanceId, target.DeviceId, cancellationToken).ConfigureAwait(false);
+                }
+                catch (PersonalCloudK0ContractException error) when (error.Code == "version_conflict")
+                {
+                    throw new TaskConflictException(original.Id);
+                }
+                entityVersion = checked(entityVersion + 1);
+                changed = true;
+            }
             var reopening = request.Completed.IsSpecified && original.IsCompleted && !completed;
             if (reopening)
             {
@@ -343,6 +370,8 @@ public sealed class TaskApplicationService(
                 ? ProviderWriteBackPlanner.PreserveExactTime(plannedOn, original.PlannedOn, original.PlannedAt)
                 : original.PlannedAt,
             ReminderAt = reminderAt,
+            ScheduledStart = scheduledStart,
+            ScheduledEnd = scheduledEnd,
             DeadlineOn = deadlineOn,
             DeadlineAt = request.DeadlineOn.IsSpecified
                 ? ProviderWriteBackPlanner.PreserveExactTime(deadlineOn, original.DeadlineOn, original.DeadlineAt)
@@ -466,7 +495,37 @@ public sealed class TaskApplicationService(
     private static bool HasCloudFieldEdits(UpdateTaskRequest request) =>
         request.Title.IsSpecified || request.Status.IsSpecified || request.Priority.IsSpecified ||
         request.PlannedOn.IsSpecified || request.Notes.IsSpecified || request.DeadlineOn.IsSpecified ||
-        request.Completed.IsSpecified || request.Space.IsSpecified || request.Project.IsSpecified || request.Labels.IsSpecified;
+        request.Completed.IsSpecified || request.Space.IsSpecified || request.Project.IsSpecified || request.Labels.IsSpecified ||
+        request.ScheduledStart.IsSpecified || request.ScheduledEnd.IsSpecified;
+
+    private static (DateTimeOffset? Start, DateTimeOffset? End) ResolveSchedule(UpdateTaskRequest request, TaskItem original)
+    {
+        var start = request.ScheduledStart.IsSpecified ? TruncateToMilliseconds(request.ScheduledStart.Value) : original.ScheduledStart;
+        var end = request.ScheduledEnd.IsSpecified ? TruncateToMilliseconds(request.ScheduledEnd.Value) : original.ScheduledEnd;
+        if (!request.ScheduledStart.IsSpecified && !request.ScheduledEnd.IsSpecified)
+            return (start, end);
+        if (end is not null && start is null)
+            throw new ArgumentException("A scheduled end requires a scheduled start.", nameof(request));
+        if (start is not null && end is not null && end <= start)
+            throw new ArgumentException("The scheduled end must be after the scheduled start.", nameof(request));
+        if (!ReminderValues.IsInRange(start) || !ReminderValues.IsInRange(end))
+            throw new ArgumentOutOfRangeException(nameof(request), "The scheduled time is out of range.");
+        return (start, end);
+    }
+
+    private static DateTimeOffset? TruncateToMilliseconds(DateTimeOffset? value) =>
+        value is { } moment ? DateTimeOffset.FromUnixTimeMilliseconds(moment.ToUnixTimeMilliseconds()) : null;
+
+    private static Dictionary<string, object?> ScheduleCloudFields(TaskItem original, DateTimeOffset? start, DateTimeOffset? end)
+    {
+        var fields = new Dictionary<string, object?>(StringComparer.Ordinal);
+        if (original.ScheduledStart != start) fields["scheduledStart"] = CloudMoment(start);
+        if (original.ScheduledEnd != end) fields["scheduledEnd"] = CloudMoment(end);
+        return fields;
+    }
+
+    private static string? CloudMoment(DateTimeOffset? value) => value?.ToUniversalTime().ToString(
+        "yyyy-MM-dd'T'HH:mm:ss.fff'Z'", System.Globalization.CultureInfo.InvariantCulture);
 
     private PersonalCloudConnectionProfile? PersonalCloudTarget() => personalCloudConnection?.Invoke();
 

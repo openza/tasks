@@ -88,13 +88,13 @@ public sealed class LocalDayCountTests(EditorTestSession fixture) : IDisposable
         var rows = await store.GetTasksAsync(new() { Kind = TaskListKind.All, IncludeSubtasks = true });
         var projection = TaskListProjection.Counts(rows, null, date);
         var sql = await store.GetTaskCountsAsync();
-        Assert.Equal(18, sql.Today); Assert.Equal(3, sql.Overdue); Assert.Equal(24, sql.Calendar);
+        Assert.Equal(18, sql.Today); Assert.Equal(2, sql.Overdue); Assert.Equal(24, sql.Calendar);
         Assert.Equal(projection.Today, sql.Today);
         Assert.Equal(projection.Overdue, sql.Overdue);
         Assert.Equal(projection.Calendar, sql.Calendar);
         Assert.Equal(projection.Open, sql.Open);
         Assert.Equal(projection.All, sql.All);
-        foreach (var (kind, expected) in new[] { (TaskListKind.Today, 18), (TaskListKind.Overdue, 3), (TaskListKind.Calendar, 24) })
+        foreach (var (kind, expected) in new[] { (TaskListKind.Today, 18), (TaskListKind.Overdue, 2), (TaskListKind.Calendar, 24) })
         {
             var query = new TaskQuery { Kind = kind };
             Assert.Equal(expected, (await store.GetTasksAsync(query)).Count);
@@ -111,7 +111,7 @@ public sealed class LocalDayCountTests(EditorTestSession fixture) : IDisposable
             await preferences.SaveAsync(new() { AutomaticSyncEnabled = false, AutomaticRestorePointsEnabled = false, ShowGetStarted = false });
             var vm = new MainWindowViewModel(store, new InMemoryCredentialStore(), preferencesStore: preferences);
             await vm.InitializeAsync();
-            foreach (var (kind, expected) in new[] { (TaskListKind.Today, 18), (TaskListKind.Overdue, 3), (TaskListKind.Calendar, 24) })
+            foreach (var (kind, expected) in new[] { (TaskListKind.Today, 18), (TaskListKind.Overdue, 2), (TaskListKind.Calendar, 24) })
             {
                 var navigation = vm.NavigationItems.Single(item => item.Kind == kind);
                 Assert.Equal(expected, navigation.Count);

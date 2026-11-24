@@ -657,6 +657,29 @@ public sealed class SqliteTaskStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task Startup_does_not_give_a_scheduled_task_a_date()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        var start = new DateTimeOffset(2026, 5, 12, 9, 30, 0, TimeSpan.Zero);
+        await store.UpsertTaskAsync(new TaskItem
+        {
+            Id = "task_block_only",
+            Title = "Timeline block",
+            ScheduledStart = start,
+            ScheduledEnd = start.AddHours(1),
+        });
+
+        await store.InitializeAsync();
+
+        var task = (await store.GetTaskAsync("task_block_only"))!;
+        Assert.Null(task.PlannedOn);
+        Assert.Null(task.PlannedAt);
+        Assert.Equal(start, task.ScheduledStart);
+        Assert.Equal(start.AddHours(1), task.ScheduledEnd);
+    }
+
+    [Fact]
     public async Task UpsertTask_roundtrips_completion_workflow_and_planner_fields()
     {
         var store = CreateStore();

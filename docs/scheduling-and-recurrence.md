@@ -32,8 +32,9 @@ the upper bound of the existing instant storage convention.
 
 ## Current behavior
 
-- Today, Calendar and Overdue contain open tasks. They use Date, Deadline and scheduled **start**; scheduled end, overlap and duration alone do not determine membership. Overdue includes planned work and past starts, not only missed deadlines. A block starting yesterday and ending today is Overdue on the strength of its start.
+- Today, Calendar and Overdue contain open tasks. They use Date, Deadline and scheduled **start**; scheduled end, overlap and duration alone do not determine membership. Today and Calendar include a task by its scheduled start, but Overdue uses only a past Date or Deadline: a passed scheduled start or end never makes a task Overdue, and passing it never moves or clears the scheduled time.
 - There is one optional start/end pair, no multi-session editor, overlap/conflict detection, inferred duration or session-completion workflow.
+- Desktop edits set or clear the start/end pair without changing workflow status, Date, Deadline or duration. An end requires a start and must be after it. An edit that omits start/end leaves them unchanged, so editing other fields never wipes a scheduled time. Startup never copies a scheduled start into an empty Date; that copy happens only once, when upgrading a store that predates Date.
 - Date-only values are calendar days. Exact values retain their instant and use the computer's local day for desktop display and dated views.
 - Date pickers show the stored day, or the instant's local day for exact-only records. Loading, refreshing and saving an unchanged displayed day do not create a date mutation. Unrelated edits preserve exact time. Explicit clear/replacement drops the corresponding instant, including from the save baseline so a later edit cannot restore it.
 - A local explicit same-day edit of an already paired day/instant can preserve matching time. An explicitly submitted cloud Date/Deadline mutation replaces its exact time; the desktop editor suppresses it when the displayed day is unchanged. Web date-only edits also replace time. Schedule/recurrence metadata has no editable workflow on Web.
