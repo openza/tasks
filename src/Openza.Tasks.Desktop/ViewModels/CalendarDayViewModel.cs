@@ -202,7 +202,7 @@ public sealed class CalendarDayViewModel : ObservableObject
         var cluster = new List<CalendarDayBlockViewModel>();
         var clusterEnd = DateTime.MinValue;
 
-        foreach (var block in blocks.OrderBy(block => block.LocalStart).ThenBy(block => block.LocalEnd))
+        foreach (var block in blocks.OrderBy(block => block.LocalStart).ThenBy(block => block.LayoutEnd))
         {
             if (cluster.Count > 0 && block.LocalStart >= clusterEnd)
             {
@@ -212,7 +212,7 @@ public sealed class CalendarDayViewModel : ObservableObject
             }
 
             cluster.Add(block);
-            if (block.LocalEnd > clusterEnd) clusterEnd = block.LocalEnd;
+            if (block.LayoutEnd > clusterEnd) clusterEnd = block.LayoutEnd;
         }
 
         if (cluster.Count > 0) AssignClusterColumns(cluster);
@@ -224,12 +224,12 @@ public sealed class CalendarDayViewModel : ObservableObject
         var maxColumns = 1;
         var assignments = new List<(CalendarDayBlockViewModel Block, int Column)>();
 
-        foreach (var block in cluster.OrderBy(block => block.LocalStart).ThenBy(block => block.LocalEnd))
+        foreach (var block in cluster.OrderBy(block => block.LocalStart).ThenBy(block => block.LayoutEnd))
         {
             active.RemoveAll(item => item.End <= block.LocalStart);
             var column = 0;
             while (active.Any(item => item.Column == column)) column++;
-            active.Add((column, block.LocalEnd));
+            active.Add((column, block.LayoutEnd));
             assignments.Add((block, column));
             maxColumns = Math.Max(maxColumns, active.Count);
         }

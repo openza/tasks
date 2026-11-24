@@ -35,6 +35,7 @@ public sealed class CalendarDayBlockViewModel : ObservableObject
     public DateTime LocalEnd => _visibleEnd;
     public double Top => LocalStart.TimeOfDay.TotalMinutes * CalendarDayViewModel.HourHeight / 60;
     public double Height => Math.Max(MinimumHeight, (LocalEnd - LocalStart).TotalMinutes * CalendarDayViewModel.HourHeight / 60);
+    internal DateTime LayoutEnd => LocalStart.AddMinutes(Height * 60 / CalendarDayViewModel.HourHeight);
     public string TimeText => $"{LocalStart:HH:mm} – {(LocalEnd.Date > LocalStart.Date ? "24:00" : LocalEnd.ToString("HH:mm"))}";
     public bool IsCompact => Height < 48;
     public bool IsCompleted => Task.IsCompleted;

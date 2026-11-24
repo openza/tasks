@@ -128,6 +128,27 @@ public sealed class CalendarDayViewModelTests
     }
 
     [Fact]
+    public void Adjacent_short_blocks_use_separate_lanes_for_their_rendered_extents()
+    {
+        var viewModel = new CalendarDayViewModel();
+        viewModel.SetSelectedDate(TestDay);
+        var firstStart = At(TestDay, 9);
+        viewModel.SetScheduledTasks([
+            Item("first short", firstStart, firstStart.AddMinutes(15)),
+            Item("second short", firstStart.AddMinutes(15), firstStart.AddMinutes(30)),
+        ]);
+
+        var first = viewModel.Blocks.Single(block => block.Title == "first short");
+        var second = viewModel.Blocks.Single(block => block.Title == "second short");
+        Assert.Equal(firstStart.AddMinutes(15).LocalDateTime, first.LocalEnd);
+        Assert.Equal(32, first.Height);
+        Assert.Equal(0, first.LeftFraction);
+        Assert.Equal(0.5, first.WidthFraction);
+        Assert.Equal(0.5, second.LeftFraction);
+        Assert.Equal(0.5, second.WidthFraction);
+    }
+
+    [Fact]
     public void Overlapping_blocks_share_lanes_and_reuse_a_lane_after_an_overlap_ends()
     {
         var viewModel = new CalendarDayViewModel();
