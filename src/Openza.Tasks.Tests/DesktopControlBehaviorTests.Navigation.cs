@@ -100,9 +100,11 @@ public sealed partial class DesktopControlBehaviorTests
         context.Vm.SetCalendarDayView(true);
         context.Window.UpdateLayout();
 
-        var canvas = context.Window.FindControl<Canvas>("TimelineCanvas")!;
+        var dayView = context.Window.FindControl<Control>("CalendarDayView")!;
+        var block = Assert.Single(dayView.GetVisualDescendants().OfType<Border>(),
+            child => ToolTip.GetTip(child) is string tip && tip.Contains(task.Title, StringComparison.Ordinal));
+        var canvas = block.GetVisualAncestors().OfType<Canvas>().First();
         Assert.True(canvas.IsHitTestVisible);
-        var block = Assert.Single(canvas.Children.OfType<Border>(), child => ToolTip.GetTip(child) is string tip && tip.Contains(task.Title, StringComparison.Ordinal));
         Assert.Contains(start.ToLocalTime().ToString("HH:mm"), Assert.IsType<string>(ToolTip.GetTip(block)));
     });
 
@@ -168,6 +170,39 @@ public sealed partial class DesktopControlBehaviorTests
         var saved = (await context.Store.GetTaskAsync(task.Id))!;
         Assert.Equal("Saved before completion", saved.Title);
         Assert.True(saved.IsCompleted);
+    });
+
+    [Fact]
+    public Task Today_completion_checkbox_reverts_when_saving_the_editor_is_rejected() => Run(async context =>
+    {
+        var existing = (await context.Store.GetTaskAsync("task-0"))!;
+        var now = DateTimeOffset.Now;
+        var task = existing with
+        {
+            Id = "calendar-rejected-completion-task",
+            Title = "Rejected completion",
+            ParentId = null,
+            PlannedOn = DateOnly.FromDateTime(now.LocalDateTime),
+            ScheduledStart = now.AddMinutes(30),
+            ScheduledEnd = now.AddHours(1),
+            CompletionState = TaskCompletionState.Open,
+        };
+        await context.Store.UpsertTaskAsync(task);
+        await context.Vm.SelectNavigationAsync(context.Vm.NavigationItems.Single(item => item.Kind == TaskListKind.Calendar));
+        context.Vm.SetCalendarDayView(true);
+        context.Vm.ToggleCalendarTodayPanel();
+        context.Window.UpdateLayout();
+        var todayTask = Assert.Single(context.Vm.CalendarDay.FilteredTodayTasks, item => item.Task.Id == task.Id);
+        await context.Vm.SelectTaskAsync(todayTask);
+        context.Vm.DetailTitle = "   ";
+        var completion = context.Window.GetVisualDescendants().OfType<CheckBox>()
+            .Single(box => AutomationProperties.GetName(box) == "Complete Rejected completion");
+        completion.IsChecked = true;
+
+        completion.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await Until(() => !context.Vm.IsBusy && completion.IsChecked == false);
+
+        Assert.False((await context.Store.GetTaskAsync(task.Id))!.IsCompleted);
     });
 
     [Fact]

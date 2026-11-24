@@ -23,7 +23,7 @@ public sealed partial class CalendarDayView : UserControl
     }
 
     public event EventHandler<TaskListItemViewModel>? TodayTaskSelected;
-    public event EventHandler<TaskListItemViewModel>? TodayTaskCompletionRequested;
+    public event Func<TaskListItemViewModel, Task<bool>>? TodayTaskCompletionRequested;
 
     public void ScrollToCurrentTime()
     {
@@ -223,12 +223,25 @@ public sealed partial class CalendarDayView : UserControl
         TodayTaskSelected?.Invoke(this, task);
     }
 
-    private void OnTodayTaskCompletionClicked(object? sender, RoutedEventArgs e)
+    private async void OnTodayTaskCompletionClicked(object? sender, RoutedEventArgs e)
     {
         e.Handled = true;
-        if (sender is CheckBox { DataContext: TaskListItemViewModel task })
+        if (sender is CheckBox { DataContext: TaskListItemViewModel task } checkBox)
         {
-            TodayTaskCompletionRequested?.Invoke(this, task);
+            var isCompleted = task.Task.IsCompleted;
+            checkBox.IsEnabled = false;
+            try
+            {
+                if (TodayTaskCompletionRequested is { } completionRequested)
+                {
+                    isCompleted = await completionRequested(task);
+                }
+            }
+            finally
+            {
+                checkBox.IsChecked = isCompleted;
+                checkBox.IsEnabled = true;
+            }
         }
     }
 }

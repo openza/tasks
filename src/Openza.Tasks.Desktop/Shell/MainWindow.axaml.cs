@@ -384,18 +384,21 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private async void OnCalendarTodayTaskCompletionRequested(object? sender, TaskListItemViewModel task)
+    private async Task<bool> OnCalendarTodayTaskCompletionRequested(TaskListItemViewModel task)
     {
-        if (_taskCompletionInProgress) return;
+        if (_taskCompletionInProgress) return task.Task.IsCompleted;
         _taskCompletionInProgress = true;
         try
         {
             var taskWasSelected = string.Equals(ViewModel.SelectedTask?.Task.Id, task.Task.Id, StringComparison.Ordinal);
-            if (await SelectTaskAfterSavingAsync(task) &&
-                (!taskWasSelected || await ViewModel.SaveSelectedAsync()))
+            if (!await SelectTaskAfterSavingAsync(task) ||
+                (taskWasSelected && !await ViewModel.SaveSelectedAsync()))
             {
-                await ViewModel.ToggleSelectedCompletionAsync();
+                return task.Task.IsCompleted;
             }
+
+            await ViewModel.ToggleSelectedCompletionAsync();
+            return !task.Task.IsCompleted;
         }
         finally
         {
