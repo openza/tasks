@@ -16,7 +16,7 @@ public sealed partial class SqliteTaskStore
             microsoft.TryGetProperty("recurrenceObserved", out var observed) && observed.ValueKind == JsonValueKind.True;
     }
 
-    private static async Task<bool> ApplyMicrosoftRecurrenceAsync(SqliteConnection connection, ProviderSourceItem source,
+    private async Task<bool> ApplyMicrosoftRecurrenceAsync(SqliteConnection connection, ProviderSourceItem source,
         string taskId, CancellationToken cancellationToken, bool afterCloudPull = false)
     {
         if (!HasMicrosoftRecurrenceObservation(source)) return false;
@@ -26,15 +26,15 @@ public sealed partial class SqliteTaskStore
                 source_metadata=json_set(COALESCE(source_metadata,'{}'),'$.msToDoRecurrenceApplied',json('true')),
                 revision=revision+1
             WHERE id=@id AND COALESCE(json_extract(source_metadata,'$.msToDoRecurrenceApplied'),0)=0
-              AND (@after_cloud_pull=1 OR NOT (
-                EXISTS(SELECT 1 FROM personal_cloud_entity_versions WHERE product='tasks' AND entity_id=@id)
-                OR EXISTS(SELECT 1 FROM personal_cloud_replica_entities WHERE product='tasks' AND entity_id=@id)
-                OR EXISTS(SELECT 1 FROM personal_cloud_outbox WHERE product='tasks' AND entity_id=@id
+              AND (@cloud_instance IS NULL OR NOT (
+                EXISTS(SELECT 1 FROM personal_cloud_entity_versions WHERE instance_id=@cloud_instance AND product='tasks' AND entity_id=@id)
+                OR EXISTS(SELECT 1 FROM personal_cloud_replica_entities WHERE instance_id=@cloud_instance AND product='tasks' AND entity_id=@id)
+                OR EXISTS(SELECT 1 FROM personal_cloud_outbox WHERE instance_id=@cloud_instance AND product='tasks' AND entity_id=@id
                     AND operation IN ('task.create','task.createRich'))))
             """;
         command.Parameters.AddWithValue("@id", taskId);
         command.Parameters.AddWithValue("@rule", ToDbValue(source.RecurrenceRule));
-        command.Parameters.AddWithValue("@after_cloud_pull", afterCloudPull ? 1 : 0);
+        command.Parameters.AddWithValue("@cloud_instance", ToDbValue(afterCloudPull ? null : PersonalCloudConnection?.Invoke()?.InstanceId));
         return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) == 1;
     }
 

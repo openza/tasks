@@ -133,24 +133,14 @@ public sealed class MicrosoftRecurrenceTests : IDisposable
         const string device = "device_repeat";
         var store = await CreateStoreAsync();
         var task = await AdoptAsync(store, Source("weekly", observed: false));
-        await using (var connection = new SqliteConnection($"Data Source={store.DatabasePath};Pooling=False"))
-        {
-            await connection.OpenAsync();
-            var command = connection.CreateCommand();
-            command.CommandText = """
-                INSERT INTO personal_cloud_entity_versions(instance_id,product,entity_id,entity_version,updated_at)
-                VALUES(@instance,'tasks',@id,4,0);
-                """;
-            command.Parameters.AddWithValue("@instance", instance);
-            command.Parameters.AddWithValue("@id", task.Id);
-            await command.ExecuteNonQueryAsync();
-        }
+        await SetPublishedVersionAsync(store, instance, task.Id);
         await store.SavePersonalCloudWorkspaceCapabilitiesAsync(instance, workspace: true, providerCatalog: false);
         var cloud = new PersonalCloudConnectionProfile
         {
             InstanceId = instance, DeviceId = device, ServiceOrigin = new Uri("https://cloud.example/"),
             ArtifactVersion = "test", ConnectedAt = DateTimeOffset.UtcNow,
         };
+        store.PersonalCloudConnection = () => cloud;
 
         await store.UpsertProviderSourceItemAsync(Source(Weekly));
         Assert.Null((await store.GetTaskAsync(task.Id))!.RecurrenceRule);
@@ -163,6 +153,36 @@ public sealed class MicrosoftRecurrenceTests : IDisposable
         Assert.Equal("task.patch", change.Operation);
         Assert.Equal(4, document.RootElement.GetProperty("baseEntityVersion").GetInt64());
         Assert.Equal(Weekly, document.RootElement.GetProperty("payload").GetProperty("fields").GetProperty("recurrenceRule").GetString());
+    }
+
+    [Fact]
+    public async Task Disconnect_allows_backfill_of_a_previously_published_task()
+    {
+        const string instance = "instance_repeat";
+        const string device = "device_repeat";
+        var store = await CreateStoreAsync();
+        var task = await AdoptAsync(store, Source("weekly", observed: false));
+        await SetPublishedVersionAsync(store, instance, task.Id);
+        store.PersonalCloudConnection = () => null;
+
+        await store.UpsertProviderSourceItemAsync(Source(Weekly));
+
+        Assert.Equal(Weekly, (await store.GetTaskAsync(task.Id))!.RecurrenceRule);
+        Assert.Empty(await store.GetPendingPersonalCloudOutboxAsync(instance, device));
+    }
+
+    private static async Task SetPublishedVersionAsync(SqliteTaskStore store, string instance, string taskId)
+    {
+        await using var connection = new SqliteConnection($"Data Source={store.DatabasePath};Pooling=False");
+        await connection.OpenAsync();
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO personal_cloud_entity_versions(instance_id,product,entity_id,entity_version,updated_at)
+            VALUES(@instance,'tasks',@id,4,0);
+            """;
+        command.Parameters.AddWithValue("@instance", instance);
+        command.Parameters.AddWithValue("@id", taskId);
+        await command.ExecuteNonQueryAsync();
     }
 
     private async Task<SqliteTaskStore> CreateStoreAsync()
