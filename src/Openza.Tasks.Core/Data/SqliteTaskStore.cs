@@ -4797,6 +4797,7 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
             using var reader = new StreamReader(source);
             await ExecuteNonQueryAsync(connection, await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
         }
+        await using var reminderVersionMigration = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         if (!(await GetColumnNamesAsync(connection, "tasks", cancellationToken).ConfigureAwait(false)).Contains("reminder_version"))
         {
             using var source = typeof(SqliteTaskStore).Assembly.GetManifestResourceStream("Openza.Tasks.Core.Data.Migrations.0015_task_reminder_version.sql")
@@ -4805,6 +4806,7 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
             await ExecuteNonQueryAsync(connection, await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
         }
         await ExecutePragmaAsync(connection, $"PRAGMA user_version = {CurrentSchemaVersion}", cancellationToken).ConfigureAwait(false);
+        await reminderVersionMigration.CommitAsync(cancellationToken).ConfigureAwait(false);
     }
 
     private static async Task EnsureLegacySchemaCompatibilityAsync(SqliteConnection connection, CancellationToken cancellationToken)

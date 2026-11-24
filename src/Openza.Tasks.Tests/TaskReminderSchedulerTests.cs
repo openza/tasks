@@ -1,3 +1,4 @@
+using Microsoft.Data.Sqlite;
 using Openza.Tasks.Application.Tasks;
 using Openza.Tasks.Core.Data;
 using Openza.Tasks.Core.Models;
@@ -9,6 +10,43 @@ public sealed class TaskReminderSchedulerTests : IDisposable
     private readonly string _directory = Path.Combine(Path.GetTempPath(), "openza-reminder-tests", Guid.NewGuid().ToString("N"));
     private readonly ReminderClock _clock = new();
     private readonly List<TaskReminderSchedule> _delivered = [];
+
+    [Fact]
+    public async Task Concurrent_initialization_upgrades_and_preserves_existing_reminders()
+    {
+        var store = await OpenStoreAsync();
+        await store.UpsertTaskAsync(new TaskItem { Id = "remind", Title = "Existing reminder", ReminderAt = _clock.Now });
+        await store.InitializeAsync();
+        await using (var connection = new SqliteConnection($"Data Source={store.DatabasePath};Pooling=False"))
+        {
+            await connection.OpenAsync();
+            using var command = connection.CreateCommand();
+            command.CommandText = "ALTER TABLE tasks DROP COLUMN reminder_version; PRAGMA user_version=14;";
+            await command.ExecuteNonQueryAsync();
+        }
+
+        for (var attempt = 0; attempt < 12; attempt++)
+        {
+            var database = Path.Combine(_directory, $"upgrade-{attempt}.db");
+            File.Copy(store.DatabasePath, database);
+            using var barrier = new Barrier(8);
+            await Task.WhenAll(Enumerable.Range(0, barrier.ParticipantCount).Select(_ =>
+                Task.Factory.StartNew(() =>
+                {
+                    Assert.True(barrier.SignalAndWait(TimeSpan.FromSeconds(15)));
+                    return new SqliteTaskStore(database).InitializeAsync();
+                }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default).Unwrap()));
+
+            var upgraded = new SqliteTaskStore(database);
+            var reminder = await upgraded.GetReminderScheduleAsync("remind");
+            Assert.Equal(new TaskReminderSchedule("remind", "Existing reminder", _clock.Now, true), reminder);
+            await using var connection = new SqliteConnection($"Data Source={database};Mode=ReadOnly;Pooling=False");
+            await connection.OpenAsync();
+            using var command = connection.CreateCommand();
+            command.CommandText = "PRAGMA user_version;";
+            Assert.Equal((long)SqliteTaskStore.CurrentSchemaVersion, await command.ExecuteScalarAsync());
+        }
+    }
 
     [Fact]
     public async Task Delivers_at_the_due_instant_and_does_not_repeat_after_restart()
