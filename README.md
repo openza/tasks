@@ -2,7 +2,7 @@
 
 **A simple local-first task app that grows with you, with an optional cloud you control (preview).**
 
-Openza Tasks supports fast local capture and completion without requiring projects or a planning method. Avalonia is the cross-platform desktop host; Linux Snap and Windows (the Avalonia MSIX replacing the WinUI Store app) are both active development and delivery targets. The WinUI 3 edition is frozen: its last Microsoft Store release is final, with no further releases or maintenance. Existing Store users remain on that release until the Avalonia replacement passes the [Windows continuity requirements](docs/windows-transition.md); the Avalonia Production Store release 1.4.0.0 is prepared, and installing and submitting it still need the maintainer's explicit approval. Both projects retain the shared SQLite core. macOS is deferred.
+Openza Tasks supports fast local capture and completion without requiring projects or a planning method. Avalonia is the cross-platform desktop host; Linux Snap and Windows (the Avalonia MSIX replacing the WinUI Store app) are both active development and delivery targets. The WinUI 3 edition is frozen: its last Microsoft Store release is final, with no further releases or maintenance. Existing Store users remain on that release until the Avalonia replacement passes the [Windows continuity requirements](docs/windows-transition.md); installing and submitting the Avalonia Store release always need the maintainer's explicit approval. Both projects retain the shared SQLite core. macOS is deferred.
 
 Openza Tasks is maintained by Deependra Solanky as a personal open-source project. Microsoft sign-in may show the Openza app name with the `solanky.dev` publisher/contact identity.
 
@@ -14,7 +14,7 @@ User guide: [openza.org/tasks](https://openza.org/tasks/)
 - **Existing Windows Store app** - final frozen WinUI 3 release, retained for current users until the Avalonia replacement
 - **Local-first storage** - tasks, projects, labels, backups, and imports live on your device
 - **Provider sync** - optional Todoist and Microsoft To Do reconnect/sync
-- **Optional Personal Cloud (preview, from 1.2.0)** - user-owned Cloudflare deployment for sync and an online-first web companion, with daily-quota protection; task data is access-controlled, not end-to-end encrypted, and provider tokens stay on desktop.
+- **Optional Personal Cloud (preview)** - user-owned Cloudflare deployment for sync and an online-first web companion, with daily-quota protection; task data is access-controlled, not end-to-end encrypted, and provider tokens stay on desktop.
 - **Local restore points** - automatic and manual SQLite restore points support rollback inside the app package state
 - **Optional durable backup** - restorable backup snapshots can be uploaded to the app's OneDrive folder or exported by the user
 - **Focused task layout** - navigation, projects, task list, and details in one productive surface
@@ -35,18 +35,17 @@ The primary Linux download is the strict Snap from the
 sudo snap install openza-tasks
 ```
 
-Use `stable` for normal installations. Checked on **21 November 2026**, the
-Snap Store's amd64 `stable`, `candidate`, and `edge` channels all publish
-**1.3.0, revision 3**. Check current channel versions before choosing a different
-channel:
+Use `stable` for normal installations. The
+[Snap Store page](https://snapcraft.io/openza-tasks) shows the current version of
+each channel; check it before choosing a different channel:
 
 ```bash
 snap info openza-tasks
 ```
 
 **Personal Cloud remains an optional preview feature; that does not require the
-Snap `edge` channel.** The [1.3.0 release](https://github.com/openza/tasks/releases/tag/v1.3.0)
-supports setup and updates from separately published, signed
+Snap `edge` channel.** Desktop releases
+support setup and updates from separately published, signed
 [Personal Cloud releases](https://github.com/openza/personal-cloud/releases).
 Start in desktop Settings → Personal Cloud. Feature maturity, the Snap release
 channel, and the version deployed in your own Cloudflare account are separate.
@@ -55,20 +54,20 @@ See the [release plan](docs/snap-release.md). Existing local sideload users shou
 read the [Store adoption plan](docs/snap-release.md#sideload-to-store-transition)
 before changing their installation.
 
-The [GitHub v1.3.0 release](https://github.com/openza/tasks/releases/tag/v1.3.0)
+Each [GitHub release](https://github.com/openza/tasks/releases)
 provides a local-file fallback. Download its `.snap` and matching
 `.sha256` asset, verify the download, then install only if that fallback is wanted:
 
 ```bash
-sha256sum --check openza-tasks_1.3.0_amd64.snap.sha256
-sudo snap install ./openza-tasks_1.3.0_amd64.snap --dangerous
+sha256sum --check openza-tasks_<version>_amd64.snap.sha256
+sudo snap install ./openza-tasks_<version>_amd64.snap --dangerous
 ```
 
 Snap uses `--dangerous` for a local package installed without a Snap Store
 assertion. Openza Tasks remains strictly confined. A local sideload does not
 automatically track Store updates; use the documented sideload-to-Store process.
 
-Legacy Flutter-era packages remain available in older GitHub releases. Store V1 starts with a clean workspace and does not automatically import those stores. Guarded WinUI-to-Avalonia continuity stays behind its Dev gate and the Production 1.4.0.0 authorization. Keep legacy imports excluded; Windows replacement follows the transition requirements.
+Legacy Flutter-era packages remain available in older GitHub releases. Store V1 starts with a clean workspace and does not automatically import those stores. Guarded WinUI-to-Avalonia continuity stays behind its Dev gate. Keep legacy imports excluded; Windows replacement follows the transition requirements.
 
 ## Building From Source
 
@@ -106,7 +105,7 @@ in [docs/avalonia-parity.md](docs/avalonia-parity.md).
 
 Windows is an active target again. Packaging, MSIX, native testing and Store
 replacement proceed under the [Windows continuity requirements](docs/windows-transition.md);
-installing and submitting the prepared 1.4.0.0 Store release still need explicit
+installing and submitting a Store release always need explicit
 maintainer approval. The following commands validate the source:
 
 ```powershell

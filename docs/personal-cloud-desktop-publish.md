@@ -15,7 +15,7 @@ Run from a clean Tasks checkout with Node.js 22/npm and the .NET 10 SDK:
 
 ```sh
 node --test scripts/personal-cloud/*.test.mjs
-node scripts/personal-cloud/publish-desktop.mjs 1.3.0
+node scripts/personal-cloud/publish-desktop.mjs <version>
 ```
 
 This is maintainer publish validation, not a release. It publishes the

@@ -1,10 +1,12 @@
-# Microsoft Store Submission — Avalonia 1.4.0.0
+# Microsoft Store Submission — Avalonia
 
 ## Release and identity
 
-The live Store app is WinUI **1.0.0.0**, uploaded **2026-06-24**:
-`Openza.OpenzaTasks_1.0.0.0_x64__q7pgk2crrc53t`.
-The authorized replacement is Avalonia **1.4.0.0**; WinUI stays frozen.
+The existing Store app is the final frozen WinUI release, package family
+`Openza.OpenzaTasks_q7pgk2crrc53t`. The Avalonia Production package replaces it
+under the same identity; WinUI stays frozen. The current Store version is on the
+[Store page](https://apps.microsoft.com/detail/9NQGDKXGRGF8); each release is
+recorded in the changelog and GitHub Releases.
 
 - Product: [Openza Tasks, 9NQGDKXGRGF8](https://apps.microsoft.com/detail/9NQGDKXGRGF8)
 - Name: `Openza.OpenzaTasks`
@@ -67,7 +69,7 @@ points, not durable backups; use explicit export or OneDrive backup.
 ## Partner Center handoff
 
 1. Open the existing Openza Tasks product in Partner Center, not a new app.
-2. Upload the generated unsigned Production MSIX to the 1.4.0.0 submission.
+2. Upload the generated unsigned Production MSIX to the new submission.
 3. Verify package validation, listing, privacy URL, declarations and availability.
 4. Use reviewed Avalonia screenshots with synthetic data only.
 5. Submit only with maintainer approval after native upgrade acceptance.

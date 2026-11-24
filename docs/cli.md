@@ -155,9 +155,8 @@ activates a provider implicitly.
 
 The public Linux distribution is the single strict `openza-tasks` Snap. It
 contains the desktop app and CLI over the same refresh-stable Production data
-directory. Version 1.1.0 is available from the
-[GitHub release](https://github.com/openza/tasks/releases/tag/v1.1.0) while
-Snap Store publication is pending. A Snap installed directly from GitHub uses
+directory. Install it from the [Snap Store](https://snapcraft.io/openza-tasks) or
+a [GitHub release](https://github.com/openza/tasks/releases). A Snap installed directly from GitHub uses
 the namespaced `openza-tasks.openza` command and requires `--dangerous` only
 because it has no Snap Store assertion; strict confinement remains enabled.
 The normal `openza` alias is subject to Snap Store approval.

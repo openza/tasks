@@ -43,33 +43,26 @@ This is a request to file, not an existing approval:
 
 ## Coordinated Desktop and Personal Cloud release plan
 
-### Published version and next release
+### Published version
 
 [Openza Tasks is published on the Snap Store](https://snapcraft.io/openza-tasks).
-Checked on **21 November 2026**, Canonical's public Snap API reports amd64
-Store revision **3**, version **1.3.0**, on **latest/stable**,
-**latest/candidate** and **latest/edge**. It was
-uploaded **2026-11-01 11:32 UTC**, built from tag `v1.3.0`
-(`07331bd855d3991ba26603396ba094b19cd7e5c0`) with .NET runtime 10.0.14, and is
-**72,347,648 bytes**, the same size as the
-[GitHub v1.3.0 Snap asset](https://github.com/openza/tasks/releases/tag/v1.3.0).
-Equal byte counts do not prove checksum or binary identity; use the published
-`.sha256` file.
-
-Earlier revisions: **1** is 1.1.0 (no Personal Cloud) and **2** is 1.2.0
-(bundled Personal Cloud `0.1.0-preview.10`, edge only, never promoted).
+The Snap Store page and `snap info openza-tasks` show which version and revision
+each channel currently carries; per-release details (version, revision, build
+commit, size) belong only in [CHANGELOG.md](../CHANGELOG.md) and
+[GitHub Releases](https://github.com/openza/tasks/releases). Do not copy them
+into this runbook.
 
 For a new installation, use `sudo snap install openza-tasks`. The GitHub asset
-with checksum verification and `--dangerous` is a local-file fallback.
+with checksum verification and `--dangerous` is a local-file fallback. Equal byte
+counts between a Store revision and a GitHub asset do not prove checksum or binary
+identity; use the published `.sha256` file.
 
 Personal Cloud's **preview** maturity is independent of the Snap release channel;
-it does not require `edge`. Desktop 1.3.0's release notes and setup source describe
-installing separately signed cloud releases. The published
-[`cloud-v0.1.0-preview.11`](https://github.com/openza/personal-cloud/releases/tag/cloud-v0.1.0-preview.11)
-metadata declares `minDesktopVersion: 1.3.0`. This is release/source evidence, not
-an installed-Snap setup or authenticated cloud acceptance test. Store channel
-metadata alone does not establish feature behavior or an owner's deployed cloud
-version.
+it does not require `edge`. Desktop release notes and setup source describe
+installing separately signed cloud releases, whose metadata declares a
+`minDesktopVersion`. Release/source evidence is not an installed-Snap setup or
+authenticated cloud acceptance test. Store channel metadata alone does not
+establish feature behavior or an owner's deployed cloud version.
 
 When updating installation guidance, recheck current channels with
 `snap info openza-tasks` or Canonical's
@@ -81,29 +74,26 @@ Cloud guides aligned; the website sources live in
 [`openza/website`](https://github.com/openza/website), not this repository or
 `openza/personal-cloud`.
 
-The next Linux Snap version is **1.4.0**, not yet published, with changes under
-[CHANGELOG 1.4.0](../CHANGELOG.md#140---2026-11-22). Before release, update the
-Snap version, both .NET publish version properties, AppStream metadata and final
-changelog/tag together. Windows package publication remains a separate release
-lane.
+For each release, update the Snap version, both .NET publish version properties,
+AppStream metadata and final changelog/tag together. Windows package publication
+remains a separate release lane.
 
 ### Personal Cloud is not bundled
 
-From 1.3.0 the Snap contains no Personal Cloud artifact; Desktop installs signed
+The Snap contains no Personal Cloud artifact; Desktop installs signed
 cloud releases published separately by `openza/personal-cloud`. A Desktop
 release therefore never needs a cloud change, and cloud changes never need a
 Desktop release unless a cloud release raises `minDesktopVersion`.
-Release 1.2.0 bundled `0.1.0-preview.10`.
 See [Desktop publish validation](personal-cloud-desktop-publish.md),
 [compatibility](cloud-upgrade-compatibility.md) and [quota behavior](personal-cloud-quota.md).
 
 ### Release sequence
 
 1. Review the coordinated Desktop and Cloud changes. Record exact source commits,
-   release versions and dependency lock before merging. Before rolling out Desktop
-   1.3.0, verify that the compatible signed Personal Cloud release
-   `cloud-v0.1.0-preview.11` (or a newer signed release supporting Desktop 1.3.0)
-   is published in `openza/personal-cloud`, so first-time setup can install it.
+   release versions and dependency lock before merging. Before rolling out a Desktop
+   release, verify that a compatible signed Personal Cloud release (one whose
+   `minDesktopVersion` the new Desktop meets) is published in
+   `openza/personal-cloud`, so first-time setup can install it.
 2. Build with the existing Snap wrappers; the Snap contains no Cloud artifact.
    Record the package hash and app/CLI channel markers. Keep
    output under ignored `artifacts/snap/`. Check disk and memory headroom; clean
@@ -121,8 +111,8 @@ See [Desktop publish validation](personal-cloud-desktop-publish.md),
    promote the same revision to `candidate` and `stable` after channel acceptance.
 5. Update participating Desktop clients before upgrading Cloud. The packaged
    client must support the existing schema-20 deployment and target schema-25
-   quota errors. Older strict parsers are not assumed compatible. From 1.3.0
-   the `Update` flow installs the newest signed cloud release this Desktop supports.
+   quota errors. Older strict parsers are not assumed compatible. The
+   `Update` flow installs the newest signed cloud release this Desktop supports.
 6. Before the Cloud upgrade, approve the exact target and artifact, verify a
    backup, and run target-identity/migration-history preflight. Production database
    writes remain human-executed through the upgrade procedure. Verify readiness,
@@ -134,8 +124,8 @@ list; equivalent task-editor label edits remain a no-op.
 
 ## Sideload-to-Store transition
 
-A local installation might show version `1.1.0`, revision `x8`, installed with
-`--dangerous`, while the Store offers revision `1`. These are different package
+A local installation might show version `<old-version>`, revision `x<N>`, installed with
+`--dangerous`, while the Store offers a different revision. These are different package
 identities for provenance purposes: the version label alone cannot establish
 source, features, checksum or existing Personal Cloud state. A separate parallel
 instance such as `openza-tasks_pcdev` has its own test state and must remain
@@ -144,7 +134,7 @@ untouched during adoption of the main `openza-tasks` installation.
 1. Confirm the approved candidate version, Store revision and package hash with
    `snap info openza-tasks` and `snap list --all openza-tasks`. Stop if
    latest/candidate is empty, inherits the older stable revision, or does not
-   contain the intended package. Public revision 1 is not the Cloud candidate.
+   contain the intended package. A public Store revision is not necessarily the Cloud candidate.
 2. Make and verify an app export and restorable backup. Close the app and other
    writers before taking a consistent pre-upgrade data copy. Retain a known-good
    package. The [snapshot guide](https://snapcraft.io/docs/how-to-guides/manage-snaps/create-data-snapshots/)
@@ -154,7 +144,7 @@ untouched during adoption of the main `openza-tasks` installation.
    data snapshot does not establish that external keyring secrets are backed up.
 3. Prove a compatible rollback path in isolation before approving adoption. A
    retained, supported prior revision may permit
-   `sudo snap revert openza-tasks --revision=x8`. Otherwise validate recovery with
+   `sudo snap revert openza-tasks --revision=x<N>`. Otherwise validate recovery with
    a known-good local package and compatible data backup first. Stop if neither
    path is available. Revert does not change channel tracking: agree a per-snap
    hold/tracking policy, and avoid named refreshes or lifting a hold until the
@@ -282,13 +272,13 @@ known-good revision back to the affected channel.
 
 ## GitHub release and validation
 
-Use one product `v<version>` tag across platforms, such as `v1.1.0`, and keep Store revision numbers as package-specific build identifiers. The tag-triggered **Release Validation** workflow validates both hosts and retains its inspected Linux Snap as a diagnostic artifact. It does not create a GitHub release automatically or publish a Windows package. After validation succeeds, dispatch **Publish Snap Store Edge** at that exact tag. Download and extract the immutable `openza-tasks-store-snap` workflow artifact from that successful publishing run. Compute the SHA-256 checksum from the extracted raw Snap, then attach that exact `openza-tasks_<version>_amd64.snap` file and its matching `openza-tasks_<version>_amd64.snap.sha256` file to the GitHub release. Do not attach the workflow artifact ZIP as the Snap package.
+Use one product `v<version>` tag across platforms, such as `v<version>`, and keep Store revision numbers as package-specific build identifiers. The tag-triggered **Release Validation** workflow validates both hosts and retains its inspected Linux Snap as a diagnostic artifact. It does not create a GitHub release automatically or publish a Windows package. After validation succeeds, dispatch **Publish Snap Store Edge** at that exact tag. Download and extract the immutable `openza-tasks-store-snap` workflow artifact from that successful publishing run. Compute the SHA-256 checksum from the extracted raw Snap, then attach that exact `openza-tasks_<version>_amd64.snap` file and its matching `openza-tasks_<version>_amd64.snap.sha256` file to the GitHub release. Do not attach the workflow artifact ZIP as the Snap package.
 
 Every release must describe which platforms received that version. Preserve unpublished Windows drafts and do not claim Windows availability until the tagged Windows host has passed its separate acceptance checks.
 
 If Store review delays channel availability, the verified Snap may be published as a GitHub prerelease with the local-package installation command and a clear explanation that `--dangerous` means the package lacks a Store assertion while remaining strictly confined. After Store approval, promote the same revision unchanged through the accepted channels and update the GitHub release with the Store installation and `snap refresh --amend` transition instructions.
 
-A local Snap revision such as `x7` is not a Store revision. Do not promote a local revision number or assume that a successful local install proves Store acceptance. Real-account Microsoft, GitHub, and OneDrive flows and restore behavior should be exercised under confinement with isolated test data before stable promotion; see [Avalonia acceptance checks](avalonia-parity.md).
+A local Snap revision such as `x<N>` is not a Store revision. Do not promote a local revision number or assume that a successful local install proves Store acceptance. Real-account Microsoft, GitHub, and OneDrive flows and restore behavior should be exercised under confinement with isolated test data before stable promotion; see [Avalonia acceptance checks](avalonia-parity.md).
 
 ## First public release
 

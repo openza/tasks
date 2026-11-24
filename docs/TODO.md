@@ -30,10 +30,9 @@ release until the Avalonia replacement passes acceptance.
 
 ## Release and validation work
 
-- Follow the [Snap release plan](snap-release.md) for release 1.3.0: `edge` first,
-  then `candidate` and `stable` after daily use. Personal Cloud now ships as signed
-  cloud releases (first: `0.1.0-preview.11`, the mobile-first Web app), installed
-  from Desktop's Manage → Update; 1.3.0 also carries .NET 10.0.13 security fixes.
+- Follow the [Snap release plan](snap-release.md): `edge` first, then `candidate`
+  and `stable` after daily use. Personal Cloud ships as separately signed cloud
+  releases, installed from Desktop's Manage → Update.
 - Default space name: a new cloud names its default space "Inbox" (cloud migration
   0010 default), and the first sync replaces the desktop's "My space" with it. Fix
   the first-sync naming; until then, rename the space once after setup.
@@ -45,9 +44,8 @@ release until the Avalonia replacement passes acceptance.
 - Complete independent-user onboarding and sustained-use feedback, including
   understandable source ownership, local capture and recovery paths.
 - Windows reconnect and initial automatic-sync decisions, native testing, Avalonia
-  packaging, MSIX and Store replacement are active work. The Production 1.4.0.0
-  Store release is prepared; installing and submitting it need the maintainer's
-  explicit approval. Retain the existing Dev gate and
+  packaging, MSIX and Store replacement are active work. Installing and
+  submitting a Store release need the maintainer's explicit approval. Retain the existing Dev gate and
   transition reference; keep live installations separate from test fixtures.
 
 ## Product decisions before expansion
