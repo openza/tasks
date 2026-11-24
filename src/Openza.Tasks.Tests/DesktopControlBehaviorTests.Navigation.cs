@@ -42,6 +42,46 @@ public sealed partial class DesktopControlBehaviorTests
     });
 
     [Fact]
+    public Task Calendar_day_and_today_panel_include_tasks_from_all_spaces() => Run(async context =>
+    {
+        var existing = (await context.Store.GetTaskAsync("task-0"))!;
+        await context.Vm.CreateSpaceAsync("Calendar second space");
+        var secondSpaceId = context.Vm.SpaceItems.Single(item => item.Title == "Calendar second space").SpaceId!;
+        var now = DateTimeOffset.Now;
+        var today = DateOnly.FromDateTime(now.LocalDateTime);
+        var inDefaultSpace = existing with
+        {
+            Id = "calendar-default-space",
+            Title = "Calendar default-space task",
+            ProjectId = null,
+            ParentId = null,
+            PlannedOn = today,
+            ScheduledStart = now.AddMinutes(15),
+            ScheduledEnd = now.AddMinutes(45),
+            CompletionState = TaskCompletionState.Open,
+        };
+        var inSecondSpace = inDefaultSpace with
+        {
+            Id = "calendar-second-space",
+            Title = "Calendar second-space task",
+            SpaceId = secondSpaceId,
+        };
+        await context.Store.UpsertTaskAsync(inDefaultSpace);
+        await context.Store.UpsertTaskAsync(inSecondSpace);
+
+        await context.Vm.SelectSpaceAsync(context.Vm.SpaceItems.Single(item => item.SpaceId is null));
+        await context.Vm.SelectNavigationAsync(context.Vm.NavigationItems.Single(item => item.Kind == TaskListKind.Calendar));
+        context.Vm.SetCalendarDayView(true);
+
+        Assert.Contains(context.Vm.Tasks, item => item.Task.Id == inDefaultSpace.Id);
+        Assert.Contains(context.Vm.Tasks, item => item.Task.Id == inSecondSpace.Id);
+        Assert.Contains(context.Vm.CalendarDay.Blocks, block => block.Task.Id == inDefaultSpace.Id);
+        Assert.Contains(context.Vm.CalendarDay.Blocks, block => block.Task.Id == inSecondSpace.Id);
+        Assert.Contains(context.Vm.CalendarDay.FilteredTodayTasks, item => item.Task.Id == inDefaultSpace.Id);
+        Assert.Contains(context.Vm.CalendarDay.FilteredTodayTasks, item => item.Task.Id == inSecondSpace.Id);
+    });
+
+    [Fact]
     public Task Calendar_today_task_can_be_opened_with_the_keyboard() => Run(async context =>
     {
         var existing = (await context.Store.GetTaskAsync("task-0"))!;

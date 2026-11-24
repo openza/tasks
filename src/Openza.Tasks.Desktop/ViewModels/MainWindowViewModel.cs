@@ -2630,7 +2630,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         var projectNames = projects.ToDictionary(project => project.Id, project => project.Name, StringComparer.Ordinal);
 
         CalendarDay.SetScheduledTasks(snapshot.AllSpaceTasks
-            .Where(task => task.SpaceId == _currentSpaceId && task.IntegrationId == IntegrationIds.Local)
+            .Where(task => (_currentSpaceId is null || task.SpaceId == _currentSpaceId) && task.IntegrationId == IntegrationIds.Local)
             .Where(task => task.IsOpen || task.IsCompleted)
             .Where(task => task.ScheduledStart is not null)
             .Select(task => new TaskListItemViewModel(
@@ -2638,7 +2638,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 projectNames.GetValueOrDefault(task.ProjectId ?? string.Empty),
                 TaskListKind.Calendar)));
         CalendarDay.SetTodayTaskSource(snapshot.AllSpaceTasks
-            .Where(task => task.SpaceId == _currentSpaceId && task.IntegrationId == IntegrationIds.Local)
+            .Where(task => (_currentSpaceId is null || task.SpaceId == _currentSpaceId) && task.IntegrationId == IntegrationIds.Local)
             .Select(task => new TaskListItemViewModel(
                 task,
                 projectNames.GetValueOrDefault(task.ProjectId ?? string.Empty),
