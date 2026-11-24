@@ -1,5 +1,6 @@
 using Avalonia.Automation;
 using Avalonia.Controls;
+using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.VisualTree;
@@ -14,6 +15,60 @@ namespace Openza.Tasks.Tests;
 
 public sealed partial class DesktopControlBehaviorTests
 {
+    [Fact]
+    public Task Calendar_day_switch_keeps_list_available_and_opens_the_today_panel_on_request() => Run(async context =>
+    {
+        await context.Vm.SelectNavigationAsync(context.Vm.NavigationItems.Single(item => item.Kind == TaskListKind.Calendar));
+        var dayView = context.Window.FindControl<Control>("CalendarDayView")!;
+        var filterGrid = context.Window.FindControl<Control>("TaskFilterGrid")!;
+        var taskList = context.Window.FindControl<Control>("TaskListContent")!;
+        Assert.True(context.Window.FindControl<Control>("CalendarListViewButton")!.IsVisible);
+        Assert.False(dayView.IsVisible);
+
+        context.Window.FindControl<Control>("CalendarDayViewButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await Until(() => context.Vm.IsCalendarDayView);
+        Assert.True(dayView.IsVisible);
+        Assert.False(filterGrid.IsVisible);
+        Assert.False(taskList.IsVisible);
+        Assert.False(context.Vm.CalendarDay.IsTodayPanelOpen);
+
+        context.Window.FindControl<Control>("CalendarTodayPanelButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Assert.True(context.Vm.CalendarDay.IsTodayPanelOpen);
+        context.Window.FindControl<Control>("CalendarListViewButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Assert.False(context.Vm.IsCalendarDayView);
+        Assert.True(filterGrid.IsVisible);
+        Assert.True(taskList.IsVisible);
+        Assert.False(dayView.IsVisible);
+    });
+
+    [Fact]
+    public Task Calendar_today_task_can_be_opened_with_the_keyboard() => Run(async context =>
+    {
+        var existing = (await context.Store.GetTaskAsync("task-0"))!;
+        var task = existing with
+        {
+            Id = "keyboard-today-task",
+            Title = "Keyboard accessible Today row",
+            ParentId = null,
+            PlannedOn = DateOnly.FromDateTime(DateTime.Today),
+            CompletionState = TaskCompletionState.Open,
+        };
+        await context.Store.UpsertTaskAsync(task);
+        await context.Vm.SelectNavigationAsync(context.Vm.NavigationItems.Single(item => item.Kind == TaskListKind.Calendar));
+        context.Vm.SetCalendarDayView(true);
+        context.Vm.ToggleCalendarTodayPanel();
+        context.Window.UpdateLayout();
+
+        var rowButton = context.Window.GetVisualDescendants().OfType<Button>()
+            .Single(button => (AutomationProperties.GetName(button) ?? string.Empty).StartsWith(task.Title, StringComparison.Ordinal));
+        Assert.Equal(task.Title, ((TaskListItemViewModel)rowButton.DataContext!).Title);
+        Assert.Contains(context.Window.GetVisualDescendants().OfType<CheckBox>(), box =>
+            AutomationProperties.GetName(box) == $"Complete {task.Title}");
+        Assert.True(rowButton.Focus());
+        context.Window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+        await Until(() => context.Vm.SelectedTask?.Task.Id == task.Id);
+    });
+
     [Theory]
     [InlineData(false, false)]
     [InlineData(true, false)]

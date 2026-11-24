@@ -52,6 +52,10 @@ public sealed partial class MainWindow : Window
     {
         Interval = TimeSpan.FromMilliseconds(250),
     };
+    private readonly DispatcherTimer _calendarClockTimer = new()
+    {
+        Interval = TimeSpan.FromMinutes(1),
+    };
     public MainWindow()
         : this(new MainWindowViewModel(new SqliteTaskStore(DesktopDataPaths.DatabasePath)))
     {
@@ -71,9 +75,12 @@ public sealed partial class MainWindow : Window
         DetailLabelsBox.TextFilter = FilterLabelSuggestion;
         DetailLabelsBox.TextSelector = SelectLabelSuggestion;
         ViewModel.PropertyChanged += OnViewModelPropertyChanged;
+        CalendarDayView.TodayTaskSelected += OnCalendarTodayTaskSelected;
+        CalendarDayView.TodayTaskCompletionRequested += OnCalendarTodayTaskCompletionRequested;
         _automaticSyncTimer.Tick += OnAutomaticSyncTick;
         _statusHideTimer.Tick += OnStatusHideTick;
         _taskSearchTimer.Tick += OnTaskSearchTick;
+        _calendarClockTimer.Tick += OnCalendarClockTick;
     }
 
     public MainWindowViewModel ViewModel { get; }
@@ -187,6 +194,8 @@ public sealed partial class MainWindow : Window
         _statusHideTimer.Tick -= OnStatusHideTick;
         _taskSearchTimer.Stop();
         _taskSearchTimer.Tick -= OnTaskSearchTick;
+        _calendarClockTimer.Stop();
+        _calendarClockTimer.Tick -= OnCalendarClockTick;
         ViewModel.PropertyChanged -= OnViewModelPropertyChanged;
     }
 
@@ -250,9 +259,21 @@ public sealed partial class MainWindow : Window
 
         if (e.PropertyName is nameof(MainWindowViewModel.SelectedNavigation) or
             nameof(MainWindowViewModel.SelectedProject) or
-            nameof(MainWindowViewModel.SelectedTask))
+            nameof(MainWindowViewModel.SelectedTask) or
+            nameof(MainWindowViewModel.IsCalendarDayView))
         {
             UpdateWorkbenchLayout();
+        }
+
+        if (e.PropertyName == nameof(MainWindowViewModel.IsCalendarDayView) && ViewModel.IsCalendarDayView)
+        {
+            ViewModel.RefreshCalendarTime();
+            _calendarClockTimer.Start();
+            CalendarDayView.ScrollToCurrentTime();
+        }
+        else if (e.PropertyName == nameof(MainWindowViewModel.IsCalendarDayView))
+        {
+            _calendarClockTimer.Stop();
         }
 
         if (e.PropertyName == nameof(MainWindowViewModel.ConnectedTaskCount))
@@ -270,6 +291,8 @@ public sealed partial class MainWindow : Window
             StatusOverlay.IsVisible = false;
         }
     }
+
+    private void OnCalendarClockTick(object? sender, EventArgs e) => ViewModel.RefreshCalendarTime();
 
     private void UpdateWorkbenchLayout()
     {
@@ -345,6 +368,37 @@ public sealed partial class MainWindow : Window
     {
         _narrowProjectsOpen = !_narrowProjectsOpen;
         UpdateWorkbenchLayout();
+    }
+
+    private void OnCalendarListViewClicked(object? sender, RoutedEventArgs e) => ViewModel.SetCalendarDayView(false);
+
+    private void OnCalendarDayViewClicked(object? sender, RoutedEventArgs e) => ViewModel.SetCalendarDayView(true);
+
+    private void OnCalendarTodayPanelClicked(object? sender, RoutedEventArgs e) => ViewModel.ToggleCalendarTodayPanel();
+
+    private async void OnCalendarTodayTaskSelected(object? sender, TaskListItemViewModel task)
+    {
+        if (await SelectTaskAfterSavingAsync(task))
+        {
+            UpdateWorkbenchLayout();
+        }
+    }
+
+    private async void OnCalendarTodayTaskCompletionRequested(object? sender, TaskListItemViewModel task)
+    {
+        if (_taskCompletionInProgress) return;
+        _taskCompletionInProgress = true;
+        try
+        {
+            if (await SelectTaskAfterSavingAsync(task))
+            {
+                await ViewModel.ToggleSelectedCompletionAsync();
+            }
+        }
+        finally
+        {
+            _taskCompletionInProgress = false;
+        }
     }
 
     private void UpdateTaskFilterLayout(bool compact)

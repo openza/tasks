@@ -229,6 +229,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     public ObservableCollection<SpaceNavigationItemViewModel> EditableSpaceItems { get; } = [];
     public ObservableCollection<TaskListItemViewModel> Tasks { get; } = [];
     public ObservableCollection<TaskListEntryViewModel> TaskEntries { get; } = [];
+    public CalendarDayViewModel CalendarDay { get; } = new();
     public ObservableCollection<LabelOptionViewModel> LabelFilterOptions { get; } = [];
     public ObservableCollection<string> LabelSuggestions { get; } = [];
     public ObservableCollection<ConnectedTaskViewModel> FilteredConnectedTasks { get; } = [];
@@ -271,9 +272,16 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 OnPropertyChanged(nameof(EmptyStateTitle));
                 OnPropertyChanged(nameof(IsGetStartedVisible));
                 OnPropertyChanged(nameof(EmptyStateMessage));
+                OnPropertyChanged(nameof(IsCalendarView));
+                OnPropertyChanged(nameof(IsCalendarDayView));
+                OnPropertyChanged(nameof(IsCalendarListView));
             }
         }
     }
+
+    public bool IsCalendarView => SelectedNavigation?.Kind == TaskListKind.Calendar;
+    public bool IsCalendarDayView => IsCalendarView && CalendarDay.IsDayView;
+    public bool IsCalendarListView => IsCalendarView && !CalendarDay.IsDayView;
 
     public ProjectNavigationItemViewModel? SelectedProject
     {
@@ -974,6 +982,17 @@ public sealed partial class MainWindowViewModel : ObservableObject
         await _preferencesStore.UpdateAsync(preferences => preferences with { LastView = item.Kind.ToString() });
         await RunBusyAsync(() => RefreshAsyncCore(RememberedTaskSelection()));
     }
+
+    public void SetCalendarDayView(bool isDayView)
+    {
+        CalendarDay.SetDayView(isDayView);
+        OnPropertyChanged(nameof(IsCalendarDayView));
+        OnPropertyChanged(nameof(IsCalendarListView));
+    }
+
+    public void ToggleCalendarTodayPanel() => CalendarDay.ToggleTodayPanel();
+
+    public void RefreshCalendarTime() => CalendarDay.SetNow(DateTimeOffset.Now);
 
     public async Task SelectSpaceAsync(SpaceNavigationItemViewModel item)
     {
@@ -2609,6 +2628,21 @@ public sealed partial class MainWindowViewModel : ObservableObject
         _labels.Clear();
         _labels.AddRange(labels);
         var projectNames = projects.ToDictionary(project => project.Id, project => project.Name, StringComparer.Ordinal);
+
+        CalendarDay.SetScheduledTasks(snapshot.AllSpaceTasks
+            .Where(task => task.SpaceId == _currentSpaceId && task.IntegrationId == IntegrationIds.Local)
+            .Where(task => task.IsOpen || task.IsCompleted)
+            .Where(task => task.ScheduledStart is not null)
+            .Select(task => new TaskListItemViewModel(
+                task,
+                projectNames.GetValueOrDefault(task.ProjectId ?? string.Empty),
+                TaskListKind.Calendar)));
+        CalendarDay.SetTodayTaskSource(snapshot.AllSpaceTasks
+            .Where(task => task.SpaceId == _currentSpaceId && task.IntegrationId == IntegrationIds.Local)
+            .Select(task => new TaskListItemViewModel(
+                task,
+                projectNames.GetValueOrDefault(task.ProjectId ?? string.Empty),
+                TaskListKind.Today)), _currentSpaceId);
 
         LabelSuggestions.Clear();
         foreach (var labelName in labels

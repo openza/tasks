@@ -32,6 +32,17 @@ public sealed class TaskListItemViewModel
     public string Status => Task.IsCompleted ? "Completed" : FormatStatus(Task.WorkflowStatus);
     public string DateText => FormatDate(Task);
     public string SourceText => IntegrationIds.DisplayName(Task.SourceIntegrationId ?? Task.IntegrationId);
+    public string CalendarPanelMetadataText => string.Join(" · ", new[]
+    {
+        ScheduledTimeText,
+        DateText,
+        ProjectName,
+    }.Where(value => !string.IsNullOrWhiteSpace(value)));
+    public string CalendarPanelAccessibleName => string.Join(", ", new[] { Title, CalendarPanelMetadataText }.Where(value => value.Length > 0));
+    public string CalendarPanelCompletionName => IsCompleted ? $"Reopen {Title}" : $"Complete {Title}";
+    public string ScheduledTimeText => Task.ScheduledStart is { } start
+        ? $"{start.LocalDateTime:HH:mm} – {(Task.ScheduledEnd ?? start.AddHours(1)).LocalDateTime:HH:mm}"
+        : string.Empty;
     public string MetadataText => string.Join(" · ", new[]
     {
         IsProjectView ? string.Empty : ProjectName,
