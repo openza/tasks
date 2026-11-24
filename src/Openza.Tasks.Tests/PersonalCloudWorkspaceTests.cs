@@ -378,5 +378,32 @@ public sealed class PersonalCloudWorkspaceTests : IDisposable
         Assert.Equal("2026-10-13T10:30:00.000Z", fields.GetProperty("scheduledEnd").GetString());
     }
 
+    [Fact]
+    public async Task Connected_schedule_edit_with_invalid_priority_changes_nothing()
+    {
+        var store = Store(); await store.InitializeAsync(); await store.SavePersonalCloudWorkspaceCapabilitiesAsync(Instance, true, true);
+        await store.ApplyPersonalCloudChangePageAsync(Instance, Device, Page(1, [Space()], [Project()], [TaskRecord()]));
+        var before = (await store.GetTaskAsync("task_test"))!;
+        var connection = new PersonalCloudConnectionProfile
+        {
+            ServiceOrigin = new Uri("https://openza-personal-test.workers.dev/"),
+            InstanceId = Instance, DeviceId = Device, ArtifactVersion = "1.2.3", ConnectedAt = DateTimeOffset.UtcNow,
+        };
+        var service = new Openza.Tasks.Application.Tasks.TaskApplicationService(store, () => connection);
+        var start = new DateTimeOffset(2026, 10, 13, 9, 0, 0, TimeSpan.Zero);
+
+        await Assert.ThrowsAnyAsync<ArgumentException>(() => service.UpdateTaskAsync(new Openza.Tasks.Application.Tasks.UpdateTaskRequest
+        {
+            TaskId = before.Id, ExpectedRevision = before.Revision,
+            Priority = Openza.Tasks.Application.Tasks.OptionalValue<int>.Set(0),
+            ScheduledStart = Openza.Tasks.Application.Tasks.OptionalValue<DateTimeOffset?>.Set(start),
+            ScheduledEnd = Openza.Tasks.Application.Tasks.OptionalValue<DateTimeOffset?>.Set(start.AddHours(1)),
+        }));
+
+        var after = (await store.GetTaskAsync(before.Id))!;
+        Assert.Equal(before.ScheduledStart, after.ScheduledStart); Assert.Equal(before.ScheduledEnd, after.ScheduledEnd); Assert.Equal(before.Revision, after.Revision);
+        Assert.Empty(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device));
+    }
+
     public void Dispose() { SqliteConnection.ClearAllPools(); if (Directory.Exists(_directory)) Directory.Delete(_directory, recursive: true); }
 }

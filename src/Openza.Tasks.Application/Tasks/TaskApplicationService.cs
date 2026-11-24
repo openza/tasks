@@ -177,6 +177,8 @@ public sealed class TaskApplicationService(
         var completed = targetCompletionState == TaskCompletionState.Completed;
         var now = DateTimeOffset.UtcNow;
         var hasCloudFieldEdits = HasCloudFieldEdits(request);
+        if (request.Priority.IsSpecified)
+            ValidatePriority(request.Priority.Value);
         if (request.ReminderAt.IsSpecified && !hasCloudFieldEdits &&
             !request.LocalMetadataJson.IsSpecified && Store is SqliteTaskStore reminderStore)
         {
@@ -201,9 +203,16 @@ public sealed class TaskApplicationService(
             var scheduleFields = ScheduleCloudFields(original, scheduledStart, scheduledEnd);
             if (scheduleFields.Count > 0)
             {
-                var current = await RequireTaskAsync(original.Id, cancellationToken).ConfigureAwait(false);
-                await sqliteStore.PatchTaskWithPersonalCloudIntentAsync(
-                    original.Id, scheduleFields, current.Revision, target.InstanceId, target.DeviceId, cancellationToken).ConfigureAwait(false);
+                var validatedRevision = request.ReminderAt.IsSpecified ? checked(original.Revision + 1) : original.Revision;
+                try
+                {
+                    await sqliteStore.PatchTaskWithPersonalCloudIntentAsync(
+                        original.Id, scheduleFields, validatedRevision, target.InstanceId, target.DeviceId, cancellationToken).ConfigureAwait(false);
+                }
+                catch (PersonalCloudK0ContractException error) when (error.Code == "version_conflict")
+                {
+                    throw new TaskConflictException(original.Id);
+                }
                 entityVersion = checked(entityVersion + 1);
                 changed = true;
             }
