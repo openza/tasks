@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Microsoft.Data.Sqlite;
 using Openza.Tasks.Core.Data;
 using Openza.Tasks.Core.Models;
@@ -100,6 +101,29 @@ public sealed class MicrosoftRecurrenceTests : IDisposable
         Assert.Equal(Weekly, updated.SourceRecurrenceRule);
         Assert.Null(updated.RecurrenceRule);
         Assert.Null(updated.EffectiveRecurrenceRule);
+    }
+
+    [Fact]
+    public async Task Workspace_replica_without_a_device_import_marker_does_not_use_source_recurrence()
+    {
+        var store = await CreateStoreAsync();
+        const string instance = "instance_repeat";
+        const string device = "device_replica";
+        var source = PersonalCloudK0Mapper.CreateSafeSourceDescriptor(new TaskItem
+        {
+            Id = "task_test", Title = "Synthetic repeating task", SourceIntegrationId = IntegrationIds.MicrosoftToDo,
+            SourceExternalId = "external_repeat", SourceMetadataJson = JsonSerializer.Serialize(new { recurrenceRule = Weekly }),
+        });
+        var remote = JsonSerializer.SerializeToNode(PersonalCloudWorkspaceTests.TaskRecord(projectId: null))!.AsObject();
+        remote["source"] = JsonSerializer.SerializeToNode(source, JsonSerializerOptions.Web);
+        remote["sourceOwnerDeviceId"] = "device_owner";
+        await store.ApplyPersonalCloudChangePageAsync(instance, device,
+            PersonalCloudWorkspaceTests.Page(1, [PersonalCloudWorkspaceTests.Space()], tasks: [remote]));
+
+        var task = (await store.GetTaskAsync("task_test"))!;
+        Assert.DoesNotContain("msToDoRecurrenceApplied", task.SourceMetadataJson!);
+        Assert.Equal(Weekly, task.SourceRecurrenceRule);
+        Assert.Null(task.EffectiveRecurrenceRule);
     }
 
     [Fact]

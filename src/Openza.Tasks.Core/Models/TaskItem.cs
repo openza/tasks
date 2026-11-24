@@ -63,9 +63,10 @@ public sealed record TaskItem
     public int? DurationMinutes { get; init; }
     public string? RecurrenceRule { get; init; }
     public string? SourceRecurrenceRule => ReadSourceRecurrenceRule();
-    public string? EffectiveRecurrenceRule => RecurrenceRule ?? ReadSourceRecurrenceRule(forEffectiveRule: true);
+    public string? EffectiveRecurrenceRule => RecurrenceRule ??
+        (SourceIntegrationId == IntegrationIds.MicrosoftToDo ? null : SourceRecurrenceRule);
 
-    private string? ReadSourceRecurrenceRule(bool forEffectiveRule = false)
+    private string? ReadSourceRecurrenceRule()
     {
         if (IsProviderTask) return RecurrenceRule;
         if (string.IsNullOrWhiteSpace(SourceMetadataJson)) return null;
@@ -74,8 +75,6 @@ public sealed record TaskItem
             using var document = JsonDocument.Parse(SourceMetadataJson);
             var value = document.RootElement;
             if (value.ValueKind != JsonValueKind.Object) return null;
-            if (forEffectiveRule && value.TryGetProperty("msToDoRecurrenceApplied", out var applied) &&
-                applied.ValueKind == JsonValueKind.True) return null;
             if (value.TryGetProperty("recurrenceRule", out var migrated))
                 return migrated.ValueKind == JsonValueKind.String ? migrated.GetString() : null;
             if (value.TryGetProperty("source", out var nested)) value = nested;
