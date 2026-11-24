@@ -137,6 +137,40 @@ public sealed partial class DesktopControlBehaviorTests
     });
 
     [Fact]
+    public Task Completing_a_selected_today_task_saves_its_detail_edits_first() => Run(async context =>
+    {
+        var existing = (await context.Store.GetTaskAsync("task-0"))!;
+        var now = DateTimeOffset.Now;
+        var task = existing with
+        {
+            Id = "calendar-completion-edit-task",
+            Title = "Before completion",
+            ParentId = null,
+            PlannedOn = DateOnly.FromDateTime(now.LocalDateTime),
+            ScheduledStart = now.AddMinutes(30),
+            ScheduledEnd = now.AddHours(1),
+            CompletionState = TaskCompletionState.Open,
+        };
+        await context.Store.UpsertTaskAsync(task);
+        await context.Vm.SelectNavigationAsync(context.Vm.NavigationItems.Single(item => item.Kind == TaskListKind.Calendar));
+        context.Vm.SetCalendarDayView(true);
+        context.Vm.ToggleCalendarTodayPanel();
+        context.Window.UpdateLayout();
+        var todayTask = Assert.Single(context.Vm.CalendarDay.FilteredTodayTasks, item => item.Task.Id == task.Id);
+        await context.Vm.SelectTaskAsync(todayTask);
+        context.Vm.DetailTitle = "Saved before completion";
+        var completion = context.Window.GetVisualDescendants().OfType<CheckBox>()
+            .Single(box => AutomationProperties.GetName(box) == "Complete Before completion");
+
+        completion.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await Until(() => !context.Vm.CalendarDay.FilteredTodayTasks.Any(item => item.Task.Id == task.Id));
+
+        var saved = (await context.Store.GetTaskAsync(task.Id))!;
+        Assert.Equal("Saved before completion", saved.Title);
+        Assert.True(saved.IsCompleted);
+    });
+
+    [Fact]
     public Task Calendar_today_task_can_be_opened_with_the_keyboard() => Run(async context =>
     {
         var existing = (await context.Store.GetTaskAsync("task-0"))!;

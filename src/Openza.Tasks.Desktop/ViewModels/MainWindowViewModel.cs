@@ -2695,9 +2695,22 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
         RebuildProjectItems();
 
-        SelectedTask = selectTaskId is null
+        var selectedTask = selectTaskId is null
             ? null
             : Tasks.FirstOrDefault(item => item.Task.Id == selectTaskId);
+        if (selectedTask is null && preserveEditor && editorTask is not null &&
+            string.Equals(editorTask.Task.Id, selectTaskId, StringComparison.Ordinal) &&
+            snapshot.AllSpaceTasks.FirstOrDefault(task => task.Id == selectTaskId) is { } refreshedTask)
+        {
+            selectedTask = new TaskListItemViewModel(
+                refreshedTask,
+                projectNames.GetValueOrDefault(refreshedTask.ProjectId ?? string.Empty),
+                viewKind,
+                SelectedProject is not null,
+                subtaskProgress.GetValueOrDefault(refreshedTask.Id, string.Empty),
+                matchingSubtasks.GetValueOrDefault(refreshedTask.Id, string.Empty));
+        }
+        SelectedTask = selectedTask;
         if (editorTask is not null && editorDraft is not null)
         {
             // Keep an edited task open even when a changed filter removes its row.

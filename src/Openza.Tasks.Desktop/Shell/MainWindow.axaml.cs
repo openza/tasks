@@ -390,7 +390,9 @@ public sealed partial class MainWindow : Window
         _taskCompletionInProgress = true;
         try
         {
-            if (await SelectTaskAfterSavingAsync(task))
+            var taskWasSelected = string.Equals(ViewModel.SelectedTask?.Task.Id, task.Task.Id, StringComparison.Ordinal);
+            if (await SelectTaskAfterSavingAsync(task) &&
+                (!taskWasSelected || await ViewModel.SaveSelectedAsync()))
             {
                 await ViewModel.ToggleSelectedCompletionAsync();
             }
