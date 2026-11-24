@@ -8,8 +8,10 @@ public sealed class CalendarDayViewModel : ObservableObject
 {
     public const int HoursPerDay = 24;
     public const double HourHeight = 64;
+    internal const double TimelineHeightValue = HoursPerDay * HourHeight;
 
     private readonly List<TaskListItemViewModel> _scheduledTasks = [];
+    private readonly List<TaskListItemViewModel> _blockPickerTasks = [];
     private readonly List<TaskListItemViewModel> _todayTaskSource = [];
     private readonly List<TaskListItemViewModel> _todayTasks = [];
     private readonly TimeZoneInfo _timeZone;
@@ -27,8 +29,9 @@ public sealed class CalendarDayViewModel : ObservableObject
 
     public ObservableCollection<CalendarDayBlockViewModel> Blocks { get; } = [];
     public ObservableCollection<TaskListItemViewModel> FilteredTodayTasks { get; } = [];
+    public IReadOnlyList<TaskListItemViewModel> BlockPickerTasks => _blockPickerTasks;
     public IReadOnlyList<int> Hours { get; } = Enumerable.Range(0, HoursPerDay).ToArray();
-    public double TimelineHeight => HoursPerDay * HourHeight;
+    public double TimelineHeight => TimelineHeightValue;
 
     public DateOnly SelectedDate
     {
@@ -122,6 +125,85 @@ public sealed class CalendarDayViewModel : ObservableObject
         RebuildBlocks();
     }
 
+    public void SetDayTasks(IEnumerable<TaskListItemViewModel> tasks)
+    {
+        var dayTasks = tasks
+            .Where(item => item.Task.IsOpen || item.Task.IsCompleted)
+            .ToArray();
+        _scheduledTasks.Clear();
+        _scheduledTasks.AddRange(dayTasks);
+        _blockPickerTasks.Clear();
+        _blockPickerTasks.AddRange(dayTasks
+            .Where(item => item.Task.IsOpen && string.IsNullOrWhiteSpace(item.Task.ParentId))
+            .OrderBy(item => item.Task.WorkflowStatus == TaskWorkflowStatus.Next ? 0 : 1)
+            .ThenBy(item => item.Title, StringComparer.CurrentCultureIgnoreCase));
+        RebuildBlocks();
+    }
+
+    public DateTimeOffset TimeAtTimelinePosition(double top, bool snapToQuarterHour = false, TimeSpan? preferredOffset = null)
+    {
+        var minutes = Math.Clamp(top * 60 / HourHeight, 0, HoursPerDay * 60 - 1);
+        var precision = snapToQuarterHour ? 15 : 1;
+        var roundedMinutes = Math.Round(minutes / precision, MidpointRounding.AwayFromZero) * precision;
+        var localTime = SelectedDate.ToDateTime(TimeOnly.MinValue).AddMinutes(roundedMinutes);
+        return ResolveLocalTime(localTime, preferredOffset);
+    }
+
+    public (DateTimeOffset Start, DateTimeOffset End) MoveBlockTo(CalendarDayBlockViewModel block, double top)
+    {
+        var maxTop = TimelineHeight - HourHeight / 4;
+        var start = TimeAtTimelinePosition(Math.Clamp(top, 0, maxTop), snapToQuarterHour: true, preferredOffset: LocalOffsetFor(block.Start));
+        return (start, AddTimelineDuration(start, block.End - block.Start));
+    }
+
+    public (DateTimeOffset Start, DateTimeOffset End) MoveBlockBy(CalendarDayBlockViewModel block, double verticalDelta)
+    {
+        var localStart = TimeZoneInfo.ConvertTime(block.Start, _timeZone).DateTime;
+        if (DateOnly.FromDateTime(localStart) >= SelectedDate)
+        {
+            return MoveBlockTo(block, block.Top + verticalDelta);
+        }
+
+        var adjustedLocalStart = localStart.AddMinutes(verticalDelta * 60 / HourHeight);
+        var start = SnapLocalTime(adjustedLocalStart, LocalOffsetFor(block.Start));
+        return (start, AddTimelineDuration(start, block.End - block.Start));
+    }
+
+    public DateTimeOffset AddTimelineDuration(DateTimeOffset start, TimeSpan duration) =>
+        TimeZoneInfo.ConvertTime(start.Add(duration), _timeZone);
+
+    public (double Top, double Height)? TimelineLayoutFor(DateTimeOffset start, DateTimeOffset end)
+    {
+        var dayStartInstant = ResolveLocalDayBoundary(SelectedDate);
+        var dayEndInstant = ResolveLocalDayBoundary(SelectedDate.AddDays(1));
+        if (end <= start || end <= dayStartInstant || start >= dayEndInstant) return null;
+
+        var visibleStart = start < dayStartInstant ? dayStartInstant : start;
+        var visibleEnd = end > dayEndInstant ? dayEndInstant : end;
+        if (visibleEnd <= visibleStart) return null;
+
+        var localStart = TimeZoneInfo.ConvertTime(visibleStart, _timeZone).DateTime;
+        var localEnd = TimeZoneInfo.ConvertTime(visibleEnd, _timeZone).DateTime;
+        var top = localStart.TimeOfDay.TotalMinutes * HourHeight / 60;
+        var height = CalendarDayBlockViewModel.HeightFor(localStart, localEnd, visibleEnd - visibleStart);
+        return (top, height);
+    }
+
+    public (DateTimeOffset Start, DateTimeOffset End) ResizeBlockEndBy(CalendarDayBlockViewModel block, double verticalDelta)
+    {
+        var localEnd = TimeZoneInfo.ConvertTime(block.End, _timeZone).DateTime;
+        var adjustedLocalEnd = localEnd.AddMinutes(verticalDelta * 60 / HourHeight);
+        var end = SnapLocalTime(adjustedLocalEnd, LocalOffsetFor(block.End));
+        var minimumEnd = block.Start.AddMinutes(15);
+        if (end < minimumEnd)
+        {
+            var minimumLocal = TimeZoneInfo.ConvertTime(minimumEnd, _timeZone).DateTime;
+            var roundedUpMinutes = Math.Ceiling(minimumLocal.TimeOfDay.TotalMinutes / 15) * 15;
+            end = ResolveLocalTime(minimumLocal.Date.AddMinutes(roundedUpMinutes), LocalOffsetFor(minimumEnd));
+        }
+        return (block.Start, end);
+    }
+
     public void SetTodayTaskSource(IEnumerable<TaskListItemViewModel> tasks, string? spaceId)
     {
         _todayTaskSource.Clear();
@@ -211,6 +293,38 @@ public sealed class CalendarDayViewModel : ObservableObject
         }
 
         throw new InvalidOperationException($"No valid local time found for {date} in {_timeZone.Id}.");
+    }
+
+    private DateTimeOffset SnapLocalTime(DateTime localTime, TimeSpan? preferredOffset = null)
+    {
+        var minutes = Math.Round(localTime.TimeOfDay.TotalMinutes / 15, MidpointRounding.AwayFromZero) * 15;
+        return ResolveLocalTime(localTime.Date.AddMinutes(minutes), preferredOffset);
+    }
+
+    public DateTime LocalDateTimeFor(DateTimeOffset instant) => TimeZoneInfo.ConvertTime(instant, _timeZone).DateTime;
+
+    public TimeSpan LocalOffsetFor(DateTimeOffset instant) => TimeZoneInfo.ConvertTime(instant, _timeZone).Offset;
+
+    public bool IsInvalidLocalTime(DateTime localTime) => _timeZone.IsInvalidTime(DateTime.SpecifyKind(localTime, DateTimeKind.Unspecified));
+
+    public DateTimeOffset ResolveLocalTime(DateTime localTime, TimeSpan? preferredOffset = null)
+    {
+        localTime = DateTime.SpecifyKind(localTime, DateTimeKind.Unspecified);
+        for (var minute = 0; minute < 48 * 60; minute++)
+        {
+            if (!_timeZone.IsInvalidTime(localTime))
+            {
+                var offsets = _timeZone.IsAmbiguousTime(localTime) ? _timeZone.GetAmbiguousTimeOffsets(localTime) : null;
+                var offset = offsets is not null && preferredOffset is { } preferred && offsets.Contains(preferred)
+                    ? preferred
+                    : offsets?.Max() ?? _timeZone.GetUtcOffset(localTime);
+                return new DateTimeOffset(localTime, offset);
+            }
+
+            localTime = localTime.AddMinutes(1);
+        }
+
+        throw new InvalidOperationException($"No valid local time was found near {localTime}.");
     }
 
     private static void AssignOverlapColumns(IReadOnlyList<CalendarDayBlockViewModel> blocks)

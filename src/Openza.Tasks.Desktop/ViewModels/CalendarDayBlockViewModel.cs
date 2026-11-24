@@ -4,9 +4,10 @@ namespace Openza.Tasks.Desktop.ViewModels;
 
 public sealed class CalendarDayBlockViewModel : ObservableObject
 {
-    private const double MinimumHeight = 32;
+    internal const double MinimumHeight = 32;
     private readonly DateTime _visibleEnd;
     private readonly TimeSpan _visibleDuration;
+    private readonly bool _endIsVisible;
     private DateTimeOffset _now;
     private int _overlapColumn;
     private int _overlapColumnCount = 1;
@@ -25,6 +26,7 @@ public sealed class CalendarDayBlockViewModel : ObservableObject
         Start = start;
         End = end;
         _visibleDuration = visibleEnd - visibleStart;
+        _endIsVisible = end <= visibleEnd;
         LocalStart = localStart;
         _visibleEnd = localEnd;
         _now = now;
@@ -37,15 +39,11 @@ public sealed class CalendarDayBlockViewModel : ObservableObject
     public DateTimeOffset End { get; }
     public DateTime LocalStart { get; }
     public DateTime LocalEnd => _visibleEnd;
+    public bool CanResizeEnd => _endIsVisible;
     public double Top => LocalStart.TimeOfDay.TotalMinutes * CalendarDayViewModel.HourHeight / 60;
     public double Height
     {
-        get
-        {
-            var wallClockMinutes = (LocalEnd - LocalStart).TotalMinutes;
-            var durationMinutes = wallClockMinutes > 0 ? wallClockMinutes : _visibleDuration.TotalMinutes;
-            return Math.Max(MinimumHeight, durationMinutes * CalendarDayViewModel.HourHeight / 60);
-        }
+        get => HeightFor(LocalStart, LocalEnd, _visibleDuration);
     }
     internal DateTime LayoutEnd => LocalStart.AddMinutes(Height * 60 / CalendarDayViewModel.HourHeight);
     public string TimeText => $"{LocalStart:HH:mm} – {(LocalEnd.Date > LocalStart.Date ? "24:00" : LocalEnd.ToString("HH:mm"))}";
@@ -57,6 +55,15 @@ public sealed class CalendarDayBlockViewModel : ObservableObject
     public double LeftFraction => (double)_overlapColumn / _overlapColumnCount;
     public double WidthFraction => 1d / _overlapColumnCount;
     public string AccessibleName => string.Join(", ", new[] { Title, TimeText, StateText }.Where(value => value.Length > 0));
+
+    internal static double HeightFor(DateTime localStart, DateTime localEnd, TimeSpan visibleDuration)
+    {
+        var wallClockMinutes = (localEnd - localStart).TotalMinutes;
+        var durationMinutes = wallClockMinutes > 0 ? wallClockMinutes : visibleDuration.TotalMinutes;
+        var height = Math.Max(MinimumHeight, durationMinutes * CalendarDayViewModel.HourHeight / 60);
+        var top = localStart.TimeOfDay.TotalMinutes * CalendarDayViewModel.HourHeight / 60;
+        return Math.Min(height, Math.Max(0, CalendarDayViewModel.TimelineHeightValue - top));
+    }
 
     internal void SetOverlapColumn(int column, int columnCount)
     {

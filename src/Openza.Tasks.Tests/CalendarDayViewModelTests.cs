@@ -69,11 +69,13 @@ public sealed class CalendarDayViewModelTests
         Assert.Equal(0, morning.Top);
         Assert.Equal(2 * CalendarDayViewModel.HourHeight, morning.Height);
         Assert.Equal("00:00 – 02:00", morning.TimeText);
+        Assert.True(morning.CanResizeEnd);
 
         var fullDay = Assert.Single(viewModel.Blocks, block => block.Item == acrossDay);
         Assert.Equal(0, fullDay.Top);
         Assert.Equal(CalendarDayViewModel.HoursPerDay * CalendarDayViewModel.HourHeight, fullDay.Height);
         Assert.Equal("00:00 – 24:00", fullDay.TimeText);
+        Assert.False(fullDay.CanResizeEnd);
         Assert.Equal(2, viewModel.Blocks.Count);
     }
 
@@ -136,7 +138,7 @@ public sealed class CalendarDayViewModelTests
         midnightViewModel.SetScheduledTasks([midnightTask]);
         var lastHour = Assert.Single(midnightViewModel.Blocks);
         Assert.Equal("23:30 – 23:30", lastHour.TimeText);
-        Assert.Equal(CalendarDayViewModel.HourHeight, lastHour.Height);
+        Assert.Equal(32, lastHour.Height);
 
         midnightViewModel.SetSelectedDate(previousDate.AddDays(1));
         Assert.Empty(midnightViewModel.Blocks);
@@ -311,5 +313,175 @@ public sealed class CalendarDayViewModelTests
 
         Assert.Equal("tomorrow", Assert.Single(viewModel.FilteredTodayTasks).Title);
         Assert.Contains(At(TestDay.AddDays(1), 0).ToString("dddd, d MMMM"), viewModel.TodaySummaryText);
+    }
+
+    [Fact]
+    public void Timeline_move_and_resize_snap_to_quarter_hours_without_shifting_other_blocks()
+    {
+        var viewModel = new CalendarDayViewModel();
+        viewModel.SetSelectedDate(TestDay);
+        var firstStart = At(TestDay, 9);
+        viewModel.SetScheduledTasks([
+            Item("first", firstStart, firstStart.AddHours(1)),
+            Item("second", firstStart.AddMinutes(30), firstStart.AddMinutes(90)),
+        ]);
+
+        var first = viewModel.Blocks.Single(block => block.Title == "first");
+        var second = viewModel.Blocks.Single(block => block.Title == "second");
+        var top = 9 * CalendarDayViewModel.HourHeight + 8 * CalendarDayViewModel.HourHeight / 60;
+        var moved = viewModel.MoveBlockTo(first, top);
+        var resized = viewModel.ResizeBlockEndBy(first, 8 * CalendarDayViewModel.HourHeight / 60);
+        var minimumSize = viewModel.ResizeBlockEndBy(first, -60 * CalendarDayViewModel.HourHeight);
+
+        Assert.Equal(firstStart.AddMinutes(15), moved.Start);
+        Assert.Equal(moved.Start.AddHours(1), moved.End);
+        Assert.Equal(firstStart, resized.Start);
+        Assert.Equal(firstStart.AddHours(1).AddMinutes(15), resized.End);
+        Assert.Equal(firstStart.AddMinutes(15), minimumSize.End);
+        Assert.Equal(firstStart.AddMinutes(30), second.Start);
+    }
+
+    [Fact]
+    public void Moving_a_clipped_block_keeps_its_full_duration_and_preview_matches_timeline_layout()
+    {
+        var viewModel = new CalendarDayViewModel();
+        viewModel.SetSelectedDate(TestDay);
+        var start = At(TestDay.AddDays(-1), 23);
+        var end = At(TestDay.AddDays(1), 1);
+        viewModel.SetScheduledTasks([Item("long block", start, end)]);
+        var block = Assert.Single(viewModel.Blocks);
+        var duration = end - start;
+
+        var moved = viewModel.MoveBlockTo(block, viewModel.TimelineHeight);
+        var layout = viewModel.TimelineLayoutFor(moved.Start, moved.End);
+
+        Assert.Equal(duration, moved.End - moved.Start);
+        Assert.Equal(At(TestDay, 23).AddMinutes(45).Offset, moved.Start.Offset);
+        Assert.NotNull(layout);
+        Assert.Equal(viewModel.TimelineHeight - CalendarDayViewModel.HourHeight / 4, layout.Value.Top);
+        Assert.Equal(16, layout.Value.Height);
+
+        viewModel.SetScheduledTasks([Item("long block", moved.Start, moved.End)]);
+        var committed = Assert.Single(viewModel.Blocks);
+        Assert.Equal(layout.Value.Top, committed.Top);
+        Assert.Equal(layout.Value.Height, committed.Height);
+    }
+
+    [Fact]
+    public void Resize_in_a_repeated_hour_preserves_the_existing_utc_offset()
+    {
+        var timeZone = FindTimeZone("America/New_York", "Eastern Standard Time");
+        var day = new DateOnly(2026, 11, 1);
+        var start = new DateTimeOffset(2026, 11, 1, 1, 0, 0, TimeSpan.FromHours(-5));
+        var end = new DateTimeOffset(2026, 11, 1, 1, 30, 0, TimeSpan.FromHours(-5));
+        var viewModel = new CalendarDayViewModel(timeZone);
+        viewModel.SetSelectedDate(day);
+        viewModel.SetScheduledTasks([Item("repeated hour", start, end)]);
+
+        var block = Assert.Single(viewModel.Blocks);
+        var resized = viewModel.ResizeBlockEndBy(block, 15 * CalendarDayViewModel.HourHeight / 60);
+
+        Assert.Equal(new DateTimeOffset(2026, 11, 1, 1, 45, 0, TimeSpan.FromHours(-5)), resized.End);
+    }
+
+    [Fact]
+    public void Move_to_a_repeated_hour_preserves_start_offset_and_converts_end_offset()
+    {
+        var timeZone = FindTimeZone("America/New_York", "Eastern Standard Time");
+        var day = new DateOnly(2026, 11, 1);
+        var start = new DateTimeOffset(2026, 11, 1, 0, 30, 0, TimeSpan.FromHours(-4));
+        var end = new DateTimeOffset(2026, 11, 1, 2, 0, 0, TimeSpan.FromHours(-5));
+        var viewModel = new CalendarDayViewModel(timeZone);
+        viewModel.SetSelectedDate(day);
+        viewModel.SetScheduledTasks([Item("repeated-hour", start, end)]);
+        var block = Assert.Single(viewModel.Blocks);
+
+        var moved = viewModel.MoveBlockTo(block, 90 * CalendarDayViewModel.HourHeight / 60d);
+
+        Assert.Equal(new DateTimeOffset(2026, 11, 1, 1, 30, 0, TimeSpan.FromHours(-4)), moved.Start);
+        Assert.Equal(new DateTimeOffset(2026, 11, 1, 3, 0, 0, TimeSpan.FromHours(-5)), moved.End);
+        Assert.Equal(end - start, moved.End - moved.Start);
+    }
+
+    [Fact]
+    public void Move_and_resize_use_zone_offsets_for_utc_loaded_second_occurrences()
+    {
+        var timeZone = FindTimeZone("America/New_York", "Eastern Standard Time");
+        var day = new DateOnly(2026, 11, 1);
+        var storedStart = new DateTimeOffset(2026, 11, 1, 6, 30, 0, TimeSpan.Zero);
+        var storedEnd = new DateTimeOffset(2026, 11, 1, 7, 30, 0, TimeSpan.Zero);
+        var moveViewModel = new CalendarDayViewModel(timeZone);
+        moveViewModel.SetSelectedDate(day);
+        moveViewModel.SetScheduledTasks([Item("utc move", storedStart, storedEnd)]);
+        var moveBlock = Assert.Single(moveViewModel.Blocks);
+
+        var moved = moveViewModel.MoveBlockTo(moveBlock, 90 * CalendarDayViewModel.HourHeight / 60d);
+
+        Assert.Equal(new DateTimeOffset(2026, 11, 1, 1, 30, 0, TimeSpan.FromHours(-5)), moved.Start);
+        Assert.Equal(new DateTimeOffset(2026, 11, 1, 2, 30, 0, TimeSpan.FromHours(-5)), moved.End);
+
+        var resizeStart = new DateTimeOffset(2026, 11, 1, 6, 0, 0, TimeSpan.Zero);
+        var resizeEnd = new DateTimeOffset(2026, 11, 1, 6, 30, 0, TimeSpan.Zero);
+        var resizeViewModel = new CalendarDayViewModel(timeZone);
+        resizeViewModel.SetSelectedDate(day);
+        resizeViewModel.SetScheduledTasks([Item("utc resize", resizeStart, resizeEnd)]);
+        var resizeBlock = Assert.Single(resizeViewModel.Blocks);
+        var resized = resizeViewModel.ResizeBlockEndBy(resizeBlock, 15 * CalendarDayViewModel.HourHeight / 60d);
+
+        Assert.Equal(new DateTimeOffset(2026, 11, 1, 1, 45, 0, TimeSpan.FromHours(-5)), resized.End);
+        Assert.True(resized.End > resized.Start);
+    }
+
+    [Fact]
+    public void End_of_day_minimum_height_stays_within_the_timeline_for_render_and_preview()
+    {
+        var viewModel = new CalendarDayViewModel();
+        viewModel.SetSelectedDate(TestDay);
+        var start = At(TestDay, 23).AddMinutes(45);
+        var end = At(TestDay.AddDays(1), 0);
+        viewModel.SetScheduledTasks([Item("last quarter-hour", start, end)]);
+        var block = Assert.Single(viewModel.Blocks);
+
+        var preview = viewModel.TimelineLayoutFor(start, end);
+
+        Assert.True(block.CanResizeEnd);
+        Assert.True(preview.HasValue);
+        Assert.Equal(16, preview.Value.Height);
+        Assert.Equal(preview.Value.Top, block.Top);
+        Assert.Equal(preview.Value.Height, block.Height);
+        Assert.Equal(viewModel.TimelineHeight, block.Top + block.Height);
+    }
+
+    [Fact]
+    public void Moving_a_previous_day_clipped_block_by_a_small_delta_preserves_its_full_start()
+    {
+        var viewModel = new CalendarDayViewModel();
+        viewModel.SetSelectedDate(TestDay);
+        var start = At(TestDay.AddDays(-1), 22);
+        var end = start.AddHours(4);
+        viewModel.SetScheduledTasks([Item("previous day block", start, end)]);
+        var block = Assert.Single(viewModel.Blocks);
+
+        Assert.Equal(0, block.Top);
+
+        var moved = viewModel.MoveBlockBy(block, 8);
+
+        Assert.Equal(start.AddMinutes(15), moved.Start);
+        Assert.Equal(end.AddMinutes(15), moved.End);
+        Assert.Equal(end - start, moved.End - moved.Start);
+    }
+
+    [Fact]
+    public void Short_end_of_day_block_is_resizable_when_its_visible_height_is_under_twelve_pixels()
+    {
+        var viewModel = new CalendarDayViewModel();
+        viewModel.SetSelectedDate(TestDay);
+        var start = At(TestDay, 23).AddMinutes(50);
+        var end = At(TestDay.AddDays(1), 0);
+        viewModel.SetScheduledTasks([Item("short last block", start, end)]);
+        var block = Assert.Single(viewModel.Blocks);
+
+        Assert.True(block.Height < 12);
+        Assert.True(block.CanResizeEnd);
     }
 }

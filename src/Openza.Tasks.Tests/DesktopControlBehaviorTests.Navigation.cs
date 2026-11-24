@@ -11,6 +11,7 @@ using Openza.Tasks.Core.Models;
 using Openza.Tasks.Desktop.Dialogs;
 using Openza.Tasks.Desktop.Shell;
 using Openza.Tasks.Desktop.ViewModels;
+using Openza.Tasks.Desktop.Views;
 
 namespace Openza.Tasks.Tests;
 
@@ -98,6 +99,239 @@ public sealed partial class DesktopControlBehaviorTests
     });
 
     [Fact]
+    public Task Calendar_block_schedule_updates_and_removal_preserve_task_status_and_dates() => Run(async context =>
+    {
+        var existing = (await context.Store.GetTaskAsync("task-0"))!;
+        var task = existing with
+        {
+            Id = "calendar-schedule-edit-task",
+            Title = "Calendar schedule edit",
+            ProjectId = null,
+            ParentId = null,
+            PlannedOn = DateOnly.FromDateTime(DateTime.Today),
+            ScheduledStart = null,
+            ScheduledEnd = null,
+            CompletionState = TaskCompletionState.Open,
+            WorkflowStatus = TaskWorkflowStatus.Waiting,
+        };
+        await context.Store.UpsertTaskAsync(task);
+        await context.Vm.SelectNavigationAsync(context.Vm.NavigationItems.Single(item => item.Kind == TaskListKind.Calendar));
+        var item = Assert.Single(context.Vm.CalendarDay.BlockPickerTasks, candidate => candidate.Task.Id == task.Id);
+        var start = DateTimeOffset.Now.AddHours(2);
+        var end = start.AddMinutes(75);
+
+        await context.Vm.SetCalendarTaskScheduleAsync(item, start, end);
+
+        var scheduled = (await context.Store.GetTaskAsync(task.Id))!;
+        Assert.Equal(start.ToUnixTimeMilliseconds(), scheduled.ScheduledStart!.Value.ToUnixTimeMilliseconds());
+        Assert.Equal(end.ToUnixTimeMilliseconds(), scheduled.ScheduledEnd!.Value.ToUnixTimeMilliseconds());
+        Assert.Equal(task.WorkflowStatus, scheduled.WorkflowStatus);
+        Assert.Equal(task.CompletionState, scheduled.CompletionState);
+        Assert.Equal(task.PlannedOn, scheduled.PlannedOn);
+
+        await context.Vm.SetCalendarTaskScheduleAsync(item, null, null);
+
+        var removed = (await context.Store.GetTaskAsync(task.Id))!;
+        Assert.Null(removed.ScheduledStart);
+        Assert.Null(removed.ScheduledEnd);
+        Assert.Equal(task.WorkflowStatus, removed.WorkflowStatus);
+        Assert.Equal(task.CompletionState, removed.CompletionState);
+        Assert.Equal(task.PlannedOn, removed.PlannedOn);
+    });
+
+    [Fact]
+    public Task Rejected_detail_draft_blocks_calendar_schedule_reload() => Run(async context =>
+    {
+        var existing = (await context.Store.GetTaskAsync("task-0"))!;
+        var task = existing with
+        {
+            Id = "calendar-invalid-detail-draft",
+            Title = "Stored title",
+            Notes = "Stored notes",
+            PlannedOn = DateOnly.FromDateTime(DateTime.Today),
+            DeadlineOn = DateOnly.FromDateTime(DateTime.Today.AddDays(5)),
+            ScheduledStart = null,
+            ScheduledEnd = null,
+        };
+        await context.Store.UpsertTaskAsync(task);
+        await context.Vm.SelectNavigationAsync(context.Vm.NavigationItems.Single(item => item.Kind == TaskListKind.Calendar));
+        var item = Assert.Single(context.Vm.CalendarDay.BlockPickerTasks, candidate => candidate.Task.Id == task.Id);
+        await context.Vm.SelectTaskAsync(item);
+        var draftDate = DateTimeOffset.Now.AddDays(2);
+        var draftDeadline = DateTimeOffset.Now.AddDays(8);
+        context.Vm.DetailNotes = "Uncommitted notes";
+        context.Vm.DetailDate = draftDate;
+        context.Vm.DetailDeadline = draftDeadline;
+        context.Vm.DetailTitle = "   ";
+
+        Assert.False(await context.Vm.SaveSelectedAsync());
+
+        await context.Vm.SetCalendarTaskScheduleAsync(item, DateTimeOffset.Now.AddHours(2), DateTimeOffset.Now.AddHours(3));
+
+        var persisted = (await context.Store.GetTaskAsync(task.Id))!;
+        Assert.Null(persisted.ScheduledStart);
+        Assert.Null(persisted.ScheduledEnd);
+        Assert.Equal(task.Title, persisted.Title);
+        Assert.Equal(task.Notes, persisted.Notes);
+        Assert.Equal(task.PlannedOn, persisted.PlannedOn);
+        Assert.Equal(task.DeadlineOn, persisted.DeadlineOn);
+        Assert.Equal("   ", context.Vm.DetailTitle);
+        Assert.Equal("Uncommitted notes", context.Vm.DetailNotes);
+        Assert.Equal(draftDate, context.Vm.DetailDate);
+        Assert.Equal(draftDeadline, context.Vm.DetailDeadline);
+    });
+
+    [Theory]
+    [InlineData(520d)]
+    [InlineData(640d)]
+    public Task Calendar_add_block_button_opens_bounded_picker(double height) => Run(async context =>
+    {
+        var existing = (await context.Store.GetTaskAsync("task-0"))!;
+        var task = existing with
+        {
+            Id = "calendar-picker-layout-task",
+            Title = "Calendar picker layout",
+            ProjectId = null,
+            ParentId = null,
+            ScheduledStart = null,
+            ScheduledEnd = null,
+            CompletionState = TaskCompletionState.Open,
+        };
+        await context.Store.UpsertTaskAsync(task);
+        await context.Vm.SelectNavigationAsync(context.Vm.NavigationItems.Single(item => item.Kind == TaskListKind.Calendar));
+        context.Window.FindControl<Control>("CalendarDayViewButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await Until(() => context.Vm.IsCalendarDayView);
+        context.Window.UpdateLayout();
+        var dayView = context.Window.FindControl<CalendarDayView>("CalendarDayView")!;
+        var addButton = dayView.FindControl<Button>("CalendarAddBlockButton")!;
+        Assert.True(addButton.IsVisible);
+        Assert.Equal("Add a time block", AutomationProperties.GetName(addButton));
+        addButton.Focus();
+        addButton.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter });
+
+        await Until(() => context.Window.OwnedWindows.OfType<CalendarBlockPickerWindow>().Any());
+        var dialog = context.Window.OwnedWindows.OfType<CalendarBlockPickerWindow>().Single();
+        dialog.Height = height;
+        dialog.Width = 520;
+        dialog.UpdateLayout();
+
+        var taskList = dialog.FindControl<ListBox>("TaskList")!;
+        var taskPickerGrid = dialog.FindControl<Grid>("TaskPickerGrid")!;
+        var duration = dialog.FindControl<NumericUpDown>("DurationPicker")!;
+        Assert.Equal(60m, duration.Value);
+        Assert.True(taskList.Bounds.Height > 0);
+        Assert.True(taskList.Bounds.Bottom <= taskPickerGrid.Bounds.Height + 1);
+        Assert.Contains(task.Title, ((CalendarBlockPickerViewModel)dialog.DataContext!).FilteredTasks.Select(item => item.Title));
+
+        dialog.Close();
+    });
+
+    [Fact]
+    public Task Calendar_picker_request_guard_is_shared_until_the_handler_finishes() => Run(async _ =>
+    {
+        var dayView = new CalendarDayView { DataContext = new CalendarDayViewModel() };
+        var window = new Window { Width = 1440, Height = 900, Content = dayView };
+        window.Show();
+        window.UpdateLayout();
+        try
+        {
+            var firstRequest = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var requestCount = 0;
+            dayView.BlockPickerRequested += _ => ++requestCount == 1 ? firstRequest.Task : Task.CompletedTask;
+
+            dayView.FindControl<Button>("CalendarAddBlockButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await Until(() => requestCount == 1);
+
+            var timeline = dayView.FindControl<Canvas>("TimelineCanvas")!;
+            var pointer = new Pointer(70, PointerType.Mouse, isPrimary: true);
+            RaisePointerPressed(timeline, window, pointer);
+            Assert.Equal(1, requestCount);
+
+            firstRequest.SetResult();
+            await UntilAsync(() =>
+            {
+                if (requestCount == 1) RaisePointerPressed(timeline, window, pointer);
+                return Task.FromResult(requestCount == 2);
+            });
+        }
+        finally
+        {
+            window.Close();
+        }
+    });
+
+    [Fact]
+    public Task Calendar_picker_request_reports_handler_failures_and_resets_guard() => Run(async _ =>
+    {
+        var dayView = new CalendarDayView { DataContext = new CalendarDayViewModel() };
+        var window = new Window { Width = 1440, Height = 900, Content = dayView };
+        window.Show();
+        window.UpdateLayout();
+        try
+        {
+            var requestCount = 0;
+            var reportedExceptions = new List<Exception>();
+            dayView.BlockPickerRequested += async _ =>
+            {
+                requestCount++;
+                await Task.Yield();
+                if (requestCount == 1) throw new InvalidOperationException("picker failed");
+            };
+            dayView.BlockPickerRequestFailed += reportedExceptions.Add;
+
+            var addButton = dayView.FindControl<Button>("CalendarAddBlockButton")!;
+            addButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await Until(() => reportedExceptions.Count == 1);
+            Assert.Equal("picker failed", reportedExceptions[0].Message);
+
+            addButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await Until(() => requestCount == 2);
+            Assert.Single(reportedExceptions);
+        }
+        finally
+        {
+            window.Close();
+        }
+    });
+
+    [Fact]
+    public Task Calendar_picker_warns_before_replacing_an_existing_interval() => Run(async context =>
+    {
+        var existing = (await context.Store.GetTaskAsync("task-0"))!;
+        var start = DateTimeOffset.Now.AddHours(2);
+        var task = existing with
+        {
+            Id = "calendar-picker-replacement-task",
+            Title = "Already scheduled picker task",
+            ProjectId = null,
+            ParentId = null,
+            ScheduledStart = start,
+            ScheduledEnd = start.AddHours(1),
+            WorkflowStatus = TaskWorkflowStatus.Next,
+            CompletionState = TaskCompletionState.Open,
+        };
+        await context.Store.UpsertTaskAsync(task);
+        await context.Vm.SelectNavigationAsync(context.Vm.NavigationItems.Single(item => item.Kind == TaskListKind.Calendar));
+        context.Window.FindControl<Control>("CalendarDayViewButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await Until(() => context.Vm.IsCalendarDayView);
+        context.Window.FindControl<CalendarDayView>("CalendarDayView")!.FindControl<Button>("CalendarAddBlockButton")!
+            .RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter });
+
+        await Until(() => context.Window.OwnedWindows.OfType<CalendarBlockPickerWindow>().Any());
+        var dialog = context.Window.OwnedWindows.OfType<CalendarBlockPickerWindow>().Single();
+        var picker = (CalendarBlockPickerViewModel)dialog.DataContext!;
+        Assert.Contains(picker.FilteredTasks, item => item.Task.Id == task.Id);
+        dialog.FindControl<ListBox>("TaskList")!.SelectedItem = Assert.Single(picker.FilteredTasks, item => item.Task.Id == task.Id);
+        dialog.UpdateLayout();
+
+        Assert.Contains("Existing interval:", dialog.FindControl<TextBlock>("ExistingScheduleText")!.Text);
+        Assert.Contains("will replace that interval", dialog.FindControl<TextBlock>("ReplacementNoticeText")!.Text);
+        Assert.Equal("Replace scheduled interval", dialog.FindControl<Button>("AddBlockButton")!.Content);
+        Assert.True(dialog.FindControl<Button>("AddBlockButton")!.IsEnabled);
+        dialog.Close();
+    });
+
+    [Fact]
     public Task Calendar_timeline_blocks_remain_hit_testable_for_short_block_tooltips() => Run(async context =>
     {
         var existing = (await context.Store.GetTaskAsync("task-0"))!;
@@ -122,6 +356,103 @@ public sealed partial class DesktopControlBehaviorTests
         var canvas = block.GetVisualAncestors().OfType<Canvas>().First();
         Assert.True(canvas.IsHitTestVisible);
         Assert.Contains(start.ToLocalTime().ToString("HH:mm"), Assert.IsType<string>(ToolTip.GetTip(block)));
+    });
+
+    [Fact]
+    public Task Calendar_end_of_day_resize_handle_stays_inside_the_timeline() => Run(async context =>
+    {
+        var existing = (await context.Store.GetTaskAsync("task-0"))!;
+        var day = new DateOnly(2026, 6, 17);
+        var startLocal = day.ToDateTime(new TimeOnly(23, 45));
+        var endLocal = day.AddDays(1).ToDateTime(TimeOnly.MinValue);
+        var start = new DateTimeOffset(startLocal, TimeZoneInfo.Local.GetUtcOffset(startLocal));
+        var end = new DateTimeOffset(endLocal, TimeZoneInfo.Local.GetUtcOffset(endLocal));
+        var task = existing with
+        {
+            Id = "calendar-end-of-day-resize-task",
+            Title = "Calendar end of day resize task",
+            ParentId = null,
+            PlannedOn = day,
+            ScheduledStart = start,
+            ScheduledEnd = end,
+        };
+        await context.Store.UpsertTaskAsync(task);
+        await context.Vm.SelectNavigationAsync(context.Vm.NavigationItems.Single(item => item.Kind == TaskListKind.Calendar));
+        context.Vm.CalendarDay.SetSelectedDate(day);
+        context.Vm.SetCalendarDayView(true);
+        context.Window.UpdateLayout();
+
+        var dayView = context.Window.FindControl<CalendarDayView>("CalendarDayView")!;
+        var canvas = dayView.FindControl<Canvas>("TimelineCanvas")!;
+        var block = Assert.Single(dayView.GetVisualDescendants().OfType<Border>(), border =>
+            border.DataContext is CalendarDayBlockViewModel blockViewModel && blockViewModel.Task.Id == task.Id &&
+            ToolTip.GetTip(border) is string tip && tip.Contains(task.Title, StringComparison.Ordinal));
+        var blockViewModel = (CalendarDayBlockViewModel)block.DataContext!;
+        var resizeHandle = Assert.Single(block.GetVisualDescendants().OfType<Border>(), border =>
+            border.Classes.Contains("calendar-block-resize-handle"));
+
+        Assert.True(blockViewModel.CanResizeEnd);
+        Assert.Equal(16, block.Bounds.Height);
+        Assert.True(resizeHandle.IsVisible);
+        Assert.True(resizeHandle.Bounds.Height > 0);
+        Assert.True(Canvas.GetTop(block) + block.Bounds.Height <= canvas.Bounds.Height + 1);
+    });
+
+    [Fact]
+    public Task Calendar_short_end_of_day_block_hit_tests_its_rendered_grip_and_body() => Run(async context =>
+    {
+        var existing = (await context.Store.GetTaskAsync("task-0"))!;
+        var day = new DateOnly(2026, 6, 17);
+        var startLocal = day.ToDateTime(new TimeOnly(23, 50));
+        var endLocal = day.AddDays(1).ToDateTime(TimeOnly.MinValue);
+        var start = new DateTimeOffset(startLocal, TimeZoneInfo.Local.GetUtcOffset(startLocal));
+        var end = new DateTimeOffset(endLocal, TimeZoneInfo.Local.GetUtcOffset(endLocal));
+        var task = existing with
+        {
+            Id = "calendar-short-end-of-day-resize-task",
+            Title = "Calendar short end of day resize task",
+            ParentId = null,
+            PlannedOn = day,
+            ScheduledStart = start,
+            ScheduledEnd = end,
+        };
+        await context.Store.UpsertTaskAsync(task);
+        await context.Vm.SelectNavigationAsync(context.Vm.NavigationItems.Single(item => item.Kind == TaskListKind.Calendar));
+        context.Vm.CalendarDay.SetSelectedDate(day);
+        context.Vm.SetCalendarDayView(true);
+        context.Window.UpdateLayout();
+
+        var dayView = context.Window.FindControl<CalendarDayView>("CalendarDayView")!;
+        Border FindBlock() => Assert.Single(dayView.GetVisualDescendants().OfType<Border>(), border =>
+            border.Classes.Contains("calendar-day-block") &&
+            border.DataContext is CalendarDayBlockViewModel block && block.Task.Id == task.Id);
+        var block = FindBlock();
+        var resizeHandle = Assert.Single(block.GetVisualDescendants().OfType<Border>(), border =>
+            border.Classes.Contains("calendar-block-resize-handle"));
+        var resizeHandleOrigin = resizeHandle.TranslatePoint(default, block)!.Value;
+        Assert.True(block.Bounds.Height < 12);
+        Assert.True(resizeHandle.IsVisible);
+        Assert.InRange(resizeHandleOrigin.Y, 0, block.Bounds.Height);
+        Assert.True(resizeHandleOrigin.Y + resizeHandle.Bounds.Height <= block.Bounds.Height);
+        var resizeGesture = typeof(CalendarDayView).GetField(
+            "_resizeGesture", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+        var pointer = new Pointer(2, PointerType.Mouse, isPrimary: true);
+
+        void AssertResizeGestureAt(Point localPosition, bool expected)
+        {
+            var point = block.TranslatePoint(localPosition, context.Window)!.Value;
+            var pressed = RaisePointerPressed(block, context.Window, pointer, point);
+            Assert.True(pressed.Handled);
+            Assert.Equal(expected, resizeGesture.GetValue(dayView));
+            RaisePointerCaptureLost(block, pointer);
+        }
+
+        var gripPoint = new Point(
+            resizeHandleOrigin.X + resizeHandle.Bounds.Width / 2,
+            resizeHandleOrigin.Y + resizeHandle.Bounds.Height / 2);
+        AssertResizeGestureAt(gripPoint, expected: true);
+        AssertResizeGestureAt(new Point(block.Bounds.Width / 2, resizeHandleOrigin.Y / 2), expected: false);
+        AssertResizeGestureAt(new Point(resizeHandleOrigin.X / 2, gripPoint.Y), expected: false);
     });
 
     [Fact]
@@ -376,19 +707,23 @@ public sealed partial class DesktopControlBehaviorTests
         await Until(() => !context.Vm.IsBusy && !context.Vm.IsUpdatingDetails);
     });
 
-    private static void RaisePointerPressed(InputElement source, MainWindow window, IPointer pointer) =>
-        source.RaiseEvent(new PointerPressedEventArgs(
+    private static PointerPressedEventArgs RaisePointerPressed(InputElement source, Window window, IPointer pointer, Point? rootPosition = null)
+    {
+        var args = new PointerPressedEventArgs(
             source,
             pointer,
             window,
-            new Point(),
+            rootPosition ?? new Point(),
             1,
-            new PointerPointProperties(),
+            new PointerPointProperties(RawInputModifiers.LeftMouseButton, PointerUpdateKind.LeftButtonPressed),
             KeyModifiers.None,
             1)
         {
             RoutedEvent = InputElement.PointerPressedEvent,
-        });
+        };
+        source.RaiseEvent(args);
+        return args;
+    }
 
     private static void RaisePointerCaptureLost(InputElement source, IPointer pointer) =>
         source.RaiseEvent(new PointerCaptureLostEventArgs(source, pointer)
