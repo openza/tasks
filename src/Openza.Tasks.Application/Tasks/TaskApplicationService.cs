@@ -123,7 +123,8 @@ public sealed class TaskApplicationService(
         using var connectionLease = AcquirePersonalCloudAuthoringLease();
         var original = await RequireTaskAsync(request.TaskId, cancellationToken).ConfigureAwait(false);
         var target = HasCloudFieldEdits(request) ? PersonalCloudTarget() : null;
-        if (request.ReminderAt.IsSpecified && target is not null && Store is SqliteTaskStore sqliteStore)
+        if ((request.ReminderAt.IsSpecified || request.ScheduledStart.IsSpecified || request.ScheduledEnd.IsSpecified) &&
+            target is not null && Store is SqliteTaskStore sqliteStore)
         {
             return await sqliteStore.ExecuteInTransactionAsync(
                 () => UpdateTaskCoreAsync(request, original, target, cancellationToken), cancellationToken).ConfigureAwait(false);
