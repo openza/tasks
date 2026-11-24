@@ -470,4 +470,20 @@ public sealed class CalendarDayViewModelTests
         Assert.Equal(end.AddMinutes(15), moved.End);
         Assert.Equal(end - start, moved.End - moved.Start);
     }
+
+    [Fact]
+    public void Short_end_of_day_block_keeps_a_move_region_before_the_resize_hit_area()
+    {
+        var viewModel = new CalendarDayViewModel();
+        viewModel.SetSelectedDate(TestDay);
+        var start = At(TestDay, 23).AddMinutes(50);
+        var end = At(TestDay.AddDays(1), 0);
+        viewModel.SetScheduledTasks([Item("short last block", start, end)]);
+        var block = Assert.Single(viewModel.Blocks);
+
+        Assert.True(block.Height < 12);
+        Assert.True(block.CanResizeEnd);
+        Assert.False(block.IsResizeHandleHit(3));
+        Assert.True(block.IsResizeHandleHit(7));
+    }
 }
