@@ -80,7 +80,10 @@ public sealed partial class MainWindow : Window
         DetailLabelsBox.TextFilter = FilterLabelSuggestion;
         DetailLabelsBox.TextSelector = SelectLabelSuggestion;
         ViewModel.PropertyChanged += OnViewModelPropertyChanged;
-        CalendarDayView.TodayTaskSelected += OnCalendarTodayTaskSelected;
+        CalendarDayView.TaskSelected += OnCalendarTaskSelected;
+        CalendarDayView.BlockPickerRequested += OnCalendarBlockPickerRequested;
+        CalendarDayView.BlockScheduleChangeRequested += OnCalendarBlockScheduleChangeRequested;
+        CalendarDayView.BlockEditRequested += OnCalendarBlockEditRequested;
         CalendarDayView.TodayTaskCompletionRequested += OnCalendarTodayTaskCompletionRequested;
         AddHandler(InputElement.PointerPressedEvent, OnPointerPressed, RoutingStrategies.Tunnel);
         AddHandler(InputElement.PointerReleasedEvent, OnPointerReleased, RoutingStrategies.Bubble, handledEventsToo: true);
@@ -387,13 +390,31 @@ public sealed partial class MainWindow : Window
 
     private void OnCalendarTodayPanelClicked(object? sender, RoutedEventArgs e) => ViewModel.ToggleCalendarTodayPanel();
 
-    private async void OnCalendarTodayTaskSelected(object? sender, TaskListItemViewModel task)
+    private async void OnCalendarTaskSelected(object? sender, TaskListItemViewModel task)
     {
         if (await SelectTaskAfterSavingAsync(task))
         {
             UpdateWorkbenchLayout();
         }
     }
+
+    private async Task OnCalendarBlockPickerRequested(DateTimeOffset start)
+    {
+        var dialog = new CalendarBlockPickerWindow(ViewModel.CalendarDay, start);
+        if (await dialog.ShowDialog<CalendarBlockPickerResult?>(this) is not { } result) return;
+        await ViewModel.SetCalendarTaskScheduleAsync(result.Item, result.Start, result.End);
+    }
+
+    private async Task OnCalendarBlockEditRequested(TaskListItemViewModel task, DateTimeOffset start, DateTimeOffset end)
+    {
+        var durationMinutes = (int)Math.Clamp(Math.Round((end - start).TotalMinutes), 1, int.MaxValue);
+        var dialog = new CalendarBlockPickerWindow(ViewModel.CalendarDay, start, task, durationMinutes);
+        if (await dialog.ShowDialog<CalendarBlockPickerResult?>(this) is not { } result) return;
+        await ViewModel.SetCalendarTaskScheduleAsync(result.Item, result.Start, result.End);
+    }
+
+    private Task OnCalendarBlockScheduleChangeRequested(TaskListItemViewModel task, DateTimeOffset? start, DateTimeOffset? end) =>
+        ViewModel.SetCalendarTaskScheduleAsync(task, start, end);
 
     private async Task<bool> OnCalendarTodayTaskCompletionRequested(TaskListItemViewModel task)
     {

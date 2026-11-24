@@ -2296,6 +2296,17 @@ public sealed partial class MainWindowViewModel : ObservableObject
             },
             plannedOn is null ? "Task date cleared" : "Task date changed");
 
+    public Task SetCalendarTaskScheduleAsync(TaskListItemViewModel item, DateTimeOffset? start, DateTimeOffset? end) =>
+        UpdateTaskFromRowAsync(
+            item,
+            new UpdateTaskRequest
+            {
+                TaskId = item.Task.Id,
+                ScheduledStart = OptionalValue<DateTimeOffset?>.Set(start),
+                ScheduledEnd = OptionalValue<DateTimeOffset?>.Set(end),
+            },
+            start is null ? "Removed from timeline" : "Scheduled time saved");
+
     public Task SetTaskStatusFromRowAsync(TaskListItemViewModel item, TaskItemStatus status) =>
         item.Task.IsCompleted
             ? Task.CompletedTask
@@ -2631,10 +2642,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         _labels.AddRange(labels);
         var projectNames = projects.ToDictionary(project => project.Id, project => project.Name, StringComparer.Ordinal);
 
-        CalendarDay.SetScheduledTasks(snapshot.AllSpaceTasks
-            .Where(task => (_currentSpaceId is null || task.SpaceId == _currentSpaceId) && task.IntegrationId == IntegrationIds.Local)
-            .Where(task => task.IsOpen || task.IsCompleted)
-            .Where(task => task.ScheduledStart is not null)
+        CalendarDay.SetDayTasks(snapshot.AllSpaceTasks
+            .Where(task => _currentSpaceId is null || task.SpaceId == _currentSpaceId)
             .Select(task => new TaskListItemViewModel(
                 task,
                 projectNames.GetValueOrDefault(task.ProjectId ?? string.Empty),

@@ -4,9 +4,10 @@ namespace Openza.Tasks.Desktop.ViewModels;
 
 public sealed class CalendarDayBlockViewModel : ObservableObject
 {
-    private const double MinimumHeight = 32;
+    internal const double MinimumHeight = 32;
     private readonly DateTime _visibleEnd;
     private readonly TimeSpan _visibleDuration;
+    private readonly bool _endIsVisible;
     private DateTimeOffset _now;
     private int _overlapColumn;
     private int _overlapColumnCount = 1;
@@ -25,6 +26,7 @@ public sealed class CalendarDayBlockViewModel : ObservableObject
         Start = start;
         End = end;
         _visibleDuration = visibleEnd - visibleStart;
+        _endIsVisible = end <= visibleEnd;
         LocalStart = localStart;
         _visibleEnd = localEnd;
         _now = now;
@@ -37,6 +39,7 @@ public sealed class CalendarDayBlockViewModel : ObservableObject
     public DateTimeOffset End { get; }
     public DateTime LocalStart { get; }
     public DateTime LocalEnd => _visibleEnd;
+    public bool CanResizeEnd => _endIsVisible;
     public double Top => LocalStart.TimeOfDay.TotalMinutes * CalendarDayViewModel.HourHeight / 60;
     public double Height
     {

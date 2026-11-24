@@ -4,6 +4,7 @@ using Avalonia;
 using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using Avalonia.Input;
 using Avalonia.Media;
 using Avalonia.Threading;
 using Openza.Tasks.Desktop.ViewModels;
@@ -14,6 +15,13 @@ public sealed partial class CalendarDayView : UserControl
 {
     private CalendarDayViewModel? _viewModel;
     private bool _timelineRenderQueued;
+    private Border? _activeBlockBorder;
+    private CalendarDayBlockViewModel? _activeBlock;
+    private Point _pointerOrigin;
+    private double _blockTopAtStart;
+    private double _blockHeightAtStart;
+    private bool _resizeGesture;
+    private bool _blockWasDragged;
 
     public CalendarDayView()
     {
@@ -22,7 +30,10 @@ public sealed partial class CalendarDayView : UserControl
         Loaded += OnLoaded;
     }
 
-    public event EventHandler<TaskListItemViewModel>? TodayTaskSelected;
+    public event EventHandler<TaskListItemViewModel>? TaskSelected;
+    public event Func<DateTimeOffset, Task>? BlockPickerRequested;
+    public event Func<TaskListItemViewModel, DateTimeOffset?, DateTimeOffset?, Task>? BlockScheduleChangeRequested;
+    public event Func<TaskListItemViewModel, DateTimeOffset, DateTimeOffset, Task>? BlockEditRequested;
     public event Func<TaskListItemViewModel, Task<bool>>? TodayTaskCompletionRequested;
 
     public void ScrollToCurrentTime()
@@ -113,6 +124,7 @@ public sealed partial class CalendarDayView : UserControl
             {
                 Height = 2,
                 Width = width,
+                IsHitTestVisible = false,
                 Classes = { "calendar-now-rule" },
             };
             Canvas.SetTop(nowLine, _viewModel.NowTop);
@@ -127,6 +139,7 @@ public sealed partial class CalendarDayView : UserControl
             Height = 1,
             Width = width,
             Classes = { styleClass },
+            IsHitTestVisible = false,
         };
         Canvas.SetTop(rule, top);
         TimelineCanvas.Children.Add(rule);
@@ -141,11 +154,19 @@ public sealed partial class CalendarDayView : UserControl
             Width = Math.Max(1, laneWidth - 8),
             Height = block.Height,
             Opacity = block.Opacity,
+            Focusable = true,
             Classes = { "calendar-day-block" },
             Child = BlockContent(block),
         };
         AutomationProperties.SetName(border, block.AccessibleName);
-        ToolTip.SetTip(border, block.AccessibleName);
+        ToolTip.SetTip(border, block.CanResizeEnd
+            ? $"{block.AccessibleName}. Click for actions; drag to move; drag the bottom edge to resize."
+            : $"{block.AccessibleName}. Click for actions or drag to move.");
+        border.PointerPressed += OnBlockPointerPressed;
+        border.PointerMoved += OnBlockPointerMoved;
+        border.PointerReleased += OnBlockPointerReleased;
+        border.PointerCaptureLost += OnBlockPointerCaptureLost;
+        border.KeyDown += OnBlockKeyDown;
         Canvas.SetLeft(border, canvasWidth * block.LeftFraction + 4);
         Canvas.SetTop(border, block.Top);
         TimelineCanvas.Children.Add(border);
@@ -190,7 +211,7 @@ public sealed partial class CalendarDayView : UserControl
         if (block.IsCompact)
         {
             content.Children.Add(text);
-            return content;
+            return WithResizeHandle(content, block);
         }
 
         var time = new TextBlock
@@ -202,7 +223,190 @@ public sealed partial class CalendarDayView : UserControl
         Grid.SetColumnSpan(time, 2);
         text.Children.Add(time);
         content.Children.Add(text);
-        return content;
+        return WithResizeHandle(content, block);
+    }
+
+    private static Control WithResizeHandle(Control content, CalendarDayBlockViewModel block)
+    {
+        if (!block.CanResizeEnd) return content;
+        var container = new Grid();
+        container.Children.Add(content);
+        var handle = new Border
+        {
+            Height = 3,
+            Margin = new Thickness(5, 0, 5, 1),
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Bottom,
+            IsHitTestVisible = false,
+            Classes = { "calendar-block-resize-handle" },
+        };
+        container.Children.Add(handle);
+        return container;
+    }
+
+    private async void OnTimelinePointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (_viewModel is null || !e.GetCurrentPoint(TimelineCanvas).Properties.IsLeftButtonPressed) return;
+        e.Handled = true;
+        var position = e.GetPosition(TimelineCanvas);
+        var start = _viewModel.TimeAtTimelinePosition(position.Y);
+        if (BlockPickerRequested is { } handler) await handler(start);
+    }
+
+    private void OnBlockPointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (sender is not Border { DataContext: CalendarDayBlockViewModel block } border ||
+            !e.GetCurrentPoint(border).Properties.IsLeftButtonPressed)
+        {
+            return;
+        }
+
+        _activeBlock = block;
+        _activeBlockBorder = border;
+        _pointerOrigin = e.GetPosition(TimelineCanvas);
+        _blockTopAtStart = Canvas.GetTop(border);
+        _blockHeightAtStart = border.Bounds.Height;
+        _resizeGesture = block.CanResizeEnd && e.GetPosition(border).Y >= _blockHeightAtStart - 12;
+        _blockWasDragged = false;
+        border.Focus();
+        e.Pointer.Capture(border);
+        e.Handled = true;
+    }
+
+    private void OnBlockPointerMoved(object? sender, PointerEventArgs e)
+    {
+        if (sender is not Border border || !ReferenceEquals(border, _activeBlockBorder) || _viewModel is null) return;
+        var delta = e.GetPosition(TimelineCanvas).Y - _pointerOrigin.Y;
+        if (!_blockWasDragged && Math.Abs(delta) < 4) return;
+        _blockWasDragged = true;
+        var schedule = GetDragSchedule(_activeBlock!, delta, _resizeGesture);
+        UpdateBlockPreview(border, schedule.Start, schedule.End);
+        e.Handled = true;
+    }
+
+    private async void OnBlockPointerReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        if (sender is not Border border || !ReferenceEquals(border, _activeBlockBorder) || _activeBlock is null) return;
+        var block = _activeBlock;
+        var wasDragged = _blockWasDragged;
+        var resizeGesture = _resizeGesture;
+        var delta = e.GetPosition(TimelineCanvas).Y - _pointerOrigin.Y;
+        var startTop = _blockTopAtStart;
+        var startHeight = _blockHeightAtStart;
+        _activeBlockBorder = null;
+        _activeBlock = null;
+        _blockWasDragged = false;
+        _resizeGesture = false;
+        e.Pointer.Capture(null);
+        e.Handled = true;
+
+        if (!wasDragged)
+        {
+            border.Height = startHeight;
+            Canvas.SetTop(border, startTop);
+            border.IsVisible = true;
+            ShowBlockFlyout(border, block);
+            return;
+        }
+
+        if (_viewModel is null || BlockScheduleChangeRequested is not { } handler)
+        {
+            border.Height = startHeight;
+            Canvas.SetTop(border, startTop);
+            border.IsVisible = true;
+            return;
+        }
+
+        var schedule = GetDragSchedule(block, delta, resizeGesture);
+        UpdateBlockPreview(border, schedule.Start, schedule.End);
+        await handler(block.Item, schedule.Start, schedule.End);
+        QueueTimelineRebuild();
+    }
+
+    private void OnBlockPointerCaptureLost(object? sender, PointerCaptureLostEventArgs e)
+    {
+        if (sender is not Border border || !ReferenceEquals(border, _activeBlockBorder)) return;
+        border.Height = _blockHeightAtStart;
+        Canvas.SetTop(border, _blockTopAtStart);
+        border.IsVisible = true;
+        _activeBlockBorder = null;
+        _activeBlock = null;
+        _blockWasDragged = false;
+        _resizeGesture = false;
+    }
+
+    private (DateTimeOffset Start, DateTimeOffset End) GetDragSchedule(CalendarDayBlockViewModel block, double delta, bool resizeGesture) =>
+        resizeGesture
+            ? _viewModel!.ResizeBlockEndBy(block, delta)
+            : _viewModel!.MoveBlockTo(block, _blockTopAtStart + delta);
+
+    private void UpdateBlockPreview(Border border, DateTimeOffset start, DateTimeOffset end)
+    {
+        if (_viewModel?.TimelineLayoutFor(start, end) is not { } layout)
+        {
+            border.IsVisible = false;
+            return;
+        }
+
+        border.IsVisible = true;
+        Canvas.SetTop(border, layout.Top);
+        border.Height = layout.Height;
+    }
+
+    private void OnBlockKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Key is not (Key.Enter or Key.Space) ||
+            sender is not Border { DataContext: CalendarDayBlockViewModel block } border)
+        {
+            return;
+        }
+
+        ShowBlockFlyout(border, block);
+        e.Handled = true;
+    }
+
+    private void ShowBlockFlyout(Border border, CalendarDayBlockViewModel block)
+    {
+        var content = new StackPanel { MinWidth = 240, Spacing = 8 };
+        content.Children.Add(new TextBlock
+        {
+            Text = block.Title,
+            FontWeight = FontWeight.SemiBold,
+            TextWrapping = TextWrapping.Wrap,
+        });
+
+        var start = _viewModel?.LocalDateTimeFor(block.Start).ToString("dddd, d MMMM · HH:mm") ?? block.TimeText;
+        var end = _viewModel?.LocalDateTimeFor(block.End).ToString("dddd, d MMMM · HH:mm") ?? block.TimeText;
+        content.Children.Add(new TextBlock
+        {
+            Text = $"{start} – {end}",
+            TextWrapping = TextWrapping.Wrap,
+        });
+
+        var flyout = new Flyout { Content = content };
+        var openButton = new Button { Content = "Open task", HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch };
+        openButton.Click += (_, _) =>
+        {
+            flyout.Hide();
+            TaskSelected?.Invoke(this, block.Item);
+        };
+        content.Children.Add(openButton);
+
+        var editButton = new Button { Content = "Edit time", HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch };
+        editButton.Click += async (_, _) =>
+        {
+            flyout.Hide();
+            if (BlockEditRequested is { } edit) await edit(block.Item, block.Start, block.End);
+        };
+        content.Children.Add(editButton);
+
+        var removeButton = new Button { Content = "Remove from timeline", HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch };
+        removeButton.Click += async (_, _) =>
+        {
+            flyout.Hide();
+            if (BlockScheduleChangeRequested is { } remove) await remove(block.Item, null, null);
+        };
+        content.Children.Add(removeButton);
+        flyout.ShowAt(border);
     }
 
     private void OnPreviousDayClicked(object? sender, RoutedEventArgs e) => _viewModel?.PreviousDay();
@@ -215,12 +419,19 @@ public sealed partial class CalendarDayView : UserControl
         ScrollToCurrentTime();
     }
 
+    private async void OnAddBlockClicked(object? sender, RoutedEventArgs e)
+    {
+        if (_viewModel is null || BlockPickerRequested is not { } handler) return;
+        var top = _viewModel.IsSelectedDayToday ? _viewModel.NowTop : 9 * CalendarDayViewModel.HourHeight;
+        await handler(_viewModel.TimeAtTimelinePosition(top));
+    }
+
     private void OnCloseTodayPanelClicked(object? sender, RoutedEventArgs e) => _viewModel?.CloseTodayPanel();
 
     private void OnTodayTaskClicked(object? sender, RoutedEventArgs e)
     {
         if (sender is not Button { DataContext: TaskListItemViewModel task }) return;
-        TodayTaskSelected?.Invoke(this, task);
+        TaskSelected?.Invoke(this, task);
     }
 
     private async void OnTodayTaskCompletionClicked(object? sender, RoutedEventArgs e)
