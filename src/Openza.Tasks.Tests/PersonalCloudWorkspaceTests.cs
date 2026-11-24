@@ -347,5 +347,36 @@ public sealed class PersonalCloudWorkspaceTests : IDisposable
         Assert.Equal(moment ? DateTimeOffset.Parse(Stamp) : null, prefix == "planned" ? task.PlannedAt : task.DeadlineAt);
     }
 
+    [Fact]
+    public async Task Connected_schedule_edit_queues_a_patch_of_only_the_changed_interval()
+    {
+        var store = Store(); await store.InitializeAsync(); await store.SavePersonalCloudWorkspaceCapabilitiesAsync(Instance, true, true);
+        await store.ApplyPersonalCloudChangePageAsync(Instance, Device, Page(1, [Space()], [Project()], [TaskRecord()]));
+        var before = (await store.GetTaskAsync("task_test"))!;
+        var connection = new PersonalCloudConnectionProfile
+        {
+            ServiceOrigin = new Uri("https://openza-personal-test.workers.dev/"),
+            InstanceId = Instance, DeviceId = Device, ArtifactVersion = "1.2.3", ConnectedAt = DateTimeOffset.UtcNow,
+        };
+        var service = new Openza.Tasks.Application.Tasks.TaskApplicationService(store, () => connection);
+        var start = new DateTimeOffset(2026, 10, 13, 9, 0, 0, TimeSpan.Zero);
+
+        var updated = await service.UpdateTaskAsync(new Openza.Tasks.Application.Tasks.UpdateTaskRequest
+        {
+            TaskId = before.Id, ExpectedRevision = before.Revision,
+            ScheduledStart = Openza.Tasks.Application.Tasks.OptionalValue<DateTimeOffset?>.Set(start),
+            ScheduledEnd = Openza.Tasks.Application.Tasks.OptionalValue<DateTimeOffset?>.Set(start.AddMinutes(90)),
+        });
+
+        Assert.Equal(start, updated.ScheduledStart); Assert.Equal(start.AddMinutes(90), updated.ScheduledEnd);
+        Assert.Equal(before.WorkflowStatus, updated.WorkflowStatus); Assert.Equal(before.DurationMinutes, updated.DurationMinutes);
+        var entry = Assert.Single(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device)); Assert.Equal("task.patch", entry.Operation);
+        using var document = JsonDocument.Parse(entry.CanonicalJson);
+        var fields = document.RootElement.GetProperty("payload").GetProperty("fields");
+        Assert.Equal(new[] { "scheduledEnd", "scheduledStart" }, fields.EnumerateObject().Select(field => field.Name).Order(StringComparer.Ordinal));
+        Assert.Equal("2026-10-13T09:00:00.000Z", fields.GetProperty("scheduledStart").GetString());
+        Assert.Equal("2026-10-13T10:30:00.000Z", fields.GetProperty("scheduledEnd").GetString());
+    }
+
     public void Dispose() { SqliteConnection.ClearAllPools(); if (Directory.Exists(_directory)) Directory.Delete(_directory, recursive: true); }
 }

@@ -166,6 +166,7 @@ public sealed class TaskApplicationService(
 
         var plannedOn = request.PlannedOn.IsSpecified ? request.PlannedOn.Value : original.PlannedOn;
         var deadlineOn = request.DeadlineOn.IsSpecified ? request.DeadlineOn.Value : original.DeadlineOn;
+        var (scheduledStart, scheduledEnd) = ResolveSchedule(request, original);
         var notes = request.Notes.IsSpecified ? NullIfEmpty(request.Notes.Value) : original.Notes;
         var labels = request.Labels.IsSpecified
             ? await ResolveLabelsAsync(request.Labels.Value ?? [], cancellationToken).ConfigureAwait(false)
@@ -197,6 +198,15 @@ public sealed class TaskApplicationService(
             var entityVersion = await ResolvePersonalCloudEntityVersionAsync(
                 sqliteStore, target, original.Id, cancellationToken).ConfigureAwait(false);
             var changed = request.ReminderAt.IsSpecified;
+            var scheduleFields = ScheduleCloudFields(original, scheduledStart, scheduledEnd);
+            if (scheduleFields.Count > 0)
+            {
+                var current = await RequireTaskAsync(original.Id, cancellationToken).ConfigureAwait(false);
+                await sqliteStore.PatchTaskWithPersonalCloudIntentAsync(
+                    original.Id, scheduleFields, current.Revision, target.InstanceId, target.DeviceId, cancellationToken).ConfigureAwait(false);
+                entityVersion = checked(entityVersion + 1);
+                changed = true;
+            }
             var reopening = request.Completed.IsSpecified && original.IsCompleted && !completed;
             if (reopening)
             {
@@ -343,6 +353,8 @@ public sealed class TaskApplicationService(
                 ? ProviderWriteBackPlanner.PreserveExactTime(plannedOn, original.PlannedOn, original.PlannedAt)
                 : original.PlannedAt,
             ReminderAt = reminderAt,
+            ScheduledStart = scheduledStart,
+            ScheduledEnd = scheduledEnd,
             DeadlineOn = deadlineOn,
             DeadlineAt = request.DeadlineOn.IsSpecified
                 ? ProviderWriteBackPlanner.PreserveExactTime(deadlineOn, original.DeadlineOn, original.DeadlineAt)
@@ -466,7 +478,37 @@ public sealed class TaskApplicationService(
     private static bool HasCloudFieldEdits(UpdateTaskRequest request) =>
         request.Title.IsSpecified || request.Status.IsSpecified || request.Priority.IsSpecified ||
         request.PlannedOn.IsSpecified || request.Notes.IsSpecified || request.DeadlineOn.IsSpecified ||
-        request.Completed.IsSpecified || request.Space.IsSpecified || request.Project.IsSpecified || request.Labels.IsSpecified;
+        request.Completed.IsSpecified || request.Space.IsSpecified || request.Project.IsSpecified || request.Labels.IsSpecified ||
+        request.ScheduledStart.IsSpecified || request.ScheduledEnd.IsSpecified;
+
+    private static (DateTimeOffset? Start, DateTimeOffset? End) ResolveSchedule(UpdateTaskRequest request, TaskItem original)
+    {
+        var start = request.ScheduledStart.IsSpecified ? TruncateToMilliseconds(request.ScheduledStart.Value) : original.ScheduledStart;
+        var end = request.ScheduledEnd.IsSpecified ? TruncateToMilliseconds(request.ScheduledEnd.Value) : original.ScheduledEnd;
+        if (!request.ScheduledStart.IsSpecified && !request.ScheduledEnd.IsSpecified)
+            return (start, end);
+        if (end is not null && start is null)
+            throw new ArgumentException("A scheduled end requires a scheduled start.", nameof(request));
+        if (start is not null && end is not null && end <= start)
+            throw new ArgumentException("The scheduled end must be after the scheduled start.", nameof(request));
+        if (!ReminderValues.IsInRange(start) || !ReminderValues.IsInRange(end))
+            throw new ArgumentOutOfRangeException(nameof(request), "The scheduled time is out of range.");
+        return (start, end);
+    }
+
+    private static DateTimeOffset? TruncateToMilliseconds(DateTimeOffset? value) =>
+        value is { } moment ? DateTimeOffset.FromUnixTimeMilliseconds(moment.ToUnixTimeMilliseconds()) : null;
+
+    private static Dictionary<string, object?> ScheduleCloudFields(TaskItem original, DateTimeOffset? start, DateTimeOffset? end)
+    {
+        var fields = new Dictionary<string, object?>(StringComparer.Ordinal);
+        if (original.ScheduledStart != start) fields["scheduledStart"] = CloudMoment(start);
+        if (original.ScheduledEnd != end) fields["scheduledEnd"] = CloudMoment(end);
+        return fields;
+    }
+
+    private static string? CloudMoment(DateTimeOffset? value) => value?.ToUniversalTime().ToString(
+        "yyyy-MM-dd'T'HH:mm:ss.fff'Z'", System.Globalization.CultureInfo.InvariantCulture);
 
     private PersonalCloudConnectionProfile? PersonalCloudTarget() => personalCloudConnection?.Invoke();
 
