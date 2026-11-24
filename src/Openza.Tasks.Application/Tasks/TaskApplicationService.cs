@@ -126,8 +126,14 @@ public sealed class TaskApplicationService(
         if ((request.ReminderAt.IsSpecified || request.ScheduledStart.IsSpecified || request.ScheduledEnd.IsSpecified) &&
             target is not null && Store is SqliteTaskStore sqliteStore)
         {
-            return await sqliteStore.ExecuteInTransactionAsync(
-                () => UpdateTaskCoreAsync(request, original, target, cancellationToken), cancellationToken).ConfigureAwait(false);
+            return await sqliteStore.ExecuteInTransactionAsync(async () =>
+            {
+                // Any write since the snapshot was read is a conflict, even when this edit's own fields are no-ops.
+                var current = await RequireTaskAsync(request.TaskId, cancellationToken).ConfigureAwait(false);
+                if (current.Revision != original.Revision)
+                    throw new TaskConflictException(original.Id);
+                return await UpdateTaskCoreAsync(request, original, target, cancellationToken).ConfigureAwait(false);
+            }, cancellationToken).ConfigureAwait(false);
         }
         return await UpdateTaskCoreAsync(request, original, target, cancellationToken).ConfigureAwait(false);
     }
@@ -204,11 +210,12 @@ public sealed class TaskApplicationService(
             var scheduleFields = ScheduleCloudFields(original, scheduledStart, scheduledEnd);
             if (scheduleFields.Count > 0)
             {
-                var validatedRevision = request.ReminderAt.IsSpecified ? checked(original.Revision + 1) : original.Revision;
+                // The transaction already validated the caller's revision; our own reminder write or publish staging may have bumped it since.
+                var current = await RequireTaskAsync(original.Id, cancellationToken).ConfigureAwait(false);
                 try
                 {
                     await sqliteStore.PatchTaskWithPersonalCloudIntentAsync(
-                        original.Id, scheduleFields, validatedRevision, target.InstanceId, target.DeviceId, cancellationToken).ConfigureAwait(false);
+                        original.Id, scheduleFields, current.Revision, target.InstanceId, target.DeviceId, cancellationToken).ConfigureAwait(false);
                 }
                 catch (PersonalCloudK0ContractException error) when (error.Code == "version_conflict")
                 {

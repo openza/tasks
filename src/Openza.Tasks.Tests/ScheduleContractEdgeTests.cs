@@ -137,6 +137,54 @@ public sealed class ScheduleContractEdgeTests : IDisposable
     }
 
     [Fact]
+    public async Task Stale_title_edit_with_unchanged_schedule_conflicts()
+    {
+        var store = new SqliteTaskStore(Db);
+        await store.InitializeAsync();
+        await store.SavePersonalCloudWorkspaceCapabilitiesAsync(Instance, true, true);
+        await store.UpsertTaskAsync(new TaskItem { Id = "task_test", Title = "Old title", ScheduledStart = Start });
+        await store.StageUnpublishedTasksForPersonalCloudAsync(Instance, Device);
+        var before = (await store.GetTaskAsync("task_test"))!;
+        var stale = new TaskApplicationService(store, () =>
+        {
+            Service(store).UpdateTaskAsync(new()
+            {
+                TaskId = before.Id, ExpectedRevision = before.Revision, Title = OptionalValue<string?>.Set("Concurrent author"),
+                ScheduledStart = OptionalValue<DateTimeOffset?>.Set(Start.AddHours(2)),
+            }).GetAwaiter().GetResult();
+            return new()
+            {
+                ServiceOrigin = new Uri("https://openza-personal-test.workers.dev/"),
+                InstanceId = Instance, DeviceId = Device, ArtifactVersion = "1.2.3", ConnectedAt = DateTimeOffset.UtcNow,
+            };
+        });
+        await Assert.ThrowsAsync<TaskConflictException>(() => stale.UpdateTaskAsync(new()
+        {
+            TaskId = before.Id, ExpectedRevision = before.Revision, Title = OptionalValue<string?>.Set("Stale author"),
+            ScheduledStart = OptionalValue<DateTimeOffset?>.Set(Start),
+        }));
+        Assert.Equal("Concurrent author", (await store.GetTaskAsync(before.Id))!.Title);
+    }
+
+    [Fact]
+    public async Task Schedule_edit_on_unpublished_orphan_child_succeeds()
+    {
+        var store = new SqliteTaskStore(Db);
+        await store.InitializeAsync();
+        await store.SavePersonalCloudWorkspaceCapabilitiesAsync(Instance, true, true);
+        await store.UpsertTaskAsync(new TaskItem { Id = "task_parent", Title = "Parent" });
+        await store.UpsertTaskAsync(new TaskItem { Id = "task_test", Title = "Child", ParentId = "task_parent" });
+        await new TaskApplicationService(store).DeleteTaskAsync("task_parent");
+        var before = (await store.GetTaskAsync("task_test"))!;
+        var updated = await Service(store).UpdateTaskAsync(new()
+        {
+            TaskId = before.Id, ExpectedRevision = before.Revision, ScheduledStart = OptionalValue<DateTimeOffset?>.Set(Start),
+        });
+        Assert.Equal(Start, updated.ScheduledStart);
+        Assert.Null(updated.ParentId);
+    }
+
+    [Fact]
     public async Task Concurrent_schedule_change_rejects_stale_expected_revision()
     {
         var store = new SqliteTaskStore(Db);
