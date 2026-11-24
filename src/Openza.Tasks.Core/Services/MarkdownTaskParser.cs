@@ -161,6 +161,7 @@ public sealed record ParsedTask(string Title, bool IsCompleted)
     public int Priority { get; init; } = 2;
     public DateOnly? PlannedOn { get; init; }
     public DateOnly? DeadlineOn { get; init; }
+    public DateTimeOffset? ReminderAt { get; init; }
     public string? Notes { get; init; }
     public string? ProjectName { get; init; }
     public TaskWorkflowStatus WorkflowStatus { get; init; } = TaskWorkflowStatus.Inbox;

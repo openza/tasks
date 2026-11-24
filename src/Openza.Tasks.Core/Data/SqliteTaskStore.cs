@@ -10,7 +10,7 @@ namespace Openza.Tasks.Core.Data;
 
 public sealed partial class SqliteTaskStore(string databasePath, bool readOnly = false, TimeProvider? timeProvider = null) : ITaskStore
 {
-    public const int CurrentSchemaVersion = 13;
+    public const int CurrentSchemaVersion = 14;
     public const int MinimumReadOnlySchemaVersion = 5;
 
     private sealed record ParentTaskContext(string Id, string SpaceId, string? ProjectId, TaskWorkflowStatus WorkflowStatus);
@@ -559,6 +559,7 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
                     await ApplyMicrosoftCategoriesAsync(connection, source, task, cancellationToken).ConfigureAwait(false);
             }
             await ApplyMicrosoftStepsAsync(connection, source, taskId, cancellationToken).ConfigureAwait(false);
+            await ApplyMicrosoftReminderAsync(connection, source, taskId, cancellationToken).ConfigureAwait(false);
         }
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
     }
@@ -586,9 +587,11 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
                     source_url = NULL,
                     source_metadata = CASE WHEN json_extract(source_metadata,'$.msToDoStepsApplied')=1
                         OR json_extract(source_metadata,'$.msToDoCategoriesApplied')=1
+                        OR json_extract(source_metadata,'$.msToDoReminderApplied')=1
                         THEN json_patch(
                             CASE WHEN json_extract(source_metadata,'$.msToDoCategoriesApplied')=1 THEN '{"msToDoCategoriesApplied":true}' ELSE '{}' END,
-                            CASE WHEN json_extract(source_metadata,'$.msToDoStepsApplied')=1 THEN '{"msToDoStepsApplied":true}' ELSE '{}' END)
+                            json_patch(CASE WHEN json_extract(source_metadata,'$.msToDoStepsApplied')=1 THEN '{"msToDoStepsApplied":true}' ELSE '{}' END,
+                            CASE WHEN json_extract(source_metadata,'$.msToDoReminderApplied')=1 THEN '{"msToDoReminderApplied":true}' ELSE '{}' END))
                         ELSE NULL END,
                     updated_at = @updated_at,
                     revision = revision + 1
@@ -669,6 +672,8 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
         task = await ApplyMicrosoftCategoriesAsync(connection, source, task, cancellationToken).ConfigureAwait(false);
         var steps = await ApplyMicrosoftStepsAsync(connection, source, task.Id, cancellationToken).ConfigureAwait(false);
         if (steps.Metadata is not null) task = task with { SourceMetadataJson = steps.Metadata, Revision = task.Revision + 1 };
+        await ApplyMicrosoftReminderAsync(connection, source, task.Id, cancellationToken).ConfigureAwait(false);
+        task = (await SqliteTaskReadQueries.ReadTasksAsync(connection, cancellationToken, task.Id).ConfigureAwait(false)).Single();
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return task;
     }
@@ -3239,7 +3244,8 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
                         source_description = @source_description,
                         source_metadata = json_patch(@source_metadata, json_patch(
                             CASE WHEN json_extract(source_metadata,'$.msToDoCategoriesApplied')=1 THEN '{"msToDoCategoriesApplied":true}' ELSE '{}' END,
-                            CASE WHEN json_extract(source_metadata,'$.msToDoStepsApplied')=1 THEN '{"msToDoStepsApplied":true}' ELSE '{}' END)),
+                            json_patch(CASE WHEN json_extract(source_metadata,'$.msToDoStepsApplied')=1 THEN '{"msToDoStepsApplied":true}' ELSE '{}' END,
+                            CASE WHEN json_extract(source_metadata,'$.msToDoReminderApplied')=1 THEN '{"msToDoReminderApplied":true}' ELSE '{}' END))),
                         updated_at = @updated_at
                     WHERE id = @id
                       AND (source_integration_id IS NULL OR source_integration_id = @integration_id)
@@ -3443,7 +3449,7 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
         {
             var source=bootstrap.Snapshot.SourceDescriptors.FirstOrDefault(value=>value.TaskId==task.Id);
             var item=new TaskItem{Id=task.Id,SpaceId=task.SpaceId,ProjectId=task.ProjectId,ParentId=task.ParentId,Title=task.Title,Notes=task.Notes,CompletionState=TaskStatusExtensions.CompletionFromStorageValue(task.CompletionState),WorkflowStatus=TaskStatusExtensions.WorkflowFromStorageValue(task.WorkflowStatus),Priority=task.Priority,PlannedOn=task.PlannedOn is null?null:DateOnly.ParseExact(task.PlannedOn,"yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture),PlannedAt=task.PlannedAt is null?null:ParseProtocolTimestamp(task.PlannedAt),DeadlineOn=task.DeadlineOn is null?null:DateOnly.ParseExact(task.DeadlineOn,"yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture),CompletedAt=task.CompletedAt is null?null:ParseProtocolTimestamp(task.CompletedAt),CreatedAt=ParseProtocolTimestamp(task.CreatedAt),SourceIntegrationId=source?.IntegrationKind,SourceUrl=source?.SourceUrl,SourceDescription=source?.Description,SourceMetadataJson=source is null?null:PersonalCloudK0Codec.Serialize(source)};
-            await UpsertTaskCoreAsync(connection,item,cancellationToken).ConfigureAwait(false);var track=connection.CreateCommand();track.CommandText="INSERT INTO personal_cloud_replica_entities(instance_id,product,entity_id) VALUES(@i,'tasks',@e)";track.Parameters.AddWithValue("@i",instanceId);track.Parameters.AddWithValue("@e",task.Id);await track.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);await UpsertPersonalCloudEntityVersionAsync(connection,instanceId,task.Id,task.EntityVersion,cancellationToken).ConfigureAwait(false);
+            await UpsertTaskCoreAsync(connection,item,cancellationToken, retainReminder: true).ConfigureAwait(false);var track=connection.CreateCommand();track.CommandText="INSERT INTO personal_cloud_replica_entities(instance_id,product,entity_id) VALUES(@i,'tasks',@e)";track.Parameters.AddWithValue("@i",instanceId);track.Parameters.AddWithValue("@e",task.Id);await track.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);await UpsertPersonalCloudEntityVersionAsync(connection,instanceId,task.Id,task.EntityVersion,cancellationToken).ConfigureAwait(false);
         }
         foreach(var label in bootstrap.Snapshot.Labels.Where(l=>l.DeletedAt is null)){var c=connection.CreateCommand();c.CommandText="INSERT INTO labels(id,integration_id,name,created_at) VALUES(@id,'openza_tasks',@name,@now) ON CONFLICT(id) DO UPDATE SET name=excluded.name";c.Parameters.AddWithValue("@id",label.Id);c.Parameters.AddWithValue("@name",label.Name);c.Parameters.AddWithValue("@now",DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());await c.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);}
         foreach(var link in bootstrap.Snapshot.TaskLabels){var c=connection.CreateCommand();c.CommandText="INSERT INTO task_labels(task_id,label_id) VALUES(@task,@label)";c.Parameters.AddWithValue("@task",link.TaskId);c.Parameters.AddWithValue("@label",link.LabelId);await c.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);}
@@ -4282,7 +4288,8 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
                 source_url = @source_url,
                 source_metadata = json_patch(@source_metadata, json_patch(
                     CASE WHEN json_extract(source_metadata,'$.msToDoCategoriesApplied')=1 THEN '{"msToDoCategoriesApplied":true}' ELSE '{}' END,
-                    CASE WHEN json_extract(source_metadata,'$.msToDoStepsApplied')=1 THEN '{"msToDoStepsApplied":true}' ELSE '{}' END)),
+                    json_patch(CASE WHEN json_extract(source_metadata,'$.msToDoStepsApplied')=1 THEN '{"msToDoStepsApplied":true}' ELSE '{}' END,
+                            CASE WHEN json_extract(source_metadata,'$.msToDoReminderApplied')=1 THEN '{"msToDoReminderApplied":true}' ELSE '{}' END))),
                 planned_on = CASE
                     WHEN @sync_planned_date = 1 AND NOT EXISTS (SELECT 1 FROM pending_task_date_updates WHERE task_id = @task_id) THEN @planned_on
                     ELSE planned_on
@@ -4457,8 +4464,9 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
     private Task<IReadOnlyList<TaskItem>> ReadTasksAsync(SqliteConnection connection, CancellationToken cancellationToken) =>
         SqliteTaskReadQueries.ReadTasksAsync(connection, cancellationToken);
 
-    private static async Task UpsertTaskCoreAsync(SqliteConnection connection, TaskItem task, CancellationToken cancellationToken)
+    private static async Task UpsertTaskCoreAsync(SqliteConnection connection, TaskItem task, CancellationToken cancellationToken, bool retainReminder = false)
     {
+        task = await RetainDeviceReminderAsync(connection, task, retainReminder, cancellationToken).ConfigureAwait(false);
         var (plannedOn, plannedAt) = NormalizeDatePair(task.PlannedOn, task.PlannedAt);
         var (deadlineOn, deadlineAt) = NormalizeDatePair(task.DeadlineOn, task.DeadlineAt);
         var command = connection.CreateCommand();
@@ -4468,13 +4476,13 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
                                source_url, completion_state, workflow_status, planned_on, planned_at, deadline_on, deadline_at,
                                scheduled_start, scheduled_end, duration_minutes, recurrence_rule,
                                notes, provider_metadata, source_metadata, local_metadata,
-                               created_at, updated_at, completed_at, revision)
+                               created_at, updated_at, completed_at, revision, reminder_at)
             VALUES (@id, @external_id, @space_id, @integration_id, @provider_connection_id, @title, @description, @source_description, @project_id, @parent_id,
                     @priority, @source_integration_id, @source_connection_id, @source_external_id, @source_provider_task_id,
                     @source_url, @completion_state, @workflow_status, @planned_on, @planned_at, @deadline_on, @deadline_at,
                     @scheduled_start, @scheduled_end, @duration_minutes, @recurrence_rule,
                     @notes, @provider_metadata, @source_metadata, @local_metadata,
-                    @created_at, @updated_at, @completed_at, @revision)
+                    @created_at, @updated_at, @completed_at, @revision, @reminder_at)
             ON CONFLICT(id) DO UPDATE SET
                 external_id = excluded.external_id,
                 space_id = excluded.space_id,
@@ -4498,6 +4506,7 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
                 deadline_on = excluded.deadline_on,
                 deadline_at = excluded.deadline_at,
                 scheduled_start = excluded.scheduled_start,
+                reminder_at = excluded.reminder_at,
                 scheduled_end = excluded.scheduled_end,
                 duration_minutes = excluded.duration_minutes,
                 recurrence_rule = excluded.recurrence_rule,
@@ -4548,6 +4557,7 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
         command.Parameters.AddWithValue("@updated_at", ToDbValue(task.UpdatedAt));
         command.Parameters.AddWithValue("@completed_at", ToDbValue(task.CompletedAt));
         command.Parameters.AddWithValue("@revision", task.Revision);
+        command.Parameters.AddWithValue("@reminder_at", ToDbReminderInstant(task.ReminderAt));
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
@@ -4716,8 +4726,11 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
         CreatedAt = ReadDate(reader, 10) ?? DateTimeOffset.UtcNow,
     };
 
-    private async Task<SqliteConnection> OpenConnectionAsync(CancellationToken cancellationToken)
+    private async Task<ConnectionLease> OpenConnectionAsync(CancellationToken cancellationToken)
     {
+        if (_transactionConnection.Value is { } current)
+            return new ConnectionLease(current, ownsConnection: false);
+
         var connection = new SqliteConnection(new SqliteConnectionStringBuilder
         {
             DataSource = DatabasePath,
@@ -4734,7 +4747,7 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
         }
         await ExecutePragmaAsync(connection, "PRAGMA busy_timeout = 5000", cancellationToken).ConfigureAwait(false);
         await ExecutePragmaAsync(connection, "PRAGMA foreign_keys = ON", cancellationToken).ConfigureAwait(false);
-        return connection;
+        return new ConnectionLease(connection, ownsConnection: true);
     }
 
     private static async Task CreateSchemaAsync(SqliteConnection connection, CancellationToken cancellationToken)
@@ -4773,6 +4786,13 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
         {
             command.CommandText = await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
             await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+        if (!(await GetColumnNamesAsync(connection, "tasks", cancellationToken).ConfigureAwait(false)).Contains("reminder_at"))
+        {
+            using var source = typeof(SqliteTaskStore).Assembly.GetManifestResourceStream("Openza.Tasks.Core.Data.Migrations.0014_task_reminders.sql")
+                ?? throw new InvalidOperationException("The reminder migration script is missing.");
+            using var reader = new StreamReader(source);
+            await ExecuteNonQueryAsync(connection, await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
         }
         await ExecutePragmaAsync(connection, $"PRAGMA user_version = {CurrentSchemaVersion}", cancellationToken).ConfigureAwait(false);
     }
@@ -5164,6 +5184,7 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
         await AddColumnIfMissingAsync(connection, "tasks", "planned_at", "INTEGER", cancellationToken).ConfigureAwait(false);
         await AddColumnIfMissingAsync(connection, "tasks", "deadline_on", "TEXT", cancellationToken).ConfigureAwait(false);
         await AddColumnIfMissingAsync(connection, "tasks", "deadline_at", "INTEGER", cancellationToken).ConfigureAwait(false);
+        await AddColumnIfMissingAsync(connection, "tasks", "reminder_at", "INTEGER", cancellationToken).ConfigureAwait(false);
         await AddColumnIfMissingAsync(connection, "tasks", "due_date", "INTEGER", cancellationToken).ConfigureAwait(false);
         await AddColumnIfMissingAsync(connection, "tasks", "due_time", "TEXT", cancellationToken).ConfigureAwait(false);
         await AddColumnIfMissingAsync(connection, "tasks", "planned_date", "INTEGER", cancellationToken).ConfigureAwait(false);

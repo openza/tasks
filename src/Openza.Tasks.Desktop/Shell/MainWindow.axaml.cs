@@ -1403,6 +1403,26 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    private async void OnReminderDateChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (!_initialized || !ViewModel.HasSelectedTask || ViewModel.IsUpdatingDetails) return;
+        ViewModel.DetailReminderDate = DetailReminderPicker.SelectedDate;
+        await ViewModel.SaveSelectedAsync();
+    }
+
+    private async void OnReminderTimeChanged(object? sender, TimePickerSelectedValueChangedEventArgs e)
+    {
+        if (!_initialized || !ViewModel.HasSelectedTask || ViewModel.IsUpdatingDetails) return;
+        ViewModel.DetailReminderTime = DetailReminderTimePicker.SelectedTime;
+        await ViewModel.SaveSelectedAsync();
+    }
+
+    private async void OnClearReminderClicked(object? sender, RoutedEventArgs e)
+    {
+        ViewModel.DetailReminder = null;
+        await ViewModel.SaveSelectedAsync();
+    }
+
     private async void OnDetailDateChanged(object? sender, SelectionChangedEventArgs e)
     {
         if (_initialized && ViewModel.HasSelectedTask && !ViewModel.IsUpdatingDetails && sender is CalendarDatePicker picker)

@@ -5,6 +5,7 @@ All notable changes to Openza Tasks will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Microsoft To Do reminders import once as editable, device-local reminder instants. Desktop and CLI can set or clear them. Reminders are not synced through Personal Cloud and no notifications are sent yet.
 - Microsoft To Do checklist items import once as local subtasks in Graph order, including mixed checked state and completion time, with upgrade backfill and Personal Cloud publication. Later syncs and source reconnection preserve local subtask edits and deletions.
 
 ### Fixed

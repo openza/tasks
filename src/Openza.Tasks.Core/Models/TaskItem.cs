@@ -55,6 +55,7 @@ public sealed record TaskItem
     public DateTimeOffset? PlannedAt { get; init; }
     public DateOnly? DeadlineOn { get; init; }
     public DateTimeOffset? DeadlineAt { get; init; }
+    public DateTimeOffset? ReminderAt { get; init; }
     public DateTimeOffset? ScheduledStart { get; init; }
     public DateTimeOffset? ScheduledEnd { get; init; }
     public int? DurationMinutes { get; init; }

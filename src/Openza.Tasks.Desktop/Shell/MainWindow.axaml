@@ -551,6 +551,17 @@
                                             Text="{Binding DetailNotes, Mode=TwoWay}" TextWrapping="Wrap"
                                             LostFocus="OnDetailEditorLostFocus"/>
                                     </StackPanel>
+                                    <Grid ColumnDefinitions="72,*" ColumnSpacing="12">
+                                        <TextBlock Classes="field-label" VerticalAlignment="Top" Margin="0,8,0,0" Text="Reminder"/>
+                                        <StackPanel Grid.Column="1" Spacing="6">
+                                            <CalendarDatePicker x:Name="DetailReminderPicker" AutomationProperties.Name="Task reminder date" HorizontalAlignment="Stretch" PlaceholderText="Choose a reminder" SelectedDate="{Binding DetailReminderDate, Mode=TwoWay}" SelectedDateChanged="OnReminderDateChanged"/>
+                                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                                <TimePicker x:Name="DetailReminderTimePicker" AutomationProperties.Name="Task reminder time" SelectedTime="{Binding DetailReminderTime, Mode=TwoWay}" SelectedTimeChanged="OnReminderTimeChanged"/>
+                                                <Button Content="Clear" AutomationProperties.Name="Clear reminder" Click="OnClearReminderClicked"/>
+                                            </StackPanel>
+                                            <TextBlock Classes="field-label" TextWrapping="Wrap" Text="Stays on this device. Openza doesn't send reminder notifications yet."/>
+                                        </StackPanel>
+                                    </Grid>
                                     <Border IsVisible="{Binding HasSourceDateMismatch}" Padding="12" Background="{DynamicResource OpenzaElevatedSurfaceBrush}" BorderBrush="{DynamicResource OpenzaBorderBrush}" BorderThickness="1" CornerRadius="7">
                                         <StackPanel Spacing="10">
                                             <StackPanel Spacing="3">

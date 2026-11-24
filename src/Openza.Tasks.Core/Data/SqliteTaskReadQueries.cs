@@ -117,6 +117,7 @@ internal static class SqliteTaskReadQueries
         var labelsByTask = await ReadLabelsByTaskAsync(connection, cancellationToken, filterTaskId).ConfigureAwait(false);
         var taskColumns = await GetColumnNamesAsync(connection, "tasks", cancellationToken).ConfigureAwait(false);
         var revisionProjection = taskColumns.Contains("revision") ? "t.revision" : "0 AS revision";
+        var reminderProjection = taskColumns.Contains("reminder_at") ? "t.reminder_at" : "NULL AS reminder_at";
         var command = connection.CreateCommand();
         command.CommandText = """
             SELECT t.id, t.external_id, t.space_id, t.integration_id, t.title, t.description, t.source_description, t.project_id, t.parent_id,
@@ -125,7 +126,7 @@ internal static class SqliteTaskReadQueries
                    t.deadline_on, t.deadline_at, t.scheduled_start, t.scheduled_end, t.duration_minutes, t.recurrence_rule,
                    t.notes, t.provider_metadata, t.source_metadata, t.local_metadata,
                    t.created_at, t.updated_at, t.completed_at, t.provider_connection_id, psi.title, psi.source_project_name,
-                   psi.priority, psi.planned_on, psi.planned_at, psi.deadline_on, psi.deadline_at, @revision_projection
+                   psi.priority, psi.planned_on, psi.planned_at, psi.deadline_on, psi.deadline_at, @revision_projection, @reminder_projection
             FROM tasks t
             LEFT JOIN provider_source_items psi
               ON psi.provider_connection_id = t.source_connection_id
@@ -134,7 +135,8 @@ internal static class SqliteTaskReadQueries
               SELECT 1 FROM personal_cloud_tombstones pct
               WHERE pct.product = 'tasks' AND pct.entity_id = t.id
             )
-            """.Replace("@revision_projection", revisionProjection, StringComparison.Ordinal);
+            """.Replace("@revision_projection", revisionProjection, StringComparison.Ordinal)
+                .Replace("@reminder_projection", reminderProjection, StringComparison.Ordinal);
         if (filterTaskId is not null)
         {
             command.CommandText += " AND t.id = @task_id";
@@ -189,6 +191,7 @@ internal static class SqliteTaskReadQueries
                 SourceDeadlineOn = ReadDateOnly(reader, 38),
                 SourceDeadlineAt = ReadDate(reader, 39),
                 Revision = reader.GetInt64(40),
+                ReminderAt = ReadDate(reader, 41),
                 Labels = labelsByTask.GetValueOrDefault(id, []),
             });
         }

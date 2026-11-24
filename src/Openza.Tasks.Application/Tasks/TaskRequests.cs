@@ -13,6 +13,7 @@ public sealed record CreateTaskRequest
     public int Priority { get; init; } = 3;
     public DateOnly? PlannedOn { get; init; }
     public DateOnly? DeadlineOn { get; init; }
+    public DateTimeOffset? ReminderAt { get; init; }
     public IReadOnlyList<string> Labels { get; init; } = [];
 }
 
@@ -29,6 +30,7 @@ public sealed record UpdateTaskRequest
     public OptionalValue<int> Priority { get; init; }
     public OptionalValue<DateOnly?> PlannedOn { get; init; }
     public OptionalValue<DateOnly?> DeadlineOn { get; init; }
+    public OptionalValue<DateTimeOffset?> ReminderAt { get; init; }
     public OptionalValue<IReadOnlyList<string>> Labels { get; init; }
     public OptionalValue<string?> LocalMetadataJson { get; init; }
 }

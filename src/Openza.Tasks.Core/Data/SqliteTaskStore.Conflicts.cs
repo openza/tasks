@@ -379,7 +379,9 @@ public sealed partial class SqliteTaskStore
                         adopted_task_id=NULL, updated_at=@now
                     WHERE adopted_task_id=@e;
                     UPDATE tasks SET source_integration_id=NULL, source_connection_id=NULL, source_external_id=NULL,
-                        source_provider_task_id=NULL, source_url=NULL, source_metadata=NULL, revision=revision+1
+                        source_provider_task_id=NULL, source_url=NULL,
+                        source_metadata=CASE WHEN json_extract(source_metadata,'$.msToDoReminderApplied')=1
+                            THEN '{"msToDoReminderApplied":true}' ELSE NULL END, revision=revision+1
                     WHERE id=@e AND source_integration_id IS NOT NULL;
                     """, cancellationToken, ("@e", recovery.Id), ("@ignored", ProviderSourceAdoptionStates.Ignored),
                     ("@adopted", ProviderSourceAdoptionStates.Adopted),

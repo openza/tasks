@@ -67,6 +67,7 @@ public sealed partial class PersonalCloudBatchSyncTests
         {
             Id = "task_rejected_create", Title = "Local recovery copy", SpaceId = "space_test", ParentId = "task_test",
             SourceIntegrationId = IntegrationIds.Todoist, SourceExternalId = "duplicate", SourceProviderTaskId = "duplicate",
+            ReminderAt = DateTimeOffset.Parse("2027-07-01T09:30:00Z"), SourceMetadataJson = "{\"msToDoReminderApplied\":true}",
         };
         await store.CreateRichTaskWithPersonalCloudIntentAsync(task, Instance, Device);
         var source = new ProviderSourceItem
@@ -93,6 +94,8 @@ public sealed partial class PersonalCloudBatchSyncTests
         Assert.Empty(await reopened.GetPersonalCloudTaskConflictsAsync(Instance));
         Assert.DoesNotContain(await reopened.GetPendingPersonalCloudOutboxAsync(Instance, Device), entry => entry.EntityId == task.Id);
         Assert.Equal(task.Title, (await reopened.GetTaskAsync(task.Id))!.Title);
+        Assert.Equal(task.ReminderAt, (await reopened.GetTaskAsync(task.Id))!.ReminderAt);
+        Assert.Contains("\"msToDoReminderApplied\":true", (await reopened.GetTaskAsync(task.Id))!.SourceMetadataJson);
 
         var actions = new TaskApplicationService(reopened, () => new PersonalCloudConnectionProfile
         {

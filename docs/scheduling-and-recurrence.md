@@ -2,6 +2,23 @@
 
 This contract separates intended meanings from current behavior. It does not add a planner, recurrence engine or reminder service. See the [task behavior contracts](behavior-contracts.md).
 
+## Local reminder definition
+
+Each task can store one nullable `ReminderAt` absolute instant independently of its
+Date, Deadline and scheduled interval. Desktop edits use the device's local date
+and time; CLI edits require an explicit UTC offset or `Z`. Microsoft To Do reminder
+imports convert the provider's time zone to UTC once, preserving later local edits.
+Reminder definitions stay on this device, survive cloud baseline replacement and
+are included in task export/import and database backups. They are not published to
+Personal Cloud. There is no notification delivery yet: storing a reminder does not
+schedule an alarm, background wakeup or server notification. Delivery attempts and
+multi-device notification behavior remain separate future work.
+
+The editor rejects local times skipped by a daylight-saving clock change rather
+than shifting them silently. Repeated fall-back times use the standard-time
+occurrence. Reminder edits must be no later than November 16, 5138 at 09:46:40 UTC,
+the upper bound of the existing instant storage convention.
+
 ## Intended meanings
 
 | Concept | Durable meaning |
@@ -11,6 +28,7 @@ This contract separates intended meanings from current behavior. It does not add
 | Scheduled work | A work interval on the task, distinct from its intended Date and Deadline. |
 | Duration | Duration metadata; storing it does not imply a session or completed work. |
 | Recurrence | A repeating definition, separate from completing a task or occurrence. |
+| Reminder | One optional device-local absolute instant. Storing it does not send a notification. |
 
 ## Current behavior
 
@@ -35,4 +53,4 @@ This contract separates intended meanings from current behavior. It does not add
 
 ## Decisions before expansion
 
-A schedule editor needs timezone, partial/reversed interval, overlap and multi-session rules. A recurrence engine needs grammar, occurrence identity, missed/skip/completion behavior, ownership and multi-device idempotency. Reminder definitions and notification delivery attempts need separate models. None is selected merely because metadata columns exist. All Windows work and continuity policy decisions are parked until Linux Snap is stable and the maintainer explicitly asks to resume; retain the [continuity reference](windows-transition.md) and Dev gate for that future work.
+A schedule editor needs timezone, partial/reversed interval, overlap and multi-session rules. A recurrence engine needs grammar, occurrence identity, missed/skip/completion behavior, ownership and multi-device idempotency. Notification delivery attempts need a separate model from local reminder definitions. Delivery is not selected merely because a reminder value exists. All Windows work and continuity policy decisions are parked until Linux Snap is stable and the maintainer explicitly asks to resume; retain the [continuity reference](windows-transition.md) and Dev gate for that future work.

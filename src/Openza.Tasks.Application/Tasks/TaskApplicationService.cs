@@ -60,6 +60,7 @@ public sealed class TaskApplicationService(
             Priority = ValidatePriority(request.Priority),
             PlannedOn = request.PlannedOn,
             DeadlineOn = request.DeadlineOn,
+            ReminderAt = ReminderValues.Validate(request.ReminderAt),
             CreatedAt = now,
             UpdatedAt = now,
             Labels = await ResolveLabelsAsync(request.Labels, cancellationToken).ConfigureAwait(false),
@@ -121,6 +122,19 @@ public sealed class TaskApplicationService(
     {
         using var connectionLease = AcquirePersonalCloudAuthoringLease();
         var original = await RequireTaskAsync(request.TaskId, cancellationToken).ConfigureAwait(false);
+        var target = HasCloudFieldEdits(request) ? PersonalCloudTarget() : null;
+        if (request.ReminderAt.IsSpecified && target is not null && Store is SqliteTaskStore sqliteStore)
+        {
+            return await sqliteStore.ExecuteInTransactionAsync(
+                () => UpdateTaskCoreAsync(request, original, target, cancellationToken), cancellationToken).ConfigureAwait(false);
+        }
+        return await UpdateTaskCoreAsync(request, original, target, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<TaskItem> UpdateTaskCoreAsync(UpdateTaskRequest request, TaskItem original,
+        PersonalCloudConnectionProfile? cloudTarget, CancellationToken cancellationToken)
+    {
+        var reminderAt = request.ReminderAt.IsSpecified ? ReminderValues.Validate(request.ReminderAt.Value) : original.ReminderAt;
         var expectedRevision = request.ExpectedRevision ?? original.Revision;
         var targetSpace = request.Space.IsSpecified
             ? await ResolveSpaceAsync(request.Space.Value, cancellationToken).ConfigureAwait(false)
@@ -161,28 +175,28 @@ public sealed class TaskApplicationService(
             : original.CompletionState;
         var completed = targetCompletionState == TaskCompletionState.Completed;
         var now = DateTimeOffset.UtcNow;
-        var cloudScalarChangeCount =
-            (request.Title.IsSpecified ? 1 : 0) +
-            (request.Status.IsSpecified ? 1 : 0) +
-            (request.Priority.IsSpecified ? 1 : 0) +
-            (request.PlannedOn.IsSpecified ? 1 : 0) +
-            (request.Notes.IsSpecified ? 1 : 0) +
-            (request.DeadlineOn.IsSpecified ? 1 : 0) +
-            (request.Completed.IsSpecified ? 1 : 0);
-        var cloudRelationshipChangeCount =
-            (request.Space.IsSpecified ? 1 : 0) +
-            (request.Project.IsSpecified ? 1 : 0) +
-            (request.Labels.IsSpecified ? 1 : 0);
-        if (cloudScalarChangeCount + cloudRelationshipChangeCount > 0 &&
-            PersonalCloudTarget() is { } target && Store is SqliteTaskStore sqliteStore &&
+        var hasCloudFieldEdits = HasCloudFieldEdits(request);
+        if (request.ReminderAt.IsSpecified && !hasCloudFieldEdits &&
+            !request.LocalMetadataJson.IsSpecified && Store is SqliteTaskStore reminderStore)
+        {
+            if (!await reminderStore.TrySetTaskReminderAsync(original.Id, reminderAt, expectedRevision, cancellationToken).ConfigureAwait(false))
+                throw new TaskConflictException(original.Id);
+            return await RequireTaskAsync(original.Id, cancellationToken).ConfigureAwait(false);
+        }
+        if (hasCloudFieldEdits &&
+            cloudTarget is { } target && Store is SqliteTaskStore sqliteStore &&
             !await sqliteStore.IsPersonalCloudTaskRecoveryCopyAsync(target.InstanceId, original.Id, cancellationToken).ConfigureAwait(false))
         {
             if (expectedRevision != original.Revision)
                 throw new TaskConflictException(original.Id);
 
+            if (request.ReminderAt.IsSpecified &&
+                !await sqliteStore.TryReplaceTaskReminderAsync(original.Id, original.ReminderAt, reminderAt, cancellationToken).ConfigureAwait(false))
+                throw new TaskConflictException(original.Id);
+
             var entityVersion = await ResolvePersonalCloudEntityVersionAsync(
                 sqliteStore, target, original.Id, cancellationToken).ConfigureAwait(false);
-            var changed = false;
+            var changed = request.ReminderAt.IsSpecified;
             var reopening = request.Completed.IsSpecified && original.IsCompleted && !completed;
             if (reopening)
             {
@@ -328,6 +342,7 @@ public sealed class TaskApplicationService(
             PlannedAt = request.PlannedOn.IsSpecified
                 ? ProviderWriteBackPlanner.PreserveExactTime(plannedOn, original.PlannedOn, original.PlannedAt)
                 : original.PlannedAt,
+            ReminderAt = reminderAt,
             DeadlineOn = deadlineOn,
             DeadlineAt = request.DeadlineOn.IsSpecified
                 ? ProviderWriteBackPlanner.PreserveExactTime(deadlineOn, original.DeadlineOn, original.DeadlineAt)
@@ -447,6 +462,11 @@ public sealed class TaskApplicationService(
     private async Task<TaskItem> RequireTaskAsync(string id, CancellationToken cancellationToken) =>
         await Store.GetTaskAsync(id, cancellationToken).ConfigureAwait(false)
         ?? throw new KeyNotFoundException($"Task '{id}' was not found.");
+
+    private static bool HasCloudFieldEdits(UpdateTaskRequest request) =>
+        request.Title.IsSpecified || request.Status.IsSpecified || request.Priority.IsSpecified ||
+        request.PlannedOn.IsSpecified || request.Notes.IsSpecified || request.DeadlineOn.IsSpecified ||
+        request.Completed.IsSpecified || request.Space.IsSpecified || request.Project.IsSpecified || request.Labels.IsSpecified;
 
     private PersonalCloudConnectionProfile? PersonalCloudTarget() => personalCloudConnection?.Invoke();
 

@@ -56,7 +56,7 @@ public static class MarkdownTaskImporter
             {
                 Id = $"local_{Guid.NewGuid():N}", SpaceId = spaceId, Title = parsed.Title,
                 ProjectId = project?.Id, Priority = parsed.Priority, PlannedOn = parsed.PlannedOn,
-                DeadlineOn = parsed.DeadlineOn, Notes = parsed.Notes, WorkflowStatus = parsed.WorkflowStatus,
+                ReminderAt = parsed.ReminderAt, DeadlineOn = parsed.DeadlineOn, Notes = parsed.Notes, WorkflowStatus = parsed.WorkflowStatus,
                 CompletionState = parsed.IsCompleted ? TaskCompletionState.Completed : parsed.CompletionState,
                 CompletedAt = parsed.IsCompleted ? now : null, CreatedAt = now, UpdatedAt = now,
                 Labels = taskLabels,

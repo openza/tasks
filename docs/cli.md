@@ -97,6 +97,13 @@ Task-list views accept `open`,
 `inbox`, `next` (`next-actions` is an alias), `waiting`, `someday`, `today`,
 `calendar`, `overdue`, `completed`, or `all`. Dates use `YYYY-MM-DD`.
 
+Reminders use `--reminder 2027-07-01T09:30:00-07:00` on `task add` or
+`task update`; `task update --clear-reminder` clears the value. The instant
+must include `Z` or an explicit UTC offset. JSON task output adds nullable
+`reminderAt`; text task details add `reminder_at`. TSV v1 columns are unchanged.
+Reminders stay on this device and do not send notifications or sync through
+Personal Cloud.
+
 Task JSON from both `task list` and single-task commands includes
 `isRecurring` and `recurrenceRule`. `isRecurring` is `true` exactly when the
 canonical domain `recurrence_rule` contains a non-blank provider pattern;
