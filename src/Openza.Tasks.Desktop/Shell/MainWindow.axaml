@@ -4,6 +4,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:ic="using:FluentIcons.Avalonia"
     xmlns:cloudData="using:Openza.Tasks.Core.Data"
+    xmlns:views="using:Openza.Tasks.Desktop.Views"
     Width="1440"
     Height="800"
     MinWidth="920"
@@ -261,6 +262,29 @@
                             <TextBlock Classes="page-title" Text="{Binding PageTitle}" />
                             <TextBlock Grid.Row="1" Classes="metadata" Margin="2,4,0,0" Text="{Binding PageSubtitle}" />
                             <StackPanel Grid.Column="1" Grid.RowSpan="2" VerticalAlignment="Center" Orientation="Horizontal" Spacing="4">
+                                <Border Padding="3" Background="{DynamicResource OpenzaChipBackgroundBrush}" CornerRadius="8" IsVisible="{Binding IsCalendarView}">
+                                    <StackPanel Orientation="Horizontal">
+                                        <StackPanel.Styles>
+                                            <Style Selector="ToggleButton.calendar-mode">
+                                                <Setter Property="MinHeight" Value="34" />
+                                                <Setter Property="Padding" Value="12,5" />
+                                                <Setter Property="Background" Value="Transparent" />
+                                                <Setter Property="BorderThickness" Value="0" />
+                                                <Setter Property="CornerRadius" Value="6" />
+                                                <Setter Property="Foreground" Value="{DynamicResource OpenzaTextSecondaryBrush}" />
+                                            </Style>
+                                            <Style Selector="ToggleButton.calendar-mode:checked">
+                                                <Setter Property="Background" Value="{DynamicResource OpenzaElevatedSurfaceBrush}" />
+                                                <Setter Property="Foreground" Value="{DynamicResource OpenzaTextPrimaryBrush}" />
+                                            </Style>
+                                        </StackPanel.Styles>
+                                        <ToggleButton x:Name="CalendarListViewButton" Classes="calendar-mode" Content="List" IsChecked="{Binding IsCalendarListView, Mode=OneWay}" Click="OnCalendarListViewClicked" />
+                                        <ToggleButton x:Name="CalendarDayViewButton" Classes="calendar-mode" Content="Day" IsChecked="{Binding IsCalendarDayView, Mode=OneWay}" Click="OnCalendarDayViewClicked" />
+                                    </StackPanel>
+                                </Border>
+                                <ToggleButton x:Name="CalendarTodayPanelButton" MinHeight="40" Padding="12,8" Background="{DynamicResource OpenzaElevatedSurfaceBrush}" BorderBrush="{DynamicResource OpenzaBorderBrush}" BorderThickness="1" CornerRadius="6" IsVisible="{Binding IsCalendarDayView}" IsChecked="{Binding CalendarDay.IsTodayPanelOpen, Mode=OneWay}" Click="OnCalendarTodayPanelClicked">
+                                    <StackPanel Orientation="Horizontal" Spacing="8"><ic:FluentIcon Icon="CalendarToday" FontSize="18" /><TextBlock Text="Today" /></StackPanel>
+                                </ToggleButton>
                                 <Button x:Name="ProjectsCommand" Padding="12,8" Classes="command" Click="OnProjectsCommandClicked" IsVisible="False">
                                     <StackPanel Orientation="Horizontal" Spacing="8"><ic:FluentIcon Icon="Folder" FontSize="18" /><TextBlock Text="Projects" /></StackPanel>
                                 </Button>
@@ -296,7 +320,7 @@
                             </Border>
                         </Grid>
 
-                        <Grid x:Name="TaskFilterGrid" Grid.Row="1" Margin="28,20,28,12" ColumnDefinitions="Auto,Auto,*" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="10">
+                        <Grid x:Name="TaskFilterGrid" Grid.Row="1" Margin="28,20,28,12" ColumnDefinitions="Auto,Auto,*" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="10" IsVisible="{Binding !IsCalendarDayView}">
                             <TextBox
                                 x:Name="SearchBox"
                                 Width="460"
@@ -370,7 +394,7 @@
                             </WrapPanel>
                         </Grid>
 
-                        <Grid Grid.Row="2">
+                        <Grid x:Name="TaskListContent" Grid.Row="2" IsVisible="{Binding !IsCalendarDayView}">
                             <ListBox AutomationProperties.Name="Tasks"
                                 x:Name="TaskList"
                                 Margin="28,0,22,0"
@@ -473,6 +497,7 @@
                                 <Button HorizontalAlignment="Center" Margin="0,6,0,0" Click="OnEmptyStateActionClicked" Content="{Binding EmptyStateActionText}" />
                             </StackPanel>
                         </Grid>
+                        <views:CalendarDayView x:Name="CalendarDayView" Grid.Row="1" Grid.RowSpan="2" Margin="28,20,22,12" DataContext="{Binding CalendarDay}" IsVisible="{Binding $parent[Window].DataContext.IsCalendarDayView}" />
                     </Grid>
 
                     <!-- Task editor -->

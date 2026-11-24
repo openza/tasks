@@ -1,5 +1,7 @@
+using Avalonia;
 using Avalonia.Automation;
 using Avalonia.Controls;
+using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.VisualTree;
@@ -14,6 +16,401 @@ namespace Openza.Tasks.Tests;
 
 public sealed partial class DesktopControlBehaviorTests
 {
+    [Fact]
+    public Task Calendar_day_switch_keeps_list_available_and_opens_the_today_panel_on_request() => Run(async context =>
+    {
+        await context.Vm.SelectNavigationAsync(context.Vm.NavigationItems.Single(item => item.Kind == TaskListKind.Calendar));
+        var dayView = context.Window.FindControl<Control>("CalendarDayView")!;
+        var filterGrid = context.Window.FindControl<Control>("TaskFilterGrid")!;
+        var taskList = context.Window.FindControl<Control>("TaskListContent")!;
+        Assert.True(context.Window.FindControl<Control>("CalendarListViewButton")!.IsVisible);
+        Assert.False(dayView.IsVisible);
+
+        context.Window.FindControl<Control>("CalendarDayViewButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await Until(() => context.Vm.IsCalendarDayView);
+        Assert.True(dayView.IsVisible);
+        Assert.False(filterGrid.IsVisible);
+        Assert.False(taskList.IsVisible);
+        Assert.False(context.Vm.CalendarDay.IsTodayPanelOpen);
+
+        context.Window.FindControl<Control>("CalendarTodayPanelButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Assert.True(context.Vm.CalendarDay.IsTodayPanelOpen);
+        context.Window.FindControl<Control>("CalendarListViewButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Assert.False(context.Vm.IsCalendarDayView);
+        Assert.True(filterGrid.IsVisible);
+        Assert.True(taskList.IsVisible);
+        Assert.False(dayView.IsVisible);
+    });
+
+    [Fact]
+    public Task Calendar_day_header_uses_block_subtitle_without_changing_the_filtered_list_count() => Run(async context =>
+    {
+        await context.Vm.SelectNavigationAsync(context.Vm.NavigationItems.Single(item => item.Kind == TaskListKind.Calendar));
+        context.Vm.SearchText = "yesterday-only-filter";
+        await context.Vm.ApplySearchAsync();
+        var listSubtitle = context.Vm.PageSubtitle;
+
+        context.Vm.SetCalendarDayView(true);
+
+        Assert.Equal("Scheduled time blocks", context.Vm.PageSubtitle);
+        context.Vm.SetCalendarDayView(false);
+        Assert.Equal(listSubtitle, context.Vm.PageSubtitle);
+    });
+
+    [Fact]
+    public Task Calendar_day_and_today_panel_include_tasks_from_all_spaces() => Run(async context =>
+    {
+        var existing = (await context.Store.GetTaskAsync("task-0"))!;
+        await context.Vm.CreateSpaceAsync("Calendar second space");
+        var secondSpaceId = context.Vm.SpaceItems.Single(item => item.Title == "Calendar second space").SpaceId!;
+        var now = DateTimeOffset.Now;
+        var today = DateOnly.FromDateTime(now.LocalDateTime);
+        var inDefaultSpace = existing with
+        {
+            Id = "calendar-default-space",
+            Title = "Calendar default-space task",
+            ProjectId = null,
+            ParentId = null,
+            PlannedOn = today,
+            ScheduledStart = now.AddMinutes(15),
+            ScheduledEnd = now.AddMinutes(45),
+            CompletionState = TaskCompletionState.Open,
+        };
+        var inSecondSpace = inDefaultSpace with
+        {
+            Id = "calendar-second-space",
+            Title = "Calendar second-space task",
+            SpaceId = secondSpaceId,
+        };
+        await context.Store.UpsertTaskAsync(inDefaultSpace);
+        await context.Store.UpsertTaskAsync(inSecondSpace);
+
+        await context.Vm.SelectSpaceAsync(context.Vm.SpaceItems.Single(item => item.SpaceId is null));
+        await context.Vm.SelectNavigationAsync(context.Vm.NavigationItems.Single(item => item.Kind == TaskListKind.Calendar));
+        context.Vm.SetCalendarDayView(true);
+
+        Assert.Contains(context.Vm.Tasks, item => item.Task.Id == inDefaultSpace.Id);
+        Assert.Contains(context.Vm.Tasks, item => item.Task.Id == inSecondSpace.Id);
+        Assert.Contains(context.Vm.CalendarDay.Blocks, block => block.Task.Id == inDefaultSpace.Id);
+        Assert.Contains(context.Vm.CalendarDay.Blocks, block => block.Task.Id == inSecondSpace.Id);
+        Assert.Contains(context.Vm.CalendarDay.FilteredTodayTasks, item => item.Task.Id == inDefaultSpace.Id);
+        Assert.Contains(context.Vm.CalendarDay.FilteredTodayTasks, item => item.Task.Id == inSecondSpace.Id);
+    });
+
+    [Fact]
+    public Task Calendar_timeline_blocks_remain_hit_testable_for_short_block_tooltips() => Run(async context =>
+    {
+        var existing = (await context.Store.GetTaskAsync("task-0"))!;
+        var start = DateTimeOffset.Now.AddMinutes(15);
+        var task = existing with
+        {
+            Id = "calendar-tooltip-task",
+            Title = "Calendar tooltip task",
+            ParentId = null,
+            PlannedOn = DateOnly.FromDateTime(start.LocalDateTime),
+            ScheduledStart = start,
+            ScheduledEnd = start.AddMinutes(15),
+        };
+        await context.Store.UpsertTaskAsync(task);
+        await context.Vm.SelectNavigationAsync(context.Vm.NavigationItems.Single(item => item.Kind == TaskListKind.Calendar));
+        context.Vm.SetCalendarDayView(true);
+        context.Window.UpdateLayout();
+
+        var dayView = context.Window.FindControl<Control>("CalendarDayView")!;
+        var block = Assert.Single(dayView.GetVisualDescendants().OfType<Border>(),
+            child => ToolTip.GetTip(child) is string tip && tip.Contains(task.Title, StringComparison.Ordinal));
+        var canvas = block.GetVisualAncestors().OfType<Canvas>().First();
+        Assert.True(canvas.IsHitTestVisible);
+        Assert.Contains(start.ToLocalTime().ToString("HH:mm"), Assert.IsType<string>(ToolTip.GetTip(block)));
+    });
+
+    [Fact]
+    public Task Saving_a_today_task_hidden_by_list_filters_keeps_its_editor_open() => Run(async context =>
+    {
+        var existing = (await context.Store.GetTaskAsync("task-0"))!;
+        var now = DateTimeOffset.Now;
+        var task = existing with
+        {
+            Id = "calendar-filtered-today-task",
+            Title = "Filtered Today task",
+            ParentId = null,
+            PlannedOn = DateOnly.FromDateTime(now.LocalDateTime),
+            ScheduledStart = now.AddMinutes(30),
+            ScheduledEnd = now.AddHours(1),
+        };
+        await context.Store.UpsertTaskAsync(task);
+        await context.Vm.SelectNavigationAsync(context.Vm.NavigationItems.Single(item => item.Kind == TaskListKind.Calendar));
+        context.Vm.SetCalendarDayView(true);
+        context.Vm.SearchText = "not this task";
+        await context.Vm.ApplySearchAsync();
+
+        var todayTask = Assert.Single(context.Vm.CalendarDay.FilteredTodayTasks, item => item.Task.Id == task.Id);
+        await context.Vm.SelectTaskAsync(todayTask);
+        context.Vm.DetailTitle = "Saved from Today";
+        Assert.True(await context.Vm.SaveSelectedAsync());
+
+        Assert.Equal(task.Id, context.Vm.SelectedTask?.Task.Id);
+        Assert.Equal("Saved from Today", context.Vm.DetailTitle);
+        Assert.Equal("Saved from Today", (await context.Store.GetTaskAsync(task.Id))?.Title);
+    });
+
+    [Fact]
+    public Task Completing_a_selected_today_task_saves_its_detail_edits_first() => Run(async context =>
+    {
+        var existing = (await context.Store.GetTaskAsync("task-0"))!;
+        var now = DateTimeOffset.Now;
+        var task = existing with
+        {
+            Id = "calendar-completion-edit-task",
+            Title = "Before completion",
+            ParentId = null,
+            PlannedOn = DateOnly.FromDateTime(now.LocalDateTime),
+            ScheduledStart = now.AddMinutes(30),
+            ScheduledEnd = now.AddHours(1),
+            CompletionState = TaskCompletionState.Open,
+        };
+        await context.Store.UpsertTaskAsync(task);
+        await context.Vm.SelectNavigationAsync(context.Vm.NavigationItems.Single(item => item.Kind == TaskListKind.Calendar));
+        context.Vm.SetCalendarDayView(true);
+        context.Vm.ToggleCalendarTodayPanel();
+        context.Window.UpdateLayout();
+        var todayTask = Assert.Single(context.Vm.CalendarDay.FilteredTodayTasks, item => item.Task.Id == task.Id);
+        await context.Vm.SelectTaskAsync(todayTask);
+        context.Vm.DetailTitle = "Saved before completion";
+        var completion = context.Window.GetVisualDescendants().OfType<CheckBox>()
+            .Single(box => AutomationProperties.GetName(box) == "Complete Before completion");
+
+        completion.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await Until(() => !context.Vm.CalendarDay.FilteredTodayTasks.Any(item => item.Task.Id == task.Id));
+
+        var saved = (await context.Store.GetTaskAsync(task.Id))!;
+        Assert.Equal("Saved before completion", saved.Title);
+        Assert.True(saved.IsCompleted);
+    });
+
+    [Fact]
+    public Task Today_completion_checkbox_reverts_when_saving_the_editor_is_rejected() => Run(async context =>
+    {
+        var existing = (await context.Store.GetTaskAsync("task-0"))!;
+        var now = DateTimeOffset.Now;
+        var task = existing with
+        {
+            Id = "calendar-rejected-completion-task",
+            Title = "Rejected completion",
+            ParentId = null,
+            PlannedOn = DateOnly.FromDateTime(now.LocalDateTime),
+            ScheduledStart = now.AddMinutes(30),
+            ScheduledEnd = now.AddHours(1),
+            CompletionState = TaskCompletionState.Open,
+        };
+        await context.Store.UpsertTaskAsync(task);
+        await context.Vm.SelectNavigationAsync(context.Vm.NavigationItems.Single(item => item.Kind == TaskListKind.Calendar));
+        context.Vm.SetCalendarDayView(true);
+        context.Vm.ToggleCalendarTodayPanel();
+        context.Window.UpdateLayout();
+        var todayTask = Assert.Single(context.Vm.CalendarDay.FilteredTodayTasks, item => item.Task.Id == task.Id);
+        await context.Vm.SelectTaskAsync(todayTask);
+        context.Vm.DetailTitle = "   ";
+        var completion = context.Window.GetVisualDescendants().OfType<CheckBox>()
+            .Single(box => AutomationProperties.GetName(box) == "Complete Rejected completion");
+        completion.IsChecked = true;
+
+        completion.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await Until(() => !context.Vm.IsBusy && completion.IsChecked == false);
+
+        Assert.False((await context.Store.GetTaskAsync(task.Id))!.IsCompleted);
+    });
+
+    [Fact]
+    public Task Calendar_today_task_can_be_opened_with_the_keyboard() => Run(async context =>
+    {
+        var existing = (await context.Store.GetTaskAsync("task-0"))!;
+        var task = existing with
+        {
+            Id = "keyboard-today-task",
+            Title = "Keyboard accessible Today row",
+            ParentId = null,
+            PlannedOn = DateOnly.FromDateTime(DateTime.Today),
+            CompletionState = TaskCompletionState.Open,
+        };
+        await context.Store.UpsertTaskAsync(task);
+        await context.Vm.SelectNavigationAsync(context.Vm.NavigationItems.Single(item => item.Kind == TaskListKind.Calendar));
+        context.Vm.SetCalendarDayView(true);
+        context.Vm.ToggleCalendarTodayPanel();
+        context.Window.UpdateLayout();
+
+        var rowButton = context.Window.GetVisualDescendants().OfType<Button>()
+            .Single(button => (AutomationProperties.GetName(button) ?? string.Empty).StartsWith(task.Title, StringComparison.Ordinal));
+        Assert.Equal(task.Title, ((TaskListItemViewModel)rowButton.DataContext!).Title);
+        Assert.Contains(context.Window.GetVisualDescendants().OfType<CheckBox>(), box =>
+            AutomationProperties.GetName(box) == $"Complete {task.Title}");
+        Assert.True(rowButton.Focus());
+        context.Window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+        await Until(() => context.Vm.SelectedTask?.Task.Id == task.Id);
+    });
+
+    [Fact]
+    public Task Pointer_completion_after_dirty_title_save_completes_in_one_click() => Run(async context =>
+    {
+        var existing = (await context.Store.GetTaskAsync("task-0"))!;
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        var task = existing with
+        {
+            Title = "Focus task",
+            ParentId = null,
+            PlannedOn = today,
+            CompletionState = TaskCompletionState.Open,
+        };
+        await context.Store.UpsertTaskAsync(task);
+        var yesterdayTask = existing with
+        {
+            Id = "calendar-yesterday",
+            Title = "Yesterday only task",
+            ParentId = null,
+            PlannedOn = today.AddDays(-1),
+            CompletionState = TaskCompletionState.Open,
+        };
+        await context.Store.UpsertTaskAsync(yesterdayTask);
+        await context.Vm.SelectNavigationAsync(context.Vm.NavigationItems.Single(item => item.Kind == TaskListKind.Calendar));
+        context.Vm.SearchText = "Yesterday";
+        await context.Vm.ApplySearchAsync();
+        Assert.Contains(context.Vm.Tasks, item => item.Task.Id == yesterdayTask.Id);
+        Assert.DoesNotContain(context.Vm.Tasks, item => item.Task.Id == task.Id);
+        context.Vm.SetCalendarDayView(true);
+        context.Vm.ToggleCalendarTodayPanel();
+        context.Vm.CalendarDay.TodaySearchText = "Focus";
+        context.Window.UpdateLayout();
+
+        var todayTask = Assert.Single(context.Vm.CalendarDay.FilteredTodayTasks, item => item.Task.Id == task.Id);
+        await context.Vm.SelectTaskAsync(todayTask);
+        await Until(() => context.Vm.SelectedTask?.Task.Id == task.Id && !context.Vm.IsUpdatingDetails && !context.Vm.IsBusy);
+        var title = context.Window.GetVisualDescendants().OfType<TextBox>()
+            .Single(box => AutomationProperties.GetName(box) == "Task title");
+        Assert.True(title.Focus());
+        title.Text = "Focus saved after canceled click";
+
+        var completion = context.Window.GetVisualDescendants().OfType<CheckBox>()
+            .Single(box => box.DataContext is TaskListItemViewModel item && item.Task.Id == task.Id);
+        var pointer = new Pointer(1, PointerType.Mouse, isPrimary: true);
+        RaisePointerPressed(completion, context.Window, pointer);
+        Assert.True(completion.Focus());
+        Assert.False(title.IsFocused);
+        RaisePointerCaptureLost(completion, pointer);
+        await UntilAsync(async () =>
+        {
+            var saved = await context.Store.GetTaskAsync(task.Id);
+            return saved?.Title == "Focus saved after canceled click" && !saved.IsCompleted;
+        });
+        await Until(() => !context.Vm.IsBusy && !context.Vm.IsUpdatingDetails &&
+            context.Vm.CalendarDay.FilteredTodayTasks.Any(item => item.Task.Id == task.Id));
+        context.Window.UpdateLayout();
+
+        title = context.Window.GetVisualDescendants().OfType<TextBox>()
+            .Single(box => AutomationProperties.GetName(box) == "Task title");
+        Assert.True(title.IsFocused || title.Focus());
+        title.Text = "Focus completed after one click";
+        completion = context.Window.GetVisualDescendants().OfType<CheckBox>()
+            .Single(box => box.DataContext is TaskListItemViewModel item && item.Task.Id == task.Id);
+        RaisePointerPressed(completion, context.Window, pointer);
+        Assert.True(completion.Focus());
+        RaisePointerCaptureLost(completion, pointer);
+        RaisePointerReleased(completion, context.Window, pointer, handled: true);
+        completion.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await UntilAsync(async () =>
+        {
+            var saved = await context.Store.GetTaskAsync(task.Id);
+            return saved?.Title == "Focus completed after one click" && saved.IsCompleted;
+        });
+    });
+
+    [Fact]
+    public Task Pointer_completion_canceled_handled_release_saves_deferred_title() => Run(async context =>
+    {
+        var existing = (await context.Store.GetTaskAsync("task-0"))!;
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        var task = existing with
+        {
+            Title = "Focus task",
+            ParentId = null,
+            PlannedOn = today,
+            CompletionState = TaskCompletionState.Open,
+        };
+        await context.Store.UpsertTaskAsync(task);
+        var yesterdayTask = existing with
+        {
+            Id = "calendar-yesterday",
+            Title = "Yesterday only task",
+            ParentId = null,
+            PlannedOn = today.AddDays(-1),
+            CompletionState = TaskCompletionState.Open,
+        };
+        await context.Store.UpsertTaskAsync(yesterdayTask);
+        await context.Vm.SelectNavigationAsync(context.Vm.NavigationItems.Single(item => item.Kind == TaskListKind.Calendar));
+        context.Vm.SearchText = "Yesterday";
+        await context.Vm.ApplySearchAsync();
+        context.Vm.SetCalendarDayView(true);
+        context.Vm.ToggleCalendarTodayPanel();
+        context.Vm.CalendarDay.TodaySearchText = "Focus";
+        context.Window.UpdateLayout();
+
+        var todayTask = Assert.Single(context.Vm.CalendarDay.FilteredTodayTasks, item => item.Task.Id == task.Id);
+        await context.Vm.SelectTaskAsync(todayTask);
+        await Until(() => context.Vm.SelectedTask?.Task.Id == task.Id && !context.Vm.IsUpdatingDetails && !context.Vm.IsBusy);
+        var title = context.Window.GetVisualDescendants().OfType<TextBox>()
+            .Single(box => AutomationProperties.GetName(box) == "Task title");
+        Assert.True(title.Focus());
+        title.Text = "Focus saved after handled release";
+
+        var completion = context.Window.GetVisualDescendants().OfType<CheckBox>()
+            .Single(box => box.DataContext is TaskListItemViewModel item && item.Task.Id == task.Id);
+        var pointer = new Pointer(1, PointerType.Mouse, isPrimary: true);
+        RaisePointerPressed(completion, context.Window, pointer);
+        Assert.True(completion.Focus());
+        Assert.False(title.IsFocused);
+        RaisePointerReleased(context.Window, context.Window, pointer, handled: true);
+        await UntilAsync(async () =>
+        {
+            var saved = await context.Store.GetTaskAsync(task.Id);
+            return saved?.Title == "Focus saved after handled release" && !saved.IsCompleted;
+        });
+        await Until(() => !context.Vm.IsBusy && !context.Vm.IsUpdatingDetails);
+    });
+
+    private static void RaisePointerPressed(InputElement source, MainWindow window, IPointer pointer) =>
+        source.RaiseEvent(new PointerPressedEventArgs(
+            source,
+            pointer,
+            window,
+            new Point(),
+            1,
+            new PointerPointProperties(),
+            KeyModifiers.None,
+            1)
+        {
+            RoutedEvent = InputElement.PointerPressedEvent,
+        });
+
+    private static void RaisePointerCaptureLost(InputElement source, IPointer pointer) =>
+        source.RaiseEvent(new PointerCaptureLostEventArgs(source, pointer)
+        {
+            RoutedEvent = InputElement.PointerCaptureLostEvent,
+        });
+
+    private static void RaisePointerReleased(InputElement source, MainWindow window, IPointer pointer, bool handled) =>
+        source.RaiseEvent(new PointerReleasedEventArgs(
+            source,
+            pointer,
+            window,
+            new Point(),
+            2,
+            new PointerPointProperties(),
+            KeyModifiers.None,
+            MouseButton.Left)
+        {
+            RoutedEvent = InputElement.PointerReleasedEvent,
+            Handled = handled,
+        });
+
     [Theory]
     [InlineData(false, false)]
     [InlineData(true, false)]

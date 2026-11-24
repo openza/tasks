@@ -15,6 +15,7 @@ using Openza.Tasks.Desktop.Connected;
 using Openza.Tasks.Desktop.Services;
 using Openza.Tasks.Desktop.Settings;
 using Openza.Tasks.Desktop.ViewModels;
+using Openza.Tasks.Desktop.Views;
 
 namespace Openza.Tasks.Desktop.Shell;
 
@@ -28,6 +29,10 @@ public sealed partial class MainWindow : Window
     private NavigationItemViewModel? _suppressedNavigationItem;
     private NavigationItemViewModel? _pendingNavigationItem;
     private bool _changingTaskSelection;
+    private bool _calendarTodayCompletionPointerPending;
+    private bool _calendarTodayCompletionAutosavePending;
+    private int? _calendarTodayCompletionPointerId;
+    private long _calendarTodayCompletionPointerGeneration;
     private readonly SemaphoreSlim _taskSelectionGate = new(1, 1);
     private bool _connectedPaneOpen;
     private bool _navigationCollapsed;
@@ -52,6 +57,10 @@ public sealed partial class MainWindow : Window
     {
         Interval = TimeSpan.FromMilliseconds(250),
     };
+    private readonly DispatcherTimer _calendarClockTimer = new()
+    {
+        Interval = TimeSpan.FromMinutes(1),
+    };
     public MainWindow()
         : this(new MainWindowViewModel(new SqliteTaskStore(DesktopDataPaths.DatabasePath)))
     {
@@ -71,9 +80,15 @@ public sealed partial class MainWindow : Window
         DetailLabelsBox.TextFilter = FilterLabelSuggestion;
         DetailLabelsBox.TextSelector = SelectLabelSuggestion;
         ViewModel.PropertyChanged += OnViewModelPropertyChanged;
+        CalendarDayView.TodayTaskSelected += OnCalendarTodayTaskSelected;
+        CalendarDayView.TodayTaskCompletionRequested += OnCalendarTodayTaskCompletionRequested;
+        AddHandler(InputElement.PointerPressedEvent, OnPointerPressed, RoutingStrategies.Tunnel);
+        AddHandler(InputElement.PointerReleasedEvent, OnPointerReleased, RoutingStrategies.Bubble, handledEventsToo: true);
+        AddHandler(InputElement.PointerCaptureLostEvent, OnPointerCaptureLost, RoutingStrategies.Bubble, handledEventsToo: true);
         _automaticSyncTimer.Tick += OnAutomaticSyncTick;
         _statusHideTimer.Tick += OnStatusHideTick;
         _taskSearchTimer.Tick += OnTaskSearchTick;
+        _calendarClockTimer.Tick += OnCalendarClockTick;
     }
 
     public MainWindowViewModel ViewModel { get; }
@@ -187,7 +202,12 @@ public sealed partial class MainWindow : Window
         _statusHideTimer.Tick -= OnStatusHideTick;
         _taskSearchTimer.Stop();
         _taskSearchTimer.Tick -= OnTaskSearchTick;
+        _calendarClockTimer.Stop();
+        _calendarClockTimer.Tick -= OnCalendarClockTick;
         ViewModel.PropertyChanged -= OnViewModelPropertyChanged;
+        RemoveHandler(InputElement.PointerPressedEvent, OnPointerPressed);
+        RemoveHandler(InputElement.PointerReleasedEvent, OnPointerReleased);
+        RemoveHandler(InputElement.PointerCaptureLostEvent, OnPointerCaptureLost);
     }
 
     private async void OnClosing(object? sender, WindowClosingEventArgs e)
@@ -250,9 +270,21 @@ public sealed partial class MainWindow : Window
 
         if (e.PropertyName is nameof(MainWindowViewModel.SelectedNavigation) or
             nameof(MainWindowViewModel.SelectedProject) or
-            nameof(MainWindowViewModel.SelectedTask))
+            nameof(MainWindowViewModel.SelectedTask) or
+            nameof(MainWindowViewModel.IsCalendarDayView))
         {
             UpdateWorkbenchLayout();
+        }
+
+        if (e.PropertyName == nameof(MainWindowViewModel.IsCalendarDayView) && ViewModel.IsCalendarDayView)
+        {
+            ViewModel.RefreshCalendarTime();
+            _calendarClockTimer.Start();
+            CalendarDayView.ScrollToCurrentTime();
+        }
+        else if (e.PropertyName == nameof(MainWindowViewModel.IsCalendarDayView))
+        {
+            _calendarClockTimer.Stop();
         }
 
         if (e.PropertyName == nameof(MainWindowViewModel.ConnectedTaskCount))
@@ -270,6 +302,8 @@ public sealed partial class MainWindow : Window
             StatusOverlay.IsVisible = false;
         }
     }
+
+    private void OnCalendarClockTick(object? sender, EventArgs e) => ViewModel.RefreshCalendarTime();
 
     private void UpdateWorkbenchLayout()
     {
@@ -345,6 +379,43 @@ public sealed partial class MainWindow : Window
     {
         _narrowProjectsOpen = !_narrowProjectsOpen;
         UpdateWorkbenchLayout();
+    }
+
+    private void OnCalendarListViewClicked(object? sender, RoutedEventArgs e) => ViewModel.SetCalendarDayView(false);
+
+    private void OnCalendarDayViewClicked(object? sender, RoutedEventArgs e) => ViewModel.SetCalendarDayView(true);
+
+    private void OnCalendarTodayPanelClicked(object? sender, RoutedEventArgs e) => ViewModel.ToggleCalendarTodayPanel();
+
+    private async void OnCalendarTodayTaskSelected(object? sender, TaskListItemViewModel task)
+    {
+        if (await SelectTaskAfterSavingAsync(task))
+        {
+            UpdateWorkbenchLayout();
+        }
+    }
+
+    private async Task<bool> OnCalendarTodayTaskCompletionRequested(TaskListItemViewModel task)
+    {
+        ClearCalendarTodayCompletionPointerState();
+        if (_taskCompletionInProgress) return task.Task.IsCompleted;
+        _taskCompletionInProgress = true;
+        try
+        {
+            var taskWasSelected = string.Equals(ViewModel.SelectedTask?.Task.Id, task.Task.Id, StringComparison.Ordinal);
+            if (!await SelectTaskAfterSavingAsync(task) ||
+                (taskWasSelected && !await ViewModel.SaveSelectedAsync()))
+            {
+                return task.Task.IsCompleted;
+            }
+
+            await ViewModel.ToggleSelectedCompletionAsync();
+            return !task.Task.IsCompleted;
+        }
+        finally
+        {
+            _taskCompletionInProgress = false;
+        }
     }
 
     private void UpdateTaskFilterLayout(bool compact)
@@ -1329,6 +1400,12 @@ public sealed partial class MainWindow : Window
 
     private void OnDetailEditorLostFocus(object? sender, RoutedEventArgs e)
     {
+        if (_calendarTodayCompletionPointerPending)
+        {
+            _calendarTodayCompletionAutosavePending = true;
+            return;
+        }
+
         if (_initialized && ViewModel.HasSelectedTask && !ViewModel.IsUpdatingDetails)
         {
             var taskId = ViewModel.SelectedTask!.Task.Id;
@@ -1343,6 +1420,61 @@ public sealed partial class MainWindow : Window
                 }
             }, DispatcherPriority.Background);
         }
+    }
+
+    private void OnPointerPressed(object? sender, PointerEventArgs e)
+    {
+        if (!IsCalendarTodayCompletionTarget(e.Source))
+        {
+            return;
+        }
+
+        _calendarTodayCompletionPointerPending = true;
+        _calendarTodayCompletionAutosavePending = false;
+        _calendarTodayCompletionPointerId = e.Pointer.Id;
+        _calendarTodayCompletionPointerGeneration++;
+    }
+
+    private void OnPointerReleased(object? sender, PointerEventArgs e) => QueueCalendarTodayCompletionPointerCleanup(e.Pointer.Id);
+
+    private void OnPointerCaptureLost(object? sender, PointerCaptureLostEventArgs e) => QueueCalendarTodayCompletionPointerCleanup(e.Pointer.Id);
+
+    private void QueueCalendarTodayCompletionPointerCleanup(int pointerId)
+    {
+        if (!_calendarTodayCompletionPointerPending || _calendarTodayCompletionPointerId != pointerId)
+        {
+            return;
+        }
+
+        var generation = _calendarTodayCompletionPointerGeneration;
+        Dispatcher.UIThread.Post(async () =>
+        {
+            if (!_calendarTodayCompletionPointerPending || generation != _calendarTodayCompletionPointerGeneration)
+            {
+                return;
+            }
+
+            var saveDeferredEdit = _calendarTodayCompletionAutosavePending;
+            ClearCalendarTodayCompletionPointerState();
+            if (saveDeferredEdit && _initialized && ViewModel.HasSelectedTask && !ViewModel.IsUpdatingDetails)
+            {
+                await ViewModel.SaveSelectedAsync();
+            }
+        }, DispatcherPriority.Background);
+    }
+
+    private void ClearCalendarTodayCompletionPointerState()
+    {
+        _calendarTodayCompletionPointerPending = false;
+        _calendarTodayCompletionAutosavePending = false;
+        _calendarTodayCompletionPointerId = null;
+        _calendarTodayCompletionPointerGeneration++;
+    }
+
+    private static bool IsCalendarTodayCompletionTarget(object? source)
+    {
+        var checkBox = source as CheckBox ?? (source as Visual)?.GetVisualAncestors().OfType<CheckBox>().FirstOrDefault();
+        return checkBox?.GetVisualAncestors().OfType<CalendarDayView>().Any() == true;
     }
 
     private void OnDetailLabelBoxGotFocus(object? sender, RoutedEventArgs e) => DetailLabelsBox.IsDropDownOpen = true;
@@ -1474,6 +1606,11 @@ public sealed partial class MainWindow : Window
 
     private async void OnWindowKeyDown(object? sender, KeyEventArgs e)
     {
+        if (_calendarTodayCompletionPointerPending && _calendarTodayCompletionPointerId is { } pointerId)
+        {
+            QueueCalendarTodayCompletionPointerCleanup(pointerId);
+        }
+
         if (e.Key == Key.Escape)
         {
             if (TaskWorkspace.IsVisible)

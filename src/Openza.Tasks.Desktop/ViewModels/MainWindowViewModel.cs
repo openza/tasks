@@ -65,6 +65,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private int _projectFilterIndex;
     private string _pageTitle = "Inbox";
     private string _pageSubtitle = SubtitleFor(TaskListKind.Inbox);
+    private string _calendarListSubtitle = SubtitleFor(TaskListKind.Calendar);
     private string _statusMessage = "Ready";
     private bool _isStatusMessagePersistent;
     private bool _isBusy;
@@ -229,6 +230,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     public ObservableCollection<SpaceNavigationItemViewModel> EditableSpaceItems { get; } = [];
     public ObservableCollection<TaskListItemViewModel> Tasks { get; } = [];
     public ObservableCollection<TaskListEntryViewModel> TaskEntries { get; } = [];
+    public CalendarDayViewModel CalendarDay { get; } = new();
     public ObservableCollection<LabelOptionViewModel> LabelFilterOptions { get; } = [];
     public ObservableCollection<string> LabelSuggestions { get; } = [];
     public ObservableCollection<ConnectedTaskViewModel> FilteredConnectedTasks { get; } = [];
@@ -271,9 +273,16 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 OnPropertyChanged(nameof(EmptyStateTitle));
                 OnPropertyChanged(nameof(IsGetStartedVisible));
                 OnPropertyChanged(nameof(EmptyStateMessage));
+                OnPropertyChanged(nameof(IsCalendarView));
+                OnPropertyChanged(nameof(IsCalendarDayView));
+                OnPropertyChanged(nameof(IsCalendarListView));
             }
         }
     }
+
+    public bool IsCalendarView => SelectedNavigation?.Kind == TaskListKind.Calendar;
+    public bool IsCalendarDayView => IsCalendarView && CalendarDay.IsDayView;
+    public bool IsCalendarListView => IsCalendarView && !CalendarDay.IsDayView;
 
     public ProjectNavigationItemViewModel? SelectedProject
     {
@@ -974,6 +983,18 @@ public sealed partial class MainWindowViewModel : ObservableObject
         await _preferencesStore.UpdateAsync(preferences => preferences with { LastView = item.Kind.ToString() });
         await RunBusyAsync(() => RefreshAsyncCore(RememberedTaskSelection()));
     }
+
+    public void SetCalendarDayView(bool isDayView)
+    {
+        CalendarDay.SetDayView(isDayView);
+        PageSubtitle = isDayView ? "Scheduled time blocks" : _calendarListSubtitle;
+        OnPropertyChanged(nameof(IsCalendarDayView));
+        OnPropertyChanged(nameof(IsCalendarListView));
+    }
+
+    public void ToggleCalendarTodayPanel() => CalendarDay.ToggleTodayPanel();
+
+    public void RefreshCalendarTime() => CalendarDay.SetNow(DateTimeOffset.Now);
 
     public async Task SelectSpaceAsync(SpaceNavigationItemViewModel item)
     {
@@ -2436,7 +2457,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 var selectedId = SelectedTask?.Task.Id;
                 await RefreshAsyncCore(string.Equals(selectedId, original.Id, StringComparison.Ordinal)
                     ? updated?.Id ?? original.Id
-                    : selectedId);
+                    : selectedId, preserveEditor: true);
                 return;
             }
         });
@@ -2610,6 +2631,21 @@ public sealed partial class MainWindowViewModel : ObservableObject
         _labels.AddRange(labels);
         var projectNames = projects.ToDictionary(project => project.Id, project => project.Name, StringComparer.Ordinal);
 
+        CalendarDay.SetScheduledTasks(snapshot.AllSpaceTasks
+            .Where(task => (_currentSpaceId is null || task.SpaceId == _currentSpaceId) && task.IntegrationId == IntegrationIds.Local)
+            .Where(task => task.IsOpen || task.IsCompleted)
+            .Where(task => task.ScheduledStart is not null)
+            .Select(task => new TaskListItemViewModel(
+                task,
+                projectNames.GetValueOrDefault(task.ProjectId ?? string.Empty),
+                TaskListKind.Calendar)));
+        CalendarDay.SetTodayTaskSource(snapshot.AllSpaceTasks
+            .Where(task => (_currentSpaceId is null || task.SpaceId == _currentSpaceId) && task.IntegrationId == IntegrationIds.Local)
+            .Select(task => new TaskListItemViewModel(
+                task,
+                projectNames.GetValueOrDefault(task.ProjectId ?? string.Empty),
+                TaskListKind.Today)), _currentSpaceId);
+
         LabelSuggestions.Clear();
         foreach (var labelName in labels
                      .Select(label => label.Name)
@@ -2649,7 +2685,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
         BuildTaskEntries(projects);
         OnPropertyChanged(nameof(HasNoTasks));
         var taskCountText = $"{Tasks.Count} task{(Tasks.Count == 1 ? string.Empty : "s")}";
-        PageSubtitle = viewKind == TaskListKind.Inbox ? $"{taskCountText} · {SubtitleFor(viewKind)}" : taskCountText;
+        _calendarListSubtitle = viewKind == TaskListKind.Inbox ? $"{taskCountText} · {SubtitleFor(viewKind)}" : taskCountText;
+        PageSubtitle = CalendarDay.IsDayView && viewKind == TaskListKind.Calendar
+            ? "Scheduled time blocks"
+            : _calendarListSubtitle;
 
         UpdateNavigationCounts(snapshot.Counts);
         _spaceTaskCount = snapshot.Counts.All;
@@ -2661,9 +2700,22 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
         RebuildProjectItems();
 
-        SelectedTask = selectTaskId is null
+        var selectedTask = selectTaskId is null
             ? null
             : Tasks.FirstOrDefault(item => item.Task.Id == selectTaskId);
+        if (selectedTask is null && preserveEditor && editorTask is not null &&
+            string.Equals(editorTask.Task.Id, selectTaskId, StringComparison.Ordinal) &&
+            snapshot.AllSpaceTasks.FirstOrDefault(task => task.Id == selectTaskId) is { } refreshedTask)
+        {
+            selectedTask = new TaskListItemViewModel(
+                refreshedTask,
+                projectNames.GetValueOrDefault(refreshedTask.ProjectId ?? string.Empty),
+                viewKind,
+                SelectedProject is not null,
+                subtaskProgress.GetValueOrDefault(refreshedTask.Id, string.Empty),
+                matchingSubtasks.GetValueOrDefault(refreshedTask.Id, string.Empty));
+        }
+        SelectedTask = selectedTask;
         if (editorTask is not null && editorDraft is not null)
         {
             // Keep an edited task open even when a changed filter removes its row.
