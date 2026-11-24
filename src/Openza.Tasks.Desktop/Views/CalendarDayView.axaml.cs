@@ -338,7 +338,7 @@ public sealed partial class CalendarDayView : UserControl
     private (DateTimeOffset Start, DateTimeOffset End) GetDragSchedule(CalendarDayBlockViewModel block, double delta, bool resizeGesture) =>
         resizeGesture
             ? _viewModel!.ResizeBlockEndBy(block, delta)
-            : _viewModel!.MoveBlockTo(block, _blockTopAtStart + delta);
+            : _viewModel!.MoveBlockBy(block, delta);
 
     private void UpdateBlockPreview(Border border, DateTimeOffset start, DateTimeOffset end)
     {

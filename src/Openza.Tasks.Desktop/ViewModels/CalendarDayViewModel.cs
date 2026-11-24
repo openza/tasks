@@ -156,6 +156,19 @@ public sealed class CalendarDayViewModel : ObservableObject
         return (start, AddTimelineDuration(start, block.End - block.Start));
     }
 
+    public (DateTimeOffset Start, DateTimeOffset End) MoveBlockBy(CalendarDayBlockViewModel block, double verticalDelta)
+    {
+        var localStart = TimeZoneInfo.ConvertTime(block.Start, _timeZone).DateTime;
+        if (DateOnly.FromDateTime(localStart) >= SelectedDate)
+        {
+            return MoveBlockTo(block, block.Top + verticalDelta);
+        }
+
+        var adjustedLocalStart = localStart.AddMinutes(verticalDelta * 60 / HourHeight);
+        var start = SnapLocalTime(adjustedLocalStart, LocalOffsetFor(block.Start));
+        return (start, AddTimelineDuration(start, block.End - block.Start));
+    }
+
     public DateTimeOffset AddTimelineDuration(DateTimeOffset start, TimeSpan duration) =>
         TimeZoneInfo.ConvertTime(start.Add(duration), _timeZone);
 

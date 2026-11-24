@@ -451,4 +451,23 @@ public sealed class CalendarDayViewModelTests
         Assert.Equal(preview.Value.Height, block.Height);
         Assert.Equal(viewModel.TimelineHeight, block.Top + block.Height);
     }
+
+    [Fact]
+    public void Moving_a_previous_day_clipped_block_by_a_small_delta_preserves_its_full_start()
+    {
+        var viewModel = new CalendarDayViewModel();
+        viewModel.SetSelectedDate(TestDay);
+        var start = At(TestDay.AddDays(-1), 22);
+        var end = start.AddHours(4);
+        viewModel.SetScheduledTasks([Item("previous day block", start, end)]);
+        var block = Assert.Single(viewModel.Blocks);
+
+        Assert.Equal(0, block.Top);
+
+        var moved = viewModel.MoveBlockBy(block, 8);
+
+        Assert.Equal(start.AddMinutes(15), moved.Start);
+        Assert.Equal(end.AddMinutes(15), moved.End);
+        Assert.Equal(end - start, moved.End - moved.Start);
+    }
 }
