@@ -166,10 +166,8 @@ public sealed class CalendarDayViewModel : ObservableObject
     private void RebuildBlocks()
     {
         Blocks.Clear();
-        var dayStart = SelectedDate.ToDateTime(TimeOnly.MinValue);
-        var dayEnd = dayStart.AddDays(1);
-        var dayStartInstant = new DateTimeOffset(dayStart, _timeZone.GetUtcOffset(dayStart));
-        var dayEndInstant = new DateTimeOffset(dayEnd, _timeZone.GetUtcOffset(dayEnd));
+        var dayStartInstant = ResolveLocalDayBoundary(SelectedDate);
+        var dayEndInstant = ResolveLocalDayBoundary(SelectedDate.AddDays(1));
         foreach (var task in _scheduledTasks)
         {
             if (task.Task.ScheduledStart is not { } start ||
@@ -194,6 +192,25 @@ public sealed class CalendarDayViewModel : ObservableObject
         }
 
         AssignOverlapColumns(Blocks);
+    }
+
+    private DateTimeOffset ResolveLocalDayBoundary(DateOnly date)
+    {
+        var local = date.ToDateTime(TimeOnly.MinValue);
+        for (var minute = 0; minute < 48 * 60; minute++)
+        {
+            if (!_timeZone.IsInvalidTime(local))
+            {
+                var offsets = _timeZone.IsAmbiguousTime(local)
+                    ? _timeZone.GetAmbiguousTimeOffsets(local)
+                    : [_timeZone.GetUtcOffset(local)];
+                return new DateTimeOffset(local, offsets.Max());
+            }
+
+            local = local.AddMinutes(1);
+        }
+
+        throw new InvalidOperationException($"No valid local time found for {date} in {_timeZone.Id}.");
     }
 
     private static void AssignOverlapColumns(IReadOnlyList<CalendarDayBlockViewModel> blocks)

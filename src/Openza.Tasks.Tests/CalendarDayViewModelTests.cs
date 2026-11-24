@@ -143,6 +143,56 @@ public sealed class CalendarDayViewModelTests
     }
 
     [Fact]
+    public void Local_day_boundaries_use_the_first_real_instant_for_repeated_skipped_and_normal_midnight()
+    {
+        var repeatedMidnightZone = FindTimeZone("America/Goose_Bay", "Atlantic Standard Time");
+        var repeatedDay = new DateOnly(2000, 10, 29);
+        var repeatedStart = new DateTimeOffset(2000, 10, 29, 0, 0, 30, TimeSpan.FromHours(-3));
+        var repeatedEnd = new DateTimeOffset(2000, 10, 29, 0, 0, 45, TimeSpan.FromHours(-3));
+        var repeatedViewModel = new CalendarDayViewModel(repeatedMidnightZone);
+        repeatedViewModel.SetSelectedDate(repeatedDay);
+        repeatedViewModel.SetScheduledTasks([Item("before second midnight", repeatedStart, repeatedEnd)]);
+
+        var repeatedBlock = Assert.Single(repeatedViewModel.Blocks);
+        Assert.Equal("00:00 – 00:00", repeatedBlock.TimeText);
+
+        var skippedMidnightZone = FindTimeZone("Africa/Cairo", "Egypt Standard Time");
+        var skippedDay = new DateOnly(2010, 4, 30);
+        var skippedStart = new DateTimeOffset(2010, 4, 30, 1, 30, 0, TimeSpan.FromHours(3));
+        var skippedEnd = new DateTimeOffset(2010, 4, 30, 2, 30, 0, TimeSpan.FromHours(3));
+        var skippedViewModel = new CalendarDayViewModel(skippedMidnightZone);
+        skippedViewModel.SetSelectedDate(skippedDay);
+        skippedViewModel.SetScheduledTasks([Item("after skipped midnight", skippedStart, skippedEnd)]);
+
+        var skippedBlock = Assert.Single(skippedViewModel.Blocks);
+        Assert.Equal(new DateTime(2010, 4, 30, 1, 30, 0), skippedBlock.LocalStart);
+        Assert.Equal("01:30 – 02:30", skippedBlock.TimeText);
+
+        var normalDstZone = FindTimeZone("America/New_York", "Eastern Standard Time");
+        var normalDstDay = new DateOnly(2026, 3, 8);
+        var normalDstStart = new DateTimeOffset(2026, 3, 8, 3, 30, 0, TimeSpan.FromHours(-4));
+        var normalDstEnd = new DateTimeOffset(2026, 3, 8, 4, 30, 0, TimeSpan.FromHours(-4));
+        var normalDstViewModel = new CalendarDayViewModel(normalDstZone);
+        normalDstViewModel.SetSelectedDate(normalDstDay);
+        normalDstViewModel.SetScheduledTasks([Item("after normal DST", normalDstStart, normalDstEnd)]);
+
+        var normalDstBlock = Assert.Single(normalDstViewModel.Blocks);
+        Assert.Equal("03:30 – 04:30", normalDstBlock.TimeText);
+    }
+
+    private static TimeZoneInfo FindTimeZone(string ianaId, string windowsId)
+    {
+        try
+        {
+            return TimeZoneInfo.FindSystemTimeZoneById(ianaId);
+        }
+        catch (TimeZoneNotFoundException)
+        {
+            return TimeZoneInfo.FindSystemTimeZoneById(windowsId);
+        }
+    }
+
+    [Fact]
     public void Short_blocks_use_compact_content_and_keep_accessible_time()
     {
         var viewModel = new CalendarDayViewModel();
