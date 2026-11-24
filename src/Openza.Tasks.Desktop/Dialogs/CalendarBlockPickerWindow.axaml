@@ -39,7 +39,7 @@
                 </StackPanel>
             </Grid>
             <Grid Grid.Row="3">
-                <Grid x:Name="TaskPickerGrid" IsVisible="{Binding IsTaskSelectionVisible}" RowDefinitions="Auto,*" RowSpacing="8">
+                <Grid x:Name="TaskPickerGrid" IsVisible="{Binding IsTaskSelectionVisible}" RowDefinitions="Auto,*,Auto" RowSpacing="8">
                     <TextBox x:Name="SearchBox" AutomationProperties.Name="Search open tasks" PlaceholderText="Search open tasks" Text="{Binding SearchText, Mode=TwoWay}" />
                     <Grid Grid.Row="1">
                         <ListBox x:Name="TaskList" AutomationProperties.Name="Open tasks" ItemsSource="{Binding FilteredTasks}" SelectedItem="{Binding SelectedTask, Mode=TwoWay}">
@@ -57,6 +57,10 @@
                         </ListBox>
                         <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{DynamicResource OpenzaTextSecondaryBrush}" IsVisible="{Binding HasNoTasks}" Text="No matching open tasks" />
                     </Grid>
+                    <StackPanel Grid.Row="2" IsVisible="{Binding HasSelectedTaskSchedule}" Spacing="4">
+                        <TextBlock x:Name="ExistingScheduleText" FontSize="12" Foreground="{DynamicResource OpenzaTextSecondaryBrush}" Text="{Binding ExistingScheduleText}" TextWrapping="Wrap" />
+                        <TextBlock x:Name="ReplacementNoticeText" Foreground="{DynamicResource OpenzaDangerBrush}" Text="{Binding ReplacementNoticeText}" TextWrapping="Wrap" />
+                    </StackPanel>
                 </Grid>
                 <StackPanel IsVisible="{Binding IsEditing}" Spacing="4">
                     <TextBlock FontWeight="SemiBold" Text="Task" />
@@ -68,7 +72,7 @@
         <Border Grid.Row="2" Padding="0,16,0,0" BorderBrush="{DynamicResource OpenzaSeparatorBrush}" BorderThickness="0,1,0,0">
             <StackPanel HorizontalAlignment="Right" Orientation="Horizontal" Spacing="10">
                 <Button Classes="dialogAction" Content="Cancel" IsCancel="True" Click="OnCancelClicked" />
-                <Button Classes="accent dialogAction" Content="Add block" IsVisible="{Binding IsTaskSelectionVisible}" IsDefault="True" IsEnabled="{Binding CanSchedule}" Click="OnAddBlockClicked" />
+                <Button x:Name="AddBlockButton" Classes="accent dialogAction" Content="{Binding AddActionText}" IsVisible="{Binding IsTaskSelectionVisible}" IsDefault="True" IsEnabled="{Binding CanSchedule}" Click="OnAddBlockClicked" />
                 <Button Classes="accent dialogAction" Content="Save time" IsVisible="{Binding IsEditing}" IsDefault="True" IsEnabled="{Binding CanSchedule}" Click="OnAddBlockClicked" />
             </StackPanel>
         </Border>

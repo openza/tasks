@@ -227,6 +227,43 @@ public sealed partial class DesktopControlBehaviorTests
     });
 
     [Fact]
+    public Task Calendar_picker_warns_before_replacing_an_existing_interval() => Run(async context =>
+    {
+        var existing = (await context.Store.GetTaskAsync("task-0"))!;
+        var start = DateTimeOffset.Now.AddHours(2);
+        var task = existing with
+        {
+            Id = "calendar-picker-replacement-task",
+            Title = "Already scheduled picker task",
+            ProjectId = null,
+            ParentId = null,
+            ScheduledStart = start,
+            ScheduledEnd = start.AddHours(1),
+            WorkflowStatus = TaskWorkflowStatus.Next,
+            CompletionState = TaskCompletionState.Open,
+        };
+        await context.Store.UpsertTaskAsync(task);
+        await context.Vm.SelectNavigationAsync(context.Vm.NavigationItems.Single(item => item.Kind == TaskListKind.Calendar));
+        context.Window.FindControl<Control>("CalendarDayViewButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await Until(() => context.Vm.IsCalendarDayView);
+        context.Window.FindControl<CalendarDayView>("CalendarDayView")!.FindControl<Button>("CalendarAddBlockButton")!
+            .RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter });
+
+        await Until(() => context.Window.OwnedWindows.OfType<CalendarBlockPickerWindow>().Any());
+        var dialog = context.Window.OwnedWindows.OfType<CalendarBlockPickerWindow>().Single();
+        var picker = (CalendarBlockPickerViewModel)dialog.DataContext!;
+        Assert.Contains(picker.FilteredTasks, item => item.Task.Id == task.Id);
+        dialog.FindControl<ListBox>("TaskList")!.SelectedItem = Assert.Single(picker.FilteredTasks, item => item.Task.Id == task.Id);
+        dialog.UpdateLayout();
+
+        Assert.Contains("Existing interval:", dialog.FindControl<TextBlock>("ExistingScheduleText")!.Text);
+        Assert.Contains("will replace that interval", dialog.FindControl<TextBlock>("ReplacementNoticeText")!.Text);
+        Assert.Equal("Replace scheduled interval", dialog.FindControl<Button>("AddBlockButton")!.Content);
+        Assert.True(dialog.FindControl<Button>("AddBlockButton")!.IsEnabled);
+        dialog.Close();
+    });
+
+    [Fact]
     public Task Calendar_timeline_blocks_remain_hit_testable_for_short_block_tooltips() => Run(async context =>
     {
         var existing = (await context.Store.GetTaskAsync("task-0"))!;

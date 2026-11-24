@@ -46,6 +46,14 @@ public sealed class CalendarBlockPickerViewModel : ObservableObject
     public bool IsEditing => _isEditing;
     public bool IsTaskSelectionVisible => !IsEditing;
     public bool HasNoTasks => !IsEditing && FilteredTasks.Count == 0;
+    public bool HasSelectedTaskSchedule => SelectedTaskSchedule is not null;
+    public string ExistingScheduleText => SelectedTaskSchedule is { } schedule
+        ? $"Existing interval: {_calendarDay.LocalDateTimeFor(schedule.Start):ddd, d MMM · HH:mm} – {_calendarDay.LocalDateTimeFor(schedule.End):ddd, d MMM · HH:mm}"
+        : string.Empty;
+    public string ReplacementNoticeText => HasSelectedTaskSchedule
+        ? "This task already has a scheduled interval. Adding it here will replace that interval."
+        : string.Empty;
+    public string AddActionText => HasSelectedTaskSchedule ? "Replace scheduled interval" : "Add block";
     public bool HasInvalidStartTime => !TryGetStart(out _);
     public bool CanSchedule => _selectedTask is not null && !HasInvalidStartTime && _durationMinutes is > 0 and <= int.MaxValue;
 
@@ -82,6 +90,10 @@ public sealed class CalendarBlockPickerViewModel : ObservableObject
         {
             if (SetProperty(ref _selectedTask, value))
             {
+                OnPropertyChanged(nameof(HasSelectedTaskSchedule));
+                OnPropertyChanged(nameof(ExistingScheduleText));
+                OnPropertyChanged(nameof(ReplacementNoticeText));
+                OnPropertyChanged(nameof(AddActionText));
                 OnPropertyChanged(nameof(CanSchedule));
             }
         }
@@ -118,6 +130,11 @@ public sealed class CalendarBlockPickerViewModel : ObservableObject
         start = _initialStart;
         return false;
     }
+
+    private (DateTimeOffset Start, DateTimeOffset End)? SelectedTaskSchedule =>
+        SelectedTask?.Task.ScheduledStart is { } start && SelectedTask.Task.ScheduledEnd is { } end
+            ? (start, end)
+            : null;
 
     private void RebuildFilteredTasks()
     {

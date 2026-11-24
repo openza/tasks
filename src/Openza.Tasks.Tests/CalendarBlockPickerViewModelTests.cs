@@ -143,4 +143,36 @@ public sealed class CalendarBlockPickerViewModelTests
         Assert.Equal(expectedStart, picker.Start);
         Assert.Equal(expectedStart, Assert.IsType<CalendarBlockPickerResult>(picker.CreateResult()).Start);
     }
+
+    [Fact]
+    public void Already_scheduled_open_tasks_remain_searchable_and_can_receive_a_replacement_interval()
+    {
+        var timeZone = FindTimeZone("America/New_York", "Eastern Standard Time");
+        var existingStart = new DateTimeOffset(2026, 6, 17, 13, 0, 0, TimeSpan.Zero);
+        var existingEnd = new DateTimeOffset(2026, 6, 17, 14, 0, 0, TimeSpan.Zero);
+        var replacementStart = new DateTimeOffset(2026, 6, 17, 15, 0, 0, TimeSpan.Zero);
+        var scheduledTask = new TaskListItemViewModel(Item("Already scheduled", TaskWorkflowStatus.Next).Task with
+        {
+            ScheduledStart = existingStart,
+            ScheduledEnd = existingEnd,
+        }, null);
+        var calendarDay = new CalendarDayViewModel(timeZone);
+        calendarDay.SetDayTasks([scheduledTask]);
+        var picker = new CalendarBlockPickerViewModel(calendarDay, replacementStart);
+
+        picker.SearchText = "scheduled";
+
+        Assert.Equal(scheduledTask, Assert.Single(picker.FilteredTasks));
+        picker.SelectedTask = scheduledTask;
+        Assert.True(picker.HasSelectedTaskSchedule);
+        var localStart = calendarDay.LocalDateTimeFor(existingStart);
+        var localEnd = calendarDay.LocalDateTimeFor(existingEnd);
+        Assert.Equal($"Existing interval: {localStart:ddd, d MMM · HH:mm} – {localEnd:ddd, d MMM · HH:mm}", picker.ExistingScheduleText);
+        Assert.Equal("This task already has a scheduled interval. Adding it here will replace that interval.", picker.ReplacementNoticeText);
+        Assert.Equal("Replace scheduled interval", picker.AddActionText);
+        var result = Assert.IsType<CalendarBlockPickerResult>(picker.CreateResult());
+        Assert.Equal(replacementStart, result.Start);
+        Assert.Equal(replacementStart.AddHours(1), result.End);
+        Assert.NotEqual(existingStart, result.Start);
+    }
 }
