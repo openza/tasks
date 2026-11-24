@@ -110,7 +110,7 @@ public sealed class CalendarBlockPickerViewModel : ObservableObject
             var localStart = _startDate.ToDateTime(time);
             if (!_calendarDay.IsInvalidLocalTime(localStart))
             {
-                start = _calendarDay.ResolveLocalTime(localStart, _initialStart.Offset);
+                start = _calendarDay.ResolveLocalTime(localStart, _calendarDay.LocalOffsetFor(_initialStart));
                 return true;
             }
         }

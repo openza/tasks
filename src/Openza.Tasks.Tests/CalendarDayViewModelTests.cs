@@ -402,4 +402,33 @@ public sealed class CalendarDayViewModelTests
         Assert.Equal(new DateTimeOffset(2026, 11, 1, 3, 0, 0, TimeSpan.FromHours(-5)), moved.End);
         Assert.Equal(end - start, moved.End - moved.Start);
     }
+
+    [Fact]
+    public void Move_and_resize_use_zone_offsets_for_utc_loaded_second_occurrences()
+    {
+        var timeZone = FindTimeZone("America/New_York", "Eastern Standard Time");
+        var day = new DateOnly(2026, 11, 1);
+        var storedStart = new DateTimeOffset(2026, 11, 1, 6, 30, 0, TimeSpan.Zero);
+        var storedEnd = new DateTimeOffset(2026, 11, 1, 7, 30, 0, TimeSpan.Zero);
+        var moveViewModel = new CalendarDayViewModel(timeZone);
+        moveViewModel.SetSelectedDate(day);
+        moveViewModel.SetScheduledTasks([Item("utc move", storedStart, storedEnd)]);
+        var moveBlock = Assert.Single(moveViewModel.Blocks);
+
+        var moved = moveViewModel.MoveBlockTo(moveBlock, 90 * CalendarDayViewModel.HourHeight / 60d);
+
+        Assert.Equal(new DateTimeOffset(2026, 11, 1, 1, 30, 0, TimeSpan.FromHours(-5)), moved.Start);
+        Assert.Equal(new DateTimeOffset(2026, 11, 1, 2, 30, 0, TimeSpan.FromHours(-5)), moved.End);
+
+        var resizeStart = new DateTimeOffset(2026, 11, 1, 6, 0, 0, TimeSpan.Zero);
+        var resizeEnd = new DateTimeOffset(2026, 11, 1, 6, 30, 0, TimeSpan.Zero);
+        var resizeViewModel = new CalendarDayViewModel(timeZone);
+        resizeViewModel.SetSelectedDate(day);
+        resizeViewModel.SetScheduledTasks([Item("utc resize", resizeStart, resizeEnd)]);
+        var resizeBlock = Assert.Single(resizeViewModel.Blocks);
+        var resized = resizeViewModel.ResizeBlockEndBy(resizeBlock, 15 * CalendarDayViewModel.HourHeight / 60d);
+
+        Assert.Equal(new DateTimeOffset(2026, 11, 1, 1, 45, 0, TimeSpan.FromHours(-5)), resized.End);
+        Assert.True(resized.End > resized.Start);
+    }
 }

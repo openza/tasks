@@ -128,4 +128,19 @@ public sealed class CalendarBlockPickerViewModelTests
         Assert.Equal(start, picker.Start);
         Assert.Equal(start, Assert.IsType<CalendarBlockPickerResult>(picker.CreateResult()).Start);
     }
+
+    [Fact]
+    public void Editing_a_utc_loaded_second_fall_back_occurrence_keeps_the_local_offset()
+    {
+        var timeZone = FindTimeZone("America/New_York", "Eastern Standard Time");
+        var storedStart = new DateTimeOffset(2026, 11, 1, 6, 30, 0, TimeSpan.Zero);
+        var expectedStart = new DateTimeOffset(2026, 11, 1, 1, 30, 0, TimeSpan.FromHours(-5));
+        var calendarDay = new CalendarDayViewModel(timeZone);
+        var task = Item("Scheduled task", TaskWorkflowStatus.Waiting);
+        calendarDay.SetDayTasks([task]);
+        var picker = new CalendarBlockPickerViewModel(calendarDay, storedStart, task, 60);
+
+        Assert.Equal(expectedStart, picker.Start);
+        Assert.Equal(expectedStart, Assert.IsType<CalendarBlockPickerResult>(picker.CreateResult()).Start);
+    }
 }

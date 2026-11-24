@@ -151,7 +151,7 @@ public sealed class CalendarDayViewModel : ObservableObject
     public (DateTimeOffset Start, DateTimeOffset End) MoveBlockTo(CalendarDayBlockViewModel block, double top)
     {
         var maxTop = TimelineHeight - HourHeight / 4;
-        var start = TimeAtTimelinePosition(Math.Clamp(top, 0, maxTop), snapToQuarterHour: true, preferredOffset: block.Start.Offset);
+        var start = TimeAtTimelinePosition(Math.Clamp(top, 0, maxTop), snapToQuarterHour: true, preferredOffset: LocalOffsetFor(block.Start));
         return (start, AddTimelineDuration(start, block.End - block.Start));
     }
 
@@ -181,13 +181,13 @@ public sealed class CalendarDayViewModel : ObservableObject
     {
         var localEnd = TimeZoneInfo.ConvertTime(block.End, _timeZone).DateTime;
         var adjustedLocalEnd = localEnd.AddMinutes(verticalDelta * 60 / HourHeight);
-        var end = SnapLocalTime(adjustedLocalEnd, block.End.Offset);
+        var end = SnapLocalTime(adjustedLocalEnd, LocalOffsetFor(block.End));
         var minimumEnd = block.Start.AddMinutes(15);
         if (end < minimumEnd)
         {
             var minimumLocal = TimeZoneInfo.ConvertTime(minimumEnd, _timeZone).DateTime;
             var roundedUpMinutes = Math.Ceiling(minimumLocal.TimeOfDay.TotalMinutes / 15) * 15;
-            end = ResolveLocalTime(minimumLocal.Date.AddMinutes(roundedUpMinutes), minimumEnd.Offset);
+            end = ResolveLocalTime(minimumLocal.Date.AddMinutes(roundedUpMinutes), LocalOffsetFor(minimumEnd));
         }
         return (block.Start, end);
     }
@@ -290,6 +290,8 @@ public sealed class CalendarDayViewModel : ObservableObject
     }
 
     public DateTime LocalDateTimeFor(DateTimeOffset instant) => TimeZoneInfo.ConvertTime(instant, _timeZone).DateTime;
+
+    public TimeSpan LocalOffsetFor(DateTimeOffset instant) => TimeZoneInfo.ConvertTime(instant, _timeZone).Offset;
 
     public bool IsInvalidLocalTime(DateTime localTime) => _timeZone.IsInvalidTime(DateTime.SpecifyKind(localTime, DateTimeKind.Unspecified));
 
