@@ -8,6 +8,7 @@ public sealed class CalendarDayViewModel : ObservableObject
 {
     public const int HoursPerDay = 24;
     public const double HourHeight = 64;
+    internal const double TimelineHeightValue = HoursPerDay * HourHeight;
 
     private readonly List<TaskListItemViewModel> _scheduledTasks = [];
     private readonly List<TaskListItemViewModel> _blockPickerTasks = [];
@@ -30,7 +31,7 @@ public sealed class CalendarDayViewModel : ObservableObject
     public ObservableCollection<TaskListItemViewModel> FilteredTodayTasks { get; } = [];
     public IReadOnlyList<TaskListItemViewModel> BlockPickerTasks => _blockPickerTasks;
     public IReadOnlyList<int> Hours { get; } = Enumerable.Range(0, HoursPerDay).ToArray();
-    public double TimelineHeight => HoursPerDay * HourHeight;
+    public double TimelineHeight => TimelineHeightValue;
 
     public DateOnly SelectedDate
     {
@@ -170,11 +171,9 @@ public sealed class CalendarDayViewModel : ObservableObject
 
         var localStart = TimeZoneInfo.ConvertTime(visibleStart, _timeZone).DateTime;
         var localEnd = TimeZoneInfo.ConvertTime(visibleEnd, _timeZone).DateTime;
-        var wallClockMinutes = (localEnd - localStart).TotalMinutes;
-        var visibleDuration = visibleEnd - visibleStart;
-        var durationMinutes = wallClockMinutes > 0 ? wallClockMinutes : visibleDuration.TotalMinutes;
-        var height = Math.Max(CalendarDayBlockViewModel.MinimumHeight, durationMinutes * HourHeight / 60);
-        return (localStart.TimeOfDay.TotalMinutes * HourHeight / 60, height);
+        var top = localStart.TimeOfDay.TotalMinutes * HourHeight / 60;
+        var height = CalendarDayBlockViewModel.HeightFor(localStart, localEnd, visibleEnd - visibleStart);
+        return (top, height);
     }
 
     public (DateTimeOffset Start, DateTimeOffset End) ResizeBlockEndBy(CalendarDayBlockViewModel block, double verticalDelta)

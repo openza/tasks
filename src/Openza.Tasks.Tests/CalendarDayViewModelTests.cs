@@ -138,7 +138,7 @@ public sealed class CalendarDayViewModelTests
         midnightViewModel.SetScheduledTasks([midnightTask]);
         var lastHour = Assert.Single(midnightViewModel.Blocks);
         Assert.Equal("23:30 – 23:30", lastHour.TimeText);
-        Assert.Equal(CalendarDayViewModel.HourHeight, lastHour.Height);
+        Assert.Equal(32, lastHour.Height);
 
         midnightViewModel.SetSelectedDate(previousDate.AddDays(1));
         Assert.Empty(midnightViewModel.Blocks);
@@ -359,7 +359,7 @@ public sealed class CalendarDayViewModelTests
         Assert.Equal(At(TestDay, 23).AddMinutes(45).Offset, moved.Start.Offset);
         Assert.NotNull(layout);
         Assert.Equal(viewModel.TimelineHeight - CalendarDayViewModel.HourHeight / 4, layout.Value.Top);
-        Assert.Equal(32, layout.Value.Height);
+        Assert.Equal(16, layout.Value.Height);
 
         viewModel.SetScheduledTasks([Item("long block", moved.Start, moved.End)]);
         var committed = Assert.Single(viewModel.Blocks);
@@ -430,5 +430,25 @@ public sealed class CalendarDayViewModelTests
 
         Assert.Equal(new DateTimeOffset(2026, 11, 1, 1, 45, 0, TimeSpan.FromHours(-5)), resized.End);
         Assert.True(resized.End > resized.Start);
+    }
+
+    [Fact]
+    public void End_of_day_minimum_height_stays_within_the_timeline_for_render_and_preview()
+    {
+        var viewModel = new CalendarDayViewModel();
+        viewModel.SetSelectedDate(TestDay);
+        var start = At(TestDay, 23).AddMinutes(45);
+        var end = At(TestDay.AddDays(1), 0);
+        viewModel.SetScheduledTasks([Item("last quarter-hour", start, end)]);
+        var block = Assert.Single(viewModel.Blocks);
+
+        var preview = viewModel.TimelineLayoutFor(start, end);
+
+        Assert.True(block.CanResizeEnd);
+        Assert.True(preview.HasValue);
+        Assert.Equal(16, preview.Value.Height);
+        Assert.Equal(preview.Value.Top, block.Top);
+        Assert.Equal(preview.Value.Height, block.Height);
+        Assert.Equal(viewModel.TimelineHeight, block.Top + block.Height);
     }
 }

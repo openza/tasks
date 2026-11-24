@@ -291,6 +291,46 @@ public sealed partial class DesktopControlBehaviorTests
     });
 
     [Fact]
+    public Task Calendar_end_of_day_resize_handle_stays_inside_the_timeline() => Run(async context =>
+    {
+        var existing = (await context.Store.GetTaskAsync("task-0"))!;
+        var day = new DateOnly(2026, 6, 17);
+        var startLocal = day.ToDateTime(new TimeOnly(23, 45));
+        var endLocal = day.AddDays(1).ToDateTime(TimeOnly.MinValue);
+        var start = new DateTimeOffset(startLocal, TimeZoneInfo.Local.GetUtcOffset(startLocal));
+        var end = new DateTimeOffset(endLocal, TimeZoneInfo.Local.GetUtcOffset(endLocal));
+        var task = existing with
+        {
+            Id = "calendar-end-of-day-resize-task",
+            Title = "Calendar end of day resize task",
+            ParentId = null,
+            PlannedOn = day,
+            ScheduledStart = start,
+            ScheduledEnd = end,
+        };
+        await context.Store.UpsertTaskAsync(task);
+        await context.Vm.SelectNavigationAsync(context.Vm.NavigationItems.Single(item => item.Kind == TaskListKind.Calendar));
+        context.Vm.CalendarDay.SetSelectedDate(day);
+        context.Vm.SetCalendarDayView(true);
+        context.Window.UpdateLayout();
+
+        var dayView = context.Window.FindControl<CalendarDayView>("CalendarDayView")!;
+        var canvas = dayView.FindControl<Canvas>("TimelineCanvas")!;
+        var block = Assert.Single(dayView.GetVisualDescendants().OfType<Border>(), border =>
+            border.DataContext is CalendarDayBlockViewModel blockViewModel && blockViewModel.Task.Id == task.Id &&
+            ToolTip.GetTip(border) is string tip && tip.Contains(task.Title, StringComparison.Ordinal));
+        var blockViewModel = (CalendarDayBlockViewModel)block.DataContext!;
+        var resizeHandle = Assert.Single(block.GetVisualDescendants().OfType<Border>(), border =>
+            border.Classes.Contains("calendar-block-resize-handle"));
+
+        Assert.True(blockViewModel.CanResizeEnd);
+        Assert.Equal(16, block.Bounds.Height);
+        Assert.True(resizeHandle.IsVisible);
+        Assert.True(resizeHandle.Bounds.Height > 0);
+        Assert.True(Canvas.GetTop(block) + block.Bounds.Height <= canvas.Bounds.Height + 1);
+    });
+
+    [Fact]
     public Task Saving_a_today_task_hidden_by_list_filters_keeps_its_editor_open() => Run(async context =>
     {
         var existing = (await context.Store.GetTaskAsync("task-0"))!;

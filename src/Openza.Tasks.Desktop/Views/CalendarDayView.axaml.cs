@@ -13,6 +13,7 @@ namespace Openza.Tasks.Desktop.Views;
 
 public sealed partial class CalendarDayView : UserControl
 {
+    private const double ResizeHandleHitHeight = 12;
     private CalendarDayViewModel? _viewModel;
     private bool _timelineRenderQueued;
     private Border? _activeBlockBorder;
@@ -265,7 +266,7 @@ public sealed partial class CalendarDayView : UserControl
         _pointerOrigin = e.GetPosition(TimelineCanvas);
         _blockTopAtStart = Canvas.GetTop(border);
         _blockHeightAtStart = border.Bounds.Height;
-        _resizeGesture = block.CanResizeEnd && e.GetPosition(border).Y >= _blockHeightAtStart - 12;
+        _resizeGesture = block.CanResizeEnd && e.GetPosition(border).Y >= _blockHeightAtStart - ResizeHandleHitHeight;
         _blockWasDragged = false;
         border.Focus();
         e.Pointer.Capture(border);
