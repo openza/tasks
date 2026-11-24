@@ -31,6 +31,8 @@ public sealed partial class MainWindow : Window
     private bool _changingTaskSelection;
     private bool _calendarTodayCompletionPointerPending;
     private bool _calendarTodayCompletionAutosavePending;
+    private int? _calendarTodayCompletionPointerId;
+    private long _calendarTodayCompletionPointerGeneration;
     private readonly SemaphoreSlim _taskSelectionGate = new(1, 1);
     private bool _connectedPaneOpen;
     private bool _navigationCollapsed;
@@ -82,6 +84,7 @@ public sealed partial class MainWindow : Window
         CalendarDayView.TodayTaskCompletionRequested += OnCalendarTodayTaskCompletionRequested;
         AddHandler(InputElement.PointerPressedEvent, OnPointerPressed, RoutingStrategies.Tunnel);
         AddHandler(InputElement.PointerReleasedEvent, OnPointerReleased, RoutingStrategies.Bubble, handledEventsToo: true);
+        AddHandler(InputElement.PointerCaptureLostEvent, OnPointerCaptureLost, RoutingStrategies.Bubble, handledEventsToo: true);
         _automaticSyncTimer.Tick += OnAutomaticSyncTick;
         _statusHideTimer.Tick += OnStatusHideTick;
         _taskSearchTimer.Tick += OnTaskSearchTick;
@@ -204,6 +207,7 @@ public sealed partial class MainWindow : Window
         ViewModel.PropertyChanged -= OnViewModelPropertyChanged;
         RemoveHandler(InputElement.PointerPressedEvent, OnPointerPressed);
         RemoveHandler(InputElement.PointerReleasedEvent, OnPointerReleased);
+        RemoveHandler(InputElement.PointerCaptureLostEvent, OnPointerCaptureLost);
     }
 
     private async void OnClosing(object? sender, WindowClosingEventArgs e)
@@ -393,8 +397,7 @@ public sealed partial class MainWindow : Window
 
     private async Task<bool> OnCalendarTodayTaskCompletionRequested(TaskListItemViewModel task)
     {
-        _calendarTodayCompletionPointerPending = false;
-        _calendarTodayCompletionAutosavePending = false;
+        ClearCalendarTodayCompletionPointerState();
         if (_taskCompletionInProgress) return task.Task.IsCompleted;
         _taskCompletionInProgress = true;
         try
@@ -1421,18 +1424,51 @@ public sealed partial class MainWindow : Window
 
     private void OnPointerPressed(object? sender, PointerEventArgs e)
     {
-        _calendarTodayCompletionPointerPending = IsCalendarTodayCompletionTarget(e.Source);
+        if (!IsCalendarTodayCompletionTarget(e.Source))
+        {
+            return;
+        }
+
+        _calendarTodayCompletionPointerPending = true;
+        _calendarTodayCompletionAutosavePending = false;
+        _calendarTodayCompletionPointerId = e.Pointer.Id;
+        _calendarTodayCompletionPointerGeneration++;
     }
 
-    private async void OnPointerReleased(object? sender, PointerEventArgs e)
+    private void OnPointerReleased(object? sender, PointerEventArgs e) => QueueCalendarTodayCompletionPointerCleanup(e.Pointer.Id);
+
+    private void OnPointerCaptureLost(object? sender, PointerCaptureLostEventArgs e) => QueueCalendarTodayCompletionPointerCleanup(e.Pointer.Id);
+
+    private void QueueCalendarTodayCompletionPointerCleanup(int pointerId)
     {
-        var saveAfterCancelledClick = _calendarTodayCompletionPointerPending && _calendarTodayCompletionAutosavePending;
+        if (!_calendarTodayCompletionPointerPending || _calendarTodayCompletionPointerId != pointerId)
+        {
+            return;
+        }
+
+        var generation = _calendarTodayCompletionPointerGeneration;
+        Dispatcher.UIThread.Post(async () =>
+        {
+            if (!_calendarTodayCompletionPointerPending || generation != _calendarTodayCompletionPointerGeneration)
+            {
+                return;
+            }
+
+            var saveDeferredEdit = _calendarTodayCompletionAutosavePending;
+            ClearCalendarTodayCompletionPointerState();
+            if (saveDeferredEdit && _initialized && ViewModel.HasSelectedTask && !ViewModel.IsUpdatingDetails)
+            {
+                await ViewModel.SaveSelectedAsync();
+            }
+        }, DispatcherPriority.Background);
+    }
+
+    private void ClearCalendarTodayCompletionPointerState()
+    {
         _calendarTodayCompletionPointerPending = false;
         _calendarTodayCompletionAutosavePending = false;
-        if (saveAfterCancelledClick && _initialized && ViewModel.HasSelectedTask && !ViewModel.IsUpdatingDetails)
-        {
-            await ViewModel.SaveSelectedAsync();
-        }
+        _calendarTodayCompletionPointerId = null;
+        _calendarTodayCompletionPointerGeneration++;
     }
 
     private static bool IsCalendarTodayCompletionTarget(object? source)
@@ -1570,6 +1606,11 @@ public sealed partial class MainWindow : Window
 
     private async void OnWindowKeyDown(object? sender, KeyEventArgs e)
     {
+        if (_calendarTodayCompletionPointerPending && _calendarTodayCompletionPointerId is { } pointerId)
+        {
+            QueueCalendarTodayCompletionPointerCleanup(pointerId);
+        }
+
         if (e.Key == Key.Escape)
         {
             if (TaskWorkspace.IsVisible)

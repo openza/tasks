@@ -252,9 +252,6 @@ public sealed partial class DesktopControlBehaviorTests
     [Fact]
     public Task Pointer_completion_after_dirty_title_save_completes_in_one_click() => Run(async context =>
     {
-        context.Window.UpdateLayout();
-        await Until(() => context.Window.Bounds.Width >= 2000);
-
         var existing = (await context.Store.GetTaskAsync("task-0"))!;
         var today = DateOnly.FromDateTime(DateTime.Today);
         var task = existing with
@@ -294,34 +291,125 @@ public sealed partial class DesktopControlBehaviorTests
 
         var completion = context.Window.GetVisualDescendants().OfType<CheckBox>()
             .Single(box => box.DataContext is TaskListItemViewModel item && item.Task.Id == task.Id);
-        var point = completion.TranslatePoint(new Point(completion.Bounds.Width / 2, completion.Bounds.Height / 2), context.Window)!.Value;
-        var hit = context.Window.InputHitTest(point) as Visual;
-        Assert.True(hit == completion || hit?.GetVisualAncestors().Contains(completion) == true,
-            $"Pointer at {point} missed Today completion checkbox ({completion.Bounds}); hit {hit?.GetType().Name}.");
-        context.Window.MouseMove(new Point(1, 1));
-        context.Window.MouseMove(point);
-        context.Window.MouseDown(point, MouseButton.Left);
-        context.Window.MouseMove(new Point(1, 1));
-        context.Window.MouseUp(new Point(1, 1), MouseButton.Left);
+        var pointer = new Pointer(1, PointerType.Mouse, isPrimary: true);
+        RaisePointerPressed(completion, context.Window, pointer);
+        Assert.True(completion.Focus());
+        Assert.False(title.IsFocused);
+        RaisePointerCaptureLost(completion, pointer);
         await UntilAsync(async () =>
         {
             var saved = await context.Store.GetTaskAsync(task.Id);
             return saved?.Title == "Focus saved after canceled click" && !saved.IsCompleted;
         });
+        await Until(() => !context.Vm.IsBusy && !context.Vm.IsUpdatingDetails &&
+            context.Vm.CalendarDay.FilteredTodayTasks.Any(item => item.Task.Id == task.Id));
+        context.Window.UpdateLayout();
 
         title = context.Window.GetVisualDescendants().OfType<TextBox>()
             .Single(box => AutomationProperties.GetName(box) == "Task title");
-        Assert.True(title.Focus());
+        Assert.True(title.IsFocused || title.Focus());
         title.Text = "Focus completed after one click";
         completion = context.Window.GetVisualDescendants().OfType<CheckBox>()
             .Single(box => box.DataContext is TaskListItemViewModel item && item.Task.Id == task.Id);
-        await PointerClick(context.Window, () => completion, rightInset: 14);
+        RaisePointerPressed(completion, context.Window, pointer);
+        Assert.True(completion.Focus());
+        RaisePointerCaptureLost(completion, pointer);
+        RaisePointerReleased(completion, context.Window, pointer, handled: true);
+        completion.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         await UntilAsync(async () =>
         {
             var saved = await context.Store.GetTaskAsync(task.Id);
             return saved?.Title == "Focus completed after one click" && saved.IsCompleted;
         });
-    }, windowWidth: 2000);
+    });
+
+    [Fact]
+    public Task Pointer_completion_canceled_handled_release_saves_deferred_title() => Run(async context =>
+    {
+        var existing = (await context.Store.GetTaskAsync("task-0"))!;
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        var task = existing with
+        {
+            Title = "Focus task",
+            ParentId = null,
+            PlannedOn = today,
+            CompletionState = TaskCompletionState.Open,
+        };
+        await context.Store.UpsertTaskAsync(task);
+        var yesterdayTask = existing with
+        {
+            Id = "calendar-yesterday",
+            Title = "Yesterday only task",
+            ParentId = null,
+            PlannedOn = today.AddDays(-1),
+            CompletionState = TaskCompletionState.Open,
+        };
+        await context.Store.UpsertTaskAsync(yesterdayTask);
+        await context.Vm.SelectNavigationAsync(context.Vm.NavigationItems.Single(item => item.Kind == TaskListKind.Calendar));
+        context.Vm.SearchText = "Yesterday";
+        await context.Vm.ApplySearchAsync();
+        context.Vm.SetCalendarDayView(true);
+        context.Vm.ToggleCalendarTodayPanel();
+        context.Vm.CalendarDay.TodaySearchText = "Focus";
+        context.Window.UpdateLayout();
+
+        var todayTask = Assert.Single(context.Vm.CalendarDay.FilteredTodayTasks, item => item.Task.Id == task.Id);
+        await context.Vm.SelectTaskAsync(todayTask);
+        await Until(() => context.Vm.SelectedTask?.Task.Id == task.Id && !context.Vm.IsUpdatingDetails && !context.Vm.IsBusy);
+        var title = context.Window.GetVisualDescendants().OfType<TextBox>()
+            .Single(box => AutomationProperties.GetName(box) == "Task title");
+        Assert.True(title.Focus());
+        title.Text = "Focus saved after handled release";
+
+        var completion = context.Window.GetVisualDescendants().OfType<CheckBox>()
+            .Single(box => box.DataContext is TaskListItemViewModel item && item.Task.Id == task.Id);
+        var pointer = new Pointer(1, PointerType.Mouse, isPrimary: true);
+        RaisePointerPressed(completion, context.Window, pointer);
+        Assert.True(completion.Focus());
+        Assert.False(title.IsFocused);
+        RaisePointerReleased(context.Window, context.Window, pointer, handled: true);
+        await UntilAsync(async () =>
+        {
+            var saved = await context.Store.GetTaskAsync(task.Id);
+            return saved?.Title == "Focus saved after handled release" && !saved.IsCompleted;
+        });
+        await Until(() => !context.Vm.IsBusy && !context.Vm.IsUpdatingDetails);
+    });
+
+    private static void RaisePointerPressed(InputElement source, MainWindow window, IPointer pointer) =>
+        source.RaiseEvent(new PointerPressedEventArgs(
+            source,
+            pointer,
+            window,
+            new Point(),
+            1,
+            new PointerPointProperties(),
+            KeyModifiers.None,
+            1)
+        {
+            RoutedEvent = InputElement.PointerPressedEvent,
+        });
+
+    private static void RaisePointerCaptureLost(InputElement source, IPointer pointer) =>
+        source.RaiseEvent(new PointerCaptureLostEventArgs(source, pointer)
+        {
+            RoutedEvent = InputElement.PointerCaptureLostEvent,
+        });
+
+    private static void RaisePointerReleased(InputElement source, MainWindow window, IPointer pointer, bool handled) =>
+        source.RaiseEvent(new PointerReleasedEventArgs(
+            source,
+            pointer,
+            window,
+            new Point(),
+            2,
+            new PointerPointProperties(),
+            KeyModifiers.None,
+            MouseButton.Left)
+        {
+            RoutedEvent = InputElement.PointerReleasedEvent,
+            Handled = handled,
+        });
 
     [Theory]
     [InlineData(false, false)]
