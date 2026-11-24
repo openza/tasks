@@ -109,8 +109,37 @@ public sealed class CalendarDayViewModelTests
         Assert.Equal(start, block.Start);
         Assert.Equal(end, block.End);
         Assert.Equal(new DateTime(2026, 11, 1, 1, 30, 0), block.LocalStart);
-        Assert.Equal(new DateTime(2026, 11, 1, 2, 30, 0), block.LocalEnd);
+        Assert.Equal(new DateTime(2026, 11, 1, 1, 30, 0), block.LocalEnd);
+        Assert.Equal("01:30 – 01:30", block.TimeText);
         Assert.Equal(CalendarDayViewModel.HourHeight, block.Height);
+
+        var midnightEnd = TimeZoneInfo.TransitionTime.CreateFixedDateRule(
+            new DateTime(1, 1, 1, 0, 0, 0), 11, 1);
+        var midnightZone = TimeZoneInfo.CreateCustomTimeZone(
+            "Calendar test midnight Eastern",
+            TimeSpan.FromHours(-5),
+            "Calendar test midnight Eastern",
+            "EST",
+            "EDT",
+            [TimeZoneInfo.AdjustmentRule.CreateAdjustmentRule(
+                new DateTime(2026, 1, 1),
+                new DateTime(2026, 12, 31),
+                TimeSpan.FromHours(1),
+                daylightStart,
+                midnightEnd)]);
+        var midnightViewModel = new CalendarDayViewModel(midnightZone);
+        var previousDate = new DateOnly(2026, 10, 31);
+        var beforeMidnight = new DateTimeOffset(2026, 10, 31, 23, 30, 0, TimeSpan.FromHours(-4));
+        var afterFallback = new DateTimeOffset(2026, 10, 31, 23, 30, 0, TimeSpan.FromHours(-5));
+        var midnightTask = Item("midnight fallback", beforeMidnight, afterFallback);
+        midnightViewModel.SetSelectedDate(previousDate);
+        midnightViewModel.SetScheduledTasks([midnightTask]);
+        var lastHour = Assert.Single(midnightViewModel.Blocks);
+        Assert.Equal("23:30 – 23:30", lastHour.TimeText);
+        Assert.Equal(CalendarDayViewModel.HourHeight, lastHour.Height);
+
+        midnightViewModel.SetSelectedDate(previousDate.AddDays(1));
+        Assert.Empty(midnightViewModel.Blocks);
     }
 
     [Fact]

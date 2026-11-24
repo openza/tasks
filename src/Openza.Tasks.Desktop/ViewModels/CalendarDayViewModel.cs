@@ -168,6 +168,8 @@ public sealed class CalendarDayViewModel : ObservableObject
         Blocks.Clear();
         var dayStart = SelectedDate.ToDateTime(TimeOnly.MinValue);
         var dayEnd = dayStart.AddDays(1);
+        var dayStartInstant = new DateTimeOffset(dayStart, _timeZone.GetUtcOffset(dayStart));
+        var dayEndInstant = new DateTimeOffset(dayEnd, _timeZone.GetUtcOffset(dayEnd));
         foreach (var task in _scheduledTasks)
         {
             if (task.Task.ScheduledStart is not { } start ||
@@ -179,19 +181,16 @@ public sealed class CalendarDayViewModel : ObservableObject
             var end = task.Task.ScheduledEnd ?? start.AddHours(1);
             if (end <= start) continue;
 
-            var localStart = TimeZoneInfo.ConvertTime(start, _timeZone).DateTime;
-            var localEnd = TimeZoneInfo.ConvertTime(end, _timeZone).DateTime;
-            if (localEnd <= localStart && localStart.Date == localEnd.Date)
-            {
-                localEnd = localStart.Add(end - start);
-            }
-            if (localEnd <= dayStart || localStart >= dayEnd) continue;
+            if (end <= dayStartInstant || start >= dayEndInstant) continue;
 
-            var clippedStart = localStart < dayStart ? dayStart : localStart;
-            var clippedEnd = localEnd > dayEnd ? dayEnd : localEnd;
+            var clippedStart = start < dayStartInstant ? dayStartInstant : start;
+            var clippedEnd = end > dayEndInstant ? dayEndInstant : end;
             if (clippedEnd <= clippedStart) continue;
 
-            Blocks.Add(new CalendarDayBlockViewModel(task, start, end, clippedStart, clippedEnd, Now));
+            var localStart = TimeZoneInfo.ConvertTime(clippedStart, _timeZone).DateTime;
+            var localEnd = TimeZoneInfo.ConvertTime(clippedEnd, _timeZone).DateTime;
+            Blocks.Add(new CalendarDayBlockViewModel(
+                task, start, end, clippedStart, clippedEnd, localStart, localEnd, Now));
         }
 
         AssignOverlapColumns(Blocks);

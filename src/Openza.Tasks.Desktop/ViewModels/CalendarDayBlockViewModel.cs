@@ -6,6 +6,7 @@ public sealed class CalendarDayBlockViewModel : ObservableObject
 {
     private const double MinimumHeight = 32;
     private readonly DateTime _visibleEnd;
+    private readonly TimeSpan _visibleDuration;
     private DateTimeOffset _now;
     private int _overlapColumn;
     private int _overlapColumnCount = 1;
@@ -14,15 +15,18 @@ public sealed class CalendarDayBlockViewModel : ObservableObject
         TaskListItemViewModel task,
         DateTimeOffset start,
         DateTimeOffset end,
+        DateTimeOffset visibleStart,
+        DateTimeOffset visibleEnd,
         DateTime localStart,
-        DateTime visibleEnd,
+        DateTime localEnd,
         DateTimeOffset now)
     {
         Item = task;
         Start = start;
         End = end;
+        _visibleDuration = visibleEnd - visibleStart;
         LocalStart = localStart;
-        _visibleEnd = visibleEnd;
+        _visibleEnd = localEnd;
         _now = now;
     }
 
@@ -34,7 +38,15 @@ public sealed class CalendarDayBlockViewModel : ObservableObject
     public DateTime LocalStart { get; }
     public DateTime LocalEnd => _visibleEnd;
     public double Top => LocalStart.TimeOfDay.TotalMinutes * CalendarDayViewModel.HourHeight / 60;
-    public double Height => Math.Max(MinimumHeight, (LocalEnd - LocalStart).TotalMinutes * CalendarDayViewModel.HourHeight / 60);
+    public double Height
+    {
+        get
+        {
+            var wallClockMinutes = (LocalEnd - LocalStart).TotalMinutes;
+            var durationMinutes = wallClockMinutes > 0 ? wallClockMinutes : _visibleDuration.TotalMinutes;
+            return Math.Max(MinimumHeight, durationMinutes * CalendarDayViewModel.HourHeight / 60);
+        }
+    }
     internal DateTime LayoutEnd => LocalStart.AddMinutes(Height * 60 / CalendarDayViewModel.HourHeight);
     public string TimeText => $"{LocalStart:HH:mm} – {(LocalEnd.Date > LocalStart.Date ? "24:00" : LocalEnd.ToString("HH:mm"))}";
     public bool IsCompact => Height < 48;
