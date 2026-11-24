@@ -26,6 +26,25 @@ public sealed class WindowsMsixManifestTests
     private static string RepositoryRoot([CallerFilePath] string source = "") =>
         Path.GetFullPath(Path.Combine(Path.GetDirectoryName(source)!, "../.."));
 
+    [Fact]
+    public void Dev_and_Production_register_distinct_toast_activators()
+    {
+        XNamespace desktop = "http://schemas.microsoft.com/appx/manifest/desktop/windows10";
+        XNamespace com = "http://schemas.microsoft.com/appx/manifest/com/windows10";
+        var activators = new HashSet<Guid>();
+        foreach (var channel in new[] { "Dev", "Production" })
+        {
+            var manifest = XDocument.Load(Path.Combine(RepositoryRoot(), $"packaging/windows/Package.{channel}.appxmanifest"));
+            var toast = Assert.Single(manifest.Descendants(desktop + "ToastNotificationActivation"));
+            var server = Assert.Single(manifest.Descendants(com + "ExeServer"));
+            var clsid = Guid.Parse((string)toast.Attribute("ToastActivatorCLSID")!);
+            Assert.Equal(clsid, Guid.Parse((string)server.Element(com + "Class")!.Attribute("Id")!));
+            Assert.True(activators.Add(clsid));
+            Assert.Equal("Openza.Tasks.Desktop.exe", (string?)server.Attribute("Executable"));
+            Assert.Equal("----AppNotificationActivated:", (string?)server.Attribute("Arguments"));
+        }
+    }
+
     [Theory]
     [InlineData("Dev", "Package.Dev.appxmanifest", "0.1.3.0")]
     [InlineData("Production", "Package.appxmanifest", "1.4.0.0")]

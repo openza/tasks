@@ -34,7 +34,8 @@ and baseline replacements preserve the local reminder and its import marker.
 Backup/restore and task export/import retain reminder definitions. Desktop's
 inspector provides date, time and Clear controls. CLI accepts `--reminder` with an
 ISO 8601 instant including `Z` or a UTC offset, and `--clear-reminder` on updates.
-Openza does not send reminder notifications yet; nothing fires at the stored time.
+On Linux and Windows, the running Desktop app sends native notifications for due
+reminders on incomplete tasks, including imported reminders.
 
 ## Categories
 

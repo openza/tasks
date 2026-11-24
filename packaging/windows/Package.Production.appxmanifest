@@ -3,7 +3,9 @@
          xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
          xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
          xmlns:mp="http://schemas.microsoft.com/appx/2014/phone/manifest"
-         IgnorableNamespaces="uap rescap mp">
+         xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
+         xmlns:com="http://schemas.microsoft.com/appx/manifest/com/windows10"
+         IgnorableNamespaces="uap rescap mp desktop com">
   <Identity Name="Openza.OpenzaTasks" Publisher="CN=DAC3BFD1-0B27-4912-85AF-DB96E18108D1" Version="1.4.0.0" ProcessorArchitecture="x64" />
   <mp:PhoneIdentity PhoneProductId="f42e14cc-5ade-44f4-a7bf-e282bf33ae79"
                     PhonePublisherId="00000000-0000-0000-0000-000000000000" />
@@ -25,6 +27,18 @@
                           Square150x150Logo="Assets\Square150x150Logo.png">
         <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png" />
       </uap:VisualElements>
+      <Extensions>
+        <desktop:Extension Category="windows.toastNotificationActivation">
+          <desktop:ToastNotificationActivation ToastActivatorCLSID="b2e58f2e-413d-4de5-a29a-1a78b107c2a3" />
+        </desktop:Extension>
+        <com:Extension Category="windows.comServer">
+          <com:ComServer>
+            <com:ExeServer Executable="Openza.Tasks.Desktop.exe" Arguments="----AppNotificationActivated:" DisplayName="Openza Tasks">
+              <com:Class Id="b2e58f2e-413d-4de5-a29a-1a78b107c2a3" />
+            </com:ExeServer>
+          </com:ComServer>
+        </com:Extension>
+      </Extensions>
     </Application>
   </Applications>
   <Capabilities>

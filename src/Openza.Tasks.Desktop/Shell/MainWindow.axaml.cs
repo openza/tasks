@@ -77,6 +77,7 @@ public sealed partial class MainWindow : Window
     }
 
     public MainWindowViewModel ViewModel { get; }
+    internal event EventHandler? StartupCompleted;
 
     private bool FilterLabelSuggestion(string? search, string? suggestion)
     {
@@ -116,6 +117,7 @@ public sealed partial class MainWindow : Window
         await ViewModel.InitializeAsync();
         AutomaticSyncToggle.IsChecked = ViewModel.AutomaticSyncEnabled;
         _initialized = true;
+        StartupCompleted?.Invoke(this, EventArgs.Empty);
         UpdateAutomaticSyncTimer();
         UpdateConnectedPaneForCurrentView(autoOpen: true);
         UpdateWorkbenchLayout();

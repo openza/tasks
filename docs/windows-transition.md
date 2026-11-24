@@ -164,7 +164,9 @@ and upgrade acceptance still require a separately authorized installed Dev test.
    Web round trips are not substitutes for package acceptance.
 
 See [Windows platform notes](windows-continuation.md) for additional implementation
-context. Reminders and notification delivery are separate product work.
+context. The Avalonia Dev and Production MSIX packages register for native task
+reminder notifications. Unpackaged builds need a Windows runtime target (for
+example, `dotnet publish -r win-x64 --self-contained true`) to include notification support.
 
 ## Platform references
 

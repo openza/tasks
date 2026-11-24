@@ -26,6 +26,7 @@ apps:
     common-id: com.openza.Tasks
     extensions: [gnome]
     plugs:
+      - desktop
       - home
       - network
       - network-bind

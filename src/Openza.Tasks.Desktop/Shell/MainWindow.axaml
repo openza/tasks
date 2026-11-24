@@ -559,7 +559,7 @@
                                                 <TimePicker x:Name="DetailReminderTimePicker" AutomationProperties.Name="Task reminder time" SelectedTime="{Binding DetailReminderTime, Mode=TwoWay}" SelectedTimeChanged="OnReminderTimeChanged"/>
                                                 <Button Content="Clear" AutomationProperties.Name="Clear reminder" Click="OnClearReminderClicked"/>
                                             </StackPanel>
-                                            <TextBlock Classes="field-label" TextWrapping="Wrap" Text="Stays on this device. Openza doesn't send reminder notifications yet."/>
+                                            <TextBlock Classes="field-label" TextWrapping="Wrap" Text="Stays on this device. Openza sends desktop notifications while the app is open."/>
                                         </StackPanel>
                                     </Grid>
                                     <Border IsVisible="{Binding HasSourceDateMismatch}" Padding="12" Background="{DynamicResource OpenzaElevatedSurfaceBrush}" BorderBrush="{DynamicResource OpenzaBorderBrush}" BorderThickness="1" CornerRadius="7">

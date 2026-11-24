@@ -1,6 +1,6 @@
 # Scheduling, recurrence and completion
 
-This contract separates intended meanings from current behavior. It does not add a planner, recurrence engine or reminder service. See the [task behavior contracts](behavior-contracts.md).
+This contract separates intended meanings from current behavior. See the [task behavior contracts](behavior-contracts.md).
 
 ## Local reminder definition
 
@@ -10,9 +10,12 @@ and time; CLI edits require an explicit UTC offset or `Z`. Microsoft To Do remin
 imports convert the provider's time zone to UTC once, preserving later local edits.
 Reminder definitions stay on this device, survive cloud baseline replacement and
 are included in task export/import and database backups. They are not published to
-Personal Cloud. There is no notification delivery yet: storing a reminder does not
-schedule an alarm, background wakeup or server notification. Delivery attempts and
-multi-device notification behavior remain separate future work.
+Personal Cloud. On Linux and Windows, the running Desktop app sends a native
+notification when an incomplete task's reminder becomes due. If the app is
+closed or the computer is asleep, it checks for missed reminders when it next
+runs. It does not wake the computer or run in the background after closing.
+Delivery state stays on this device and is separate from task backups and exports.
+The desktop's notification settings control whether a banner is displayed.
 
 The editor rejects local times skipped by a daylight-saving clock change rather
 than shifting them silently. Repeated fall-back times use the standard-time
@@ -28,7 +31,7 @@ the upper bound of the existing instant storage convention.
 | Scheduled work | A work interval on the task, distinct from its intended Date and Deadline. |
 | Duration | Duration metadata; storing it does not imply a session or completed work. |
 | Recurrence | A repeating definition, separate from completing a task or occurrence. |
-| Reminder | One optional device-local absolute instant. Storing it does not send a notification. |
+| Reminder | One optional device-local absolute instant. Desktop checks whether it is due before sending a native notification. |
 
 ## Current behavior
 
@@ -53,4 +56,4 @@ the upper bound of the existing instant storage convention.
 
 ## Decisions before expansion
 
-A schedule editor needs timezone, partial/reversed interval, overlap and multi-session rules. A recurrence engine needs grammar, occurrence identity, missed/skip/completion behavior, ownership and multi-device idempotency. Notification delivery attempts need a separate model from local reminder definitions. Delivery is not selected merely because a reminder value exists. All Windows work and continuity policy decisions are parked until Linux Snap is stable and the maintainer explicitly asks to resume; retain the [continuity reference](windows-transition.md) and Dev gate for that future work.
+A schedule editor needs timezone, partial/reversed interval, overlap and multi-session rules. A recurrence engine needs grammar, occurrence identity, missed/skip/completion behavior, ownership and multi-device idempotency. All Windows work and continuity policy decisions are parked until Linux Snap is stable and the maintainer explicitly asks to resume; retain the [continuity reference](windows-transition.md) and Dev gate for that future work.
