@@ -65,6 +65,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private int _projectFilterIndex;
     private string _pageTitle = "Inbox";
     private string _pageSubtitle = SubtitleFor(TaskListKind.Inbox);
+    private string _calendarListSubtitle = SubtitleFor(TaskListKind.Calendar);
     private string _statusMessage = "Ready";
     private bool _isStatusMessagePersistent;
     private bool _isBusy;
@@ -986,6 +987,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     public void SetCalendarDayView(bool isDayView)
     {
         CalendarDay.SetDayView(isDayView);
+        PageSubtitle = isDayView ? "Scheduled time blocks" : _calendarListSubtitle;
         OnPropertyChanged(nameof(IsCalendarDayView));
         OnPropertyChanged(nameof(IsCalendarListView));
     }
@@ -2683,7 +2685,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
         BuildTaskEntries(projects);
         OnPropertyChanged(nameof(HasNoTasks));
         var taskCountText = $"{Tasks.Count} task{(Tasks.Count == 1 ? string.Empty : "s")}";
-        PageSubtitle = viewKind == TaskListKind.Inbox ? $"{taskCountText} · {SubtitleFor(viewKind)}" : taskCountText;
+        _calendarListSubtitle = viewKind == TaskListKind.Inbox ? $"{taskCountText} · {SubtitleFor(viewKind)}" : taskCountText;
+        PageSubtitle = CalendarDay.IsDayView && viewKind == TaskListKind.Calendar
+            ? "Scheduled time blocks"
+            : _calendarListSubtitle;
 
         UpdateNavigationCounts(snapshot.Counts);
         _spaceTaskCount = snapshot.Counts.All;

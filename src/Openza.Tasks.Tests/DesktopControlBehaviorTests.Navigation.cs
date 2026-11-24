@@ -42,6 +42,21 @@ public sealed partial class DesktopControlBehaviorTests
     });
 
     [Fact]
+    public Task Calendar_day_header_uses_block_subtitle_without_changing_the_filtered_list_count() => Run(async context =>
+    {
+        await context.Vm.SelectNavigationAsync(context.Vm.NavigationItems.Single(item => item.Kind == TaskListKind.Calendar));
+        context.Vm.SearchText = "yesterday-only-filter";
+        await context.Vm.ApplySearchAsync();
+        var listSubtitle = context.Vm.PageSubtitle;
+
+        context.Vm.SetCalendarDayView(true);
+
+        Assert.Equal("Scheduled time blocks", context.Vm.PageSubtitle);
+        context.Vm.SetCalendarDayView(false);
+        Assert.Equal(listSubtitle, context.Vm.PageSubtitle);
+    });
+
+    [Fact]
     public Task Calendar_day_and_today_panel_include_tasks_from_all_spaces() => Run(async context =>
     {
         var existing = (await context.Store.GetTaskAsync("task-0"))!;
