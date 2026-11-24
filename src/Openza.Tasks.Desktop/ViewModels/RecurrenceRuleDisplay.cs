@@ -22,16 +22,16 @@ internal static class RecurrenceRuleDisplay
             var month = Number(pattern, "month") is >= 1 and <= 12 and var number
                 ? CultureInfo.CurrentCulture.DateTimeFormat.GetMonthName(number) : null;
             var dayOfMonth = Number(pattern, "dayOfMonth");
-            var index = Text(pattern, "index");
+            var index = Text(pattern, "index") ?? "first";
             var relativeDay = weekdays.Contains(',') ? $"matching weekday ({weekdays})" : weekdays;
             var summary = Text(pattern, "type") switch
             {
                 "daily" => Every(interval, "day"),
                 "weekly" => Every(interval, "week") + (weekdays.Length == 0 ? "" : $" on {weekdays}"),
                 "absoluteMonthly" when dayOfMonth > 0 => $"{Every(interval, "month")} on day {dayOfMonth}",
-                "relativeMonthly" when index is not null && weekdays.Length > 0 => $"{Every(interval, "month")} on the {index} {relativeDay}",
+                "relativeMonthly" when weekdays.Length > 0 => $"{Every(interval, "month")} on the {index} {relativeDay}",
                 "absoluteYearly" when month is not null && dayOfMonth > 0 => $"{Every(interval, "year")} on {month} {dayOfMonth}",
-                "relativeYearly" when month is not null && index is not null && weekdays.Length > 0 => $"{Every(interval, "year")} on the {index} {relativeDay} in {month}",
+                "relativeYearly" when month is not null && weekdays.Length > 0 => $"{Every(interval, "year")} on the {index} {relativeDay} in {month}",
                 _ => null,
             };
             if (summary is null) return rule;

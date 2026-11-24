@@ -49,7 +49,7 @@ the upper bound of the existing instant storage convention.
 
 [List projection](../src/Openza.Tasks.Core/Data/TaskListProjection.cs) owns SQL-free membership, ordering, hierarchy and snapshot counts. [SQLite storage](../src/Openza.Tasks.Core/Data/SqliteTaskStore.cs) captures its injected clock's local day once at the start of each task-list, refresh-snapshot or SQL-count read. All projections within that read share the captured day, including workspace/sidebar counts; write timestamps are unchanged. SQL midnight bounds resolve each local date's offset independently. Synthetic frozen-clock tests exercise real store lists, refresh snapshots and sidebar navigation across previous-day, midnight, repeated-hour, last-second and next-midnight instants. Process-local America/New_York checks cover 23/25-hour days without changing the machine timezone.
 
-[Workspace validation](../src/Openza.Tasks.Core/PersonalCloud/WorkspaceContracts.cs) accepts nullable duration integers from 0 through 525600 and bounded recurrence text, not a shared recurrence grammar. Local model storage is not a universal validation API. Provider recurrence stays source-owned; it is not silently promoted into a local rule.
+[Workspace validation](../src/Openza.Tasks.Core/PersonalCloud/WorkspaceContracts.cs) accepts nullable duration integers from 0 through 525600 and bounded recurrence text, not a shared recurrence grammar. Local model storage is not a universal validation API. Provider recurrence stays source-owned except for the one-time copy into a local rule during [Microsoft To Do migration](microsoft-to-do-integration.md).
 
 ## Decisions before expansion
 
