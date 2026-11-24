@@ -13,7 +13,11 @@ public sealed partial class SqliteTaskStore
     {
         await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         var command = connection.CreateCommand();
-        command.CommandText = "UPDATE tasks SET reminder_at=@r,revision=revision+1 WHERE id=@id AND (@v IS NULL OR revision=@v)";
+        command.CommandText = """
+            UPDATE tasks SET reminder_at=@r,revision=revision+1,
+                reminder_version=CASE WHEN reminder_at IS NOT @r THEN lower(hex(randomblob(16))) ELSE reminder_version END
+            WHERE id=@id AND (@v IS NULL OR revision=@v)
+            """;
         command.Parameters.AddWithValue("@id", taskId);
         command.Parameters.AddWithValue("@r", ToDbReminderInstant(reminderAt));
         command.Parameters.AddWithValue("@v", expectedRevision is { } revision ? revision : DBNull.Value);
@@ -25,7 +29,11 @@ public sealed partial class SqliteTaskStore
     {
         await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         var command = connection.CreateCommand();
-        command.CommandText = "UPDATE tasks SET reminder_at=@r,revision=revision+1 WHERE id=@id AND reminder_at IS @expected";
+        command.CommandText = """
+            UPDATE tasks SET reminder_at=@r,revision=revision+1,
+                reminder_version=CASE WHEN reminder_at IS NOT @r THEN lower(hex(randomblob(16))) ELSE reminder_version END
+            WHERE id=@id AND reminder_at IS @expected
+            """;
         command.Parameters.AddWithValue("@id", taskId);
         command.Parameters.AddWithValue("@r", ToDbReminderInstant(reminderAt));
         command.Parameters.AddWithValue("@expected", ToDbTaskInstant(expectedReminderAt));
@@ -77,6 +85,7 @@ public sealed partial class SqliteTaskStore
         }
         await WorkspaceExecuteAsync(connection, """
             UPDATE tasks SET reminder_at=COALESCE(reminder_at,@r),
+                reminder_version=CASE WHEN reminder_at IS NULL AND @r IS NOT NULL THEN lower(hex(randomblob(16))) ELSE reminder_version END,
                 source_metadata=json_set(COALESCE(source_metadata,'{}'),'$.msToDoReminderApplied',json('true')),
                 revision=revision+1
             WHERE id=@id AND COALESCE(json_extract(source_metadata,'$.msToDoReminderApplied'),0)=0

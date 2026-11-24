@@ -10,7 +10,7 @@ namespace Openza.Tasks.Core.Data;
 
 public sealed partial class SqliteTaskStore(string databasePath, bool readOnly = false, TimeProvider? timeProvider = null) : ITaskStore
 {
-    public const int CurrentSchemaVersion = 14;
+    public const int CurrentSchemaVersion = 15;
     public const int MinimumReadOnlySchemaVersion = 5;
 
     private sealed record ParentTaskContext(string Id, string SpaceId, string? ProjectId, TaskWorkflowStatus WorkflowStatus);
@@ -4476,13 +4476,14 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
                                source_url, completion_state, workflow_status, planned_on, planned_at, deadline_on, deadline_at,
                                scheduled_start, scheduled_end, duration_minutes, recurrence_rule,
                                notes, provider_metadata, source_metadata, local_metadata,
-                               created_at, updated_at, completed_at, revision, reminder_at)
+                               created_at, updated_at, completed_at, revision, reminder_at, reminder_version)
             VALUES (@id, @external_id, @space_id, @integration_id, @provider_connection_id, @title, @description, @source_description, @project_id, @parent_id,
                     @priority, @source_integration_id, @source_connection_id, @source_external_id, @source_provider_task_id,
                     @source_url, @completion_state, @workflow_status, @planned_on, @planned_at, @deadline_on, @deadline_at,
                     @scheduled_start, @scheduled_end, @duration_minutes, @recurrence_rule,
                     @notes, @provider_metadata, @source_metadata, @local_metadata,
-                    @created_at, @updated_at, @completed_at, @revision, @reminder_at)
+                    @created_at, @updated_at, @completed_at, @revision, @reminder_at,
+                    CASE WHEN @reminder_at IS NOT NULL THEN lower(hex(randomblob(16))) END)
             ON CONFLICT(id) DO UPDATE SET
                 external_id = excluded.external_id,
                 space_id = excluded.space_id,
@@ -4507,6 +4508,8 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
                 deadline_at = excluded.deadline_at,
                 scheduled_start = excluded.scheduled_start,
                 reminder_at = excluded.reminder_at,
+                reminder_version = CASE WHEN tasks.reminder_at IS NOT excluded.reminder_at
+                    THEN lower(hex(randomblob(16))) ELSE tasks.reminder_version END,
                 scheduled_end = excluded.scheduled_end,
                 duration_minutes = excluded.duration_minutes,
                 recurrence_rule = excluded.recurrence_rule,
@@ -4791,6 +4794,13 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
         {
             using var source = typeof(SqliteTaskStore).Assembly.GetManifestResourceStream("Openza.Tasks.Core.Data.Migrations.0014_task_reminders.sql")
                 ?? throw new InvalidOperationException("The reminder migration script is missing.");
+            using var reader = new StreamReader(source);
+            await ExecuteNonQueryAsync(connection, await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
+        }
+        if (!(await GetColumnNamesAsync(connection, "tasks", cancellationToken).ConfigureAwait(false)).Contains("reminder_version"))
+        {
+            using var source = typeof(SqliteTaskStore).Assembly.GetManifestResourceStream("Openza.Tasks.Core.Data.Migrations.0015_task_reminder_version.sql")
+                ?? throw new InvalidOperationException("The reminder version migration script is missing.");
             using var reader = new StreamReader(source);
             await ExecuteNonQueryAsync(connection, await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
         }

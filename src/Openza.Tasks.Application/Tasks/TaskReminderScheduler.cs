@@ -14,6 +14,11 @@ public sealed class TaskReminderScheduler(
     private static readonly TimeSpan CheckInterval = TimeSpan.FromSeconds(5);
     private readonly TimeProvider _clock = timeProvider ?? TimeProvider.System;
 
+    private sealed record ReminderDelivery(DateTimeOffset At, string? Version)
+    {
+        public static ReminderDelivery FromSchedule(TaskReminderSchedule reminder) => new(reminder.At, reminder.Version);
+    }
+
     public async Task RunAsync(CancellationToken cancellationToken)
     {
         using var timer = new PeriodicTimer(CheckInterval, _clock);
@@ -38,12 +43,10 @@ public sealed class TaskReminderScheduler(
         if (lease is null) return;
 
         var path = Path.Combine(stateDirectory, "reminder-deliveries.json");
-        var delivered = File.Exists(path)
-            ? JsonSerializer.Deserialize<Dictionary<string, DateTimeOffset>>(File.ReadAllText(path)) ?? []
-            : [];
+        var delivered = ReadDelivered(path);
         var schedules = await store.GetReminderSchedulesAsync(cancellationToken).ConfigureAwait(false);
-        var scheduledTimes = schedules.ToDictionary(reminder => reminder.TaskId, reminder => reminder.At, StringComparer.Ordinal);
-        var obsolete = delivered.Where(entry => !scheduledTimes.TryGetValue(entry.Key, out var at) || at != entry.Value)
+        var scheduled = schedules.ToDictionary(reminder => reminder.TaskId, ReminderDelivery.FromSchedule, StringComparer.Ordinal);
+        var obsolete = delivered.Where(entry => !scheduled.TryGetValue(entry.Key, out var current) || current != entry.Value)
             .Select(entry => entry.Key).ToArray();
         if (obsolete.Length > 0)
         {
@@ -56,16 +59,18 @@ public sealed class TaskReminderScheduler(
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (!reminder.IsOpen || reminder.At > now || delivered.ContainsKey(reminder.TaskId)) continue;
+            var current = await store.GetReminderScheduleAsync(reminder.TaskId, cancellationToken).ConfigureAwait(false);
+            if (current is not { IsOpen: true } || current.At != reminder.At || current.Version != reminder.Version) continue;
             try
             {
-                await notify(reminder, cancellationToken).ConfigureAwait(false);
+                await notify(current, cancellationToken).ConfigureAwait(false);
             }
             catch (Exception) when (!cancellationToken.IsCancellationRequested)
             {
                 Trace.TraceWarning("Could not send a native task reminder notification.");
                 continue;
             }
-            delivered[reminder.TaskId] = reminder.At;
+            delivered[current.TaskId] = ReminderDelivery.FromSchedule(current);
             SaveDelivered(path, delivered);
         }
     }
@@ -80,7 +85,16 @@ public sealed class TaskReminderScheduler(
         catch (IOException) { return null; }
     }
 
-    private static void SaveDelivered(string path, Dictionary<string, DateTimeOffset> delivered)
+    private static Dictionary<string, ReminderDelivery> ReadDelivered(string path)
+    {
+        if (!File.Exists(path)) return [];
+        var stored = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(File.ReadAllText(path)) ?? [];
+        return stored.ToDictionary(entry => entry.Key, entry => entry.Value.ValueKind == JsonValueKind.String
+            ? new ReminderDelivery(entry.Value.GetDateTimeOffset(), null)
+            : entry.Value.Deserialize<ReminderDelivery>()!, StringComparer.Ordinal);
+    }
+
+    private static void SaveDelivered(string path, Dictionary<string, ReminderDelivery> delivered)
     {
         var staged = path + ".tmp";
         File.WriteAllText(staged, JsonSerializer.Serialize(delivered));

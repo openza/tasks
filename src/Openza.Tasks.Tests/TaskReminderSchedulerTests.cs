@@ -22,7 +22,7 @@ public sealed class TaskReminderSchedulerTests : IDisposable
         _clock.Now = due;
         await Scheduler(store).CheckAsync();
         await Scheduler(store).CheckAsync();
-        Assert.Equal(new TaskReminderSchedule("remind", "Remember this", due, true), Assert.Single(_delivered));
+        Assert.Equal(new TaskReminderSchedule("remind", "Remember this", due, true), Assert.Single(_delivered) with { Version = null });
     }
 
     [Fact]
@@ -58,6 +58,52 @@ public sealed class TaskReminderSchedulerTests : IDisposable
         await store.TrySetTaskReminderAsync("rescheduled", _clock.Now);
         await scheduler.CheckAsync();
         Assert.Equal(new[] { changed, _clock.Now }, _delivered.Select(reminder => reminder.At));
+    }
+
+    [Fact]
+    public async Task Rechecks_later_tasks_after_earlier_delivery_changes_them()
+    {
+        var store = await OpenStoreAsync();
+        await store.UpsertTaskAsync(new TaskItem { Id = "first", Title = "First", ReminderAt = _clock.Now.AddMinutes(-1) });
+        foreach (var id in new[] { "deleted", "completed", "rescheduled", "renamed" })
+            await store.UpsertTaskAsync(new TaskItem { Id = id, Title = id, ReminderAt = _clock.Now });
+
+        var scheduler = new TaskReminderScheduler(store, _directory, async (reminder, _) =>
+        {
+            _delivered.Add(reminder);
+            if (reminder.TaskId != "first") return;
+            await store.DeleteTaskAsync("deleted");
+            var completed = (await store.GetTaskAsync("completed"))!;
+            await store.UpsertTaskAsync(completed with { CompletionState = TaskCompletionState.Completed });
+            await store.TrySetTaskReminderAsync("rescheduled", _clock.Now.AddHours(1));
+            var renamed = (await store.GetTaskAsync("renamed"))!;
+            await store.UpsertTaskAsync(renamed with { Title = "New title" });
+        }, _clock);
+
+        await scheduler.CheckAsync();
+        Assert.Equal(new[] { "first", "renamed" }, _delivered.Select(reminder => reminder.TaskId));
+        Assert.Equal("New title", _delivered[1].Title);
+    }
+
+    [Fact]
+    public async Task Clearing_and_rearming_the_same_instant_between_polls_delivers_it_again()
+    {
+        var store = await OpenStoreAsync();
+        var due = _clock.Now;
+        await store.UpsertTaskAsync(new TaskItem { Id = "remind", Title = "Remember this", ReminderAt = due });
+        await Scheduler(store).CheckAsync();
+        Assert.Single(_delivered);
+
+        Assert.True(await store.TryReplaceTaskReminderAsync("remind", due, null));
+        Assert.True(await store.TrySetTaskReminderAsync("remind", due));
+        await Scheduler(store).CheckAsync();
+        Assert.Equal(new[] { due, due }, _delivered.Select(reminder => reminder.At));
+
+        var task = (await store.GetTaskAsync("remind"))!;
+        await store.UpsertTaskAsync(task with { Title = "Remember the new title" });
+        Assert.True(await store.TrySetTaskReminderAsync("remind", due));
+        await Scheduler(store).CheckAsync();
+        Assert.Equal(2, _delivered.Count);
     }
 
     [Fact]
