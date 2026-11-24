@@ -78,6 +78,42 @@ public sealed class CalendarDayViewModelTests
     }
 
     [Fact]
+    public void Block_crossing_the_fall_back_hour_uses_its_absolute_duration()
+    {
+        var daylightStart = TimeZoneInfo.TransitionTime.CreateFloatingDateRule(
+            new DateTime(1, 1, 1, 2, 0, 0), 3, 2, DayOfWeek.Sunday);
+        var daylightEnd = TimeZoneInfo.TransitionTime.CreateFloatingDateRule(
+            new DateTime(1, 1, 1, 2, 0, 0), 11, 1, DayOfWeek.Sunday);
+        var timeZone = TimeZoneInfo.CreateCustomTimeZone(
+            "Calendar test Eastern",
+            TimeSpan.FromHours(-5),
+            "Calendar test Eastern",
+            "EST",
+            "EDT",
+            [TimeZoneInfo.AdjustmentRule.CreateAdjustmentRule(
+                new DateTime(2026, 1, 1),
+                new DateTime(2026, 12, 31),
+                TimeSpan.FromHours(1),
+                daylightStart,
+                daylightEnd)]);
+        var viewModel = new CalendarDayViewModel(timeZone);
+        var day = new DateOnly(2026, 11, 1);
+        viewModel.SetSelectedDate(day);
+        var start = new DateTimeOffset(2026, 11, 1, 1, 30, 0, TimeSpan.FromHours(-4));
+        var end = new DateTimeOffset(2026, 11, 1, 1, 30, 0, TimeSpan.FromHours(-5));
+        var task = Item("fall back", start, end);
+
+        viewModel.SetScheduledTasks([task]);
+
+        var block = Assert.Single(viewModel.Blocks);
+        Assert.Equal(start, block.Start);
+        Assert.Equal(end, block.End);
+        Assert.Equal(new DateTime(2026, 11, 1, 1, 30, 0), block.LocalStart);
+        Assert.Equal(new DateTime(2026, 11, 1, 2, 30, 0), block.LocalEnd);
+        Assert.Equal(CalendarDayViewModel.HourHeight, block.Height);
+    }
+
+    [Fact]
     public void Short_blocks_use_compact_content_and_keep_accessible_time()
     {
         var viewModel = new CalendarDayViewModel();

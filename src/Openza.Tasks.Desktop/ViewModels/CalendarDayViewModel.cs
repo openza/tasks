@@ -12,12 +12,18 @@ public sealed class CalendarDayViewModel : ObservableObject
     private readonly List<TaskListItemViewModel> _scheduledTasks = [];
     private readonly List<TaskListItemViewModel> _todayTaskSource = [];
     private readonly List<TaskListItemViewModel> _todayTasks = [];
+    private readonly TimeZoneInfo _timeZone;
     private DateOnly _selectedDate = DateOnly.FromDateTime(DateTime.Now);
     private DateTimeOffset _now = DateTimeOffset.Now;
     private string? _todaySpaceId;
     private bool _isDayView;
     private bool _isTodayPanelOpen;
     private string _todaySearchText = string.Empty;
+
+    public CalendarDayViewModel(TimeZoneInfo? timeZone = null)
+    {
+        _timeZone = timeZone ?? TimeZoneInfo.Local;
+    }
 
     public ObservableCollection<CalendarDayBlockViewModel> Blocks { get; } = [];
     public ObservableCollection<TaskListItemViewModel> FilteredTodayTasks { get; } = [];
@@ -173,8 +179,12 @@ public sealed class CalendarDayViewModel : ObservableObject
             var end = task.Task.ScheduledEnd ?? start.AddHours(1);
             if (end <= start) continue;
 
-            var localStart = start.LocalDateTime;
-            var localEnd = end.LocalDateTime;
+            var localStart = TimeZoneInfo.ConvertTime(start, _timeZone).DateTime;
+            var localEnd = TimeZoneInfo.ConvertTime(end, _timeZone).DateTime;
+            if (localEnd <= localStart && localStart.Date == localEnd.Date)
+            {
+                localEnd = localStart.Add(end - start);
+            }
             if (localEnd <= dayStart || localStart >= dayEnd) continue;
 
             var clippedStart = localStart < dayStart ? dayStart : localStart;
