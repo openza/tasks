@@ -7,8 +7,8 @@ Avalonia replacement passes acceptance.
 
 Linux Snap and Windows (Avalonia MSIX replacing the WinUI Store app) are both
 active development and delivery targets. WinUI remains frozen as the continuity
-baseline with no new WinUI releases. Production continuity and package preparation are authorized for Avalonia 1.4.0.0.
-Preview stays rejected; installation and Store submission require explicit approval.
+baseline with no new WinUI releases. Preview stays rejected; installation and Store submission always need the
+maintainer's explicit approval.
 
 Keep Core, Application and Desktop code cross-platform and Windows-compatible,
 with OS-specific behavior behind platform services. The optional Windows CI job
@@ -33,7 +33,7 @@ of Flutter-era or other legacy stores is excluded.
 
 Keep test fixtures separate from live installations, and never point both hosts at
 the same writable database. Preview/Production installation, replacement and Store
-release require maintainer release approval. The 1.4.0.0 release retains reconnect notices and initially disabled automatic
+release require maintainer release approval. The Production release retains reconnect notices and initially disabled automatic
 sync/OneDrive upload; freezing WinUI does not authorize a new WinUI release.
 
 ## Dev and Production implementation
@@ -52,7 +52,7 @@ sync/OneDrive upload; freezing WinUI does not authorize a new WinUI release.
 - Scoped `PasswordVault` upsert replaces through supported `Add`, without removing
   the original first. Unscoped legacy provider credentials lack channel ownership
   proof and are not automatically copied. Provider reconnection and initially
-  disabled automatic sync/OneDrive upload are retained policies for the authorized Production 1.4.0.0 release;
+  disabled automatic sync/OneDrive upload are retained policies for the Production release;
   native package/vault validation remains separate.
 - Microsoft cache handling uses package-local DPAPI CurrentUser and supported MSAL
   callbacks/account APIs for the configured client/account. It retains originals,
@@ -122,13 +122,13 @@ checks; native UI/package acceptance remains separate.
 | --- | --- | --- | --- |
 | Dev | Openza.OpenzaTasks.Dev | 0.1.N.0 (from 0.1.1.0) | 0.1.0.0 |
 | Preview | Openza.OpenzaTasks.Preview | 0.N.B.0 | 0.2.3.0 |
-| Production | Openza.OpenzaTasks | 1.N.P.0 | 1.0.0.0 (live Store, 2026-06-24) |
+| Production | Openza.OpenzaTasks | 1.N.P.0 | 1.0.0.0 (final WinUI Store release) |
 
 Dev uses `0.1.N.0` from `0.1.1.0` so Avalonia can upgrade the June WinUI Dev
 baseline `0.1.0.0` without lowering its version.
-The Production baseline is the live Store version from 2026-06-24; Dev and Preview
+The Production baseline is the final WinUI Store release; Dev and Preview
 baselines are source manifest values, not claims about installed versions. The
-Avalonia Production manifest targets 1.4.0.0. Preserve publisher/name association,
+Avalonia Production manifest follows the `1.N.P.0` lane. Preserve publisher/name association,
 architecture and OS constraints; keep private Store metadata out of Git.
 
 ### MSIX packaging
@@ -136,8 +136,8 @@ architecture and OS constraints; keep private Store metadata out of Git.
 On Windows with .NET 10 and Windows SDK `makeappx.exe` on PATH, run
 `./scripts/windows/package-msix.ps1`. It publishes self-contained .NET and Windows
 App SDK binaries into a unique layout under ignored `artifacts/msix/`, then packs
-the Avalonia Dev manifest. Pass `-Channel Production` for the authorized 1.4.0.0
-Store package: it uses the dedicated Package entry project, Production profile and
+the Avalonia Dev manifest. Pass `-Channel Production` for the Store
+package: it uses the dedicated Package entry project, Production profile and
 `.openza-channel` marker. Preview is rejected. Output is unsigned unless a PFX is
 provided; see [Store submission](store-submission.md). The application ID `App`,
 publisher, architecture, display names and assets match the June WinUI Dev package.

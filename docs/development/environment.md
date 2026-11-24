@@ -36,8 +36,6 @@ Release builds keep the production package identity, `Openza.OpenzaTasks`, and a
 | Preview | `Openza.OpenzaTasks.Preview` | Openza Tasks Preview | `0.N.B.0` |
 | Production | `Openza.OpenzaTasks` | Openza Tasks | `1.N.P.0` |
 
-Current Preview version: `0.2.3.0`.
-
 ### Linux channel isolation
 
 Linux hosts use independent data, settings, restore points, locks, and Secret Service namespaces:

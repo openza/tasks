@@ -27,7 +27,7 @@ These contracts state the intended product meanings. Current behavior, exception
 | Local enhancements | Notes, labels, local priority, project and workflow generally survive provider refresh. Refresh has explicit date/hierarchy exceptions below. |
 | Provider writes | Completion/reopen and bounded Todoist Date changes for non-recurring source tasks exist. Arbitrary provider title, notes, labels or deadline editing is not implied. |
 | Recurrence | Metadata is stored; local completion does not create another occurrence. A provider can advance and reopen the same wrapper. No universal recurrence engine or reminder service is established. |
-| Windows continuity | Active. WinUI stays frozen as the continuity baseline; Avalonia MSIX replaces it under [Windows continuity](windows-transition.md). Production 1.4.0.0 Store release is prepared; installing and submitting it need explicit maintainer approval. Retain the Dev gate. Shared code remains cross-platform. |
+| Windows continuity | Active. WinUI stays frozen as the continuity baseline; Avalonia MSIX replaces it under [Windows continuity](windows-transition.md). Installing and submitting a Store release need explicit maintainer approval. Retain the Dev gate. Shared code remains cross-platform. |
 
 ## Implementation and preservation rules
 

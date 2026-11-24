@@ -2,7 +2,7 @@
 
 ## Direction and contract authority
 
-Openza Tasks is a local-first task app with an optional cloud controlled by the user. Avalonia is the cross-platform desktop host using its built-in Fluent theme and controls. Linux Snap and Windows (the Avalonia MSIX replacing the WinUI Store app) are both active development and delivery targets. Shared Core, Application and Desktop code remains Windows-compatible, avoids Linux-only assumptions and delegates OS specifics to platform services. WinUI is frozen at its final Microsoft Store release with no further releases or maintenance. Existing Store users remain on that release until the Avalonia replacement passes the [Windows acceptance gates](windows-transition.md); Production Store release 1.4.0.0 is prepared, and installing and submitting it need the maintainer's explicit approval. macOS is deferred.
+Openza Tasks is a local-first task app with an optional cloud controlled by the user. Avalonia is the cross-platform desktop host using its built-in Fluent theme and controls. Linux Snap and Windows (the Avalonia MSIX replacing the WinUI Store app) are both active development and delivery targets. Shared Core, Application and Desktop code remains Windows-compatible, avoids Linux-only assumptions and delegates OS specifics to platform services. WinUI is frozen at its final Microsoft Store release with no further releases or maintenance. Existing Store users remain on that release until the Avalonia replacement passes the [Windows acceptance gates](windows-transition.md); installing and submitting a Store release need the maintainer's explicit approval. macOS is deferred.
 
 Lightweight [behavior contracts](behavior-contracts.md) are the product source of truth. Avalonia is the practical reference for ordinary desktop interactions. Existing protocol documents retain their detailed wire contracts; historical staged checkpoints are not a complete description of today's UI. Resolve discrepancies explicitly rather than copying behavior between hosts blindly.
 
@@ -79,7 +79,7 @@ Global search is available as a temporary navigation overlay. It starts in Curre
 
 For a clean new database, Openza creates one default space. If setup/import tooling creates spaces first, the app does not add an extra empty default space.
 
-The fresh-start Store rule excludes automatic import of legacy Flutter-era stores. Guarded WinUI-to-Avalonia continuity stays behind its Dev gate and the authorized Production 1.4.0.0 release; installing and submitting that release need explicit maintainer approval. The frozen WinUI Store release remains installed for existing users until the replacement is accepted. Other legacy app stores are excluded from that transition.
+The fresh-start Store rule excludes automatic import of legacy Flutter-era stores. Guarded WinUI-to-Avalonia continuity stays behind its Dev gate and Production; installing and submitting a Store release need explicit maintainer approval. The frozen WinUI Store release remains installed for existing users until the replacement is accepted. Other legacy app stores are excluded from that transition.
 
 ## Task Model
 
