@@ -2296,8 +2296,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
             },
             plannedOn is null ? "Task date cleared" : "Task date changed");
 
-    public Task SetCalendarTaskScheduleAsync(TaskListItemViewModel item, DateTimeOffset? start, DateTimeOffset? end) =>
-        UpdateTaskFromRowAsync(
+    public async Task SetCalendarTaskScheduleAsync(TaskListItemViewModel item, DateTimeOffset? start, DateTimeOffset? end)
+    {
+        if (!await SaveSelectedAsync()) return;
+
+        await UpdateTaskFromRowAsync(
             item,
             new UpdateTaskRequest
             {
@@ -2306,6 +2309,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 ScheduledEnd = OptionalValue<DateTimeOffset?>.Set(end),
             },
             start is null ? "Removed from timeline" : "Scheduled time saved");
+    }
 
     public Task SetTaskStatusFromRowAsync(TaskListItemViewModel item, TaskItemStatus status) =>
         item.Task.IsCompleted

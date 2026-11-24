@@ -139,6 +139,48 @@ public sealed partial class DesktopControlBehaviorTests
         Assert.Equal(task.PlannedOn, removed.PlannedOn);
     });
 
+    [Fact]
+    public Task Rejected_detail_draft_blocks_calendar_schedule_reload() => Run(async context =>
+    {
+        var existing = (await context.Store.GetTaskAsync("task-0"))!;
+        var task = existing with
+        {
+            Id = "calendar-invalid-detail-draft",
+            Title = "Stored title",
+            Notes = "Stored notes",
+            PlannedOn = DateOnly.FromDateTime(DateTime.Today),
+            DeadlineOn = DateOnly.FromDateTime(DateTime.Today.AddDays(5)),
+            ScheduledStart = null,
+            ScheduledEnd = null,
+        };
+        await context.Store.UpsertTaskAsync(task);
+        await context.Vm.SelectNavigationAsync(context.Vm.NavigationItems.Single(item => item.Kind == TaskListKind.Calendar));
+        var item = Assert.Single(context.Vm.CalendarDay.BlockPickerTasks, candidate => candidate.Task.Id == task.Id);
+        await context.Vm.SelectTaskAsync(item);
+        var draftDate = DateTimeOffset.Now.AddDays(2);
+        var draftDeadline = DateTimeOffset.Now.AddDays(8);
+        context.Vm.DetailNotes = "Uncommitted notes";
+        context.Vm.DetailDate = draftDate;
+        context.Vm.DetailDeadline = draftDeadline;
+        context.Vm.DetailTitle = "   ";
+
+        Assert.False(await context.Vm.SaveSelectedAsync());
+
+        await context.Vm.SetCalendarTaskScheduleAsync(item, DateTimeOffset.Now.AddHours(2), DateTimeOffset.Now.AddHours(3));
+
+        var persisted = (await context.Store.GetTaskAsync(task.Id))!;
+        Assert.Null(persisted.ScheduledStart);
+        Assert.Null(persisted.ScheduledEnd);
+        Assert.Equal(task.Title, persisted.Title);
+        Assert.Equal(task.Notes, persisted.Notes);
+        Assert.Equal(task.PlannedOn, persisted.PlannedOn);
+        Assert.Equal(task.DeadlineOn, persisted.DeadlineOn);
+        Assert.Equal("   ", context.Vm.DetailTitle);
+        Assert.Equal("Uncommitted notes", context.Vm.DetailNotes);
+        Assert.Equal(draftDate, context.Vm.DetailDate);
+        Assert.Equal(draftDeadline, context.Vm.DetailDeadline);
+    });
+
     [Theory]
     [InlineData(520d)]
     [InlineData(640d)]
