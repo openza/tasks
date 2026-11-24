@@ -2,12 +2,11 @@
 
 [Behavior contracts](behavior-contracts.md) define task semantics and open product
 decisions. [Architecture](architecture.md) defines implementation boundaries.
-Avalonia remains cross-platform, with Linux Snap as the sole current focus until
-Linux is stable. All Windows work and continuity policy decisions are parked
-unless the maintainer explicitly asks. WinUI is frozen: its last
-Microsoft Store release is final, with no further releases or maintenance. Keep
-the project and leave existing Store users on that release until a future Avalonia
-replacement passes acceptance.
+Avalonia remains cross-platform; Linux Snap and Windows (the Avalonia MSIX
+replacing the WinUI Store app) are both active development and delivery targets.
+WinUI is frozen: its last Microsoft Store release is final, with no further
+releases or maintenance. Keep the project and leave existing Store users on that
+release until the Avalonia replacement passes acceptance.
 
 ## Current foundations
 
@@ -46,8 +45,9 @@ replacement passes acceptance.
 - Complete independent-user onboarding and sustained-use feedback, including
   understandable source ownership, local capture and recovery paths.
 - Windows reconnect and initial automatic-sync decisions, native testing, Avalonia
-  packaging, MSIX and Store replacement are parked until Linux is stable and the
-  maintainer explicitly resumes them. Retain the existing Dev gate and future
+  packaging, MSIX and Store replacement are active work. The Production 1.4.0.0
+  Store release is prepared; installing and submitting it need the maintainer's
+  explicit approval. Retain the existing Dev gate and
   transition reference; keep live installations separate from test fixtures.
 
 ## Product decisions before expansion

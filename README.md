@@ -2,7 +2,7 @@
 
 **A simple local-first task app that grows with you, with an optional cloud you control (preview).**
 
-Openza Tasks supports fast local capture and completion without requiring projects or a planning method. Avalonia is the cross-platform desktop host, with Linux Snap as the sole current focus until Linux is stable. All Windows work is parked; shared code remains Windows-compatible. The WinUI 3 edition is frozen: its last Microsoft Store release is final, with no further releases or maintenance. Existing Store users remain on that release until a future Avalonia replacement passes the [Windows continuity requirements](docs/windows-transition.md). Both projects retain the shared SQLite core. macOS is deferred.
+Openza Tasks supports fast local capture and completion without requiring projects or a planning method. Avalonia is the cross-platform desktop host; Linux Snap and Windows (the Avalonia MSIX replacing the WinUI Store app) are both active development and delivery targets. The WinUI 3 edition is frozen: its last Microsoft Store release is final, with no further releases or maintenance. Existing Store users remain on that release until the Avalonia replacement passes the [Windows continuity requirements](docs/windows-transition.md); the Avalonia Production Store release 1.4.0.0 is prepared, and installing and submitting it still need the maintainer's explicit approval. Both projects retain the shared SQLite core. macOS is deferred.
 
 Openza Tasks is maintained by Deependra Solanky as a personal open-source project. Microsoft sign-in may show the Openza app name with the `solanky.dev` publisher/contact identity.
 
@@ -10,8 +10,8 @@ User guide: [openza.org/tasks](https://openza.org/tasks/)
 
 ## Features
 
-- **Avalonia desktop app** - cross-platform code with current development focused on Linux Snap; Windows work is parked
-- **Existing Windows Store app** - final frozen WinUI 3 release, retained for current users until a future Avalonia replacement
+- **Avalonia desktop app** - cross-platform code, with Linux Snap and Windows MSIX both under active development
+- **Existing Windows Store app** - final frozen WinUI 3 release, retained for current users until the Avalonia replacement
 - **Local-first storage** - tasks, projects, labels, backups, and imports live on your device
 - **Provider sync** - optional Todoist and Microsoft To Do reconnect/sync
 - **Optional Personal Cloud (preview, from 1.2.0)** - user-owned Cloudflare deployment for sync and an online-first web companion, with daily-quota protection; task data is access-controlled, not end-to-end encrypted, and provider tokens stay on desktop.
@@ -68,7 +68,7 @@ Snap uses `--dangerous` for a local package installed without a Snap Store
 assertion. Openza Tasks remains strictly confined. A local sideload does not
 automatically track Store updates; use the documented sideload-to-Store process.
 
-Legacy Flutter-era packages remain available in older GitHub releases. Store V1 starts with a clean workspace and does not automatically import those stores. Guarded WinUI-to-Avalonia continuity is retained as parked reference behind a Dev gate. Keep legacy imports excluded; Windows replacement is future work under the transition requirements.
+Legacy Flutter-era packages remain available in older GitHub releases. Store V1 starts with a clean workspace and does not automatically import those stores. Guarded WinUI-to-Avalonia continuity stays behind its Dev gate and the Production 1.4.0.0 authorization. Keep legacy imports excluded; Windows replacement follows the transition requirements.
 
 ## Building From Source
 
@@ -102,12 +102,12 @@ documented in [docs/snap-release.md](docs/snap-release.md).
 Integration configuration and remaining native acceptance checks are documented
 in [docs/avalonia-parity.md](docs/avalonia-parity.md).
 
-### Parked Windows Avalonia reference
+### Windows Avalonia
 
-All Windows work, including packaging, MSIX, native testing, Store replacement and
-continuity policy decisions, is parked until Linux is stable. Resume only on an
-explicit maintainer request. The following commands are retained as future source
-validation reference, not a current Windows task:
+Windows is an active target again. Packaging, MSIX, native testing and Store
+replacement proceed under the [Windows continuity requirements](docs/windows-transition.md);
+installing and submitting the prepared 1.4.0.0 Store release still need explicit
+maintainer approval. The following commands validate the source:
 
 ```powershell
 cd src/Openza.Tasks.Desktop
@@ -119,7 +119,7 @@ dotnet build Openza.Tasks.Desktop.csproj -c Release --no-restore
 CI requires Linux build/tests and Snap validation. The optional Windows job builds
 Avalonia and runs smoke tests on code PRs and pushes to main; it runs the full suite
 weekly and on manual dispatch. It is nonblocking and does not build WinUI. Retain
-the existing continuity Dev gate and future package/vault/sign-in
+the existing continuity Dev gate and the package/vault/sign-in
 acceptance requirements. Keep Core, Application and Desktop code cross-platform,
 with OS-specific behavior behind platform services.
 
@@ -138,7 +138,7 @@ The sync engine is C# in `Openza.Tasks.Core`. Historical Rust FFI work is preser
 
 ## Legacy Flutter App
 
-The last Flutter-era mainline is preserved on the [`legacy-flutter-app`](https://github.com/openza/tasks/tree/legacy-flutter-app) branch. Current development targets Avalonia for Linux Snap in `src/Openza.Tasks.Desktop/`, while keeping shared code cross-platform; all Windows work is parked. The frozen WinUI project in `src/Openza.Tasks/` remains as the final Store baseline and continuity reference.
+The last Flutter-era mainline is preserved on the [`legacy-flutter-app`](https://github.com/openza/tasks/tree/legacy-flutter-app) branch. Current development targets Avalonia for Linux Snap and Windows MSIX in `src/Openza.Tasks.Desktop/`, keeping shared code cross-platform. The frozen WinUI project in `src/Openza.Tasks/` remains as the final Store baseline and continuity reference.
 
 See [docs/architecture.md](docs/architecture.md) for architecture and the task model, [behavior contracts](docs/behavior-contracts.md) for product semantics, and [docs/TODO.md](docs/TODO.md) for the ordered follow-up work.
 See [docs/design-guidelines.md](docs/design-guidelines.md) for the built-in Avalonia Fluent baseline and historical WinUI design reference.
