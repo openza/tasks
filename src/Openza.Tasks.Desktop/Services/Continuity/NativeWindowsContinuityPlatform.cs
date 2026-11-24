@@ -1,4 +1,4 @@
-#if WINDOWS
+#if OPENZA_WINDOWS_CONTINUITY
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using AppInstance = Microsoft.Windows.AppLifecycle.AppInstance;

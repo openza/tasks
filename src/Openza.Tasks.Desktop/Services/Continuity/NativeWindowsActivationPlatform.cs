@@ -1,4 +1,4 @@
-#if WINDOWS
+#if OPENZA_WINDOWS_CONTINUITY
 using System.Runtime.InteropServices;
 using Avalonia.Controls;
 using Avalonia.Threading;
