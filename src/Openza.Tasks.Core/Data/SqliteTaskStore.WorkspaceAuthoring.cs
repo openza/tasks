@@ -235,7 +235,7 @@ public sealed partial class SqliteTaskStore
             entityVersion = version + 1, deletedAt = (string?)null, labels = updated.Labels.Select(l => new { id = l.Id, name = l.Name }), source = (object?)null, sourceOwnerDeviceId = (string?)null,
         }));
         PersonalCloudWorkspaceCodec.ValidateRecord("tasks", snapshot.RootElement);
-        if (updated.ProjectId is { } projectId)
+        if (fields.ContainsKey("projectId") && updated.ProjectId is { } projectId)
         {
             var project = connection.CreateCommand();
             project.CommandText = "SELECT EXISTS(SELECT 1 FROM projects WHERE id=@id AND space_id=@s AND integration_id='openza_tasks' AND is_archived=0 AND status!='archived')";

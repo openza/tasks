@@ -31,6 +31,8 @@ public sealed record UpdateTaskRequest
     public OptionalValue<DateOnly?> PlannedOn { get; init; }
     public OptionalValue<DateOnly?> DeadlineOn { get; init; }
     public OptionalValue<DateTimeOffset?> ReminderAt { get; init; }
+    public OptionalValue<DateTimeOffset?> ScheduledStart { get; init; }
+    public OptionalValue<DateTimeOffset?> ScheduledEnd { get; init; }
     public OptionalValue<IReadOnlyList<string>> Labels { get; init; }
     public OptionalValue<string?> LocalMetadataJson { get; init; }
 }

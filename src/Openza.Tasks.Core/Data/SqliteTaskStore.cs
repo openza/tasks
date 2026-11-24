@@ -5158,6 +5158,11 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         var initialColumns = await GetColumnNamesAsync(connection, "tasks", cancellationToken).ConfigureAwait(false);
         var hasLegacyStatusColumn = initialColumns.Contains("status");
+        // Scheduled start seeds Date only while upgrading a store that predates Date;
+        // afterwards a scheduled block must not silently gain a Date (and go Overdue).
+        var scheduledStartSeedsDate = initialColumns.Contains("scheduled_start") && !initialColumns.Contains("planned_on")
+            ? "CASE WHEN scheduled_start IS NOT NULL THEN date(scheduled_start, 'unixepoch', 'localtime') END"
+            : "NULL";
         var hadWorkflowStatus = initialColumns.Contains("workflow_status");
         var hadCompletionState = initialColumns.Contains("completion_state");
 
@@ -5226,13 +5231,13 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
               AND TRIM(description) != ''
             """, cancellationToken).ConfigureAwait(false);
 
-        await ExecuteNonQueryAsync(connection, """
+        await ExecuteNonQueryAsync(connection, $"""
             UPDATE tasks
             SET planned_on = COALESCE(
                     planned_on,
                     CASE WHEN due_date IS NOT NULL THEN date(due_date, 'unixepoch', 'localtime') END,
                     CASE WHEN planned_date IS NOT NULL THEN date(planned_date, 'unixepoch', 'localtime') END,
-                    CASE WHEN scheduled_start IS NOT NULL THEN date(scheduled_start, 'unixepoch', 'localtime') END
+                    {scheduledStartSeedsDate}
                 ),
                 planned_at = COALESCE(
                     planned_at,
