@@ -261,7 +261,10 @@ public sealed class SyncProviderTests
                       "status": "notStarted",
                       "categories": ["Release"],
                       "dueDateTime": { "dateTime": "2026-05-12T00:00:00" },
-                      "recurrence": { "pattern": { "type": "weekly" } },
+                      "recurrence": {
+                        "pattern": { "type": "weekly", "interval": 2, "daysOfWeek": ["monday", "thursday"], "firstDayOfWeek": "monday" },
+                        "range": { "type": "numbered", "startDate": "2026-05-11", "numberOfOccurrences": 8, "recurrenceTimeZone": "Pacific Standard Time" }
+                      },
                       "createdDateTime": "2026-05-01T10:00:00Z"
                     }
                   ]
@@ -288,7 +291,9 @@ public sealed class SyncProviderTests
         Assert.Equal("mstodo_list1", task.ProjectId);
         Assert.Equal(TaskItemStatus.None, task.Status);
         Assert.Equal(1, task.Priority);
-        Assert.Equal("weekly", task.RecurrenceRule);
+        Assert.Equal("""
+            {"pattern":{"type":"weekly","interval":2,"daysOfWeek":["monday","thursday"],"firstDayOfWeek":"monday"},"range":{"type":"numbered","startDate":"2026-05-11","numberOfOccurrences":8,"recurrenceTimeZone":"Pacific Standard Time"}}
+            """, task.RecurrenceRule);
         Assert.Equal("Release", Assert.Single(task.Labels).Name);
         using var metadata = JsonDocument.Parse(task.ProviderMetadataJson!);
         var category = Assert.Single(metadata.RootElement.GetProperty("msToDo").GetProperty("categories").EnumerateArray());

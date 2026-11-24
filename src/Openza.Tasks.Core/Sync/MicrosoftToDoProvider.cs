@@ -204,6 +204,23 @@ public sealed class MicrosoftToDoProvider(HttpClient httpClient, string accessTo
         var labels = MapCategories(task, categories, providerConnectionId);
         var metadata = new Dictionary<string, object> { ["id"] = id, ["listId"] = listId, ["synced_at"] = DateTimeOffset.UtcNow };
         metadata["categories"] = labels.Select(label => new { name = label.Name, color = label.Color });
+        string? recurrenceRule = null;
+        if (task.TryGetProperty("recurrence", out var recurrence))
+        {
+            if (recurrence.ValueKind == JsonValueKind.Object &&
+                recurrence.TryGetProperty("pattern", out var pattern) && pattern.ValueKind == JsonValueKind.Object &&
+                pattern.TryGetProperty("type", out var type) && type.ValueKind == JsonValueKind.String &&
+                !string.IsNullOrWhiteSpace(type.GetString()) &&
+                recurrence.TryGetProperty("range", out var range) && range.ValueKind == JsonValueKind.Object)
+            {
+                recurrenceRule = JsonSerializer.Serialize(recurrence);
+                metadata["recurrenceObserved"] = true;
+            }
+            else if (recurrence.ValueKind == JsonValueKind.Null)
+            {
+                metadata["recurrenceObserved"] = true;
+            }
+        }
         if (task.TryGetProperty("isReminderOn", out var reminderOn))
             metadata["reminder"] = new { isReminderOn = reminderOn.Clone(),
                 reminderDateTime = task.TryGetProperty("reminderDateTime", out var reminderDate) ? reminderDate.Clone() : (JsonElement?)null };
@@ -230,7 +247,7 @@ public sealed class MicrosoftToDoProvider(HttpClient httpClient, string accessTo
             },
             DeadlineOn = TaskDateValues.FromDateTimeOffset(due),
             DeadlineAt = HasSpecificTime(due) ? due : null,
-            RecurrenceRule = ParseGraphRecurrence(task),
+            RecurrenceRule = recurrenceRule,
             CreatedAt = ParseDate(GetString(task, "createdDateTime")) ?? DateTimeOffset.UtcNow,
             CompletedAt = ParseGraphDate(task, "completedDateTime"),
             Labels = labels,
@@ -239,24 +256,6 @@ public sealed class MicrosoftToDoProvider(HttpClient httpClient, string accessTo
                 msToDo = metadata,
             }),
         };
-    }
-
-    private static string? ParseGraphRecurrence(JsonElement task)
-    {
-        if (!task.TryGetProperty("recurrence", out var recurrence) ||
-            recurrence.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
-        {
-            return null;
-        }
-
-        if (recurrence.TryGetProperty("pattern", out var pattern) &&
-            pattern.TryGetProperty("type", out var type) &&
-            type.ValueKind == JsonValueKind.String)
-        {
-            return type.GetString();
-        }
-
-        return recurrence.GetRawText();
     }
 
     private HttpRequestMessage CreateRequest(HttpMethod method, string pathOrUrl)

@@ -2,6 +2,21 @@
 
 Openza imports Microsoft To Do lists and tasks as provider source items. Adopting a task creates an ordinary local Openza task linked to that source.
 
+## Repeat rules
+
+Openza copies the full Microsoft Graph recurrence pattern and range into the
+local task on adoption, including interval, weekdays, start, end or occurrence
+count, and time zone. Previously adopted tasks get a one-time backfill from
+fresh provider data without replacing an existing local rule. An explicit
+provider response of no recurrence also completes the import; older cached
+snapshots without full recurrence data wait for the next sync.
+
+The local rule stays with the task when its source is detached. Later provider
+changes are still visible as source information but do not replace a local
+rule or restore one that was cleared. The inspector displays the saved rule as
+task information. **Completing a task does not generate the next occurrence in
+Openza.** A connected provider can still advance and reopen the linked task.
+
 ## Checklist items (steps)
 
 The provider requests `$expand=checklistItems` when listing tasks to avoid a request per task. If Graph rejects expansion (400 or 501), Openza retries without it and disables expansion for the remaining pages and lists in that fetch, including encoded continuation URLs. Missing collections stay absent from the snapshot: there is no per-task request fan-out, and the next sync retries expansion. Such tasks remain eligible for one-time step import when Graph supplies checklist data. Task pages and expanded checklist continuation pages follow `@odata.nextLink`; repeated links and cycles fail the snapshot rather than publish incomplete checklist data. An HTTP failure, including throttling on a checklist continuation page, never becomes an empty checklist.

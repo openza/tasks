@@ -255,6 +255,8 @@ public sealed partial class SqliteTaskStore
             adoptedId = task.Id;
             await UpsertTaskCoreAsync(connection, task, cancellationToken).ConfigureAwait(false);
             await SetTaskLabelsCoreAsync(connection, task.Id, task.Labels, cancellationToken).ConfigureAwait(false);
+            if (await ApplyMicrosoftRecurrenceAsync(connection, source, task.Id, cancellationToken).ConfigureAwait(false))
+                task = (await SqliteTaskReadQueries.ReadTasksAsync(connection, cancellationToken, task.Id).ConfigureAwait(false)).Single();
             task = await ApplyMicrosoftCategoriesAsync(connection, source, task, cancellationToken, creatingCloudTask: true).ConfigureAwait(false);
             var steps = await ApplyMicrosoftStepsAsync(connection, source, task.Id, cancellationToken).ConfigureAwait(false);
             if (steps.Metadata is not null) task = task with { SourceMetadataJson = steps.Metadata };

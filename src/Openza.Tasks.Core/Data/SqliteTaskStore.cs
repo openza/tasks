@@ -549,6 +549,7 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
 
         if (source.IntegrationId == IntegrationIds.MicrosoftToDo && source.AdoptedTaskId is { } taskId)
         {
+            await ApplyMicrosoftRecurrenceAsync(connection, source, taskId, cancellationToken).ConfigureAwait(false);
             var marker = connection.CreateCommand();
             marker.CommandText = "SELECT COALESCE(json_extract(source_metadata, '$.msToDoCategoriesApplied'), 0) FROM tasks WHERE id=@id";
             marker.Parameters.AddWithValue("@id", taskId);
@@ -588,10 +589,12 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
                     source_metadata = CASE WHEN json_extract(source_metadata,'$.msToDoStepsApplied')=1
                         OR json_extract(source_metadata,'$.msToDoCategoriesApplied')=1
                         OR json_extract(source_metadata,'$.msToDoReminderApplied')=1
+                        OR json_extract(source_metadata,'$.msToDoRecurrenceApplied')=1
                         THEN json_patch(
                             CASE WHEN json_extract(source_metadata,'$.msToDoCategoriesApplied')=1 THEN '{"msToDoCategoriesApplied":true}' ELSE '{}' END,
                             json_patch(CASE WHEN json_extract(source_metadata,'$.msToDoStepsApplied')=1 THEN '{"msToDoStepsApplied":true}' ELSE '{}' END,
-                            CASE WHEN json_extract(source_metadata,'$.msToDoReminderApplied')=1 THEN '{"msToDoReminderApplied":true}' ELSE '{}' END))
+                            json_patch(CASE WHEN json_extract(source_metadata,'$.msToDoReminderApplied')=1 THEN '{"msToDoReminderApplied":true}' ELSE '{}' END,
+                            CASE WHEN json_extract(source_metadata,'$.msToDoRecurrenceApplied')=1 THEN '{"msToDoRecurrenceApplied":true}' ELSE '{}' END)))
                         ELSE NULL END,
                     updated_at = @updated_at,
                     revision = revision + 1
@@ -669,6 +672,8 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
             UpdatedAt = now,
         };
         await UpsertProviderSourceItemCoreAsync(connection, adopted, cancellationToken).ConfigureAwait(false);
+        if (await ApplyMicrosoftRecurrenceAsync(connection, source, task.Id, cancellationToken).ConfigureAwait(false))
+            task = (await SqliteTaskReadQueries.ReadTasksAsync(connection, cancellationToken, task.Id).ConfigureAwait(false)).Single();
         task = await ApplyMicrosoftCategoriesAsync(connection, source, task, cancellationToken).ConfigureAwait(false);
         var steps = await ApplyMicrosoftStepsAsync(connection, source, task.Id, cancellationToken).ConfigureAwait(false);
         if (steps.Metadata is not null) task = task with { SourceMetadataJson = steps.Metadata, Revision = task.Revision + 1 };
@@ -3245,7 +3250,8 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
                         source_metadata = json_patch(@source_metadata, json_patch(
                             CASE WHEN json_extract(source_metadata,'$.msToDoCategoriesApplied')=1 THEN '{"msToDoCategoriesApplied":true}' ELSE '{}' END,
                             json_patch(CASE WHEN json_extract(source_metadata,'$.msToDoStepsApplied')=1 THEN '{"msToDoStepsApplied":true}' ELSE '{}' END,
-                            CASE WHEN json_extract(source_metadata,'$.msToDoReminderApplied')=1 THEN '{"msToDoReminderApplied":true}' ELSE '{}' END))),
+                            json_patch(CASE WHEN json_extract(source_metadata,'$.msToDoReminderApplied')=1 THEN '{"msToDoReminderApplied":true}' ELSE '{}' END,
+                            CASE WHEN json_extract(source_metadata,'$.msToDoRecurrenceApplied')=1 THEN '{"msToDoRecurrenceApplied":true}' ELSE '{}' END)))),
                         updated_at = @updated_at
                     WHERE id = @id
                       AND (source_integration_id IS NULL OR source_integration_id = @integration_id)
@@ -3449,7 +3455,7 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
         {
             var source=bootstrap.Snapshot.SourceDescriptors.FirstOrDefault(value=>value.TaskId==task.Id);
             var item=new TaskItem{Id=task.Id,SpaceId=task.SpaceId,ProjectId=task.ProjectId,ParentId=task.ParentId,Title=task.Title,Notes=task.Notes,CompletionState=TaskStatusExtensions.CompletionFromStorageValue(task.CompletionState),WorkflowStatus=TaskStatusExtensions.WorkflowFromStorageValue(task.WorkflowStatus),Priority=task.Priority,PlannedOn=task.PlannedOn is null?null:DateOnly.ParseExact(task.PlannedOn,"yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture),PlannedAt=task.PlannedAt is null?null:ParseProtocolTimestamp(task.PlannedAt),DeadlineOn=task.DeadlineOn is null?null:DateOnly.ParseExact(task.DeadlineOn,"yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture),CompletedAt=task.CompletedAt is null?null:ParseProtocolTimestamp(task.CompletedAt),CreatedAt=ParseProtocolTimestamp(task.CreatedAt),SourceIntegrationId=source?.IntegrationKind,SourceUrl=source?.SourceUrl,SourceDescription=source?.Description,SourceMetadataJson=source is null?null:PersonalCloudK0Codec.Serialize(source)};
-            await UpsertTaskCoreAsync(connection,item,cancellationToken, retainReminder: true).ConfigureAwait(false);var track=connection.CreateCommand();track.CommandText="INSERT INTO personal_cloud_replica_entities(instance_id,product,entity_id) VALUES(@i,'tasks',@e)";track.Parameters.AddWithValue("@i",instanceId);track.Parameters.AddWithValue("@e",task.Id);await track.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);await UpsertPersonalCloudEntityVersionAsync(connection,instanceId,task.Id,task.EntityVersion,cancellationToken).ConfigureAwait(false);
+            await UpsertTaskCoreAsync(connection,item,cancellationToken, retainReminder: true, retainImportedRecurrence: true).ConfigureAwait(false);var track=connection.CreateCommand();track.CommandText="INSERT INTO personal_cloud_replica_entities(instance_id,product,entity_id) VALUES(@i,'tasks',@e)";track.Parameters.AddWithValue("@i",instanceId);track.Parameters.AddWithValue("@e",task.Id);await track.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);await UpsertPersonalCloudEntityVersionAsync(connection,instanceId,task.Id,task.EntityVersion,cancellationToken).ConfigureAwait(false);
         }
         foreach(var label in bootstrap.Snapshot.Labels.Where(l=>l.DeletedAt is null)){var c=connection.CreateCommand();c.CommandText="INSERT INTO labels(id,integration_id,name,created_at) VALUES(@id,'openza_tasks',@name,@now) ON CONFLICT(id) DO UPDATE SET name=excluded.name";c.Parameters.AddWithValue("@id",label.Id);c.Parameters.AddWithValue("@name",label.Name);c.Parameters.AddWithValue("@now",DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());await c.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);}
         foreach(var link in bootstrap.Snapshot.TaskLabels){var c=connection.CreateCommand();c.CommandText="INSERT INTO task_labels(task_id,label_id) VALUES(@task,@label)";c.Parameters.AddWithValue("@task",link.TaskId);c.Parameters.AddWithValue("@label",link.LabelId);await c.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);}
@@ -4289,7 +4295,8 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
                 source_metadata = json_patch(@source_metadata, json_patch(
                     CASE WHEN json_extract(source_metadata,'$.msToDoCategoriesApplied')=1 THEN '{"msToDoCategoriesApplied":true}' ELSE '{}' END,
                     json_patch(CASE WHEN json_extract(source_metadata,'$.msToDoStepsApplied')=1 THEN '{"msToDoStepsApplied":true}' ELSE '{}' END,
-                            CASE WHEN json_extract(source_metadata,'$.msToDoReminderApplied')=1 THEN '{"msToDoReminderApplied":true}' ELSE '{}' END))),
+                    json_patch(CASE WHEN json_extract(source_metadata,'$.msToDoReminderApplied')=1 THEN '{"msToDoReminderApplied":true}' ELSE '{}' END,
+                    CASE WHEN json_extract(source_metadata,'$.msToDoRecurrenceApplied')=1 THEN '{"msToDoRecurrenceApplied":true}' ELSE '{}' END)))),
                 planned_on = CASE
                     WHEN @sync_planned_date = 1 AND NOT EXISTS (SELECT 1 FROM pending_task_date_updates WHERE task_id = @task_id) THEN @planned_on
                     ELSE planned_on
@@ -4464,7 +4471,8 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
     private Task<IReadOnlyList<TaskItem>> ReadTasksAsync(SqliteConnection connection, CancellationToken cancellationToken) =>
         SqliteTaskReadQueries.ReadTasksAsync(connection, cancellationToken);
 
-    private static async Task UpsertTaskCoreAsync(SqliteConnection connection, TaskItem task, CancellationToken cancellationToken, bool retainReminder = false)
+    private static async Task UpsertTaskCoreAsync(SqliteConnection connection, TaskItem task, CancellationToken cancellationToken,
+        bool retainReminder = false, bool retainImportedRecurrence = false)
     {
         task = await RetainDeviceReminderAsync(connection, task, retainReminder, cancellationToken).ConfigureAwait(false);
         var (plannedOn, plannedAt) = NormalizeDatePair(task.PlannedOn, task.PlannedAt);
@@ -4509,14 +4517,18 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
                 reminder_at = excluded.reminder_at,
                 scheduled_end = excluded.scheduled_end,
                 duration_minutes = excluded.duration_minutes,
-                recurrence_rule = excluded.recurrence_rule,
+                recurrence_rule = CASE WHEN @retain_imported_recurrence=1
+                    AND json_extract(tasks.source_metadata,'$.msToDoRecurrenceApplied')=1
+                    THEN tasks.recurrence_rule ELSE excluded.recurrence_rule END,
                 notes = excluded.notes,
                 provider_metadata = excluded.provider_metadata,
                 source_metadata = CASE WHEN json_extract(tasks.source_metadata,'$.msToDoStepsApplied')=1
                     OR json_extract(tasks.source_metadata,'$.msToDoCategoriesApplied')=1
+                    OR json_extract(tasks.source_metadata,'$.msToDoRecurrenceApplied')=1
                     THEN json_patch(COALESCE(excluded.source_metadata,'{}'), json_patch(
                         CASE WHEN json_extract(tasks.source_metadata,'$.msToDoCategoriesApplied')=1 THEN '{"msToDoCategoriesApplied":true}' ELSE '{}' END,
-                        CASE WHEN json_extract(tasks.source_metadata,'$.msToDoStepsApplied')=1 THEN '{"msToDoStepsApplied":true}' ELSE '{}' END))
+                        json_patch(CASE WHEN json_extract(tasks.source_metadata,'$.msToDoStepsApplied')=1 THEN '{"msToDoStepsApplied":true}' ELSE '{}' END,
+                        CASE WHEN json_extract(tasks.source_metadata,'$.msToDoRecurrenceApplied')=1 THEN '{"msToDoRecurrenceApplied":true}' ELSE '{}' END)))
                     ELSE excluded.source_metadata END,
                 local_metadata = excluded.local_metadata,
                 updated_at = excluded.updated_at,
@@ -4548,7 +4560,8 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
         command.Parameters.AddWithValue("@scheduled_start", task.IntegrationId == IntegrationIds.Local ? ToDbTaskInstant(task.ScheduledStart) : ToDbValue(task.ScheduledStart));
         command.Parameters.AddWithValue("@scheduled_end", task.IntegrationId == IntegrationIds.Local ? ToDbTaskInstant(task.ScheduledEnd) : ToDbValue(task.ScheduledEnd));
         command.Parameters.AddWithValue("@duration_minutes", task.DurationMinutes is null ? DBNull.Value : task.DurationMinutes.Value);
-        command.Parameters.AddWithValue("@recurrence_rule", ToDbValue(task.RecurrenceRule));
+        command.Parameters.AddWithValue("@recurrence_rule", (object?)task.RecurrenceRule ?? DBNull.Value);
+        command.Parameters.AddWithValue("@retain_imported_recurrence", retainImportedRecurrence ? 1 : 0);
         command.Parameters.AddWithValue("@notes", ToDbValue(task.Notes));
         command.Parameters.AddWithValue("@provider_metadata", ToDbValue(task.ProviderMetadataJson));
         command.Parameters.AddWithValue("@source_metadata", ToDbValue(task.SourceMetadataJson));
@@ -5322,6 +5335,8 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
               AND workflow_status = 'inbox'
               AND recurrence_rule IS NOT NULL
               AND TRIM(recurrence_rule) != ''
+              AND CASE WHEN json_valid(source_metadata)
+                    THEN COALESCE(json_extract(source_metadata,'$.msToDoRecurrenceApplied'),0) ELSE 0 END = 0
               AND (
                     planned_on IS NOT NULL OR
                     planned_at IS NOT NULL OR

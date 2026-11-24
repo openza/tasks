@@ -381,9 +381,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
         ? FormatPriority(priority)
         : "No priority";
     public string SourceTaskCreated => SelectedTask?.Task is { } task ? FormatTaskDate(task.CreatedAt) : string.Empty;
-    public string SourceTaskRecurrence => string.IsNullOrWhiteSpace(SelectedTask?.Task.SourceRecurrenceRule)
-        ? "Not recurring"
-        : SelectedTask.Task.SourceRecurrenceRule;
+    public string SourceTaskRecurrence => RecurrenceRuleDisplay.Format(SelectedTask?.Task.SourceRecurrenceRule);
+    public bool HasLocalTaskRecurrence => HasLocalTaskMetadata && !string.IsNullOrWhiteSpace(SelectedTask?.Task.RecurrenceRule);
+    public string LocalTaskRecurrence => RecurrenceRuleDisplay.Format(SelectedTask?.Task.RecurrenceRule);
     public string LocalTaskCreated => SelectedTask?.Task is { } localTask ? FormatTaskDateTime(localTask.CreatedAt) : string.Empty;
     public string LocalTaskUpdated => SelectedTask?.Task.UpdatedAt is { } updatedAt ? FormatTaskDateTime(updatedAt) : "Not modified";
     public bool HasSourceDateMismatch => BuildSourceDateMismatch() is not null;
@@ -3158,6 +3158,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         OnPropertyChanged(nameof(SourceTaskPriority));
         OnPropertyChanged(nameof(SourceTaskCreated));
         OnPropertyChanged(nameof(SourceTaskRecurrence));
+        OnPropertyChanged(nameof(HasLocalTaskRecurrence));
+        OnPropertyChanged(nameof(LocalTaskRecurrence));
         OnPropertyChanged(nameof(LocalTaskCreated));
         OnPropertyChanged(nameof(LocalTaskUpdated));
     }
