@@ -32,6 +32,7 @@ public sealed partial class CalendarDayView : UserControl
     public CalendarDayView()
     {
         InitializeComponent();
+        TimelineScrollViewer.ScrollChanged += OnTimelineScrollChanged;
         DataContextChanged += OnDataContextChanged;
         Loaded += OnLoaded;
     }
@@ -76,6 +77,17 @@ public sealed partial class CalendarDayView : UserControl
     {
         CancelActiveBlockGesture();
         RebuildTimeline();
+    }
+
+    private void OnTimelineScrollChanged(object? sender, ScrollChangedEventArgs e)
+    {
+        if (_activeBlockBorder is null || e.OffsetDelta.Y == 0 ||
+            (e.ViewportDelta.Y == 0 && e.ExtentDelta.Y == 0))
+        {
+            return;
+        }
+
+        _pointerOrigin = new Point(_pointerOrigin.X, _pointerOrigin.Y + e.OffsetDelta.Y);
     }
 
     private void OnBlocksChanged(object? sender, NotifyCollectionChangedEventArgs e)

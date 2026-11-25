@@ -9,6 +9,7 @@ using Avalonia.VisualTree;
 using Openza.Tasks.Core.Data;
 using Openza.Tasks.Core.Credentials;
 using Openza.Tasks.Core.Models;
+using Openza.Tasks.Core.PersonalCloud;
 using Openza.Tasks.Desktop.Dialogs;
 using Openza.Tasks.Desktop.Shell;
 using Openza.Tasks.Desktop.ViewModels;
@@ -505,39 +506,79 @@ public sealed partial class DesktopControlBehaviorTests
         await Task.Delay(50);
         Dispatcher.UIThread.RunJobs();
         context.Window.UpdateLayout();
+        context.Vm.DismissStatusMessage();
+        context.Window.UpdateLayout();
         await WaitForCalendarSearchDebounceAsync(context);
 
         var dayView = context.Window.FindControl<CalendarDayView>("CalendarDayView")!;
+        var scrollViewer = dayView.FindControl<ScrollViewer>("TimelineScrollViewer")!;
         var canvas = dayView.FindControl<Canvas>("TimelineCanvas")!;
+        var statusOverlay = context.Window.FindControl<Border>("StatusOverlay")!;
         var block = Assert.Single(dayView.GetVisualDescendants().OfType<Border>(), border =>
             border.Classes.Contains("calendar-day-block") &&
             border.DataContext is CalendarDayBlockViewModel blockViewModel && blockViewModel.Task.Id == task.Id);
+        block.BringIntoView();
+        context.Window.UpdateLayout();
+        Dispatcher.UIThread.RunJobs();
+        await UntilAsync(() => Task.FromResult(
+            Canvas.GetTop(block) >= scrollViewer.Offset.Y &&
+            Canvas.GetTop(block) + block.Bounds.Height <= scrollViewer.Offset.Y + scrollViewer.Viewport.Height),
+            () => $"Block did not enter the viewport: top={Canvas.GetTop(block)}, height={block.Bounds.Height}, offset={scrollViewer.Offset.Y}, viewport={scrollViewer.Viewport}.");
         var pointer = new Pointer(3, PointerType.Mouse, isPrimary: true);
         var pressLocal = new Point(block.Bounds.Width / 2, resize ? block.Bounds.Height - 4 : block.Bounds.Height / 2);
         var pressPoint = block.TranslatePoint(pressLocal, context.Window)!.Value;
         var movedPoint = new Point(pressPoint.X, pressPoint.Y + 30);
+        var startTop = Canvas.GetTop(block);
+        var startHeight = block.Bounds.Height;
+        var canvasOrigin = canvas.TranslatePoint(default, context.Window)!.Value;
+        var viewport = scrollViewer.Viewport;
+        var scrollOffset = scrollViewer.Offset;
+        Assert.False(statusOverlay.IsVisible);
         var captureLostCount = 0;
+        var activeBlockBorder = typeof(CalendarDayView).GetField(
+            "_activeBlockBorder",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
         block.PointerCaptureLost += (_, _) => captureLostCount++;
 
         Assert.True(RaisePointerPressed(block, context.Window, pointer, pressPoint).Handled);
         RaisePointerMoved(block, context.Window, pointer, movedPoint);
         context.Vm.CalendarDay.SetNow(context.Vm.CalendarDay.Now.AddMinutes(1));
-        await Task.Delay(50);
+        Dispatcher.UIThread.RunJobs();
+        context.Window.UpdateLayout();
+        Dispatcher.UIThread.RunJobs();
 
+        Assert.False(statusOverlay.IsVisible);
+        Assert.Equal(viewport, scrollViewer.Viewport);
+        Assert.Equal(scrollOffset, scrollViewer.Offset);
+        Assert.Equal(canvasOrigin, canvas.TranslatePoint(default, context.Window)!.Value);
         Assert.Contains(block, canvas.Children);
         Assert.Equal(0, captureLostCount);
+        Assert.Same(block, activeBlockBorder.GetValue(dayView));
+        Assert.False((bool)typeof(CalendarDayView).GetField(
+            "_clockVisualUpdateQueued",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(dayView)!);
 
         RaisePointerMoved(block, context.Window, pointer, movedPoint);
+        if (resize)
+        {
+            Assert.Equal(startHeight + 32, block.Height, 3);
+        }
+        else
+        {
+            Assert.Equal(startTop + 32, Canvas.GetTop(block), 3);
+        }
         RaisePointerReleasedAt(block, context.Window, pointer, movedPoint);
+        Assert.Null(activeBlockBorder.GetValue(dayView));
 
         var expectedStart = resize ? start : start.AddMinutes(30);
         var expectedEnd = end.AddMinutes(30);
+        TaskItem? lastSaved = null;
         await UntilAsync(async () =>
         {
-            var saved = await context.Store.GetTaskAsync(task.Id);
-            return saved?.ScheduledStart?.ToUnixTimeMilliseconds() == expectedStart.ToUnixTimeMilliseconds() &&
-                saved.ScheduledEnd?.ToUnixTimeMilliseconds() == expectedEnd.ToUnixTimeMilliseconds();
-        });
+            lastSaved = await context.Store.GetTaskAsync(task.Id);
+            return lastSaved?.ScheduledStart?.ToUnixTimeMilliseconds() == expectedStart.ToUnixTimeMilliseconds() &&
+                lastSaved.ScheduledEnd?.ToUnixTimeMilliseconds() == expectedEnd.ToUnixTimeMilliseconds();
+        }, () => $"Expected {expectedStart:o}–{expectedEnd:o}, got {lastSaved?.ScheduledStart:o}–{lastSaved?.ScheduledEnd:o}; active={activeBlockBorder.GetValue(dayView) is not null}, attached={canvas.Children.Contains(block)}, captureLost={captureLostCount}, status={context.Vm.StatusMessage}.");
     });
 
     [Fact]
@@ -746,6 +787,232 @@ public sealed partial class DesktopControlBehaviorTests
         Assert.Equal("Not done", state.Text);
         Assert.True(state.IsVisible);
     });
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public Task Calendar_unchanged_sync_refresh_preserves_active_block_gesture(bool resize) => Run(async context =>
+    {
+        var existing = (await context.Store.GetTaskAsync("task-0"))!;
+        var day = DateOnly.FromDateTime(DateTime.Today);
+        var startLocal = day.ToDateTime(new TimeOnly(11, 30));
+        var start = new DateTimeOffset(startLocal, TimeZoneInfo.Local.GetUtcOffset(startLocal));
+        var end = start.AddMinutes(90);
+        var task = existing with
+        {
+            Id = "calendar-unchanged-sync-refresh-task",
+            Title = "Calendar unchanged sync refresh task",
+            ParentId = null,
+            PlannedOn = day,
+            ScheduledStart = start,
+            ScheduledEnd = end,
+        };
+        await context.Store.UpsertTaskAsync(task);
+        await context.Vm.SelectNavigationAsync(context.Vm.NavigationItems.Single(item => item.Kind == TaskListKind.Calendar));
+        context.Vm.CalendarDay.SetSelectedDate(day);
+        context.Vm.SetCalendarDayView(true);
+        await Task.Delay(50);
+        Dispatcher.UIThread.RunJobs();
+        context.Window.UpdateLayout();
+        context.Vm.DismissStatusMessage();
+        await WaitForCalendarSearchDebounceAsync(context);
+
+        var dayView = context.Window.FindControl<CalendarDayView>("CalendarDayView")!;
+        var canvas = dayView.FindControl<Canvas>("TimelineCanvas")!;
+        var scrollViewer = dayView.FindControl<ScrollViewer>("TimelineScrollViewer")!;
+        var statusOverlay = context.Window.FindControl<Border>("StatusOverlay")!;
+        var block = Assert.Single(dayView.GetVisualDescendants().OfType<Border>(), border =>
+            border.Classes.Contains("calendar-day-block") &&
+            border.DataContext is CalendarDayBlockViewModel blockViewModel && blockViewModel.Task.Id == task.Id);
+        var pointer = new Pointer(8, PointerType.Mouse, isPrimary: true);
+        var pressPoint = block.TranslatePoint(
+            new Point(block.Bounds.Width / 2, resize ? block.Bounds.Height - 4 : block.Bounds.Height / 2),
+            context.Window)!.Value;
+        var movedPoint = new Point(pressPoint.X, pressPoint.Y + 30);
+        var startTop = Canvas.GetTop(block);
+        var startHeight = block.Bounds.Height;
+        var canvasOrigin = canvas.TranslatePoint(default, context.Window)!.Value;
+        var canvasSize = canvas.Bounds.Size;
+        var scrollOffset = scrollViewer.Offset;
+        var captureLostCount = 0;
+        var timelineSizeChangedCount = 0;
+        var scrollChanges = new List<ScrollChangedEventArgs>();
+        var activeBlockBorder = typeof(CalendarDayView).GetField(
+            "_activeBlockBorder",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+        block.PointerCaptureLost += (_, _) => captureLostCount++;
+        canvas.SizeChanged += (_, _) => timelineSizeChangedCount++;
+        scrollViewer.ScrollChanged += (_, e) => scrollChanges.Add(e);
+
+        Assert.True(RaisePointerPressed(block, context.Window, pointer, pressPoint).Handled);
+        RaisePointerMoved(block, context.Window, pointer, movedPoint);
+        Assert.Same(block, activeBlockBorder.GetValue(dayView));
+
+        var syncTask = context.Vm.RunTodoistSyncAsync();
+        await UntilAsync(() => Task.FromResult(
+            context.Vm.IsSyncing && context.Vm.StatusMessage == "Syncing connected apps…"));
+        context.Window.UpdateLayout();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(statusOverlay.IsVisible);
+        var statusCanvasOrigin = canvas.TranslatePoint(default, context.Window)!.Value;
+        var statusCanvasSize = canvas.Bounds.Size;
+        var statusScrollOffset = scrollViewer.Offset;
+        var layoutOffsetDelta = scrollChanges.Sum(change => change.OffsetDelta.Y);
+        Assert.NotEqual(0, layoutOffsetDelta);
+        Assert.Contains(scrollChanges, change => change.ViewportDelta.Y != 0 || change.ExtentDelta.Y != 0);
+        Assert.Equal(canvasSize, statusCanvasSize);
+        Assert.Equal(scrollOffset.Y + layoutOffsetDelta, statusScrollOffset.Y);
+        Assert.Equal(-layoutOffsetDelta, statusCanvasOrigin.Y - canvasOrigin.Y);
+        Assert.Equal(0, timelineSizeChangedCount);
+        Assert.Same(block, activeBlockBorder.GetValue(dayView));
+
+        await syncTask;
+        Dispatcher.UIThread.RunJobs();
+        context.Window.UpdateLayout();
+
+        Assert.Contains("Personal Cloud sync failed: This desktop is not paired with Personal Cloud.", context.Vm.LastSyncResult);
+        Assert.Same(block, activeBlockBorder.GetValue(dayView));
+        Assert.Contains(block, canvas.Children);
+        Assert.Equal(0, captureLostCount);
+        Assert.Equal(0, timelineSizeChangedCount);
+        RaisePointerMoved(block, context.Window, pointer, movedPoint);
+        if (resize)
+        {
+            Assert.Equal(startHeight + 32, block.Height, 3);
+        }
+        else
+        {
+            Assert.Equal(startTop + 32, Canvas.GetTop(block), 3);
+        }
+        RaisePointerReleasedAt(block, context.Window, pointer, movedPoint);
+        Assert.Null(activeBlockBorder.GetValue(dayView));
+
+        var expectedStart = resize ? start : start.AddMinutes(30);
+        var expectedEnd = end.AddMinutes(30);
+        TaskItem? lastSaved = null;
+        await UntilAsync(async () =>
+        {
+            lastSaved = await context.Store.GetTaskAsync(task.Id);
+            return lastSaved?.ScheduledStart?.ToUnixTimeMilliseconds() == expectedStart.ToUnixTimeMilliseconds() &&
+                lastSaved.ScheduledEnd?.ToUnixTimeMilliseconds() == expectedEnd.ToUnixTimeMilliseconds();
+        }, () => $"Expected {expectedStart:o}–{expectedEnd:o}, got {lastSaved?.ScheduledStart:o}–{lastSaved?.ScheduledEnd:o}; current block top={Canvas.GetTop(block)}, height={block.Height}, attached={canvas.Children.Contains(block)}, busy={context.Vm.IsBusy}, syncing={context.Vm.IsSyncing}, status={context.Vm.StatusMessage}.");
+    }, new UnpairedPersonalCloudSetupService());
+
+    [Fact]
+    public Task Calendar_explicit_scroll_during_resize_remains_part_of_pointer_delta() => Run(async context =>
+    {
+        var existing = (await context.Store.GetTaskAsync("task-0"))!;
+        var day = DateOnly.FromDateTime(DateTime.Today);
+        var startLocal = day.ToDateTime(new TimeOnly(11, 30));
+        var start = new DateTimeOffset(startLocal, TimeZoneInfo.Local.GetUtcOffset(startLocal));
+        var end = start.AddMinutes(90);
+        var task = existing with
+        {
+            Id = "calendar-explicit-scroll-resize-task",
+            Title = "Calendar explicit scroll resize task",
+            ParentId = null,
+            PlannedOn = day,
+            ScheduledStart = start,
+            ScheduledEnd = end,
+        };
+        await context.Store.UpsertTaskAsync(task);
+        await context.Vm.SelectNavigationAsync(context.Vm.NavigationItems.Single(item => item.Kind == TaskListKind.Calendar));
+        context.Vm.CalendarDay.SetSelectedDate(day);
+        context.Vm.SetCalendarDayView(true);
+        await Task.Delay(50);
+        Dispatcher.UIThread.RunJobs();
+        context.Window.UpdateLayout();
+        await WaitForCalendarSearchDebounceAsync(context);
+
+        var dayView = context.Window.FindControl<CalendarDayView>("CalendarDayView")!;
+        var scrollViewer = dayView.FindControl<ScrollViewer>("TimelineScrollViewer")!;
+        scrollViewer.Offset = new Vector(0, 300);
+        Dispatcher.UIThread.RunJobs();
+        context.Window.UpdateLayout();
+        var block = Assert.Single(dayView.GetVisualDescendants().OfType<Border>(), border =>
+            border.Classes.Contains("calendar-day-block") &&
+            border.DataContext is CalendarDayBlockViewModel blockViewModel && blockViewModel.Task.Id == task.Id);
+        var pointer = new Pointer(9, PointerType.Mouse, isPrimary: true);
+        var pressPoint = block.TranslatePoint(
+            new Point(block.Bounds.Width / 2, block.Bounds.Height - 4),
+            context.Window)!.Value;
+        var movedPoint = new Point(pressPoint.X, pressPoint.Y + 30);
+        var activeBlockBorder = typeof(CalendarDayView).GetField(
+            "_activeBlockBorder",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+        var scrollChanges = new List<ScrollChangedEventArgs>();
+        scrollViewer.ScrollChanged += (_, e) => scrollChanges.Add(e);
+
+        Assert.True(RaisePointerPressed(block, context.Window, pointer, pressPoint).Handled);
+        RaisePointerMoved(block, context.Window, pointer, movedPoint);
+        var initialOffset = scrollViewer.Offset;
+        scrollViewer.Offset = new Vector(initialOffset.X, initialOffset.Y + 48);
+        Dispatcher.UIThread.RunJobs();
+        context.Window.UpdateLayout();
+
+        var explicitScroll = Assert.Single(scrollChanges, change => change.OffsetDelta.Y != 0);
+        Assert.Equal(48, explicitScroll.OffsetDelta.Y);
+        Assert.Equal(0, explicitScroll.ViewportDelta.Y);
+        Assert.Equal(0, explicitScroll.ExtentDelta.Y);
+        Assert.Same(block, activeBlockBorder.GetValue(dayView));
+
+        RaisePointerMoved(block, context.Window, pointer, movedPoint);
+        RaisePointerReleasedAt(block, context.Window, pointer, movedPoint);
+
+        var expectedEnd = end.AddMinutes(75);
+        await UntilAsync(async () =>
+        {
+            var saved = await context.Store.GetTaskAsync(task.Id);
+            return saved?.ScheduledStart?.ToUnixTimeMilliseconds() == start.ToUnixTimeMilliseconds() &&
+                saved.ScheduledEnd?.ToUnixTimeMilliseconds() == expectedEnd.ToUnixTimeMilliseconds();
+        });
+    });
+
+    private sealed class UnpairedPersonalCloudSetupService : IPersonalCloudSetupService
+    {
+        public bool IsConfigured => true;
+        public PersonalCloudConnectionProfile? CurrentConnection { get; set; } = new()
+        {
+            ServiceOrigin = new Uri("https://cloud.example/"),
+            InstanceId = "calendar-sync-test",
+            DeviceId = "calendar-sync-test",
+            ArtifactVersion = "1.0.0",
+            ConnectedAt = DateTimeOffset.UtcNow,
+        };
+
+        public Task OpenAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task<PersonalCloudProvisioningResult> ConnectAsync(
+            CancellationToken cancellationToken = default,
+            IProgress<PersonalCloudSetupProgress>? progress = null) =>
+            Task.FromException<PersonalCloudProvisioningResult>(new NotSupportedException());
+
+        public Task<PersonalCloudConnectionProfile> PairExistingAsync(
+            Uri serviceOrigin,
+            string grant,
+            string deviceName,
+            bool providerBridge,
+            CancellationToken cancellationToken = default) =>
+            Task.FromException<PersonalCloudConnectionProfile>(new NotSupportedException());
+
+        public async Task<PersonalCloudSyncResult> SyncAsync(CancellationToken cancellationToken = default)
+        {
+            await Task.Delay(250, cancellationToken);
+            CurrentConnection = null;
+            throw new IOException("This desktop is not paired with Personal Cloud.");
+        }
+
+        public Task<CloudflareD1Export> ExportAsync(CancellationToken cancellationToken = default) =>
+            Task.FromException<CloudflareD1Export>(new NotSupportedException());
+
+        public Task<PersonalCloudUpgradeResult> UpgradeAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(new PersonalCloudUpgradeResult("1.0.0"));
+
+        public Task DisconnectAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task RemoveAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+    }
 
     [Fact]
     public Task Calendar_schedule_refresh_cancels_an_active_block_gesture() => Run(async context =>

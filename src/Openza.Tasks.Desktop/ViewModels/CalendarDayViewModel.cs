@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using Openza.Tasks.Core.Data;
 using Openza.Tasks.Core.Models;
+using Openza.Tasks.Desktop.ViewModels.Navigation;
 
 namespace Openza.Tasks.Desktop.ViewModels;
 
@@ -15,11 +16,13 @@ public sealed class CalendarDayViewModel : ObservableObject
     private readonly List<TaskListItemViewModel> _todayTaskSource = [];
     private readonly List<TaskListItemViewModel> _todayTasks = [];
     private readonly TimeZoneInfo _timeZone;
+    private TaskViewContext? _dayTaskContext;
     private DateOnly _selectedDate = DateOnly.FromDateTime(DateTime.Now);
     private DateTimeOffset _now = DateTimeOffset.Now;
     private string? _todaySpaceId;
     private bool _isDayView;
     private bool _isTodayPanelOpen;
+    private bool _hasSetDayTasks;
     private string _todaySearchText = string.Empty;
 
     public CalendarDayViewModel(TimeZoneInfo? timeZone = null)
@@ -125,11 +128,15 @@ public sealed class CalendarDayViewModel : ObservableObject
         RebuildBlocks();
     }
 
-    public void SetDayTasks(IEnumerable<TaskListItemViewModel> tasks)
+    public void SetDayTasks(IEnumerable<TaskListItemViewModel> tasks, TaskViewContext? context = null)
     {
         var dayTasks = tasks
             .Where(item => item.Task.IsOpen || item.Task.IsCompleted)
             .ToArray();
+        if (_hasSetDayTasks && _dayTaskContext == context && HasSameDayTasks(_scheduledTasks, dayTasks)) return;
+
+        _hasSetDayTasks = true;
+        _dayTaskContext = context;
         _scheduledTasks.Clear();
         _scheduledTasks.AddRange(dayTasks);
         _blockPickerTasks.Clear();
@@ -139,6 +146,38 @@ public sealed class CalendarDayViewModel : ObservableObject
             .ThenBy(item => item.Title, StringComparer.CurrentCultureIgnoreCase));
         RebuildBlocks();
     }
+
+    private static bool HasSameDayTasks(IReadOnlyList<TaskListItemViewModel> current, IReadOnlyList<TaskListItemViewModel> incoming)
+    {
+        if (current.Count != incoming.Count) return false;
+
+        var currentById = new Dictionary<string, TaskListItemViewModel>(StringComparer.Ordinal);
+        foreach (var item in current)
+        {
+            if (!currentById.TryAdd(item.Task.Id, item)) return false;
+        }
+
+        foreach (var right in incoming)
+        {
+            if (!currentById.TryGetValue(right.Task.Id, out var left) ||
+                !HasSameTask(left.Task, right.Task) ||
+                left.ProjectName != right.ProjectName ||
+                left.ViewKind != right.ViewKind ||
+                left.IsProjectView != right.IsProjectView ||
+                left.SubtaskProgressText != right.SubtaskProgressText ||
+                left.MatchingSubtaskText != right.MatchingSubtaskText)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool HasSameTask(TaskItem left, TaskItem right) =>
+        left with { Labels = right.Labels } == right &&
+        left.Labels.OrderBy(label => label.Id, StringComparer.Ordinal)
+            .SequenceEqual(right.Labels.OrderBy(label => label.Id, StringComparer.Ordinal));
 
     public DateTimeOffset TimeAtTimelinePosition(double top, bool snapToQuarterHour = false, TimeSpan? preferredOffset = null)
     {
