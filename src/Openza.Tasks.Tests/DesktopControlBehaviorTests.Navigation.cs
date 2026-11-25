@@ -518,6 +518,127 @@ public sealed partial class DesktopControlBehaviorTests
     });
 
     [Fact]
+    public Task Calendar_width_reflow_does_not_cancel_an_active_block_resize() => Run(async context =>
+    {
+        var existing = (await context.Store.GetTaskAsync("task-0"))!;
+        var day = DateOnly.FromDateTime(DateTime.Today);
+        var startLocal = day.ToDateTime(new TimeOnly(11, 30));
+        var start = new DateTimeOffset(startLocal, TimeZoneInfo.Local.GetUtcOffset(startLocal));
+        var end = start.AddMinutes(90);
+        var task = existing with
+        {
+            Id = "calendar-width-reflow-resize-task",
+            Title = "Calendar width reflow resize task",
+            ParentId = null,
+            PlannedOn = day,
+            ScheduledStart = start,
+            ScheduledEnd = end,
+        };
+        await context.Store.UpsertTaskAsync(task);
+        await context.Vm.SelectNavigationAsync(context.Vm.NavigationItems.Single(item => item.Kind == TaskListKind.Calendar));
+        context.Vm.CalendarDay.SetSelectedDate(day);
+        context.Vm.SetCalendarDayView(true);
+        await Task.Delay(50);
+        Dispatcher.UIThread.RunJobs();
+        context.Window.UpdateLayout();
+
+        var dayView = context.Window.FindControl<CalendarDayView>("CalendarDayView")!;
+        var canvas = dayView.FindControl<Canvas>("TimelineCanvas")!;
+        var block = Assert.Single(dayView.GetVisualDescendants().OfType<Border>(), border =>
+            border.Classes.Contains("calendar-day-block") &&
+            border.DataContext is CalendarDayBlockViewModel blockViewModel && blockViewModel.Task.Id == task.Id);
+        var pointer = new Pointer(4, PointerType.Mouse, isPrimary: true);
+        var startHeight = block.Height;
+        var pressPoint = block.TranslatePoint(
+            new Point(block.Bounds.Width / 2, block.Bounds.Height - 4), context.Window)!.Value;
+        var movedPoint = new Point(pressPoint.X, pressPoint.Y + 30);
+        var captureLostCount = 0;
+        var activeBorder = typeof(CalendarDayView).GetField(
+            "_activeBlockBorder",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+        block.PointerCaptureLost += (_, _) => captureLostCount++;
+
+        Assert.True(RaisePointerPressed(block, context.Window, pointer, pressPoint).Handled);
+        RaisePointerMoved(block, context.Window, pointer, movedPoint);
+        context.Window.UpdateLayout();
+        Assert.True(block.Height > startHeight);
+
+        var initialWidth = canvas.Bounds.Width;
+        canvas.Width = initialWidth - 50;
+        context.Window.UpdateLayout();
+
+        Assert.True(canvas.Bounds.Width < initialWidth);
+        Assert.Contains(block, canvas.Children);
+        Assert.Same(block, activeBorder.GetValue(dayView));
+        Assert.Equal(0, captureLostCount);
+        Assert.True(block.Height > startHeight);
+
+        RaisePointerMoved(block, context.Window, pointer, movedPoint);
+        RaisePointerReleasedAt(block, context.Window, pointer, movedPoint);
+
+        var expectedEnd = end.AddMinutes(30);
+        await UntilAsync(async () =>
+        {
+            var saved = await context.Store.GetTaskAsync(task.Id);
+            return saved?.ScheduledStart?.ToUnixTimeMilliseconds() == start.ToUnixTimeMilliseconds() &&
+                saved.ScheduledEnd?.ToUnixTimeMilliseconds() == expectedEnd.ToUnixTimeMilliseconds();
+        });
+    });
+
+    [Fact]
+    public Task Calendar_stationary_release_after_minute_refresh_keeps_action_flyout_open() => Run(async context =>
+    {
+        var existing = (await context.Store.GetTaskAsync("task-0"))!;
+        var day = DateOnly.FromDateTime(DateTime.Today);
+        var startLocal = day.ToDateTime(new TimeOnly(11, 30));
+        var start = new DateTimeOffset(startLocal, TimeZoneInfo.Local.GetUtcOffset(startLocal));
+        var task = existing with
+        {
+            Id = "calendar-stationary-refresh-flyout-task",
+            Title = "Calendar stationary refresh flyout task",
+            ParentId = null,
+            PlannedOn = day,
+            ScheduledStart = start,
+            ScheduledEnd = start.AddMinutes(60),
+        };
+        await context.Store.UpsertTaskAsync(task);
+        await context.Vm.SelectNavigationAsync(context.Vm.NavigationItems.Single(item => item.Kind == TaskListKind.Calendar));
+        context.Vm.CalendarDay.SetSelectedDate(day);
+        context.Vm.SetCalendarDayView(true);
+        await Task.Delay(50);
+        Dispatcher.UIThread.RunJobs();
+        context.Window.UpdateLayout();
+
+        var dayView = context.Window.FindControl<CalendarDayView>("CalendarDayView")!;
+        var canvas = dayView.FindControl<Canvas>("TimelineCanvas")!;
+        var block = Assert.Single(dayView.GetVisualDescendants().OfType<Border>(), border =>
+            border.Classes.Contains("calendar-day-block") &&
+            border.DataContext is CalendarDayBlockViewModel blockViewModel && blockViewModel.Task.Id == task.Id);
+        var pointer = new Pointer(5, PointerType.Mouse, isPrimary: true);
+        var point = block.TranslatePoint(new Point(block.Bounds.Width / 2, block.Bounds.Height / 2), context.Window)!.Value;
+        var pendingRebuild = typeof(CalendarDayView).GetField(
+            "_timelineRebuildPending",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+        var activeFlyout = typeof(CalendarDayView).GetField(
+            "_activeBlockFlyout",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+
+        Assert.True(RaisePointerPressed(block, context.Window, pointer, point).Handled);
+        context.Vm.CalendarDay.SetNow(context.Vm.CalendarDay.Now.AddMinutes(1));
+        Assert.True((bool)pendingRebuild.GetValue(dayView)!);
+        RaisePointerReleasedAt(block, context.Window, pointer, point);
+        Dispatcher.UIThread.RunJobs();
+        context.Window.UpdateLayout();
+
+        var flyout = Assert.IsType<Flyout>(activeFlyout.GetValue(dayView));
+        Assert.True(flyout.IsOpen);
+        Assert.DoesNotContain(block, canvas.Children);
+        Assert.Contains(dayView.GetVisualDescendants().OfType<Border>(), replacement =>
+            replacement.Classes.Contains("calendar-day-block") &&
+            ReferenceEquals(replacement.DataContext, block.DataContext));
+    });
+
+    [Fact]
     public Task Calendar_schedule_refresh_cancels_an_active_block_gesture() => Run(async context =>
     {
         var existing = (await context.Store.GetTaskAsync("task-0"))!;

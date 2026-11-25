@@ -18,9 +18,11 @@ public sealed partial class CalendarDayView : UserControl
     private bool _timelineRenderQueued;
     private bool _timelineRebuildPending;
     private bool _queuedTimelineRebuildDefersDuringGesture;
+    private Action? _afterTimelineRebuild;
     private Border? _activeBlockBorder;
     private IPointer? _activeBlockPointer;
     private CalendarDayBlockViewModel? _activeBlock;
+    private Flyout? _activeBlockFlyout;
     private Point _pointerOrigin;
     private double _blockTopAtStart;
     private double _blockHeightAtStart;
@@ -73,6 +75,12 @@ public sealed partial class CalendarDayView : UserControl
 
     private void OnTimelineSizeChanged(object? sender, SizeChangedEventArgs e)
     {
+        if (_activeBlockBorder is not null && e.PreviousSize.Height == e.NewSize.Height)
+        {
+            _timelineRebuildPending = true;
+            return;
+        }
+
         CancelActiveBlockGesture();
         RebuildTimeline();
     }
@@ -91,8 +99,13 @@ public sealed partial class CalendarDayView : UserControl
         }
     }
 
-    private void QueueTimelineRebuild(bool deferDuringBlockGesture = false)
+    private void QueueTimelineRebuild(bool deferDuringBlockGesture = false, Action? afterRebuild = null)
     {
+        if (afterRebuild is not null)
+        {
+            _afterTimelineRebuild += afterRebuild;
+        }
+
         if (_activeBlockBorder is not null)
         {
             if (deferDuringBlockGesture)
@@ -129,6 +142,13 @@ public sealed partial class CalendarDayView : UserControl
             }
 
             RebuildTimeline();
+            var afterRebuild = _afterTimelineRebuild;
+            _afterTimelineRebuild = null;
+            if (afterRebuild is not null)
+            {
+                UpdateLayout();
+                afterRebuild();
+            }
         }, DispatcherPriority.Background);
     }
 
@@ -355,8 +375,12 @@ public sealed partial class CalendarDayView : UserControl
             border.Height = startHeight;
             Canvas.SetTop(border, startTop);
             border.IsVisible = true;
-            ShowBlockFlyout(border, block);
-            FlushPendingTimelineRebuild();
+            FlushPendingTimelineRebuild(() =>
+            {
+                var placementBorder = TimelineCanvas.Children.OfType<Border>()
+                    .FirstOrDefault(candidate => ReferenceEquals(candidate.DataContext, block));
+                if (placementBorder is not null) ShowBlockFlyout(placementBorder, block);
+            });
             return;
         }
 
@@ -404,11 +428,15 @@ public sealed partial class CalendarDayView : UserControl
         pointer?.Capture(null);
     }
 
-    private void FlushPendingTimelineRebuild()
+    private void FlushPendingTimelineRebuild(Action? afterRebuild = null)
     {
         if (_timelineRebuildPending)
         {
-            QueueTimelineRebuild();
+            QueueTimelineRebuild(afterRebuild: afterRebuild);
+        }
+        else
+        {
+            afterRebuild?.Invoke();
         }
     }
 
@@ -470,6 +498,11 @@ public sealed partial class CalendarDayView : UserControl
         });
 
         var flyout = new Flyout { Content = content };
+        _activeBlockFlyout = flyout;
+        flyout.Closed += (_, _) =>
+        {
+            if (ReferenceEquals(_activeBlockFlyout, flyout)) _activeBlockFlyout = null;
+        };
         var openButton = new Button { Content = "Open task", HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch };
         openButton.Click += (_, _) =>
         {
