@@ -876,20 +876,21 @@ public sealed partial class DesktopControlBehaviorTests
         Assert.Contains(block, canvas.Children);
         Assert.Equal(0, captureLostCount);
         Assert.Equal(0, timelineSizeChangedCount);
-        RaisePointerMoved(block, context.Window, pointer, movedPoint);
+        var followupMovedPoint = new Point(movedPoint.X, movedPoint.Y - 16);
+        RaisePointerMoved(block, context.Window, pointer, followupMovedPoint);
         if (resize)
         {
-            Assert.Equal(startHeight + 32, block.Height, 3);
+            Assert.Equal(startHeight + 16, block.Height, 3);
         }
         else
         {
-            Assert.Equal(startTop + 32, Canvas.GetTop(block), 3);
+            Assert.Equal(startTop + 16, Canvas.GetTop(block), 3);
         }
-        RaisePointerReleasedAt(block, context.Window, pointer, movedPoint);
+        RaisePointerReleasedAt(block, context.Window, pointer, followupMovedPoint);
         Assert.Null(activeBlockBorder.GetValue(dayView));
 
-        var expectedStart = resize ? start : start.AddMinutes(30);
-        var expectedEnd = end.AddMinutes(30);
+        var expectedStart = resize ? start : start.AddMinutes(15);
+        var expectedEnd = end.AddMinutes(15);
         TaskItem? lastSaved = null;
         await UntilAsync(async () =>
         {
@@ -898,6 +899,105 @@ public sealed partial class DesktopControlBehaviorTests
                 lastSaved.ScheduledEnd?.ToUnixTimeMilliseconds() == expectedEnd.ToUnixTimeMilliseconds();
         }, () => $"Expected {expectedStart:o}–{expectedEnd:o}, got {lastSaved?.ScheduledStart:o}–{lastSaved?.ScheduledEnd:o}; current block top={Canvas.GetTop(block)}, height={block.Height}, attached={canvas.Children.Contains(block)}, busy={context.Vm.IsBusy}, syncing={context.Vm.IsSyncing}, status={context.Vm.StatusMessage}.");
     }, new UnpairedPersonalCloudSetupService());
+
+    [Fact]
+    public Task Calendar_switching_to_list_cancels_an_active_block_gesture() => Run(async context =>
+    {
+        var existing = (await context.Store.GetTaskAsync("task-0"))!;
+        var day = DateOnly.FromDateTime(DateTime.Today);
+        var startLocal = day.ToDateTime(new TimeOnly(11, 30));
+        var start = new DateTimeOffset(startLocal, TimeZoneInfo.Local.GetUtcOffset(startLocal));
+        var task = existing with
+        {
+            Id = "calendar-list-switch-gesture-task",
+            Title = "Calendar list switch gesture task",
+            ParentId = null,
+            PlannedOn = day,
+            ScheduledStart = start,
+            ScheduledEnd = start.AddMinutes(90),
+        };
+        await context.Store.UpsertTaskAsync(task);
+        await context.Vm.SelectNavigationAsync(context.Vm.NavigationItems.Single(item => item.Kind == TaskListKind.Calendar));
+        context.Vm.CalendarDay.SetSelectedDate(day);
+        context.Vm.SetCalendarDayView(true);
+        await Task.Delay(50);
+        Dispatcher.UIThread.RunJobs();
+        context.Window.UpdateLayout();
+
+        var dayView = context.Window.FindControl<CalendarDayView>("CalendarDayView")!;
+        var block = Assert.Single(dayView.GetVisualDescendants().OfType<Border>(), border =>
+            border.Classes.Contains("calendar-day-block") &&
+            border.DataContext is CalendarDayBlockViewModel blockViewModel && blockViewModel.Task.Id == task.Id);
+        var pointer = new Pointer(10, PointerType.Mouse, isPrimary: true);
+        var pressPoint = block.TranslatePoint(new Point(block.Bounds.Width / 2, block.Bounds.Height / 2), context.Window)!.Value;
+        var movedPoint = new Point(pressPoint.X, pressPoint.Y + 30);
+        var activeBlockBorder = typeof(CalendarDayView).GetField("_activeBlockBorder", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+
+        Assert.True(RaisePointerPressed(block, context.Window, pointer, pressPoint).Handled);
+        RaisePointerMoved(block, context.Window, pointer, movedPoint);
+        Assert.Same(block, activeBlockBorder.GetValue(dayView));
+
+        var listButton = context.Window.FindControl<Control>("CalendarListViewButton")!;
+        Assert.True(listButton.Focus());
+        listButton.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter });
+        await Until(() => !context.Vm.IsCalendarDayView);
+        Assert.False(dayView.IsVisible);
+        Assert.Null(activeBlockBorder.GetValue(dayView));
+
+        RaisePointerReleasedAt(block, context.Window, pointer, movedPoint);
+        await Task.Delay(50);
+        var saved = await context.Store.GetTaskAsync(task.Id);
+        Assert.Equal(start.ToUnixTimeMilliseconds(), saved!.ScheduledStart!.Value.ToUnixTimeMilliseconds());
+        Assert.Equal(task.ScheduledEnd!.Value.ToUnixTimeMilliseconds(), saved.ScheduledEnd!.Value.ToUnixTimeMilliseconds());
+    });
+
+    [Fact]
+    public Task Calendar_task_view_context_change_cancels_an_active_block_gesture() => Run(async context =>
+    {
+        var existing = (await context.Store.GetTaskAsync("task-0"))!;
+        var day = DateOnly.FromDateTime(DateTime.Today);
+        var startLocal = day.ToDateTime(new TimeOnly(11, 30));
+        var start = new DateTimeOffset(startLocal, TimeZoneInfo.Local.GetUtcOffset(startLocal));
+        var task = existing with
+        {
+            Id = "calendar-context-change-gesture-task",
+            Title = "Calendar context-change gesture task",
+            ParentId = null,
+            PlannedOn = day,
+            ScheduledStart = start,
+            ScheduledEnd = start.AddMinutes(90),
+        };
+        await context.Store.UpsertTaskAsync(task);
+        await context.Vm.SelectNavigationAsync(context.Vm.NavigationItems.Single(item => item.Kind == TaskListKind.Calendar));
+        context.Vm.CalendarDay.SetSelectedDate(day);
+        context.Vm.SetCalendarDayView(true);
+        await Task.Delay(50);
+        Dispatcher.UIThread.RunJobs();
+        context.Window.UpdateLayout();
+
+        var dayView = context.Window.FindControl<CalendarDayView>("CalendarDayView")!;
+        var block = Assert.Single(dayView.GetVisualDescendants().OfType<Border>(), border =>
+            border.Classes.Contains("calendar-day-block") &&
+            border.DataContext is CalendarDayBlockViewModel blockViewModel && blockViewModel.Task.Id == task.Id);
+        var item = ((CalendarDayBlockViewModel)block.DataContext!).Item;
+        var pointer = new Pointer(11, PointerType.Mouse, isPrimary: true);
+        var pressPoint = block.TranslatePoint(new Point(block.Bounds.Width / 2, block.Bounds.Height / 2), context.Window)!.Value;
+        var movedPoint = new Point(pressPoint.X, pressPoint.Y + 30);
+        var activeBlockBorder = typeof(CalendarDayView).GetField("_activeBlockBorder", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+
+        Assert.True(RaisePointerPressed(block, context.Window, pointer, pressPoint).Handled);
+        RaisePointerMoved(block, context.Window, pointer, movedPoint);
+        context.Vm.CalendarDay.SetDayTasks(
+            [item],
+            new Openza.Tasks.Desktop.ViewModels.Navigation.TaskViewContext("another-space", TaskListKind.Calendar));
+        Assert.Null(activeBlockBorder.GetValue(dayView));
+
+        RaisePointerReleasedAt(block, context.Window, pointer, movedPoint);
+        await Task.Delay(50);
+        var saved = await context.Store.GetTaskAsync(task.Id);
+        Assert.Equal(start.ToUnixTimeMilliseconds(), saved!.ScheduledStart!.Value.ToUnixTimeMilliseconds());
+        Assert.Equal(task.ScheduledEnd!.Value.ToUnixTimeMilliseconds(), saved.ScheduledEnd!.Value.ToUnixTimeMilliseconds());
+    });
 
     [Fact]
     public Task Calendar_explicit_scroll_during_resize_remains_part_of_pointer_delta() => Run(async context =>

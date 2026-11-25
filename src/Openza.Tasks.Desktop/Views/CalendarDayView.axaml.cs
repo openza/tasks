@@ -21,8 +21,10 @@ public sealed partial class CalendarDayView : UserControl
     private IPointer? _activeBlockPointer;
     private CalendarDayBlockViewModel? _activeBlock;
     private Flyout? _activeBlockFlyout;
+    private Visual? _gestureCoordinateRoot;
 
     private Point _pointerOrigin;
+    private double _explicitScrollOffsetDelta;
     private double _blockTopAtStart;
     private double _blockHeightAtStart;
     private bool _resizeGesture;
@@ -35,6 +37,15 @@ public sealed partial class CalendarDayView : UserControl
         TimelineScrollViewer.ScrollChanged += OnTimelineScrollChanged;
         DataContextChanged += OnDataContextChanged;
         Loaded += OnLoaded;
+    }
+
+    protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
+    {
+        base.OnPropertyChanged(change);
+        if (change.Property == IsVisibleProperty && !IsVisible)
+        {
+            CancelActiveBlockGesture();
+        }
     }
 
     public event EventHandler<TaskListItemViewModel>? TaskSelected;
@@ -82,12 +93,12 @@ public sealed partial class CalendarDayView : UserControl
     private void OnTimelineScrollChanged(object? sender, ScrollChangedEventArgs e)
     {
         if (_activeBlockBorder is null || e.OffsetDelta.Y == 0 ||
-            (e.ViewportDelta.Y == 0 && e.ExtentDelta.Y == 0))
+            e.ViewportDelta.Y != 0 || e.ExtentDelta.Y != 0)
         {
             return;
         }
 
-        _pointerOrigin = new Point(_pointerOrigin.X, _pointerOrigin.Y + e.OffsetDelta.Y);
+        _explicitScrollOffsetDelta += e.OffsetDelta.Y;
     }
 
     private void OnBlocksChanged(object? sender, NotifyCollectionChangedEventArgs e)
@@ -355,7 +366,9 @@ public sealed partial class CalendarDayView : UserControl
         _activeBlock = block;
         _activeBlockBorder = border;
         _activeBlockPointer = e.Pointer;
-        _pointerOrigin = e.GetPosition(TimelineCanvas);
+        _gestureCoordinateRoot = (Visual?)TopLevel.GetTopLevel(this) ?? this;
+        _pointerOrigin = e.GetPosition(_gestureCoordinateRoot);
+        _explicitScrollOffsetDelta = 0;
         _blockTopAtStart = Canvas.GetTop(border);
         _blockHeightAtStart = border.Bounds.Height;
         _resizeGesture = IsPointerOnResizeHandle(border, e.GetPosition(border));
@@ -368,7 +381,7 @@ public sealed partial class CalendarDayView : UserControl
     private void OnBlockPointerMoved(object? sender, PointerEventArgs e)
     {
         if (sender is not Border border || !ReferenceEquals(border, _activeBlockBorder) || _viewModel is null) return;
-        var delta = e.GetPosition(TimelineCanvas).Y - _pointerOrigin.Y;
+        var delta = GetGestureDelta(e);
         if (!_blockWasDragged && Math.Abs(delta) < 4) return;
         _blockWasDragged = true;
         var schedule = GetDragSchedule(_activeBlock!, delta, _resizeGesture);
@@ -382,7 +395,7 @@ public sealed partial class CalendarDayView : UserControl
         var block = _activeBlock;
         var wasDragged = _blockWasDragged;
         var resizeGesture = _resizeGesture;
-        var delta = e.GetPosition(TimelineCanvas).Y - _pointerOrigin.Y;
+        var delta = GetGestureDelta(e);
         var startTop = _blockTopAtStart;
         var startHeight = _blockHeightAtStart;
         _activeBlockBorder = null;
@@ -390,6 +403,8 @@ public sealed partial class CalendarDayView : UserControl
         _activeBlock = null;
         _blockWasDragged = false;
         _resizeGesture = false;
+        _gestureCoordinateRoot = null;
+        _explicitScrollOffsetDelta = 0;
         e.Pointer.Capture(null);
         e.Handled = true;
 
@@ -427,6 +442,8 @@ public sealed partial class CalendarDayView : UserControl
         _activeBlock = null;
         _blockWasDragged = false;
         _resizeGesture = false;
+        _gestureCoordinateRoot = null;
+        _explicitScrollOffsetDelta = 0;
     }
 
     private void CancelActiveBlockGesture()
@@ -441,8 +458,13 @@ public sealed partial class CalendarDayView : UserControl
         _activeBlock = null;
         _blockWasDragged = false;
         _resizeGesture = false;
+        _gestureCoordinateRoot = null;
+        _explicitScrollOffsetDelta = 0;
         pointer?.Capture(null);
     }
+
+    private double GetGestureDelta(PointerEventArgs e) =>
+        e.GetPosition(_gestureCoordinateRoot ?? this).Y - _pointerOrigin.Y + _explicitScrollOffsetDelta;
 
     private (DateTimeOffset Start, DateTimeOffset End) GetDragSchedule(CalendarDayBlockViewModel block, double delta, bool resizeGesture) =>
         resizeGesture
