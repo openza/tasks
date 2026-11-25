@@ -17,7 +17,9 @@ public sealed partial class CalendarDayView : UserControl
     private CalendarDayViewModel? _viewModel;
     private bool _timelineRenderQueued;
     private bool _timelineRebuildPending;
+    private bool _queuedTimelineRebuildDefersDuringGesture;
     private Border? _activeBlockBorder;
+    private IPointer? _activeBlockPointer;
     private CalendarDayBlockViewModel? _activeBlock;
     private Point _pointerOrigin;
     private double _blockTopAtStart;
@@ -50,6 +52,7 @@ public sealed partial class CalendarDayView : UserControl
 
     private void OnDataContextChanged(object? sender, EventArgs e)
     {
+        CancelActiveBlockGesture();
         if (_viewModel is not null)
         {
             _viewModel.Blocks.CollectionChanged -= OnBlocksChanged;
@@ -68,43 +71,69 @@ public sealed partial class CalendarDayView : UserControl
 
     private void OnLoaded(object? sender, RoutedEventArgs e) => ScrollToCurrentTime();
 
-    private void OnTimelineSizeChanged(object? sender, SizeChangedEventArgs e) => RebuildTimeline();
+    private void OnTimelineSizeChanged(object? sender, SizeChangedEventArgs e)
+    {
+        CancelActiveBlockGesture();
+        RebuildTimeline();
+    }
 
     private void OnBlocksChanged(object? sender, NotifyCollectionChangedEventArgs e) => QueueTimelineRebuild();
 
     private void OnCalendarDayPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName is nameof(CalendarDayViewModel.Now) or nameof(CalendarDayViewModel.SelectedDate) or nameof(CalendarDayViewModel.IsSelectedDayToday))
+        if (e.PropertyName == nameof(CalendarDayViewModel.SelectedDate))
         {
             QueueTimelineRebuild();
         }
+        else if (e.PropertyName is nameof(CalendarDayViewModel.Now) or nameof(CalendarDayViewModel.IsSelectedDayToday))
+        {
+            QueueTimelineRebuild(deferDuringBlockGesture: true);
+        }
     }
 
-    private void QueueTimelineRebuild()
+    private void QueueTimelineRebuild(bool deferDuringBlockGesture = false)
     {
         if (_activeBlockBorder is not null)
         {
-            _timelineRebuildPending = true;
+            if (deferDuringBlockGesture)
+            {
+                _timelineRebuildPending = true;
+                return;
+            }
+
+            CancelActiveBlockGesture();
+        }
+
+        if (_timelineRenderQueued)
+        {
+            _queuedTimelineRebuildDefersDuringGesture &= deferDuringBlockGesture;
             return;
         }
 
-        if (_timelineRenderQueued) return;
         _timelineRenderQueued = true;
+        _queuedTimelineRebuildDefersDuringGesture = deferDuringBlockGesture;
         Dispatcher.UIThread.Post(() =>
         {
             _timelineRenderQueued = false;
+            var deferRebuild = _queuedTimelineRebuildDefersDuringGesture;
+            _queuedTimelineRebuildDefersDuringGesture = false;
+            if (_activeBlockBorder is not null)
+            {
+                if (deferRebuild)
+                {
+                    _timelineRebuildPending = true;
+                    return;
+                }
+
+                CancelActiveBlockGesture();
+            }
+
             RebuildTimeline();
         }, DispatcherPriority.Background);
     }
 
     private void RebuildTimeline()
     {
-        if (_activeBlockBorder is not null)
-        {
-            _timelineRebuildPending = true;
-            return;
-        }
-
         _timelineRebuildPending = false;
         HourLabelsCanvas.Children.Clear();
         TimelineCanvas.Children.Clear();
@@ -282,6 +311,7 @@ public sealed partial class CalendarDayView : UserControl
 
         _activeBlock = block;
         _activeBlockBorder = border;
+        _activeBlockPointer = e.Pointer;
         _pointerOrigin = e.GetPosition(TimelineCanvas);
         _blockTopAtStart = Canvas.GetTop(border);
         _blockHeightAtStart = border.Bounds.Height;
@@ -313,6 +343,7 @@ public sealed partial class CalendarDayView : UserControl
         var startTop = _blockTopAtStart;
         var startHeight = _blockHeightAtStart;
         _activeBlockBorder = null;
+        _activeBlockPointer = null;
         _activeBlock = null;
         _blockWasDragged = false;
         _resizeGesture = false;
@@ -351,10 +382,26 @@ public sealed partial class CalendarDayView : UserControl
         Canvas.SetTop(border, _blockTopAtStart);
         border.IsVisible = true;
         _activeBlockBorder = null;
+        _activeBlockPointer = null;
         _activeBlock = null;
         _blockWasDragged = false;
         _resizeGesture = false;
         FlushPendingTimelineRebuild();
+    }
+
+    private void CancelActiveBlockGesture()
+    {
+        if (_activeBlockBorder is not { } border) return;
+        var pointer = _activeBlockPointer;
+        border.Height = _blockHeightAtStart;
+        Canvas.SetTop(border, _blockTopAtStart);
+        border.IsVisible = true;
+        _activeBlockBorder = null;
+        _activeBlockPointer = null;
+        _activeBlock = null;
+        _blockWasDragged = false;
+        _resizeGesture = false;
+        pointer?.Capture(null);
     }
 
     private void FlushPendingTimelineRebuild()
