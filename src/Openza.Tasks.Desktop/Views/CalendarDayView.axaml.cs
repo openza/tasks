@@ -16,13 +16,12 @@ public sealed partial class CalendarDayView : UserControl
 {
     private CalendarDayViewModel? _viewModel;
     private bool _timelineRenderQueued;
-    private bool _timelineRebuildPending;
-    private bool _queuedTimelineRebuildDefersDuringGesture;
-    private Action? _afterTimelineRebuild;
+    private bool _clockVisualUpdateQueued;
     private Border? _activeBlockBorder;
     private IPointer? _activeBlockPointer;
     private CalendarDayBlockViewModel? _activeBlock;
     private Flyout? _activeBlockFlyout;
+
     private Point _pointerOrigin;
     private double _blockTopAtStart;
     private double _blockHeightAtStart;
@@ -75,17 +74,14 @@ public sealed partial class CalendarDayView : UserControl
 
     private void OnTimelineSizeChanged(object? sender, SizeChangedEventArgs e)
     {
-        if (_activeBlockBorder is not null && e.PreviousSize.Height == e.NewSize.Height)
-        {
-            _timelineRebuildPending = true;
-            return;
-        }
-
         CancelActiveBlockGesture();
         RebuildTimeline();
     }
 
-    private void OnBlocksChanged(object? sender, NotifyCollectionChangedEventArgs e) => QueueTimelineRebuild();
+    private void OnBlocksChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        QueueTimelineRebuild();
+    }
 
     private void OnCalendarDayPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
@@ -95,66 +91,81 @@ public sealed partial class CalendarDayView : UserControl
         }
         else if (e.PropertyName is nameof(CalendarDayViewModel.Now) or nameof(CalendarDayViewModel.IsSelectedDayToday))
         {
-            QueueTimelineRebuild(deferDuringBlockGesture: true);
+            QueueClockVisualUpdate();
         }
     }
 
-    private void QueueTimelineRebuild(bool deferDuringBlockGesture = false, Action? afterRebuild = null)
+    private void QueueTimelineRebuild()
     {
-        if (afterRebuild is not null)
-        {
-            _afterTimelineRebuild += afterRebuild;
-        }
-
-        if (_activeBlockBorder is not null)
-        {
-            if (deferDuringBlockGesture)
-            {
-                _timelineRebuildPending = true;
-                return;
-            }
-
-            CancelActiveBlockGesture();
-        }
-
-        if (_timelineRenderQueued)
-        {
-            _queuedTimelineRebuildDefersDuringGesture &= deferDuringBlockGesture;
-            return;
-        }
+        CancelActiveBlockGesture();
+        if (_timelineRenderQueued) return;
 
         _timelineRenderQueued = true;
-        _queuedTimelineRebuildDefersDuringGesture = deferDuringBlockGesture;
         Dispatcher.UIThread.Post(() =>
         {
             _timelineRenderQueued = false;
-            var deferRebuild = _queuedTimelineRebuildDefersDuringGesture;
-            _queuedTimelineRebuildDefersDuringGesture = false;
-            if (_activeBlockBorder is not null)
+            CancelActiveBlockGesture();
+            RebuildTimeline();
+        }, DispatcherPriority.Background);
+    }
+
+    private void QueueClockVisualUpdate()
+    {
+        if (_clockVisualUpdateQueued) return;
+        _clockVisualUpdateQueued = true;
+        Dispatcher.UIThread.Post(() =>
+        {
+            _clockVisualUpdateQueued = false;
+            if (_viewModel is null) return;
+
+            var nowLine = TimelineCanvas.Children.OfType<Border>()
+                .FirstOrDefault(border => border.Classes.Contains("calendar-now-rule"));
+            if (_viewModel.IsSelectedDayToday)
             {
-                if (deferRebuild)
+                if (nowLine is null)
                 {
-                    _timelineRebuildPending = true;
-                    return;
+                    nowLine = new Border
+                    {
+                        Height = 2,
+                        Width = TimelineCanvas.Bounds.Width,
+                        IsHitTestVisible = false,
+                        Classes = { "calendar-now-rule" },
+                    };
+                    TimelineCanvas.Children.Add(nowLine);
                 }
 
-                CancelActiveBlockGesture();
+                Canvas.SetTop(nowLine, _viewModel.NowTop);
+            }
+            else if (nowLine is not null)
+            {
+                TimelineCanvas.Children.Remove(nowLine);
             }
 
-            RebuildTimeline();
-            var afterRebuild = _afterTimelineRebuild;
-            _afterTimelineRebuild = null;
-            if (afterRebuild is not null)
+            foreach (var border in TimelineCanvas.Children.OfType<Border>()
+                         .Where(border => border.DataContext is CalendarDayBlockViewModel))
             {
-                UpdateLayout();
-                afterRebuild();
+                var block = (CalendarDayBlockViewModel)border.DataContext!;
+                if (border.Opacity != block.Opacity) border.Opacity = block.Opacity;
+                AutomationProperties.SetName(border, block.AccessibleName);
+                var tooltip = block.CanResizeEnd
+                    ? $"{block.AccessibleName}. Click for actions; drag to move; drag the bottom edge to resize."
+                    : $"{block.AccessibleName}. Click for actions or drag to move.";
+                if (!Equals(ToolTip.GetTip(border), tooltip)) ToolTip.SetTip(border, tooltip);
+
+                var state = border.GetVisualDescendants().OfType<TextBlock>()
+                    .FirstOrDefault(text => text.Classes.Contains("calendar-block-state"));
+                if (state is not null)
+                {
+                    if (state.Text != block.StateText) state.Text = block.StateText;
+                    var stateIsVisible = block.StateText.Length > 0;
+                    if (state.IsVisible != stateIsVisible) state.IsVisible = stateIsVisible;
+                }
             }
         }, DispatcherPriority.Background);
     }
 
     private void RebuildTimeline()
     {
-        _timelineRebuildPending = false;
         HourLabelsCanvas.Children.Clear();
         TimelineCanvas.Children.Clear();
         if (_viewModel is null) return;
@@ -375,12 +386,7 @@ public sealed partial class CalendarDayView : UserControl
             border.Height = startHeight;
             Canvas.SetTop(border, startTop);
             border.IsVisible = true;
-            FlushPendingTimelineRebuild(() =>
-            {
-                var placementBorder = TimelineCanvas.Children.OfType<Border>()
-                    .FirstOrDefault(candidate => ReferenceEquals(candidate.DataContext, block));
-                if (placementBorder is not null) ShowBlockFlyout(placementBorder, block);
-            });
+            ShowBlockFlyout(border, block);
             return;
         }
 
@@ -389,7 +395,6 @@ public sealed partial class CalendarDayView : UserControl
             border.Height = startHeight;
             Canvas.SetTop(border, startTop);
             border.IsVisible = true;
-            FlushPendingTimelineRebuild();
             return;
         }
 
@@ -410,7 +415,6 @@ public sealed partial class CalendarDayView : UserControl
         _activeBlock = null;
         _blockWasDragged = false;
         _resizeGesture = false;
-        FlushPendingTimelineRebuild();
     }
 
     private void CancelActiveBlockGesture()
@@ -426,18 +430,6 @@ public sealed partial class CalendarDayView : UserControl
         _blockWasDragged = false;
         _resizeGesture = false;
         pointer?.Capture(null);
-    }
-
-    private void FlushPendingTimelineRebuild(Action? afterRebuild = null)
-    {
-        if (_timelineRebuildPending)
-        {
-            QueueTimelineRebuild(afterRebuild: afterRebuild);
-        }
-        else
-        {
-            afterRebuild?.Invoke();
-        }
     }
 
     private (DateTimeOffset Start, DateTimeOffset End) GetDragSchedule(CalendarDayBlockViewModel block, double delta, bool resizeGesture) =>

@@ -456,6 +456,28 @@ public sealed partial class DesktopControlBehaviorTests
         AssertResizeGestureAt(new Point(resizeHandleOrigin.X / 2, gripPoint.Y), expected: false);
     });
 
+    private static async Task WaitForCalendarSearchDebounceAsync(Context context)
+    {
+        var searchTimer = (DispatcherTimer)context.Window.GetType().GetField(
+            "_taskSearchTimer",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(context.Window)!;
+        await Task.Delay(searchTimer.Interval + TimeSpan.FromMilliseconds(50));
+        await UntilAsync(() => Task.FromResult(!searchTimer.IsEnabled && !context.Vm.IsBusy));
+        Dispatcher.UIThread.RunJobs();
+        context.Window.UpdateLayout();
+        Dispatcher.UIThread.RunJobs();
+
+        var dayView = context.Window.FindControl<CalendarDayView>("CalendarDayView")!;
+        Assert.False(searchTimer.IsEnabled);
+        Assert.False(context.Vm.IsBusy);
+        Assert.False((bool)typeof(CalendarDayView).GetField(
+            "_timelineRenderQueued",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(dayView)!);
+        Assert.False((bool)typeof(CalendarDayView).GetField(
+            "_clockVisualUpdateQueued",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(dayView)!);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -483,6 +505,7 @@ public sealed partial class DesktopControlBehaviorTests
         await Task.Delay(50);
         Dispatcher.UIThread.RunJobs();
         context.Window.UpdateLayout();
+        await WaitForCalendarSearchDebounceAsync(context);
 
         var dayView = context.Window.FindControl<CalendarDayView>("CalendarDayView")!;
         var canvas = dayView.FindControl<Canvas>("TimelineCanvas")!;
@@ -518,17 +541,17 @@ public sealed partial class DesktopControlBehaviorTests
     });
 
     [Fact]
-    public Task Calendar_width_reflow_does_not_cancel_an_active_block_resize() => Run(async context =>
+    public Task Calendar_viewport_resize_cancels_active_block_resize_without_saving() => Run(async context =>
     {
         var existing = (await context.Store.GetTaskAsync("task-0"))!;
         var day = DateOnly.FromDateTime(DateTime.Today);
-        var startLocal = day.ToDateTime(new TimeOnly(11, 30));
+        var startLocal = day.ToDateTime(new TimeOnly(22, 0));
         var start = new DateTimeOffset(startLocal, TimeZoneInfo.Local.GetUtcOffset(startLocal));
-        var end = start.AddMinutes(90);
+        var end = start.AddHours(1);
         var task = existing with
         {
-            Id = "calendar-width-reflow-resize-task",
-            Title = "Calendar width reflow resize task",
+            Id = "calendar-viewport-resize-task",
+            Title = "Calendar viewport resize task",
             ParentId = null,
             PlannedOn = day,
             ScheduledStart = start,
@@ -544,19 +567,27 @@ public sealed partial class DesktopControlBehaviorTests
 
         var dayView = context.Window.FindControl<CalendarDayView>("CalendarDayView")!;
         var canvas = dayView.FindControl<Canvas>("TimelineCanvas")!;
+        var scrollViewer = dayView.FindControl<ScrollViewer>("TimelineScrollViewer")!;
+        scrollViewer.Offset = new Vector(0, scrollViewer.Extent.Height - scrollViewer.Viewport.Height);
+        context.Window.UpdateLayout();
+
         var block = Assert.Single(dayView.GetVisualDescendants().OfType<Border>(), border =>
             border.Classes.Contains("calendar-day-block") &&
             border.DataContext is CalendarDayBlockViewModel blockViewModel && blockViewModel.Task.Id == task.Id);
-        var pointer = new Pointer(4, PointerType.Mouse, isPrimary: true);
+        var pointer = new Pointer(6, PointerType.Mouse, isPrimary: true);
         var startHeight = block.Height;
         var pressPoint = block.TranslatePoint(
             new Point(block.Bounds.Width / 2, block.Bounds.Height - 4), context.Window)!.Value;
-        var movedPoint = new Point(pressPoint.X, pressPoint.Y + 30);
-        var captureLostCount = 0;
+        var movedPoint = new Point(pressPoint.X, pressPoint.Y + 20);
+        (DateTimeOffset? Start, DateTimeOffset? End)? requestedSchedule = null;
         var activeBorder = typeof(CalendarDayView).GetField(
             "_activeBlockBorder",
             System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
-        block.PointerCaptureLost += (_, _) => captureLostCount++;
+        dayView.BlockScheduleChangeRequested += (_, requestedStart, requestedEnd) =>
+        {
+            requestedSchedule = (requestedStart, requestedEnd);
+            return Task.CompletedTask;
+        };
 
         Assert.True(RaisePointerPressed(block, context.Window, pointer, pressPoint).Handled);
         RaisePointerMoved(block, context.Window, pointer, movedPoint);
@@ -564,25 +595,25 @@ public sealed partial class DesktopControlBehaviorTests
         Assert.True(block.Height > startHeight);
 
         var initialWidth = canvas.Bounds.Width;
+        var initialViewportHeight = scrollViewer.Viewport.Height;
+        var initialOffset = scrollViewer.Offset.Y;
         canvas.Width = initialWidth - 50;
+        context.Window.Height += 100;
         context.Window.UpdateLayout();
 
         Assert.True(canvas.Bounds.Width < initialWidth);
-        Assert.Contains(block, canvas.Children);
-        Assert.Same(block, activeBorder.GetValue(dayView));
-        Assert.Equal(0, captureLostCount);
-        Assert.True(block.Height > startHeight);
+        Assert.True(scrollViewer.Viewport.Height > initialViewportHeight);
+        Assert.True(scrollViewer.Offset.Y < initialOffset);
+        var activeGestureAfterReflow = activeBorder.GetValue(dayView);
 
-        RaisePointerMoved(block, context.Window, pointer, movedPoint);
         RaisePointerReleasedAt(block, context.Window, pointer, movedPoint);
+        Dispatcher.UIThread.RunJobs();
 
-        var expectedEnd = end.AddMinutes(30);
-        await UntilAsync(async () =>
-        {
-            var saved = await context.Store.GetTaskAsync(task.Id);
-            return saved?.ScheduledStart?.ToUnixTimeMilliseconds() == start.ToUnixTimeMilliseconds() &&
-                saved.ScheduledEnd?.ToUnixTimeMilliseconds() == expectedEnd.ToUnixTimeMilliseconds();
-        });
+        Assert.True(requestedSchedule is null, $"Unexpected schedule request after viewport resize: {requestedSchedule}");
+        Assert.Null(activeGestureAfterReflow);
+        var saved = await context.Store.GetTaskAsync(task.Id);
+        Assert.Equal(start.ToUnixTimeMilliseconds(), saved?.ScheduledStart?.ToUnixTimeMilliseconds());
+        Assert.Equal(end.ToUnixTimeMilliseconds(), saved?.ScheduledEnd?.ToUnixTimeMilliseconds());
     });
 
     [Fact]
@@ -592,6 +623,7 @@ public sealed partial class DesktopControlBehaviorTests
         var day = DateOnly.FromDateTime(DateTime.Today);
         var startLocal = day.ToDateTime(new TimeOnly(11, 30));
         var start = new DateTimeOffset(startLocal, TimeZoneInfo.Local.GetUtcOffset(startLocal));
+        var end = start.AddMinutes(60);
         var task = existing with
         {
             Id = "calendar-stationary-refresh-flyout-task",
@@ -599,7 +631,7 @@ public sealed partial class DesktopControlBehaviorTests
             ParentId = null,
             PlannedOn = day,
             ScheduledStart = start,
-            ScheduledEnd = start.AddMinutes(60),
+            ScheduledEnd = end,
         };
         await context.Store.UpsertTaskAsync(task);
         await context.Vm.SelectNavigationAsync(context.Vm.NavigationItems.Single(item => item.Kind == TaskListKind.Calendar));
@@ -608,6 +640,10 @@ public sealed partial class DesktopControlBehaviorTests
         await Task.Delay(50);
         Dispatcher.UIThread.RunJobs();
         context.Window.UpdateLayout();
+        context.Vm.CalendarDay.SetNow(end.AddMinutes(-2));
+        Dispatcher.UIThread.RunJobs();
+        context.Window.UpdateLayout();
+        await WaitForCalendarSearchDebounceAsync(context);
 
         var dayView = context.Window.FindControl<CalendarDayView>("CalendarDayView")!;
         var canvas = dayView.FindControl<Canvas>("TimelineCanvas")!;
@@ -616,26 +652,99 @@ public sealed partial class DesktopControlBehaviorTests
             border.DataContext is CalendarDayBlockViewModel blockViewModel && blockViewModel.Task.Id == task.Id);
         var pointer = new Pointer(5, PointerType.Mouse, isPrimary: true);
         var point = block.TranslatePoint(new Point(block.Bounds.Width / 2, block.Bounds.Height / 2), context.Window)!.Value;
-        var pendingRebuild = typeof(CalendarDayView).GetField(
-            "_timelineRebuildPending",
+        var activeBorder = typeof(CalendarDayView).GetField(
+            "_activeBlockBorder",
             System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
         var activeFlyout = typeof(CalendarDayView).GetField(
             "_activeBlockFlyout",
             System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+        var nowLine = Assert.Single(canvas.Children.OfType<Border>(), border => border.Classes.Contains("calendar-now-rule"));
+        var initialNowTop = Canvas.GetTop(nowLine);
+        var state = Assert.Single(block.GetVisualDescendants().OfType<TextBlock>(), text =>
+            text.Classes.Contains("calendar-block-state"));
+        var captureLostCount = 0;
+        var timelineSizeChangedCount = 0;
+        block.PointerCaptureLost += (_, _) => captureLostCount++;
+        canvas.SizeChanged += (_, _) => timelineSizeChangedCount++;
+        Assert.Equal(1, block.Opacity);
+        Assert.False(state.IsVisible);
 
         Assert.True(RaisePointerPressed(block, context.Window, pointer, point).Handled);
-        context.Vm.CalendarDay.SetNow(context.Vm.CalendarDay.Now.AddMinutes(1));
-        Assert.True((bool)pendingRebuild.GetValue(dayView)!);
+        context.Vm.CalendarDay.SetNow(end.AddMinutes(-1));
+        Dispatcher.UIThread.RunJobs();
+        context.Window.UpdateLayout();
+
+        Assert.True(ReferenceEquals(block, activeBorder.GetValue(dayView)),
+            $"Gesture canceled after {timelineSizeChangedCount} timeline size changes and {captureLostCount} capture losses; block attached={canvas.Children.Contains(block)}.");
+        Assert.Equal(0, timelineSizeChangedCount);
+        Assert.Equal(0, captureLostCount);
+        Assert.Contains(block, canvas.Children);
+        Assert.Same(nowLine, Assert.Single(canvas.Children.OfType<Border>(), border => border.Classes.Contains("calendar-now-rule")));
+        Assert.True(Canvas.GetTop(nowLine) > initialNowTop);
+        Assert.Equal(1, block.Opacity);
+        Assert.False(state.IsVisible);
+
         RaisePointerReleasedAt(block, context.Window, pointer, point);
         Dispatcher.UIThread.RunJobs();
         context.Window.UpdateLayout();
 
         var flyout = Assert.IsType<Flyout>(activeFlyout.GetValue(dayView));
         Assert.True(flyout.IsOpen);
-        Assert.DoesNotContain(block, canvas.Children);
-        Assert.Contains(dayView.GetVisualDescendants().OfType<Border>(), replacement =>
-            replacement.Classes.Contains("calendar-day-block") &&
-            ReferenceEquals(replacement.DataContext, block.DataContext));
+        Assert.Contains(block, canvas.Children);
+        Assert.Same(nowLine, Assert.Single(canvas.Children.OfType<Border>(), border => border.Classes.Contains("calendar-now-rule")));
+    });
+
+    [Fact]
+    public Task Calendar_clock_refresh_updates_block_state_in_place() => Run(async context =>
+    {
+        var existing = (await context.Store.GetTaskAsync("task-0"))!;
+        var day = DateOnly.FromDateTime(DateTime.Today);
+        var startLocal = day.ToDateTime(new TimeOnly(11, 30));
+        var start = new DateTimeOffset(startLocal, TimeZoneInfo.Local.GetUtcOffset(startLocal));
+        var end = start.AddMinutes(60);
+        var task = existing with
+        {
+            Id = "calendar-clock-state-task",
+            Title = "Calendar clock state task",
+            ParentId = null,
+            PlannedOn = day,
+            ScheduledStart = start,
+            ScheduledEnd = end,
+        };
+        await context.Store.UpsertTaskAsync(task);
+        await context.Vm.SelectNavigationAsync(context.Vm.NavigationItems.Single(item => item.Kind == TaskListKind.Calendar));
+        context.Vm.CalendarDay.SetSelectedDate(day);
+        context.Vm.SetCalendarDayView(true);
+        await Task.Delay(50);
+        Dispatcher.UIThread.RunJobs();
+        context.Window.UpdateLayout();
+        await WaitForCalendarSearchDebounceAsync(context);
+        context.Vm.CalendarDay.SetNow(end.AddMinutes(-1));
+        Dispatcher.UIThread.RunJobs();
+        context.Window.UpdateLayout();
+
+        var dayView = context.Window.FindControl<CalendarDayView>("CalendarDayView")!;
+        var canvas = dayView.FindControl<Canvas>("TimelineCanvas")!;
+        var block = Assert.Single(dayView.GetVisualDescendants().OfType<Border>(), border =>
+            border.Classes.Contains("calendar-day-block") &&
+            border.DataContext is CalendarDayBlockViewModel blockViewModel && blockViewModel.Task.Id == task.Id);
+        var state = Assert.Single(block.GetVisualDescendants().OfType<TextBlock>(), text =>
+            text.Classes.Contains("calendar-block-state"));
+        var nowLine = Assert.Single(canvas.Children.OfType<Border>(), border => border.Classes.Contains("calendar-now-rule"));
+        var initialNowTop = Canvas.GetTop(nowLine);
+        Assert.Equal(1, block.Opacity);
+        Assert.False(state.IsVisible);
+
+        context.Vm.CalendarDay.SetNow(end);
+        Dispatcher.UIThread.RunJobs();
+        context.Window.UpdateLayout();
+
+        Assert.Contains(block, canvas.Children);
+        Assert.Same(nowLine, Assert.Single(canvas.Children.OfType<Border>(), border => border.Classes.Contains("calendar-now-rule")));
+        Assert.True(Canvas.GetTop(nowLine) > initialNowTop);
+        Assert.Equal(0.55, block.Opacity);
+        Assert.Equal("Not done", state.Text);
+        Assert.True(state.IsVisible);
     });
 
     [Fact]
