@@ -455,6 +455,65 @@ public sealed partial class DesktopControlBehaviorTests
         AssertResizeGestureAt(new Point(resizeHandleOrigin.X / 2, gripPoint.Y), expected: false);
     });
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public Task Calendar_minute_refresh_does_not_cancel_an_active_block_gesture(bool resize) => Run(async context =>
+    {
+        var existing = (await context.Store.GetTaskAsync("task-0"))!;
+        var day = DateOnly.FromDateTime(DateTime.Today);
+        var startLocal = day.ToDateTime(new TimeOnly(11, 30));
+        var endLocal = day.ToDateTime(new TimeOnly(13, 0));
+        var start = new DateTimeOffset(startLocal, TimeZoneInfo.Local.GetUtcOffset(startLocal));
+        var end = new DateTimeOffset(endLocal, TimeZoneInfo.Local.GetUtcOffset(endLocal));
+        var task = existing with
+        {
+            Id = "calendar-minute-refresh-gesture-task",
+            Title = "Calendar minute refresh gesture task",
+            ParentId = null,
+            PlannedOn = day,
+            ScheduledStart = start,
+            ScheduledEnd = end,
+        };
+        await context.Store.UpsertTaskAsync(task);
+        await context.Vm.SelectNavigationAsync(context.Vm.NavigationItems.Single(item => item.Kind == TaskListKind.Calendar));
+        context.Vm.CalendarDay.SetSelectedDate(day);
+        context.Vm.SetCalendarDayView(true);
+        context.Window.UpdateLayout();
+
+        var dayView = context.Window.FindControl<CalendarDayView>("CalendarDayView")!;
+        var canvas = dayView.FindControl<Canvas>("TimelineCanvas")!;
+        var block = Assert.Single(dayView.GetVisualDescendants().OfType<Border>(), border =>
+            border.Classes.Contains("calendar-day-block") &&
+            border.DataContext is CalendarDayBlockViewModel blockViewModel && blockViewModel.Task.Id == task.Id);
+        var pointer = new Pointer(3, PointerType.Mouse, isPrimary: true);
+        var pressLocal = new Point(block.Bounds.Width / 2, resize ? block.Bounds.Height - 4 : block.Bounds.Height / 2);
+        var pressPoint = block.TranslatePoint(pressLocal, context.Window)!.Value;
+        var movedPoint = new Point(pressPoint.X, pressPoint.Y + 30);
+        var captureLostCount = 0;
+        block.PointerCaptureLost += (_, _) => captureLostCount++;
+
+        Assert.True(RaisePointerPressed(block, context.Window, pointer, pressPoint).Handled);
+        RaisePointerMoved(block, context.Window, pointer, movedPoint);
+        context.Vm.CalendarDay.SetNow(context.Vm.CalendarDay.Now.AddMinutes(1));
+        await Task.Delay(50);
+
+        Assert.Contains(block, canvas.Children);
+        Assert.Equal(0, captureLostCount);
+
+        RaisePointerMoved(block, context.Window, pointer, movedPoint);
+        RaisePointerReleasedAt(block, context.Window, pointer, movedPoint);
+
+        var expectedStart = resize ? start : start.AddMinutes(30);
+        var expectedEnd = end.AddMinutes(30);
+        await UntilAsync(async () =>
+        {
+            var saved = await context.Store.GetTaskAsync(task.Id);
+            return saved?.ScheduledStart?.ToUnixTimeMilliseconds() == expectedStart.ToUnixTimeMilliseconds() &&
+                saved.ScheduledEnd?.ToUnixTimeMilliseconds() == expectedEnd.ToUnixTimeMilliseconds();
+        });
+    });
+
     [Fact]
     public Task Saving_a_today_task_hidden_by_list_filters_keeps_its_editor_open() => Run(async context =>
     {
@@ -724,6 +783,34 @@ public sealed partial class DesktopControlBehaviorTests
         source.RaiseEvent(args);
         return args;
     }
+
+    private static void RaisePointerMoved(InputElement source, Window window, IPointer pointer, Point rootPosition) =>
+        source.RaiseEvent(new PointerEventArgs(
+            InputElement.PointerMovedEvent,
+            source,
+            pointer,
+            window,
+            rootPosition,
+            2,
+            new PointerPointProperties(RawInputModifiers.LeftMouseButton, PointerUpdateKind.LeftButtonPressed),
+            KeyModifiers.None)
+        {
+            RoutedEvent = InputElement.PointerMovedEvent,
+        });
+
+    private static void RaisePointerReleasedAt(InputElement source, Window window, IPointer pointer, Point rootPosition) =>
+        source.RaiseEvent(new PointerReleasedEventArgs(
+            source,
+            pointer,
+            window,
+            rootPosition,
+            3,
+            new PointerPointProperties(),
+            KeyModifiers.None,
+            MouseButton.Left)
+        {
+            RoutedEvent = InputElement.PointerReleasedEvent,
+        });
 
     private static void RaisePointerCaptureLost(InputElement source, IPointer pointer) =>
         source.RaiseEvent(new PointerCaptureLostEventArgs(source, pointer)

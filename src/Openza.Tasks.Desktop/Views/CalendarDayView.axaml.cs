@@ -16,6 +16,7 @@ public sealed partial class CalendarDayView : UserControl
 {
     private CalendarDayViewModel? _viewModel;
     private bool _timelineRenderQueued;
+    private bool _timelineRebuildPending;
     private Border? _activeBlockBorder;
     private CalendarDayBlockViewModel? _activeBlock;
     private Point _pointerOrigin;
@@ -81,6 +82,12 @@ public sealed partial class CalendarDayView : UserControl
 
     private void QueueTimelineRebuild()
     {
+        if (_activeBlockBorder is not null)
+        {
+            _timelineRebuildPending = true;
+            return;
+        }
+
         if (_timelineRenderQueued) return;
         _timelineRenderQueued = true;
         Dispatcher.UIThread.Post(() =>
@@ -92,6 +99,13 @@ public sealed partial class CalendarDayView : UserControl
 
     private void RebuildTimeline()
     {
+        if (_activeBlockBorder is not null)
+        {
+            _timelineRebuildPending = true;
+            return;
+        }
+
+        _timelineRebuildPending = false;
         HourLabelsCanvas.Children.Clear();
         TimelineCanvas.Children.Clear();
         if (_viewModel is null) return;
@@ -311,6 +325,7 @@ public sealed partial class CalendarDayView : UserControl
             Canvas.SetTop(border, startTop);
             border.IsVisible = true;
             ShowBlockFlyout(border, block);
+            FlushPendingTimelineRebuild();
             return;
         }
 
@@ -319,6 +334,7 @@ public sealed partial class CalendarDayView : UserControl
             border.Height = startHeight;
             Canvas.SetTop(border, startTop);
             border.IsVisible = true;
+            FlushPendingTimelineRebuild();
             return;
         }
 
@@ -338,6 +354,15 @@ public sealed partial class CalendarDayView : UserControl
         _activeBlock = null;
         _blockWasDragged = false;
         _resizeGesture = false;
+        FlushPendingTimelineRebuild();
+    }
+
+    private void FlushPendingTimelineRebuild()
+    {
+        if (_timelineRebuildPending)
+        {
+            QueueTimelineRebuild();
+        }
     }
 
     private (DateTimeOffset Start, DateTimeOffset End) GetDragSchedule(CalendarDayBlockViewModel block, double delta, bool resizeGesture) =>
