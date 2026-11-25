@@ -575,8 +575,30 @@ public sealed partial class DesktopControlBehaviorTests
         Assert.Equal(task.Title, ((TaskListItemViewModel)rowButton.DataContext!).Title);
         Assert.Contains(context.Window.GetVisualDescendants().OfType<CheckBox>(), box =>
             AutomationProperties.GetName(box) == $"Complete {task.Title}");
-        Assert.True(rowButton.Focus());
+        var search = context.Window.GetVisualDescendants().OfType<TextBox>()
+            .Single(box => AutomationProperties.GetName(box) == "Search Today tasks");
+        Assert.True(search.Focus());
+        // Headless input may refresh row controls; tab to the live task button before Enter.
+        var tabLimit = context.Window.GetVisualDescendants().OfType<Control>()
+            .Count(control => control.Focusable && control.IsEnabled && control.IsVisible);
+        var taskButtonFocused = false;
+        for (var tab = 0; tab < tabLimit && !taskButtonFocused; tab++)
+        {
+            context.Window.KeyPressQwerty(PhysicalKey.Tab, RawInputModifiers.None);
+            context.Window.KeyReleaseQwerty(PhysicalKey.Tab, RawInputModifiers.None);
+            taskButtonFocused = context.Window.FocusManager.GetFocusedElement() is Button focusedButton &&
+                focusedButton.GetType() == typeof(Button) &&
+                focusedButton.DataContext is TaskListItemViewModel focusedTask && focusedTask.Task.Id == task.Id;
+        }
+        Assert.True(taskButtonFocused, $"Tab did not focus the Today task row after {tabLimit} keyboard steps.");
+        var focusedTaskButton = Assert.IsType<Button>(context.Window.FocusManager.GetFocusedElement());
+        Assert.Equal(task.Id, ((TaskListItemViewModel)focusedTaskButton.DataContext!).Task.Id);
+        var clickEvents = 0;
+        focusedTaskButton.Click += (_, _) => clickEvents++;
         context.Window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+        context.Window.KeyReleaseQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+        Assert.True(clickEvents > 0,
+            $"Enter did not activate the focused Today row. click={clickEvents}; focused={context.Window.FocusManager.GetFocusedElement()?.GetType().Name ?? "<none>"}");
         await Until(() => context.Vm.SelectedTask?.Task.Id == task.Id);
     });
 
