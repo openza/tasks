@@ -16,7 +16,7 @@ All notable changes to Openza Tasks will be documented in this file.
 
 ### Added
 - Personal Cloud task conflict resolution in Settings: keep Desktop or Cloud edits while unrelated changes continue syncing.
-- Dev-only Windows Avalonia MSIX packaging and guarded upgrades from the WinUI Dev package, with single-instance activation and Windows high-contrast support. This is not a Windows Store release; Preview and Production replacement remain gated.
+- Windows Avalonia MSIX packaging and guarded upgrades for Dev and Production, with single-instance activation and Windows high-contrast support. The Production package version advances to `1.4.1.0` to exceed the previously prepared Avalonia `1.4.0.0` package; manifest-derived runtime versions are assembly/file `1.4.1.0` and product `1.4.1`. Preview remains rejected.
 
 ### Changed
 - Quick capture keeps planning fields optional, task details show existing notes in a compact layout, and Add Task actions stay within the monitor work area.

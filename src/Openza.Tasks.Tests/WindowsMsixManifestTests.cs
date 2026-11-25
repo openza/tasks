@@ -23,12 +23,28 @@ public sealed class WindowsMsixManifestTests
         Assert.Contains("$profile = @()", script[..script.IndexOf("if ($Channel -ceq 'Production')", StringComparison.Ordinal)]);
     }
 
+    [Fact]
+    public void Production_package_version_is_store_valid_and_exceeds_previous_Avalonia_candidate()
+    {
+        var root = RepositoryRoot();
+        XNamespace ns = "http://schemas.microsoft.com/appx/manifest/foundation/windows10";
+        var manifest = XDocument.Load(Path.Combine(root, "packaging/windows/Package.Production.appxmanifest"));
+        var versionText = (string)manifest.Root!.Element(ns + "Identity")!.Attribute("Version")!;
+        var components = versionText.Split('.');
+
+        Assert.Equal(4, components.Length);
+        Assert.All(components, component => Assert.True(ushort.TryParse(component, out _)));
+        Assert.Equal("1.4.1.0", versionText);
+        Assert.True(Version.Parse(versionText) > new Version(1, 4, 0, 0));
+        Assert.Equal(0, Version.Parse(versionText).Revision);
+    }
+
     private static string RepositoryRoot([CallerFilePath] string source = "") =>
         Path.GetFullPath(Path.Combine(Path.GetDirectoryName(source)!, "../.."));
 
     [Theory]
     [InlineData("Dev", "Package.Dev.appxmanifest", "0.1.3.0")]
-    [InlineData("Production", "Package.appxmanifest", "1.4.0.0")]
+    [InlineData("Production", "Package.appxmanifest", "1.4.1.0")]
     public void Manifest_preserves_WinUI_identity_and_increases_version(string channel, string baselineFile, string version)
     {
         var root = RepositoryRoot();
