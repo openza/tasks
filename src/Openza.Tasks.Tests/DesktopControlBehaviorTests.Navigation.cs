@@ -791,7 +791,11 @@ public sealed partial class DesktopControlBehaviorTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public Task Calendar_unchanged_sync_refresh_preserves_active_block_gesture(bool resize) => Run(async context =>
+    [InlineData(false, 1)]
+    [InlineData(true, 1)]
+    [InlineData(false, 2)]
+    [InlineData(true, 2)]
+    public Task Calendar_unchanged_sync_refresh_preserves_active_block_gesture(bool resize, int wheelCount = 0) => Run(async context =>
     {
         var existing = (await context.Store.GetTaskAsync("task-0"))!;
         var day = DateOnly.FromDateTime(DateTime.Today);
@@ -851,6 +855,20 @@ public sealed partial class DesktopControlBehaviorTests
         var syncTask = context.Vm.RunTodoistSyncAsync();
         await UntilAsync(() => Task.FromResult(
             context.Vm.IsSyncing && context.Vm.StatusMessage == "Syncing connected apps…"));
+        var wheelOffsetDelta = 0d;
+        var wheelOffsetChanges = new List<double>();
+        for (var wheel = 0; wheel < wheelCount; wheel++)
+        {
+            var offsetBeforeWheel = scrollViewer.Offset.Y;
+            RaisePointerWheelChanged(block, context.Window, pointer, movedPoint, new Vector(0, -1));
+            var offsetDelta = scrollViewer.Offset.Y - offsetBeforeWheel;
+            wheelOffsetChanges.Add(offsetDelta);
+            wheelOffsetDelta += offsetDelta;
+        }
+        if (wheelCount != 0)
+        {
+            Assert.True(wheelOffsetDelta != 0, $"Wheel offsets: {string.Join(", ", wheelOffsetChanges)}.");
+        }
         context.Window.UpdateLayout();
         Dispatcher.UIThread.RunJobs();
 
@@ -859,8 +877,23 @@ public sealed partial class DesktopControlBehaviorTests
         var statusCanvasSize = canvas.Bounds.Size;
         var statusScrollOffset = scrollViewer.Offset;
         var layoutOffsetDelta = scrollChanges.Sum(change => change.OffsetDelta.Y);
-        Assert.NotEqual(0, layoutOffsetDelta);
         Assert.Contains(scrollChanges, change => change.ViewportDelta.Y != 0 || change.ExtentDelta.Y != 0);
+        if (wheelCount == 0)
+        {
+            Assert.NotEqual(0, layoutOffsetDelta);
+        }
+        else if (wheelCount == 1)
+        {
+            Assert.NotEqual(0, layoutOffsetDelta);
+            Assert.Contains(scrollChanges, change => change.OffsetDelta.Y != 0 &&
+                (change.ViewportDelta.Y != 0 || change.ExtentDelta.Y != 0));
+        }
+        else
+        {
+            Assert.Equal(0, layoutOffsetDelta);
+            Assert.Contains(scrollChanges, change => change.OffsetDelta.Y == 0 &&
+                (change.ViewportDelta.Y != 0 || change.ExtentDelta.Y != 0));
+        }
         Assert.Equal(canvasSize, statusCanvasSize);
         Assert.Equal(scrollOffset.Y + layoutOffsetDelta, statusScrollOffset.Y);
         Assert.Equal(-layoutOffsetDelta, statusCanvasOrigin.Y - canvasOrigin.Y);
@@ -876,21 +909,44 @@ public sealed partial class DesktopControlBehaviorTests
         Assert.Contains(block, canvas.Children);
         Assert.Equal(0, captureLostCount);
         Assert.Equal(0, timelineSizeChangedCount);
+        var additionalExplicitScrollDelta = 0d;
+        if (wheelCount == 2)
+        {
+            var scrollChangeStart = scrollChanges.Count;
+            var offsetBeforeExplicitScroll = scrollViewer.Offset.Y;
+            scrollViewer.Offset = new Vector(
+                scrollViewer.Offset.X,
+                scrollViewer.Offset.Y - Math.Sign(wheelOffsetDelta) * 48);
+            Dispatcher.UIThread.RunJobs();
+            context.Window.UpdateLayout();
+            additionalExplicitScrollDelta = scrollViewer.Offset.Y - offsetBeforeExplicitScroll;
+            Assert.NotEqual(0, additionalExplicitScrollDelta);
+            var explicitScrollChanges = scrollChanges.Skip(scrollChangeStart).ToArray();
+            Assert.Equal(additionalExplicitScrollDelta, explicitScrollChanges.Sum(change => change.OffsetDelta.Y), 3);
+            Assert.All(explicitScrollChanges, change =>
+            {
+                Assert.Equal(0, change.ViewportDelta.Y);
+                Assert.Equal(0, change.ExtentDelta.Y);
+            });
+        }
         var followupMovedPoint = new Point(movedPoint.X, movedPoint.Y - 16);
         RaisePointerMoved(block, context.Window, pointer, followupMovedPoint);
+        var expectedPixels = Math.Round((wheelOffsetDelta + additionalExplicitScrollDelta + 14) / 16,
+            MidpointRounding.AwayFromZero) * 16;
         if (resize)
         {
-            Assert.Equal(startHeight + 16, block.Height, 3);
+            Assert.Equal(startHeight + expectedPixels, block.Height, 3);
         }
         else
         {
-            Assert.Equal(startTop + 16, Canvas.GetTop(block), 3);
+            Assert.Equal(startTop + expectedPixels, Canvas.GetTop(block), 3);
         }
         RaisePointerReleasedAt(block, context.Window, pointer, followupMovedPoint);
         Assert.Null(activeBlockBorder.GetValue(dayView));
 
-        var expectedStart = resize ? start : start.AddMinutes(15);
-        var expectedEnd = end.AddMinutes(15);
+        var expectedMinutes = (int)(expectedPixels / 16) * 15;
+        var expectedStart = resize ? start : start.AddMinutes(expectedMinutes);
+        var expectedEnd = end.AddMinutes(expectedMinutes);
         TaskItem? lastSaved = null;
         await UntilAsync(async () =>
         {
@@ -999,12 +1055,16 @@ public sealed partial class DesktopControlBehaviorTests
         Assert.Equal(task.ScheduledEnd!.Value.ToUnixTimeMilliseconds(), saved.ScheduledEnd!.Value.ToUnixTimeMilliseconds());
     });
 
-    [Fact]
-    public Task Calendar_explicit_scroll_during_resize_remains_part_of_pointer_delta() => Run(async context =>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(2)]
+    [InlineData(-1)]
+    public Task Calendar_explicit_scroll_during_resize_remains_part_of_pointer_delta(int wheelCount) => Run(async context =>
     {
         var existing = (await context.Store.GetTaskAsync("task-0"))!;
+        var atScrollBoundary = wheelCount < 0;
         var day = DateOnly.FromDateTime(DateTime.Today);
-        var startLocal = day.ToDateTime(new TimeOnly(11, 30));
+        var startLocal = day.ToDateTime(atScrollBoundary ? new TimeOnly(21, 0) : new TimeOnly(11, 30));
         var start = new DateTimeOffset(startLocal, TimeZoneInfo.Local.GetUtcOffset(startLocal));
         var end = start.AddMinutes(90);
         var task = existing with
@@ -1027,7 +1087,8 @@ public sealed partial class DesktopControlBehaviorTests
 
         var dayView = context.Window.FindControl<CalendarDayView>("CalendarDayView")!;
         var scrollViewer = dayView.FindControl<ScrollViewer>("TimelineScrollViewer")!;
-        scrollViewer.Offset = new Vector(0, 300);
+        var scrollableHeight = Math.Max(0, scrollViewer.Extent.Height - scrollViewer.Viewport.Height);
+        scrollViewer.Offset = new Vector(0, atScrollBoundary ? Math.Max(0, scrollableHeight - 20) : 300);
         Dispatcher.UIThread.RunJobs();
         context.Window.UpdateLayout();
         var block = Assert.Single(dayView.GetVisualDescendants().OfType<Border>(), border =>
@@ -1047,20 +1108,53 @@ public sealed partial class DesktopControlBehaviorTests
         Assert.True(RaisePointerPressed(block, context.Window, pointer, pressPoint).Handled);
         RaisePointerMoved(block, context.Window, pointer, movedPoint);
         var initialOffset = scrollViewer.Offset;
-        scrollViewer.Offset = new Vector(initialOffset.X, initialOffset.Y + 48);
+        var wheelOffsetDelta = 0d;
+        var wheelEvents = atScrollBoundary ? 2 : wheelCount;
+        for (var wheel = 0; wheel < wheelEvents; wheel++)
+        {
+            var offsetBeforeWheel = scrollViewer.Offset.Y;
+            RaisePointerWheelChanged(block, context.Window, pointer, movedPoint, new Vector(0, -1));
+            wheelOffsetDelta += scrollViewer.Offset.Y - offsetBeforeWheel;
+        }
+        var programmaticOffsetDelta = atScrollBoundary ? 0 : 48;
+        if (programmaticOffsetDelta != 0)
+        {
+            scrollViewer.Offset = new Vector(initialOffset.X, scrollViewer.Offset.Y + programmaticOffsetDelta);
+        }
         Dispatcher.UIThread.RunJobs();
         context.Window.UpdateLayout();
 
-        var explicitScroll = Assert.Single(scrollChanges, change => change.OffsetDelta.Y != 0);
-        Assert.Equal(48, explicitScroll.OffsetDelta.Y);
-        Assert.Equal(0, explicitScroll.ViewportDelta.Y);
-        Assert.Equal(0, explicitScroll.ExtentDelta.Y);
+        if (wheelCount == 0)
+        {
+            var explicitScroll = Assert.Single(scrollChanges, change => change.OffsetDelta.Y != 0);
+            Assert.Equal(48, explicitScroll.OffsetDelta.Y);
+            Assert.Equal(0, explicitScroll.ViewportDelta.Y);
+            Assert.Equal(0, explicitScroll.ExtentDelta.Y);
+        }
+        else
+        {
+            Assert.Equal(wheelOffsetDelta + programmaticOffsetDelta, scrollChanges.Sum(change => change.OffsetDelta.Y), 3);
+            Assert.All(scrollChanges, change =>
+            {
+                Assert.Equal(0, change.ViewportDelta.Y);
+                Assert.Equal(0, change.ExtentDelta.Y);
+            });
+        }
+        if (atScrollBoundary)
+        {
+            var maxOffset = scrollViewer.Extent.Height - scrollViewer.Viewport.Height;
+            Assert.Equal(20, wheelOffsetDelta, 3);
+            Assert.Equal(maxOffset, scrollViewer.Offset.Y, 3);
+        }
         Assert.Same(block, activeBlockBorder.GetValue(dayView));
 
         RaisePointerMoved(block, context.Window, pointer, movedPoint);
         RaisePointerReleasedAt(block, context.Window, pointer, movedPoint);
 
-        var expectedEnd = end.AddMinutes(75);
+        var expectedMinutes = (int)Math.Round(
+            (30 + wheelOffsetDelta + programmaticOffsetDelta) / 16,
+            MidpointRounding.AwayFromZero) * 15;
+        var expectedEnd = end.AddMinutes(expectedMinutes);
         await UntilAsync(async () =>
         {
             var saved = await context.Store.GetTaskAsync(task.Id);
@@ -1539,6 +1633,20 @@ public sealed partial class DesktopControlBehaviorTests
             KeyModifiers.None)
         {
             RoutedEvent = InputElement.PointerMovedEvent,
+        });
+
+    private static void RaisePointerWheelChanged(InputElement source, Window window, IPointer pointer, Point rootPosition, Vector delta) =>
+        source.RaiseEvent(new PointerWheelEventArgs(
+            source,
+            pointer,
+            window,
+            rootPosition,
+            4,
+            new PointerPointProperties(),
+            KeyModifiers.None,
+            delta)
+        {
+            RoutedEvent = InputElement.PointerWheelChangedEvent,
         });
 
     private static void RaisePointerReleasedAt(InputElement source, Window window, IPointer pointer, Point rootPosition) =>

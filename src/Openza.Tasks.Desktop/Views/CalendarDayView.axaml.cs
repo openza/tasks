@@ -25,6 +25,13 @@ public sealed partial class CalendarDayView : UserControl
 
     private Point _pointerOrigin;
     private double _explicitScrollOffsetDelta;
+    private double _wheelScrollOffsetAtStart;
+    private double _pendingWheelScrollOffsetDelta;
+    private bool _wheelInputInProgress;
+    private long _scrollChangedGeneration;
+    private long _wheelInputStartGeneration;
+    private double _wheelInputScrollOffsetDelta;
+    private bool _wheelInputHasLayoutChange;
     private double _blockTopAtStart;
     private double _blockHeightAtStart;
     private bool _resizeGesture;
@@ -35,6 +42,8 @@ public sealed partial class CalendarDayView : UserControl
     {
         InitializeComponent();
         TimelineScrollViewer.ScrollChanged += OnTimelineScrollChanged;
+        TimelineScrollViewer.AddHandler(InputElement.PointerWheelChangedEvent, OnTimelineWheelTunnel, RoutingStrategies.Tunnel);
+        TimelineScrollViewer.AddHandler(InputElement.PointerWheelChangedEvent, OnTimelineWheelBubble, RoutingStrategies.Bubble, handledEventsToo: true);
         DataContextChanged += OnDataContextChanged;
         Loaded += OnLoaded;
     }
@@ -92,13 +101,79 @@ public sealed partial class CalendarDayView : UserControl
 
     private void OnTimelineScrollChanged(object? sender, ScrollChangedEventArgs e)
     {
-        if (_activeBlockBorder is null || e.OffsetDelta.Y == 0 ||
-            e.ViewportDelta.Y != 0 || e.ExtentDelta.Y != 0)
+        if (_activeBlockBorder is null) return;
+        _scrollChangedGeneration++;
+        var hasLayoutChange = e.ViewportDelta.Y != 0 || e.ExtentDelta.Y != 0;
+        if (_wheelInputInProgress)
         {
+            _wheelInputScrollOffsetDelta += e.OffsetDelta.Y;
+            _wheelInputHasLayoutChange |= hasLayoutChange;
             return;
         }
 
-        _explicitScrollOffsetDelta += e.OffsetDelta.Y;
+        if (_pendingWheelScrollOffsetDelta != 0)
+        {
+            if (e.OffsetDelta.Y != 0 && !hasLayoutChange)
+            {
+                _explicitScrollOffsetDelta += e.OffsetDelta.Y - _pendingWheelScrollOffsetDelta;
+            }
+            _pendingWheelScrollOffsetDelta = 0;
+            return;
+        }
+
+        if (e.OffsetDelta.Y != 0 && !hasLayoutChange)
+        {
+            _explicitScrollOffsetDelta += e.OffsetDelta.Y;
+        }
+    }
+
+    private void OnTimelineWheelTunnel(object? sender, PointerWheelEventArgs e)
+    {
+        if (_activeBlockBorder is null) return;
+        _wheelInputInProgress = true;
+        _wheelInputStartGeneration = _scrollChangedGeneration;
+        _wheelInputScrollOffsetDelta = 0;
+        _wheelInputHasLayoutChange = false;
+        _wheelScrollOffsetAtStart = TimelineScrollViewer.Offset.Y;
+    }
+
+    private void OnTimelineWheelBubble(object? sender, PointerWheelEventArgs e)
+    {
+        if (!_wheelInputInProgress) return;
+        var wheelOffsetDelta = TimelineScrollViewer.Offset.Y - _wheelScrollOffsetAtStart;
+        var scrollChangedDuringInput = _scrollChangedGeneration != _wheelInputStartGeneration;
+        var scrollOffsetDelta = _wheelInputScrollOffsetDelta;
+        var hasLayoutChange = _wheelInputHasLayoutChange;
+        _wheelInputInProgress = false;
+        _wheelInputStartGeneration = 0;
+        _wheelInputScrollOffsetDelta = 0;
+        _wheelInputHasLayoutChange = false;
+
+        if (wheelOffsetDelta != 0)
+        {
+            _explicitScrollOffsetDelta += wheelOffsetDelta;
+        }
+
+        if (scrollChangedDuringInput)
+        {
+            if (hasLayoutChange)
+            {
+                _pendingWheelScrollOffsetDelta = 0;
+            }
+            else if (scrollOffsetDelta == 0)
+            {
+                _pendingWheelScrollOffsetDelta += wheelOffsetDelta;
+            }
+            else
+            {
+                _explicitScrollOffsetDelta += scrollOffsetDelta - _pendingWheelScrollOffsetDelta - wheelOffsetDelta;
+                _pendingWheelScrollOffsetDelta = 0;
+            }
+        }
+        else
+        {
+            _pendingWheelScrollOffsetDelta += wheelOffsetDelta;
+        }
     }
 
     private void OnBlocksChanged(object? sender, NotifyCollectionChangedEventArgs e)
@@ -369,6 +444,11 @@ public sealed partial class CalendarDayView : UserControl
         _gestureCoordinateRoot = (Visual?)TopLevel.GetTopLevel(this) ?? this;
         _pointerOrigin = e.GetPosition(_gestureCoordinateRoot);
         _explicitScrollOffsetDelta = 0;
+        _pendingWheelScrollOffsetDelta = 0;
+        _wheelInputInProgress = false;
+        _wheelInputStartGeneration = 0;
+        _wheelInputScrollOffsetDelta = 0;
+        _wheelInputHasLayoutChange = false;
         _blockTopAtStart = Canvas.GetTop(border);
         _blockHeightAtStart = border.Bounds.Height;
         _resizeGesture = IsPointerOnResizeHandle(border, e.GetPosition(border));
@@ -405,6 +485,11 @@ public sealed partial class CalendarDayView : UserControl
         _resizeGesture = false;
         _gestureCoordinateRoot = null;
         _explicitScrollOffsetDelta = 0;
+        _pendingWheelScrollOffsetDelta = 0;
+        _wheelInputInProgress = false;
+        _wheelInputStartGeneration = 0;
+        _wheelInputScrollOffsetDelta = 0;
+        _wheelInputHasLayoutChange = false;
         e.Pointer.Capture(null);
         e.Handled = true;
 
@@ -444,6 +529,11 @@ public sealed partial class CalendarDayView : UserControl
         _resizeGesture = false;
         _gestureCoordinateRoot = null;
         _explicitScrollOffsetDelta = 0;
+        _pendingWheelScrollOffsetDelta = 0;
+        _wheelInputInProgress = false;
+        _wheelInputStartGeneration = 0;
+        _wheelInputScrollOffsetDelta = 0;
+        _wheelInputHasLayoutChange = false;
     }
 
     private void CancelActiveBlockGesture()
@@ -460,6 +550,11 @@ public sealed partial class CalendarDayView : UserControl
         _resizeGesture = false;
         _gestureCoordinateRoot = null;
         _explicitScrollOffsetDelta = 0;
+        _pendingWheelScrollOffsetDelta = 0;
+        _wheelInputInProgress = false;
+        _wheelInputStartGeneration = 0;
+        _wheelInputScrollOffsetDelta = 0;
+        _wheelInputHasLayoutChange = false;
         pointer?.Capture(null);
     }
 
