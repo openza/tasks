@@ -4,9 +4,15 @@ All notable changes to Openza Tasks will be documented in this file.
 
 ## [Unreleased]
 
+## [1.5.0] - Unreleased
+
 ### Added
+- Editable task blocks in the desktop Day timeline: create from the timeline or Add block, move or resize in 15-minute increments, and set exact intervals.
 - Microsoft To Do reminders import once as editable, device-local reminder instants. Desktop and CLI can set or clear them. Reminders are not synced through Personal Cloud and no notifications are sent yet.
 - Microsoft To Do checklist items import once as local subtasks in Graph order, including mixed checked state and completion time, with upgrade backfill and Personal Cloud publication. Later syncs and source reconnection preserve local subtask edits and deletions.
+
+### Changed
+- Desktop and Snap release version is `1.5.0`; the Windows Production MSIX version is `1.5.0.0`, with manifest-derived runtime assembly/file version `1.5.0.0` and product version `1.5.0`.
 
 ### Fixed
 - Microsoft To Do categories become local labels on adoption, retaining category colors and existing local labels. Previously adopted tasks receive categories once on their next sync; later provider changes do not overwrite user label edits. Microsoft list and category catalogs now follow all Graph pages.
