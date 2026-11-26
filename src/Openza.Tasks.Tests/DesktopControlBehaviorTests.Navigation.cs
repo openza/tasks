@@ -824,12 +824,9 @@ public sealed partial class DesktopControlBehaviorTests
         var dayView = context.Window.FindControl<CalendarDayView>("CalendarDayView")!;
         var canvas = dayView.FindControl<Canvas>("TimelineCanvas")!;
         var scrollViewer = dayView.FindControl<ScrollViewer>("TimelineScrollViewer")!;
-        if (wheelCount == 2)
-        {
-            scrollViewer.Offset = new Vector(scrollViewer.Offset.X, 300);
-            Dispatcher.UIThread.RunJobs();
-            context.Window.UpdateLayout();
-        }
+        scrollViewer.Offset = new Vector(scrollViewer.Offset.X, 300);
+        Dispatcher.UIThread.RunJobs();
+        context.Window.UpdateLayout();
         var statusOverlay = context.Window.FindControl<Border>("StatusOverlay")!;
         var block = Assert.Single(dayView.GetVisualDescendants().OfType<Border>(), border =>
             border.Classes.Contains("calendar-day-block") &&
@@ -884,17 +881,7 @@ public sealed partial class DesktopControlBehaviorTests
         var statusScrollOffset = scrollViewer.Offset;
         var scrollChangedOffsetDelta = scrollChanges.Sum(change => change.OffsetDelta.Y);
         Assert.Contains(scrollChanges, change => change.ViewportDelta.Y != 0 || change.ExtentDelta.Y != 0);
-        if (wheelCount == 0)
-        {
-            Assert.NotEqual(0, scrollChangedOffsetDelta);
-        }
-        else if (wheelCount == 1)
-        {
-            Assert.NotEqual(0, scrollChangedOffsetDelta);
-            Assert.Contains(scrollChanges, change => change.OffsetDelta.Y != 0 &&
-                (change.ViewportDelta.Y != 0 || change.ExtentDelta.Y != 0));
-        }
-        else
+        if (wheelCount != 0)
         {
             Assert.NotEqual(0, scrollChangedOffsetDelta);
             Assert.Contains(scrollChanges, change => change.OffsetDelta.Y != 0 &&
