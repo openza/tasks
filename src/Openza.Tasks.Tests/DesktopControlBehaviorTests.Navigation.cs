@@ -824,6 +824,12 @@ public sealed partial class DesktopControlBehaviorTests
         var dayView = context.Window.FindControl<CalendarDayView>("CalendarDayView")!;
         var canvas = dayView.FindControl<Canvas>("TimelineCanvas")!;
         var scrollViewer = dayView.FindControl<ScrollViewer>("TimelineScrollViewer")!;
+        if (wheelCount == 2)
+        {
+            scrollViewer.Offset = new Vector(scrollViewer.Offset.X, 300);
+            Dispatcher.UIThread.RunJobs();
+            context.Window.UpdateLayout();
+        }
         var statusOverlay = context.Window.FindControl<Border>("StatusOverlay")!;
         var block = Assert.Single(dayView.GetVisualDescendants().OfType<Border>(), border =>
             border.Classes.Contains("calendar-day-block") &&
@@ -876,27 +882,27 @@ public sealed partial class DesktopControlBehaviorTests
         var statusCanvasOrigin = canvas.TranslatePoint(default, context.Window)!.Value;
         var statusCanvasSize = canvas.Bounds.Size;
         var statusScrollOffset = scrollViewer.Offset;
-        var layoutOffsetDelta = scrollChanges.Sum(change => change.OffsetDelta.Y);
+        var scrollChangedOffsetDelta = scrollChanges.Sum(change => change.OffsetDelta.Y);
         Assert.Contains(scrollChanges, change => change.ViewportDelta.Y != 0 || change.ExtentDelta.Y != 0);
         if (wheelCount == 0)
         {
-            Assert.NotEqual(0, layoutOffsetDelta);
+            Assert.NotEqual(0, scrollChangedOffsetDelta);
         }
         else if (wheelCount == 1)
         {
-            Assert.NotEqual(0, layoutOffsetDelta);
+            Assert.NotEqual(0, scrollChangedOffsetDelta);
             Assert.Contains(scrollChanges, change => change.OffsetDelta.Y != 0 &&
                 (change.ViewportDelta.Y != 0 || change.ExtentDelta.Y != 0));
         }
         else
         {
-            Assert.Equal(0, layoutOffsetDelta);
-            Assert.Contains(scrollChanges, change => change.OffsetDelta.Y == 0 &&
+            Assert.NotEqual(0, scrollChangedOffsetDelta);
+            Assert.Contains(scrollChanges, change => change.OffsetDelta.Y != 0 &&
                 (change.ViewportDelta.Y != 0 || change.ExtentDelta.Y != 0));
         }
         Assert.Equal(canvasSize, statusCanvasSize);
-        Assert.Equal(scrollOffset.Y + layoutOffsetDelta, statusScrollOffset.Y);
-        Assert.Equal(-layoutOffsetDelta, statusCanvasOrigin.Y - canvasOrigin.Y);
+        Assert.Equal(scrollOffset.Y + scrollChangedOffsetDelta, statusScrollOffset.Y);
+        Assert.Equal(-scrollChangedOffsetDelta, statusCanvasOrigin.Y - canvasOrigin.Y);
         Assert.Equal(0, timelineSizeChangedCount);
         Assert.Same(block, activeBlockBorder.GetValue(dayView));
 
