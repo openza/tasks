@@ -1084,6 +1084,116 @@ public sealed partial class DesktopControlBehaviorTests
         });
     });
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public Task Calendar_simulated_coalesced_scroll_delivery_preserves_pending_wheel_gesture(bool resize) => Run(async context =>
+    {
+        var existing = (await context.Store.GetTaskAsync("task-0"))!;
+        var day = DateOnly.FromDateTime(DateTime.Today.AddDays(1));
+        var startLocal = day.ToDateTime(new TimeOnly(19, 0));
+        var start = new DateTimeOffset(startLocal, TimeZoneInfo.Local.GetUtcOffset(startLocal));
+        var end = start.AddMinutes(90);
+        var task = existing with
+        {
+            Id = "calendar-simulated-coalesced-scroll-task",
+            Title = "Calendar simulated coalesced scroll task",
+            ParentId = null,
+            PlannedOn = day,
+            ScheduledStart = start,
+            ScheduledEnd = end,
+        };
+        await context.Store.UpsertTaskAsync(task);
+        await context.Vm.SelectNavigationAsync(context.Vm.NavigationItems.Single(item => item.Kind == TaskListKind.Calendar));
+        context.Vm.CalendarDay.SetSelectedDate(day);
+        context.Vm.SetCalendarDayView(true);
+        await Task.Delay(50);
+        Dispatcher.UIThread.RunJobs();
+        context.Window.UpdateLayout();
+        context.Vm.DismissStatusMessage();
+        await WaitForCalendarSearchDebounceAsync(context);
+
+        var dayView = context.Window.FindControl<CalendarDayView>("CalendarDayView")!;
+        var canvas = dayView.FindControl<Canvas>("TimelineCanvas")!;
+        var scrollViewer = dayView.FindControl<ScrollViewer>("TimelineScrollViewer")!;
+        scrollViewer.Offset = new Vector(scrollViewer.Offset.X, 700);
+        Dispatcher.UIThread.RunJobs();
+        context.Window.UpdateLayout();
+        var initialOffset = scrollViewer.Offset.Y;
+        Assert.Equal(700, initialOffset, 3);
+
+        var block = Assert.Single(dayView.GetVisualDescendants().OfType<Border>(), border =>
+            border.Classes.Contains("calendar-day-block") &&
+            border.DataContext is CalendarDayBlockViewModel blockViewModel && blockViewModel.Task.Id == task.Id);
+        var pointer = new Pointer(82, PointerType.Mouse, isPrimary: true);
+        var pressPoint = block.TranslatePoint(
+            new Point(block.Bounds.Width / 2, resize ? block.Bounds.Height - 4 : block.Bounds.Height / 2),
+            context.Window)!.Value;
+        var movedPoint = new Point(pressPoint.X, pressPoint.Y + 30);
+        var startTop = Canvas.GetTop(block);
+        var startHeight = block.Bounds.Height;
+        var scrollChanges = new List<ScrollChangedEventArgs>();
+        scrollViewer.ScrollChanged += (_, e) => scrollChanges.Add(e);
+
+        Assert.True(RaisePointerPressed(block, context.Window, pointer, pressPoint).Handled);
+        RaisePointerMoved(block, context.Window, pointer, movedPoint);
+        Assert.Same(block, typeof(CalendarDayView).GetField(
+            "_activeBlockBorder",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(dayView));
+
+        var offsetBeforeWheel = scrollViewer.Offset.Y;
+        RaisePointerWheelChanged(block, context.Window, pointer, movedPoint, new Vector(0, -1));
+        var wheelOffsetDelta = scrollViewer.Offset.Y - offsetBeforeWheel;
+        Assert.Equal(50, wheelOffsetDelta, 3);
+        Assert.Empty(scrollChanges);
+        scrollViewer.Offset = new Vector(scrollViewer.Offset.X, initialOffset);
+
+        // Simulated coalesced delivery: the routed wheel is real; injected events replace native scroll/reflow notifications.
+        scrollViewer.RaiseEvent(new ScrollChangedEventArgs(
+            ScrollViewer.ScrollChangedEvent,
+            new Vector(0, 0),
+            new Vector(0, 0),
+            new Vector(0, wheelOffsetDelta)));
+        var simulatedChange = Assert.Single(scrollChanges);
+        Assert.Equal(0, simulatedChange.OffsetDelta.Y, 3);
+        Assert.Equal(wheelOffsetDelta, simulatedChange.ViewportDelta.Y, 3);
+        Assert.Equal(0, simulatedChange.ExtentDelta.Y, 3);
+
+        const double explicitScrollOffsetDelta = 16;
+        scrollViewer.RaiseEvent(new ScrollChangedEventArgs(
+            ScrollViewer.ScrollChangedEvent,
+            new Vector(0, 0),
+            new Vector(0, explicitScrollOffsetDelta),
+            new Vector(0, 0)));
+        Assert.Equal(2, scrollChanges.Count);
+        Assert.Equal(explicitScrollOffsetDelta, scrollChanges[1].OffsetDelta.Y, 3);
+        Assert.Equal(0, scrollChanges[1].ViewportDelta.Y, 3);
+
+        var followupMovedPoint = new Point(movedPoint.X, movedPoint.Y - 16);
+        RaisePointerMoved(block, context.Window, pointer, followupMovedPoint);
+        var expectedPixels = Math.Round((wheelOffsetDelta + explicitScrollOffsetDelta + 14) / 16,
+            MidpointRounding.AwayFromZero) * 16;
+        if (resize)
+        {
+            Assert.Equal(startHeight + expectedPixels, block.Height, 3);
+        }
+        else
+        {
+            Assert.Equal(startTop + expectedPixels, Canvas.GetTop(block), 3);
+        }
+        RaisePointerReleasedAt(block, context.Window, pointer, followupMovedPoint);
+
+        var expectedMinutes = (int)(expectedPixels / 16) * 15;
+        var expectedStart = resize ? start : start.AddMinutes(expectedMinutes);
+        var expectedEnd = end.AddMinutes(expectedMinutes);
+        await UntilAsync(async () =>
+        {
+            var saved = await context.Store.GetTaskAsync(task.Id);
+            return saved?.ScheduledStart?.ToUnixTimeMilliseconds() == expectedStart.ToUnixTimeMilliseconds() &&
+                saved.ScheduledEnd?.ToUnixTimeMilliseconds() == expectedEnd.ToUnixTimeMilliseconds();
+        });
+    });
+
     [Fact]
     public Task Calendar_switching_to_list_cancels_an_active_block_gesture() => Run(async context =>
     {
