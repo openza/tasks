@@ -841,6 +841,7 @@ public sealed partial class DesktopControlBehaviorTests
         var canvasOrigin = canvas.TranslatePoint(default, context.Window)!.Value;
         var canvasSize = canvas.Bounds.Size;
         var scrollOffset = scrollViewer.Offset;
+        Assert.Equal(300, scrollOffset.Y, 3);
         var captureLostCount = 0;
         var timelineSizeChangedCount = 0;
         var scrollChanges = new List<ScrollChangedEventArgs>();
@@ -948,6 +949,140 @@ public sealed partial class DesktopControlBehaviorTests
                 lastSaved.ScheduledEnd?.ToUnixTimeMilliseconds() == expectedEnd.ToUnixTimeMilliseconds();
         }, () => $"Expected {expectedStart:o}–{expectedEnd:o}, got {lastSaved?.ScheduledStart:o}–{lastSaved?.ScheduledEnd:o}; current block top={Canvas.GetTop(block)}, height={block.Height}, attached={canvas.Children.Contains(block)}, busy={context.Vm.IsBusy}, syncing={context.Vm.IsSyncing}, status={context.Vm.StatusMessage}.");
     }, new UnpairedPersonalCloudSetupService());
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public Task Calendar_zero_net_coalesced_wheel_reflow_preserves_active_block_gesture(bool resize) => Run(async context =>
+    {
+        var existing = (await context.Store.GetTaskAsync("task-0"))!;
+        var day = DateOnly.FromDateTime(DateTime.Today.AddDays(1));
+        var startLocal = day.ToDateTime(new TimeOnly(20, 0));
+        var start = new DateTimeOffset(startLocal, TimeZoneInfo.Local.GetUtcOffset(startLocal));
+        var end = start.AddMinutes(90);
+        var task = existing with
+        {
+            Id = "calendar-zero-net-wheel-reflow-task",
+            Title = "Calendar zero-net wheel reflow task",
+            ParentId = null,
+            PlannedOn = day,
+            ScheduledStart = start,
+            ScheduledEnd = end,
+        };
+        await context.Store.UpsertTaskAsync(task);
+        await context.Vm.SelectNavigationAsync(context.Vm.NavigationItems.Single(item => item.Kind == TaskListKind.Calendar));
+        context.Vm.CalendarDay.SetSelectedDate(day);
+        context.Vm.SetCalendarDayView(true);
+        await Task.Delay(50);
+        Dispatcher.UIThread.RunJobs();
+        context.Window.UpdateLayout();
+        context.Vm.DismissStatusMessage();
+        await WaitForCalendarSearchDebounceAsync(context);
+
+        var dayView = context.Window.FindControl<CalendarDayView>("CalendarDayView")!;
+        var canvas = dayView.FindControl<Canvas>("TimelineCanvas")!;
+        var scrollViewer = dayView.FindControl<ScrollViewer>("TimelineScrollViewer")!;
+        var statusOverlay = context.Window.FindControl<Border>("StatusOverlay")!;
+        Assert.False(statusOverlay.IsVisible);
+        const double wheelDeltaPerInput = 50;
+        const int wheelInputCount = 2;
+        var totalWheelDelta = wheelDeltaPerInput * wheelInputCount;
+        var initialMaxOffset = scrollViewer.Extent.Height - scrollViewer.Viewport.Height;
+        Assert.True(initialMaxOffset > totalWheelDelta);
+        scrollViewer.Offset = new Vector(scrollViewer.Offset.X, initialMaxOffset - totalWheelDelta);
+        Dispatcher.UIThread.RunJobs();
+        context.Window.UpdateLayout();
+
+        var initialOffset = scrollViewer.Offset.Y;
+        var initialViewport = scrollViewer.Viewport;
+        var initialExtent = scrollViewer.Extent;
+        var initialWindowHeight = context.Window.Height;
+        var maxOffset = scrollViewer.Extent.Height - scrollViewer.Viewport.Height;
+        Assert.Equal(maxOffset - totalWheelDelta, initialOffset, 3);
+        var block = Assert.Single(dayView.GetVisualDescendants().OfType<Border>(), border =>
+            border.Classes.Contains("calendar-day-block") &&
+            border.DataContext is CalendarDayBlockViewModel blockViewModel && blockViewModel.Task.Id == task.Id);
+        Assert.True(Canvas.GetTop(block) >= initialOffset);
+        Assert.True(Canvas.GetTop(block) + block.Bounds.Height <= initialOffset + initialViewport.Height);
+
+        var pointer = new Pointer(81, PointerType.Mouse, isPrimary: true);
+        var pressPoint = block.TranslatePoint(
+            new Point(block.Bounds.Width / 2, resize ? block.Bounds.Height - 4 : block.Bounds.Height / 2),
+            context.Window)!.Value;
+        var movedPoint = new Point(pressPoint.X, pressPoint.Y + 30);
+        var startTop = Canvas.GetTop(block);
+        var startHeight = block.Bounds.Height;
+        var scrollChanges = new List<ScrollChangedEventArgs>();
+        var captureLostCount = 0;
+        var timelineSizeChangedCount = 0;
+        var activeBlockBorder = typeof(CalendarDayView).GetField(
+            "_activeBlockBorder",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+        scrollViewer.ScrollChanged += (_, e) => scrollChanges.Add(e);
+        block.PointerCaptureLost += (_, _) => captureLostCount++;
+        canvas.SizeChanged += (_, _) => timelineSizeChangedCount++;
+
+        Assert.True(RaisePointerPressed(block, context.Window, pointer, pressPoint).Handled);
+        RaisePointerMoved(block, context.Window, pointer, movedPoint);
+        Assert.Same(block, activeBlockBorder.GetValue(dayView));
+
+        context.Window.Height = initialWindowHeight + totalWheelDelta;
+        Assert.Equal(initialViewport.Height, scrollViewer.Viewport.Height, 3);
+        var wheelOffsetChanges = new List<double>();
+        for (var wheel = 0; wheel < wheelInputCount; wheel++)
+        {
+            var offsetBeforeWheel = scrollViewer.Offset.Y;
+            RaisePointerWheelChanged(block, context.Window, pointer, movedPoint, new Vector(0, -1));
+            wheelOffsetChanges.Add(scrollViewer.Offset.Y - offsetBeforeWheel);
+        }
+        Assert.All(wheelOffsetChanges, offsetDelta => Assert.Equal(wheelDeltaPerInput, offsetDelta, 3));
+        var wheelOffsetDelta = wheelOffsetChanges.Sum();
+        Assert.Equal(totalWheelDelta, wheelOffsetDelta, 3);
+        Assert.Equal(maxOffset, scrollViewer.Offset.Y, 3);
+
+        context.Window.UpdateLayout();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(initialViewport.Height + wheelOffsetDelta, scrollViewer.Viewport.Height, 3);
+        Assert.Equal(initialExtent.Height, scrollViewer.Extent.Height, 3);
+        Assert.Equal(initialOffset, scrollViewer.Offset.Y, 3);
+        Assert.Equal(2, scrollChanges.Count);
+        Assert.Equal(0, scrollChanges.Sum(change => change.OffsetDelta.Y), 3);
+        Assert.Equal(wheelOffsetDelta, scrollChanges.Sum(change => change.ViewportDelta.Y), 3);
+        Assert.Equal(0, scrollChanges.Sum(change => change.ExtentDelta.Y), 3);
+        Assert.Equal(wheelOffsetDelta, scrollChanges[0].OffsetDelta.Y, 3);
+        Assert.Equal(0, scrollChanges[0].ViewportDelta.Y, 3);
+        Assert.Equal(-wheelOffsetDelta, scrollChanges[1].OffsetDelta.Y, 3);
+        Assert.Equal(wheelOffsetDelta, scrollChanges[1].ViewportDelta.Y, 3);
+        Assert.All(scrollChanges, change => Assert.Equal(0, change.ExtentDelta.Y, 3));
+        Assert.Equal(0, captureLostCount);
+        Assert.Equal(0, timelineSizeChangedCount);
+        Assert.Same(block, activeBlockBorder.GetValue(dayView));
+
+        var followupMovedPoint = new Point(movedPoint.X, movedPoint.Y - 16);
+        RaisePointerMoved(block, context.Window, pointer, followupMovedPoint);
+        var expectedPixels = Math.Round((wheelOffsetDelta + 14) / 16, MidpointRounding.AwayFromZero) * 16;
+        if (resize)
+        {
+            Assert.Equal(startHeight + expectedPixels, block.Height, 3);
+        }
+        else
+        {
+            Assert.Equal(startTop + expectedPixels, Canvas.GetTop(block), 3);
+        }
+        RaisePointerReleasedAt(block, context.Window, pointer, followupMovedPoint);
+        Assert.Null(activeBlockBorder.GetValue(dayView));
+
+        var expectedMinutes = (int)(expectedPixels / 16) * 15;
+        var expectedStart = resize ? start : start.AddMinutes(expectedMinutes);
+        var expectedEnd = end.AddMinutes(expectedMinutes);
+        await UntilAsync(async () =>
+        {
+            var saved = await context.Store.GetTaskAsync(task.Id);
+            return saved?.ScheduledStart?.ToUnixTimeMilliseconds() == expectedStart.ToUnixTimeMilliseconds() &&
+                saved.ScheduledEnd?.ToUnixTimeMilliseconds() == expectedEnd.ToUnixTimeMilliseconds();
+        });
+    });
 
     [Fact]
     public Task Calendar_switching_to_list_cancels_an_active_block_gesture() => Run(async context =>
