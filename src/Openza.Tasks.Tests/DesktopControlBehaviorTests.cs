@@ -12,6 +12,7 @@ using Avalonia.VisualTree;
 using Openza.Tasks.Core.Credentials;
 using Openza.Tasks.Core.Data;
 using Openza.Tasks.Core.Models;
+using Openza.Tasks.Core.PersonalCloud;
 using Openza.Tasks.Desktop.Dialogs;
 using Openza.Tasks.Desktop.Services;
 using Openza.Tasks.Desktop.Shell;
@@ -732,7 +733,7 @@ public sealed partial class DesktopControlBehaviorTests(EditorTestSession fixtur
         Assert.True(await condition(), diagnostics?.Invoke() ?? "Expected persisted control state was not reached.");
     }
 
-    private Task Run(Func<Context, Task> action) => fixture.Session.Dispatch(async () =>
+    private Task Run(Func<Context, Task> action, IPersonalCloudSetupService? personalCloudSetup = null) => fixture.Session.Dispatch(async () =>
     {
         var directory = Path.Combine(Path.GetTempPath(), "openza-controls", Guid.NewGuid().ToString("N"));
         var store = new SqliteTaskStore(Path.Combine(directory, "tasks.db"));
@@ -743,7 +744,8 @@ public sealed partial class DesktopControlBehaviorTests(EditorTestSession fixtur
                 Status = TaskItemStatus.Next, PlannedOn = DateOnly.FromDateTime(DateTime.Today).AddDays(i), Labels = [new LabelItem { Name = "review" }], Notes = "Synthetic notes" });
         var preferences = new DesktopPreferencesStore(Path.Combine(directory, "settings.json"));
         await preferences.SaveAsync(new() { AutomaticSyncEnabled = false, AutomaticRestorePointsEnabled = false, ShowGetStarted = false });
-        var vm = new MainWindowViewModel(store, new InMemoryCredentialStore(), preferencesStore: preferences);
+        var vm = new MainWindowViewModel(store, new InMemoryCredentialStore(), preferencesStore: preferences,
+            personalCloudSetup: personalCloudSetup);
         // Headless has no OS theme; resolve theme brushes before rendering/hit testing.
         var window = new MainWindow(vm) { Width = 1440, Height = 900, WindowState = WindowState.Normal,
             RequestedThemeVariant = Avalonia.Styling.ThemeVariant.Light };

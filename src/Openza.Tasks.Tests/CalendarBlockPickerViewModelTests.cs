@@ -1,6 +1,7 @@
 using Openza.Tasks.Core.Data;
 using Openza.Tasks.Core.Models;
 using Openza.Tasks.Desktop.ViewModels;
+using Openza.Tasks.Desktop.ViewModels.Navigation;
 
 namespace Openza.Tasks.Tests;
 
@@ -70,6 +71,41 @@ public sealed class CalendarBlockPickerViewModelTests
         Assert.Equal(inbox, result.Item);
         Assert.Equal(start, result.Start);
         Assert.Equal(start.AddHours(1), result.End);
+    }
+
+    [Fact]
+    public void Day_task_refresh_keeps_identical_snapshot_but_rebuilds_when_context_changes()
+    {
+        var calendarDay = new CalendarDayViewModel();
+        calendarDay.SetSelectedDate(TestDay);
+        var label = new LabelItem { Id = "calendar-refresh-label", Name = "Calendar" };
+        var task = new TaskItem
+        {
+            Id = "calendar-refresh-task",
+            Title = "Calendar refresh task",
+            CreatedAt = At(TestDay, 8),
+            WorkflowStatus = TaskWorkflowStatus.Next,
+            PlannedOn = TestDay,
+            ScheduledStart = At(TestDay, 9),
+            ScheduledEnd = At(TestDay, 10),
+            Labels = [label],
+        };
+        var initialContext = new TaskViewContext(null, TaskListKind.Calendar);
+        TaskListItemViewModel ItemFor(TaskItem snapshot) =>
+            new(snapshot, null, TaskListKind.Calendar);
+
+        calendarDay.SetDayTasks([ItemFor(task)], initialContext);
+        var originalBlock = Assert.Single(calendarDay.Blocks);
+
+        calendarDay.SetDayTasks([ItemFor(task with { Labels = [label with { }] })], initialContext);
+
+        Assert.Same(originalBlock, Assert.Single(calendarDay.Blocks));
+
+        calendarDay.SetDayTasks(
+            [ItemFor(task with { Labels = [label with { }] })],
+            new TaskViewContext(SpaceIds.Default, TaskListKind.Calendar));
+
+        Assert.NotSame(originalBlock, Assert.Single(calendarDay.Blocks));
     }
 
     [Fact]

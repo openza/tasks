@@ -2651,7 +2651,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             .Select(task => new TaskListItemViewModel(
                 task,
                 projectNames.GetValueOrDefault(task.ProjectId ?? string.Empty),
-                TaskListKind.Calendar)));
+                TaskListKind.Calendar)), CurrentTaskViewContext);
         CalendarDay.SetTodayTaskSource(snapshot.AllSpaceTasks
             .Where(task => (_currentSpaceId is null || task.SpaceId == _currentSpaceId) && task.IntegrationId == IntegrationIds.Local)
             .Select(task => new TaskListItemViewModel(
