@@ -10,6 +10,8 @@ public sealed class CalendarDayViewModel : ObservableObject
     public const int HoursPerDay = 24;
     public const double HourHeight = 64;
     internal const double TimelineHeightValue = HoursPerDay * HourHeight;
+    private const int MinutesPerQuarterHour = 15;
+    private const int LastQuarterHour = HoursPerDay * 60 - MinutesPerQuarterHour;
 
     private readonly List<TaskListItemViewModel> _scheduledTasks = [];
     private readonly List<TaskListItemViewModel> _blockPickerTasks = [];
@@ -179,19 +181,28 @@ public sealed class CalendarDayViewModel : ObservableObject
         left.Labels.OrderBy(label => label.Id, StringComparer.Ordinal)
             .SequenceEqual(right.Labels.OrderBy(label => label.Id, StringComparer.Ordinal));
 
-    public DateTimeOffset TimeAtTimelinePosition(double top, bool snapToQuarterHour = false, TimeSpan? preferredOffset = null)
+    public DateTimeOffset TimeAtTimelinePosition(double top, TimeSpan? preferredOffset = null)
     {
-        var minutes = Math.Clamp(top * 60 / HourHeight, 0, HoursPerDay * 60 - 1);
-        var precision = snapToQuarterHour ? 15 : 1;
-        var roundedMinutes = Math.Round(minutes / precision, MidpointRounding.AwayFromZero) * precision;
-        var localTime = SelectedDate.ToDateTime(TimeOnly.MinValue).AddMinutes(roundedMinutes);
-        return ResolveLocalTime(localTime, preferredOffset);
+        var minutes = Math.Clamp(top * 60 / HourHeight, 0, LastQuarterHour);
+        return SnapLocalTime(SelectedDate.ToDateTime(TimeOnly.MinValue).AddMinutes(minutes), preferredOffset);
+    }
+
+    public DateTimeOffset GetAddBlockStart(DateTimeOffset now)
+    {
+        var localNow = TimeZoneInfo.ConvertTime(now, _timeZone);
+        var dayStart = SelectedDate.ToDateTime(TimeOnly.MinValue);
+        if (DateOnly.FromDateTime(localNow.DateTime) != SelectedDate)
+        {
+            return ResolveLocalTime(dayStart.AddHours(9));
+        }
+
+        var nextQuarter = Math.Ceiling(localNow.TimeOfDay.TotalMinutes / MinutesPerQuarterHour) * MinutesPerQuarterHour;
+        return ResolveLocalTime(dayStart.AddMinutes(Math.Min(nextQuarter, LastQuarterHour)), localNow.Offset);
     }
 
     public (DateTimeOffset Start, DateTimeOffset End) MoveBlockTo(CalendarDayBlockViewModel block, double top)
     {
-        var maxTop = TimelineHeight - HourHeight / 4;
-        var start = TimeAtTimelinePosition(Math.Clamp(top, 0, maxTop), snapToQuarterHour: true, preferredOffset: LocalOffsetFor(block.Start));
+        var start = TimeAtTimelinePosition(top, LocalOffsetFor(block.Start));
         return (start, AddTimelineDuration(start, block.End - block.Start));
     }
 
@@ -336,7 +347,7 @@ public sealed class CalendarDayViewModel : ObservableObject
 
     private DateTimeOffset SnapLocalTime(DateTime localTime, TimeSpan? preferredOffset = null)
     {
-        var minutes = Math.Round(localTime.TimeOfDay.TotalMinutes / 15, MidpointRounding.AwayFromZero) * 15;
+        var minutes = Math.Round(localTime.TimeOfDay.TotalMinutes / MinutesPerQuarterHour, MidpointRounding.AwayFromZero) * MinutesPerQuarterHour;
         return ResolveLocalTime(localTime.Date.AddMinutes(minutes), preferredOffset);
     }
 

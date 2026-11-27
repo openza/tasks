@@ -315,6 +315,80 @@ public sealed class CalendarDayViewModelTests
         Assert.Contains(At(TestDay.AddDays(1), 0).ToString("dddd, d MMMM"), viewModel.TodaySummaryText);
     }
 
+    [Theory]
+    [InlineData(10, 37, 10, 30)]
+    [InlineData(10, 38, 10, 45)]
+    [InlineData(23, 58, 23, 45)]
+    public void Timeline_click_chooses_the_nearest_quarter_hour_on_the_selected_day(
+        int hour, int minute, int expectedHour, int expectedMinute)
+    {
+        var viewModel = new CalendarDayViewModel(TimeZoneInfo.Utc);
+        viewModel.SetSelectedDate(TestDay);
+        var top = (hour * 60 + minute) * CalendarDayViewModel.HourHeight / 60;
+
+        var start = viewModel.TimeAtTimelinePosition(top);
+
+        var expected = new DateTimeOffset(TestDay.ToDateTime(new TimeOnly(expectedHour, expectedMinute)), TimeSpan.Zero);
+        Assert.Equal(expected, start);
+    }
+
+    [Theory]
+    [InlineData(4, 0, 15)]
+    [InlineData(15, 0, 15)]
+    [InlineData(15, 1, 30)]
+    public void Add_block_on_today_rounds_forward_to_a_quarter_hour(int minute, int second, int expectedMinute)
+    {
+        var viewModel = new CalendarDayViewModel(TimeZoneInfo.Utc);
+        viewModel.SetSelectedDate(TestDay);
+        var now = new DateTimeOffset(TestDay.ToDateTime(new TimeOnly(11, minute, second)), TimeSpan.Zero);
+
+        var start = viewModel.GetAddBlockStart(now);
+
+        var expected = new DateTimeOffset(TestDay.ToDateTime(new TimeOnly(11, expectedMinute)), TimeSpan.Zero);
+        Assert.Equal(expected, start);
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(1)]
+    public void Add_block_on_another_day_still_starts_at_nine(int dayOffset)
+    {
+        var viewModel = new CalendarDayViewModel(TimeZoneInfo.Utc);
+        var selectedDay = TestDay.AddDays(dayOffset);
+        viewModel.SetSelectedDate(selectedDay);
+        var now = new DateTimeOffset(TestDay.ToDateTime(new TimeOnly(23, 58)), TimeSpan.Zero);
+
+        var start = viewModel.GetAddBlockStart(now);
+
+        Assert.Equal(new DateTimeOffset(selectedDay.ToDateTime(new TimeOnly(9, 0)), TimeSpan.Zero), start);
+    }
+
+    [Fact]
+    public void Add_block_rounds_past_the_spring_forward_gap()
+    {
+        var timeZone = FindTimeZone("America/New_York", "Eastern Standard Time");
+        var viewModel = new CalendarDayViewModel(timeZone);
+        viewModel.SetSelectedDate(new DateOnly(2026, 3, 8));
+        var now = new DateTimeOffset(2026, 3, 8, 1, 53, 0, TimeSpan.FromHours(-5));
+
+        var start = viewModel.GetAddBlockStart(now);
+
+        Assert.True(start.EqualsExact(new DateTimeOffset(2026, 3, 8, 3, 0, 0, TimeSpan.FromHours(-4))));
+    }
+
+    [Fact]
+    public void Add_block_preserves_the_current_offset_in_the_repeated_hour()
+    {
+        var timeZone = FindTimeZone("America/New_York", "Eastern Standard Time");
+        var viewModel = new CalendarDayViewModel(timeZone);
+        viewModel.SetSelectedDate(new DateOnly(2026, 11, 1));
+        var now = new DateTimeOffset(2026, 11, 1, 1, 15, 0, TimeSpan.FromHours(-5));
+
+        var start = viewModel.GetAddBlockStart(now);
+
+        Assert.True(start.EqualsExact(now));
+    }
+
     [Fact]
     public void Timeline_move_and_resize_snap_to_quarter_hours_without_shifting_other_blocks()
     {

@@ -663,8 +663,7 @@ public sealed partial class CalendarDayView : UserControl
     private async void OnAddBlockClicked(object? sender, RoutedEventArgs e)
     {
         if (_viewModel is null) return;
-        var top = _viewModel.IsSelectedDayToday ? _viewModel.NowTop : 9 * CalendarDayViewModel.HourHeight;
-        await RequestBlockPickerAsync(_viewModel.TimeAtTimelinePosition(top));
+        await RequestBlockPickerAsync(_viewModel.GetAddBlockStart(DateTimeOffset.Now));
     }
 
     private async Task RequestBlockPickerAsync(DateTimeOffset start)

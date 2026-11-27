@@ -69,7 +69,7 @@
                     <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="6" VerticalAlignment="Center">
                         <TextBlock Margin="0,0,8,0" Padding="8,4" Background="{DynamicResource OpenzaChipBackgroundBrush}" FontSize="12" Text="{Binding NowText}" IsVisible="{Binding IsSelectedDayToday}" />
                         <Button x:Name="CalendarAddBlockButton" AutomationProperties.Name="Add a time block" Content="Add block" Click="OnAddBlockClicked" />
-                        <Button AutomationProperties.Name="Go to today" Content="Today" Click="OnGoToTodayClicked" />
+                        <Button AutomationProperties.Name="Go to today" Content="Go to today" ToolTip.Tip="Go to today" Click="OnGoToTodayClicked" />
                         <Button Width="36" Padding="0" AutomationProperties.Name="Previous day" Click="OnPreviousDayClicked">
                             <ic:FluentIcon Icon="ChevronLeft" FontSize="18" />
                         </Button>
@@ -93,15 +93,15 @@
                 <Border Padding="20,18" BorderBrush="{DynamicResource OpenzaSeparatorBrush}" BorderThickness="0,0,0,1">
                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
                         <StackPanel Spacing="4">
-                            <TextBlock FontSize="20" FontWeight="SemiBold" Text="Today" />
+                            <TextBlock FontSize="20" FontWeight="SemiBold" Text="Today's tasks" />
                             <TextBlock FontSize="12" Foreground="{DynamicResource OpenzaTextSecondaryBrush}" Text="{Binding TodaySummaryText}" />
                         </StackPanel>
-                        <Button Grid.Column="1" Width="34" Height="34" Padding="0" AutomationProperties.Name="Close Today panel" Click="OnCloseTodayPanelClicked">
+                        <Button Grid.Column="1" Width="34" Height="34" Padding="0" AutomationProperties.Name="Close today's tasks" Click="OnCloseTodayPanelClicked">
                             <ic:FluentIcon Icon="Dismiss" FontSize="18" />
                         </Button>
                     </Grid>
                 </Border>
-                <TextBox Grid.Row="1" Margin="16,16,16,8" Height="38" AutomationProperties.Name="Search Today tasks" PlaceholderText="Search this list" Text="{Binding TodaySearchText, Mode=TwoWay}" />
+                <TextBox Grid.Row="1" Margin="16,16,16,8" Height="38" AutomationProperties.Name="Search today's tasks" PlaceholderText="Search this list" Text="{Binding TodaySearchText, Mode=TwoWay}" />
                 <Grid Grid.Row="2" Margin="16,0,16,12">
                     <ScrollViewer VerticalScrollBarVisibility="Auto">
                         <ItemsControl ItemsSource="{Binding FilteredTodayTasks}">
