@@ -426,7 +426,7 @@ public sealed partial class CalendarDayView : UserControl
         if (_viewModel is null || !e.GetCurrentPoint(TimelineCanvas).Properties.IsLeftButtonPressed) return;
         e.Handled = true;
         var position = e.GetPosition(TimelineCanvas);
-        var start = _viewModel.TimeAtTimelinePosition(position.Y);
+        var start = _viewModel.GetTimelineClickStart(position.Y);
         await RequestBlockPickerAsync(start);
     }
 

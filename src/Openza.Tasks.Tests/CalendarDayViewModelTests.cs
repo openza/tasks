@@ -326,10 +326,27 @@ public sealed class CalendarDayViewModelTests
         viewModel.SetSelectedDate(TestDay);
         var top = (hour * 60 + minute) * CalendarDayViewModel.HourHeight / 60;
 
-        var start = viewModel.TimeAtTimelinePosition(top);
+        var start = viewModel.GetTimelineClickStart(top);
 
         var expected = new DateTimeOffset(TestDay.ToDateTime(new TimeOnly(expectedHour, expectedMinute)), TimeSpan.Zero);
         Assert.Equal(expected, start);
+    }
+
+    [Theory]
+    [InlineData(1, 54, 1, 45, -5)]
+    [InlineData(2, 40, 3, 0, -4)]
+    public void Timeline_click_uses_the_closest_valid_quarter_hour_around_a_spring_forward_gap(
+        int hour, int minute, int expectedHour, int expectedMinute, int expectedOffsetHours)
+    {
+        var timeZone = FindTimeZone("America/New_York", "Eastern Standard Time");
+        var viewModel = new CalendarDayViewModel(timeZone);
+        viewModel.SetSelectedDate(new DateOnly(2026, 3, 8));
+        var top = (hour * 60 + minute) * CalendarDayViewModel.HourHeight / 60;
+
+        var start = viewModel.GetTimelineClickStart(top);
+
+        var expected = new DateTimeOffset(2026, 3, 8, expectedHour, expectedMinute, 0, TimeSpan.FromHours(expectedOffsetHours));
+        Assert.True(start.EqualsExact(expected));
     }
 
     [Theory]

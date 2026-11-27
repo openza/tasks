@@ -181,10 +181,22 @@ public sealed class CalendarDayViewModel : ObservableObject
         left.Labels.OrderBy(label => label.Id, StringComparer.Ordinal)
             .SequenceEqual(right.Labels.OrderBy(label => label.Id, StringComparer.Ordinal));
 
-    public DateTimeOffset TimeAtTimelinePosition(double top, TimeSpan? preferredOffset = null)
+    public DateTimeOffset GetTimelineClickStart(double top)
     {
-        var minutes = Math.Clamp(top * 60 / HourHeight, 0, LastQuarterHour);
-        return SnapLocalTime(SelectedDate.ToDateTime(TimeOnly.MinValue).AddMinutes(minutes), preferredOffset);
+        var clickedTime = LocalTimeAtTimelinePosition(top);
+        var roundedTime = RoundToQuarterHour(clickedTime);
+        if (IsInvalidLocalTime(roundedTime))
+        {
+            var dayStart = clickedTime.Date;
+            roundedTime = Enumerable.Range(0, HoursPerDay * 60 / MinutesPerQuarterHour)
+                .Select(quarter => dayStart.AddMinutes(quarter * MinutesPerQuarterHour))
+                .Where(candidate => !IsInvalidLocalTime(candidate))
+                .OrderBy(candidate => (candidate - clickedTime).Duration())
+                .ThenByDescending(candidate => candidate)
+                .FirstOrDefault(roundedTime);
+        }
+
+        return ResolveLocalTime(roundedTime);
     }
 
     public DateTimeOffset GetAddBlockStart(DateTimeOffset now)
@@ -202,7 +214,7 @@ public sealed class CalendarDayViewModel : ObservableObject
 
     public (DateTimeOffset Start, DateTimeOffset End) MoveBlockTo(CalendarDayBlockViewModel block, double top)
     {
-        var start = TimeAtTimelinePosition(top, LocalOffsetFor(block.Start));
+        var start = SnapLocalTime(LocalTimeAtTimelinePosition(top), LocalOffsetFor(block.Start));
         return (start, AddTimelineDuration(start, block.End - block.Start));
     }
 
@@ -345,10 +357,19 @@ public sealed class CalendarDayViewModel : ObservableObject
         throw new InvalidOperationException($"No valid local time found for {date} in {_timeZone.Id}.");
     }
 
-    private DateTimeOffset SnapLocalTime(DateTime localTime, TimeSpan? preferredOffset = null)
+    private DateTime LocalTimeAtTimelinePosition(double top)
     {
-        var minutes = Math.Round(localTime.TimeOfDay.TotalMinutes / MinutesPerQuarterHour, MidpointRounding.AwayFromZero) * MinutesPerQuarterHour;
-        return ResolveLocalTime(localTime.Date.AddMinutes(minutes), preferredOffset);
+        var minutes = Math.Clamp(top * 60 / HourHeight, 0, LastQuarterHour);
+        return SelectedDate.ToDateTime(TimeOnly.MinValue).AddMinutes(minutes);
+    }
+
+    private DateTimeOffset SnapLocalTime(DateTime localTime, TimeSpan? preferredOffset = null) =>
+        ResolveLocalTime(RoundToQuarterHour(localTime), preferredOffset);
+
+    private static DateTime RoundToQuarterHour(DateTime localTime)
+    {
+        var quarters = Math.Round(localTime.TimeOfDay.TotalMinutes / MinutesPerQuarterHour, MidpointRounding.AwayFromZero);
+        return localTime.Date.AddMinutes(quarters * MinutesPerQuarterHour);
     }
 
     public DateTime LocalDateTimeFor(DateTimeOffset instant) => TimeZoneInfo.ConvertTime(instant, _timeZone).DateTime;
