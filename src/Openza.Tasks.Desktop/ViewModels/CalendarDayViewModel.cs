@@ -10,6 +10,8 @@ public sealed class CalendarDayViewModel : ObservableObject
     public const int HoursPerDay = 24;
     public const double HourHeight = 64;
     internal const double TimelineHeightValue = HoursPerDay * HourHeight;
+    private const int MinutesPerQuarterHour = 15;
+    private const int LastQuarterHour = HoursPerDay * 60 - MinutesPerQuarterHour;
 
     private readonly List<TaskListItemViewModel> _scheduledTasks = [];
     private readonly List<TaskListItemViewModel> _blockPickerTasks = [];
@@ -179,19 +181,41 @@ public sealed class CalendarDayViewModel : ObservableObject
         left.Labels.OrderBy(label => label.Id, StringComparer.Ordinal)
             .SequenceEqual(right.Labels.OrderBy(label => label.Id, StringComparer.Ordinal));
 
-    public DateTimeOffset TimeAtTimelinePosition(double top, bool snapToQuarterHour = false, TimeSpan? preferredOffset = null)
+    public DateTimeOffset GetTimelineClickStart(double top)
     {
-        var minutes = Math.Clamp(top * 60 / HourHeight, 0, HoursPerDay * 60 - 1);
-        var precision = snapToQuarterHour ? 15 : 1;
-        var roundedMinutes = Math.Round(minutes / precision, MidpointRounding.AwayFromZero) * precision;
-        var localTime = SelectedDate.ToDateTime(TimeOnly.MinValue).AddMinutes(roundedMinutes);
-        return ResolveLocalTime(localTime, preferredOffset);
+        var clickedTime = LocalTimeAtTimelinePosition(top);
+        var roundedTime = RoundToQuarterHour(clickedTime);
+        if (IsInvalidLocalTime(roundedTime))
+        {
+            var dayStart = clickedTime.Date;
+            roundedTime = Enumerable.Range(0, HoursPerDay * 60 / MinutesPerQuarterHour)
+                .Select(quarter => dayStart.AddMinutes(quarter * MinutesPerQuarterHour))
+                .Where(candidate => !IsInvalidLocalTime(candidate))
+                .OrderBy(candidate => (candidate - clickedTime).Duration())
+                .ThenByDescending(candidate => candidate)
+                .FirstOrDefault(roundedTime);
+        }
+
+        return ResolveLocalTime(roundedTime);
+    }
+
+    public DateTimeOffset GetAddBlockStart(DateTimeOffset now)
+    {
+        var localNow = TimeZoneInfo.ConvertTime(now, _timeZone);
+        var dayStart = SelectedDate.ToDateTime(TimeOnly.MinValue);
+        if (DateOnly.FromDateTime(localNow.DateTime) != SelectedDate)
+        {
+            return ResolveLocalTime(dayStart.AddHours(9));
+        }
+
+        var wholeMinutes = localNow.Hour * 60 + localNow.Minute;
+        var nextQuarter = Math.Ceiling(wholeMinutes / (double)MinutesPerQuarterHour) * MinutesPerQuarterHour;
+        return ResolveLocalTime(dayStart.AddMinutes(Math.Min(nextQuarter, LastQuarterHour)), localNow.Offset);
     }
 
     public (DateTimeOffset Start, DateTimeOffset End) MoveBlockTo(CalendarDayBlockViewModel block, double top)
     {
-        var maxTop = TimelineHeight - HourHeight / 4;
-        var start = TimeAtTimelinePosition(Math.Clamp(top, 0, maxTop), snapToQuarterHour: true, preferredOffset: LocalOffsetFor(block.Start));
+        var start = SnapLocalTime(LocalTimeAtTimelinePosition(top), LocalOffsetFor(block.Start));
         return (start, AddTimelineDuration(start, block.End - block.Start));
     }
 
@@ -334,10 +358,19 @@ public sealed class CalendarDayViewModel : ObservableObject
         throw new InvalidOperationException($"No valid local time found for {date} in {_timeZone.Id}.");
     }
 
-    private DateTimeOffset SnapLocalTime(DateTime localTime, TimeSpan? preferredOffset = null)
+    private DateTime LocalTimeAtTimelinePosition(double top)
     {
-        var minutes = Math.Round(localTime.TimeOfDay.TotalMinutes / 15, MidpointRounding.AwayFromZero) * 15;
-        return ResolveLocalTime(localTime.Date.AddMinutes(minutes), preferredOffset);
+        var minutes = Math.Clamp(top * 60 / HourHeight, 0, LastQuarterHour);
+        return SelectedDate.ToDateTime(TimeOnly.MinValue).AddMinutes(minutes);
+    }
+
+    private DateTimeOffset SnapLocalTime(DateTime localTime, TimeSpan? preferredOffset = null) =>
+        ResolveLocalTime(RoundToQuarterHour(localTime), preferredOffset);
+
+    private static DateTime RoundToQuarterHour(DateTime localTime)
+    {
+        var quarters = Math.Round(localTime.TimeOfDay.TotalMinutes / MinutesPerQuarterHour, MidpointRounding.AwayFromZero);
+        return localTime.Date.AddMinutes(quarters * MinutesPerQuarterHour);
     }
 
     public DateTime LocalDateTimeFor(DateTimeOffset instant) => TimeZoneInfo.ConvertTime(instant, _timeZone).DateTime;

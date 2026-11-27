@@ -36,8 +36,19 @@ public sealed partial class DesktopControlBehaviorTests
         Assert.False(taskList.IsVisible);
         Assert.False(context.Vm.CalendarDay.IsTodayPanelOpen);
 
-        context.Window.FindControl<Control>("CalendarTodayPanelButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        context.Window.UpdateLayout();
+        var todayButton = Assert.Single(dayView.GetVisualDescendants().OfType<Button>(),
+            button => Equals(button.Content, "Go to today"));
+        Assert.Equal("Go to today", AutomationProperties.GetName(todayButton));
+        Assert.Equal("Go to today", ToolTip.GetTip(todayButton));
+
+        var todayPanelButton = context.Window.FindControl<Control>("CalendarTodayPanelButton")!;
+        Assert.Equal("Today's tasks", AutomationProperties.GetName(todayPanelButton));
+        Assert.Equal("Today's tasks", ToolTip.GetTip(todayPanelButton));
+        todayPanelButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         Assert.True(context.Vm.CalendarDay.IsTodayPanelOpen);
+        Assert.Contains(dayView.GetVisualDescendants().OfType<TextBlock>(),
+            text => text.IsVisible && text.Text == "Today's tasks");
         context.Window.FindControl<Control>("CalendarListViewButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         Assert.False(context.Vm.IsCalendarDayView);
         Assert.True(filterGrid.IsVisible);
@@ -231,30 +242,43 @@ public sealed partial class DesktopControlBehaviorTests
     [Fact]
     public Task Calendar_picker_request_guard_is_shared_until_the_handler_finishes() => Run(async _ =>
     {
-        var dayView = new CalendarDayView { DataContext = new CalendarDayViewModel() };
+        var calendarDay = new CalendarDayViewModel(TimeZoneInfo.Utc);
+        var now = new DateTimeOffset(2026, 2, 3, 11, 15, 20, TimeSpan.Zero);
+        var selectedDay = DateOnly.FromDateTime(now.UtcDateTime);
+        calendarDay.SetNow(now);
+        calendarDay.SetSelectedDate(selectedDay);
+        var dayView = new CalendarDayView { DataContext = calendarDay };
         var window = new Window { Width = 1440, Height = 900, Content = dayView };
         window.Show();
         window.UpdateLayout();
         try
         {
             var firstRequest = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            var requestCount = 0;
-            dayView.BlockPickerRequested += _ => ++requestCount == 1 ? firstRequest.Task : Task.CompletedTask;
+            var requestedStarts = new List<DateTimeOffset>();
+            dayView.BlockPickerRequested += start =>
+            {
+                requestedStarts.Add(start);
+                return requestedStarts.Count == 1 ? firstRequest.Task : Task.CompletedTask;
+            };
 
             dayView.FindControl<Button>("CalendarAddBlockButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-            await Until(() => requestCount == 1);
+            await Until(() => requestedStarts.Count == 1);
+            Assert.Equal(new DateTimeOffset(selectedDay.ToDateTime(new TimeOnly(11, 15)), TimeSpan.Zero), requestedStarts[0]);
 
             var timeline = dayView.FindControl<Canvas>("TimelineCanvas")!;
             var pointer = new Pointer(70, PointerType.Mouse, isPrimary: true);
-            RaisePointerPressed(timeline, window, pointer);
-            Assert.Equal(1, requestCount);
+            var clickTop = (10 * 60 + 37) * CalendarDayViewModel.HourHeight / 60;
+            var clickPoint = timeline.TranslatePoint(new Point(30, clickTop), window)!.Value;
+            RaisePointerPressed(timeline, window, pointer, clickPoint);
+            Assert.Single(requestedStarts);
 
             firstRequest.SetResult();
             await UntilAsync(() =>
             {
-                if (requestCount == 1) RaisePointerPressed(timeline, window, pointer);
-                return Task.FromResult(requestCount == 2);
+                if (requestedStarts.Count == 1) RaisePointerPressed(timeline, window, pointer, clickPoint);
+                return Task.FromResult(requestedStarts.Count == 2);
             });
+            Assert.Equal(new DateTimeOffset(selectedDay.ToDateTime(new TimeOnly(10, 30)), TimeSpan.Zero), requestedStarts[1]);
         }
         finally
         {
@@ -1688,7 +1712,7 @@ public sealed partial class DesktopControlBehaviorTests
         Assert.Contains(context.Window.GetVisualDescendants().OfType<CheckBox>(), box =>
             AutomationProperties.GetName(box) == $"Complete {task.Title}");
         var search = context.Window.GetVisualDescendants().OfType<TextBox>()
-            .Single(box => AutomationProperties.GetName(box) == "Search Today tasks");
+            .Single(box => AutomationProperties.GetName(box) == "Search today's tasks");
         Assert.True(search.Focus());
         // Headless input may refresh row controls; tab to the live task button before Enter.
         var tabLimit = context.Window.GetVisualDescendants().OfType<Control>()

@@ -282,8 +282,8 @@
                                         <ToggleButton x:Name="CalendarDayViewButton" Classes="calendar-mode" Content="Day" IsChecked="{Binding IsCalendarDayView, Mode=OneWay}" Click="OnCalendarDayViewClicked" />
                                     </StackPanel>
                                 </Border>
-                                <ToggleButton x:Name="CalendarTodayPanelButton" MinHeight="40" Padding="12,8" Background="{DynamicResource OpenzaElevatedSurfaceBrush}" BorderBrush="{DynamicResource OpenzaBorderBrush}" BorderThickness="1" CornerRadius="6" IsVisible="{Binding IsCalendarDayView}" IsChecked="{Binding CalendarDay.IsTodayPanelOpen, Mode=OneWay}" Click="OnCalendarTodayPanelClicked">
-                                    <StackPanel Orientation="Horizontal" Spacing="8"><ic:FluentIcon Icon="CalendarToday" FontSize="18" /><TextBlock Text="Today" /></StackPanel>
+                                <ToggleButton x:Name="CalendarTodayPanelButton" MinHeight="40" Padding="12,8" Background="{DynamicResource OpenzaElevatedSurfaceBrush}" BorderBrush="{DynamicResource OpenzaBorderBrush}" BorderThickness="1" CornerRadius="6" AutomationProperties.Name="Today's tasks" ToolTip.Tip="Today's tasks" IsVisible="{Binding IsCalendarDayView}" IsChecked="{Binding CalendarDay.IsTodayPanelOpen, Mode=OneWay}" Click="OnCalendarTodayPanelClicked">
+                                    <StackPanel Orientation="Horizontal" Spacing="8"><ic:FluentIcon Icon="CalendarToday" FontSize="18" /><TextBlock Text="Today's tasks" /></StackPanel>
                                 </ToggleButton>
                                 <Button x:Name="ProjectsCommand" Padding="12,8" Classes="command" Click="OnProjectsCommandClicked" IsVisible="False">
                                     <StackPanel Orientation="Horizontal" Spacing="8"><ic:FluentIcon Icon="Folder" FontSize="18" /><TextBlock Text="Projects" /></StackPanel>

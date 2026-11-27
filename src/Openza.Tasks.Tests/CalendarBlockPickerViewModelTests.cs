@@ -73,6 +73,45 @@ public sealed class CalendarBlockPickerViewModelTests
         Assert.Equal(start.AddHours(1), result.End);
     }
 
+    [Theory]
+    [InlineData(45, 0)]
+    [InlineData(45, 30)]
+    [InlineData(46, 0)]
+    [InlineData(58, 0)]
+    public void Add_block_late_today_defaults_to_one_hour_across_midnight(int minute, int second)
+    {
+        var calendarDay = new CalendarDayViewModel(TimeZoneInfo.Utc);
+        calendarDay.SetSelectedDate(TestDay);
+        var task = Item("Late task", TaskWorkflowStatus.Next);
+        calendarDay.SetDayTasks([task]);
+        var now = new DateTimeOffset(TestDay.ToDateTime(new TimeOnly(23, minute, second)), TimeSpan.Zero);
+        var picker = new CalendarBlockPickerViewModel(calendarDay, calendarDay.GetAddBlockStart(now)) { SelectedTask = task };
+
+        var result = Assert.IsType<CalendarBlockPickerResult>(picker.CreateResult());
+
+        Assert.Equal("23:45", picker.StartTimeText);
+        Assert.Equal(now.Date.AddHours(23).AddMinutes(45), result.Start.UtcDateTime);
+        Assert.Equal(now.Date.AddDays(1).AddMinutes(45), result.End.UtcDateTime);
+    }
+
+    [Fact]
+    public void Picker_keeps_the_exact_typed_start_after_a_snapped_suggestion()
+    {
+        var calendarDay = new CalendarDayViewModel(TimeZoneInfo.Utc);
+        calendarDay.SetSelectedDate(TestDay);
+        var task = Item("Exact start task", TaskWorkflowStatus.Next);
+        calendarDay.SetDayTasks([task]);
+        var now = new DateTimeOffset(TestDay.ToDateTime(new TimeOnly(11, 4)), TimeSpan.Zero);
+        var picker = new CalendarBlockPickerViewModel(calendarDay, calendarDay.GetAddBlockStart(now)) { SelectedTask = task };
+        Assert.Equal("11:15", picker.StartTimeText);
+
+        picker.StartTimeText = "11:04";
+
+        var result = Assert.IsType<CalendarBlockPickerResult>(picker.CreateResult());
+        Assert.Equal(now, result.Start);
+        Assert.Equal(now.AddHours(1), result.End);
+    }
+
     [Fact]
     public void Day_task_refresh_keeps_identical_snapshot_but_rebuilds_when_context_changes()
     {

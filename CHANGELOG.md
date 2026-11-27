@@ -4,6 +4,9 @@ All notable changes to Openza Tasks will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+- Desktop Calendar Day suggests quarter-hour starts for new blocks and preserves exact typed times. The date shortcut is labeled Go to today, and the panel is labeled Today's tasks.
+
 ## [1.5.0] - Unreleased
 
 ### Added
