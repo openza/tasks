@@ -1710,7 +1710,7 @@ public sealed partial class DesktopControlBehaviorTests
         Assert.Contains(context.Window.GetVisualDescendants().OfType<CheckBox>(), box =>
             AutomationProperties.GetName(box) == $"Complete {task.Title}");
         var search = context.Window.GetVisualDescendants().OfType<TextBox>()
-            .Single(box => AutomationProperties.GetName(box) == "Search Today tasks");
+            .Single(box => AutomationProperties.GetName(box) == "Search today's tasks");
         Assert.True(search.Focus());
         // Headless input may refresh row controls; tab to the live task button before Enter.
         var tabLimit = context.Window.GetVisualDescendants().OfType<Control>()
