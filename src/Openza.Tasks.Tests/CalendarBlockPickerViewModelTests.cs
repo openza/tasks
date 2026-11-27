@@ -74,15 +74,17 @@ public sealed class CalendarBlockPickerViewModelTests
     }
 
     [Theory]
-    [InlineData(46)]
-    [InlineData(58)]
-    public void Add_block_late_today_defaults_to_one_hour_across_midnight(int minute)
+    [InlineData(45, 0)]
+    [InlineData(45, 30)]
+    [InlineData(46, 0)]
+    [InlineData(58, 0)]
+    public void Add_block_late_today_defaults_to_one_hour_across_midnight(int minute, int second)
     {
         var calendarDay = new CalendarDayViewModel(TimeZoneInfo.Utc);
         calendarDay.SetSelectedDate(TestDay);
         var task = Item("Late task", TaskWorkflowStatus.Next);
         calendarDay.SetDayTasks([task]);
-        var now = new DateTimeOffset(TestDay.ToDateTime(new TimeOnly(23, minute)), TimeSpan.Zero);
+        var now = new DateTimeOffset(TestDay.ToDateTime(new TimeOnly(23, minute, second)), TimeSpan.Zero);
         var picker = new CalendarBlockPickerViewModel(calendarDay, calendarDay.GetAddBlockStart(now)) { SelectedTask = task };
 
         var result = Assert.IsType<CalendarBlockPickerResult>(picker.CreateResult());

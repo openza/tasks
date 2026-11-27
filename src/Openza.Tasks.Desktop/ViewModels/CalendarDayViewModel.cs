@@ -208,7 +208,8 @@ public sealed class CalendarDayViewModel : ObservableObject
             return ResolveLocalTime(dayStart.AddHours(9));
         }
 
-        var nextQuarter = Math.Ceiling(localNow.TimeOfDay.TotalMinutes / MinutesPerQuarterHour) * MinutesPerQuarterHour;
+        var wholeMinutes = localNow.Hour * 60 + localNow.Minute;
+        var nextQuarter = Math.Ceiling(wholeMinutes / (double)MinutesPerQuarterHour) * MinutesPerQuarterHour;
         return ResolveLocalTime(dayStart.AddMinutes(Math.Min(nextQuarter, LastQuarterHour)), localNow.Offset);
     }
 

@@ -350,14 +350,19 @@ public sealed class CalendarDayViewModelTests
     }
 
     [Theory]
-    [InlineData(4, 0, 15)]
-    [InlineData(15, 0, 15)]
-    [InlineData(15, 1, 30)]
-    public void Add_block_on_today_rounds_forward_to_a_quarter_hour(int minute, int second, int expectedMinute)
+    [InlineData(4, 0, 0, 15)]
+    [InlineData(15, 0, 0, 15)]
+    [InlineData(15, 0, 1, 15)]
+    [InlineData(15, 1, 0, 15)]
+    [InlineData(15, 20, 0, 15)]
+    [InlineData(15, 59, 0, 15)]
+    [InlineData(16, 0, 0, 30)]
+    public void Add_block_on_today_rounds_the_displayed_minute_forward_to_a_quarter_hour(
+        int minute, int second, int millisecond, int expectedMinute)
     {
         var viewModel = new CalendarDayViewModel(TimeZoneInfo.Utc);
         viewModel.SetSelectedDate(TestDay);
-        var now = new DateTimeOffset(TestDay.ToDateTime(new TimeOnly(11, minute, second)), TimeSpan.Zero);
+        var now = new DateTimeOffset(TestDay.ToDateTime(new TimeOnly(11, minute, second, millisecond)), TimeSpan.Zero);
 
         var start = viewModel.GetAddBlockStart(now);
 

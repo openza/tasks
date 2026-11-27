@@ -243,7 +243,9 @@ public sealed partial class DesktopControlBehaviorTests
     public Task Calendar_picker_request_guard_is_shared_until_the_handler_finishes() => Run(async _ =>
     {
         var calendarDay = new CalendarDayViewModel(TimeZoneInfo.Utc);
-        var selectedDay = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-1);
+        var now = new DateTimeOffset(2026, 2, 3, 11, 15, 20, TimeSpan.Zero);
+        var selectedDay = DateOnly.FromDateTime(now.UtcDateTime);
+        calendarDay.SetNow(now);
         calendarDay.SetSelectedDate(selectedDay);
         var dayView = new CalendarDayView { DataContext = calendarDay };
         var window = new Window { Width = 1440, Height = 900, Content = dayView };
@@ -261,7 +263,7 @@ public sealed partial class DesktopControlBehaviorTests
 
             dayView.FindControl<Button>("CalendarAddBlockButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             await Until(() => requestedStarts.Count == 1);
-            Assert.Equal(new DateTimeOffset(selectedDay.ToDateTime(new TimeOnly(9, 0)), TimeSpan.Zero), requestedStarts[0]);
+            Assert.Equal(new DateTimeOffset(selectedDay.ToDateTime(new TimeOnly(11, 15)), TimeSpan.Zero), requestedStarts[0]);
 
             var timeline = dayView.FindControl<Canvas>("TimelineCanvas")!;
             var pointer = new Pointer(70, PointerType.Mouse, isPrimary: true);
