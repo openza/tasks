@@ -46,7 +46,7 @@ public sealed class TaskListItemViewModel
     public string MetadataText => string.Join(" · ", new[]
     {
         IsProjectView ? string.Empty : ProjectName,
-        Task.EffectiveRecurrenceRule is null ? DateText : $"Repeating {DateText}".Trim(),
+        string.IsNullOrWhiteSpace(Task.EffectiveRecurrenceRule) ? DateText : $"Repeating {DateText}".Trim(),
         StatusText,
         (Task.SourceIntegrationId ?? Task.IntegrationId) == IntegrationIds.Local ? string.Empty : SourceText,
         LabelSummaryText,

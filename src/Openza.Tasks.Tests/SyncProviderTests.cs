@@ -261,7 +261,10 @@ public sealed class SyncProviderTests
                       "status": "notStarted",
                       "categories": ["Release"],
                       "dueDateTime": { "dateTime": "2026-05-12T00:00:00" },
-                      "recurrence": { "pattern": { "type": "weekly" } },
+                      "recurrence": {
+                        "pattern": { "type": "weekly", "interval": 2, "daysOfWeek": ["monday", "thursday"], "firstDayOfWeek": "monday" },
+                        "range": { "type": "numbered", "startDate": "2026-05-11", "numberOfOccurrences": 8, "recurrenceTimeZone": "Pacific Standard Time" }
+                      },
                       "createdDateTime": "2026-05-01T10:00:00Z"
                     }
                   ]
@@ -288,7 +291,9 @@ public sealed class SyncProviderTests
         Assert.Equal("mstodo_list1", task.ProjectId);
         Assert.Equal(TaskItemStatus.None, task.Status);
         Assert.Equal(1, task.Priority);
-        Assert.Equal("weekly", task.RecurrenceRule);
+        Assert.Equal("""
+            {"pattern":{"type":"weekly","interval":2,"daysOfWeek":["monday","thursday"],"firstDayOfWeek":"monday"},"range":{"type":"numbered","startDate":"2026-05-11","numberOfOccurrences":8,"recurrenceTimeZone":"Pacific Standard Time"}}
+            """, task.RecurrenceRule);
         Assert.Equal("Release", Assert.Single(task.Labels).Name);
         using var metadata = JsonDocument.Parse(task.ProviderMetadataJson!);
         var category = Assert.Single(metadata.RootElement.GetProperty("msToDo").GetProperty("categories").EnumerateArray());
@@ -297,6 +302,26 @@ public sealed class SyncProviderTests
         var completionRequest = Assert.Single(handler.Requests, request => request.Method == HttpMethod.Patch);
         Assert.Equal("/v1.0/me/todo/lists/list1/tasks/task1", completionRequest.Uri.AbsolutePath);
         Assert.Contains("\"notStarted\"", completionRequest.Content);
+    }
+
+    [Theory]
+    [InlineData("{}", false)]
+    [InlineData("""{"type":"numbered","startDate":"2026-05-11"}""", false)]
+    [InlineData("""{"type":"endDate","startDate":"2026-05-11"}""", false)]
+    [InlineData("""{"type":"noEnd","startDate":"2026-05-11"}""", true)]
+    public async Task MicrosoftToDoProvider_only_marks_complete_recurrence_observations(string range, bool complete)
+    {
+        var handler = new FakeHttpMessageHandler(request => request.RequestUri?.AbsolutePath switch
+        {
+            "/v1.0/me/todo/lists" => Json("""{"value":[{"id":"list"}]}"""),
+            "/v1.0/me/todo/lists/list/tasks" => Json(
+                $$$"""{"value":[{"id":"task","title":"Review package","checklistItems":[],"recurrence":{"pattern":{"type":"daily","interval":2},"range":{{{range}}} }}]}"""),
+            _ => Json("""{"value":[]}"""),
+        });
+        var task = Assert.Single((await new MicrosoftToDoProvider(new HttpClient(handler), "token").FetchSnapshotAsync()).Tasks);
+        Assert.Equal(complete, task.RecurrenceRule is not null);
+        using var metadata = JsonDocument.Parse(task.ProviderMetadataJson!);
+        Assert.Equal(complete, metadata.RootElement.GetProperty("msToDo").TryGetProperty("recurrenceObserved", out _));
     }
 
     [Fact]

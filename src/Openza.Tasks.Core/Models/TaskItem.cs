@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace Openza.Tasks.Core.Models;
 
 public sealed record TaskItem
@@ -60,29 +62,29 @@ public sealed record TaskItem
     public DateTimeOffset? ScheduledEnd { get; init; }
     public int? DurationMinutes { get; init; }
     public string? RecurrenceRule { get; init; }
-    public string? SourceRecurrenceRule
+    public string? SourceRecurrenceRule => ReadSourceRecurrenceRule();
+    public string? EffectiveRecurrenceRule => RecurrenceRule ??
+        (SourceIntegrationId == IntegrationIds.MicrosoftToDo ? null : SourceRecurrenceRule);
+
+    private string? ReadSourceRecurrenceRule()
     {
-        get
+        if (IsProviderTask) return RecurrenceRule;
+        if (string.IsNullOrWhiteSpace(SourceMetadataJson)) return null;
+        try
         {
-            if (IsProviderTask) return RecurrenceRule;
-            if (string.IsNullOrWhiteSpace(SourceMetadataJson)) return null;
-            try
-            {
-                using var document = System.Text.Json.JsonDocument.Parse(SourceMetadataJson);
-                var value = document.RootElement;
-                if (value.ValueKind != System.Text.Json.JsonValueKind.Object) return null;
-                if (value.TryGetProperty("recurrenceRule", out var migrated))
-                    return migrated.ValueKind == System.Text.Json.JsonValueKind.String ? migrated.GetString() : null;
-                if (value.TryGetProperty("source", out var nested)) value = nested;
-                if (value.ValueKind != System.Text.Json.JsonValueKind.Object) return null;
-                if (value.TryGetProperty("recurrenceRule", out var rule) || value.TryGetProperty("RecurrenceRule", out rule))
-                    return rule.ValueKind == System.Text.Json.JsonValueKind.String ? rule.GetString() : null;
-            }
-            catch (System.Text.Json.JsonException) { }
-            return null;
+            using var document = JsonDocument.Parse(SourceMetadataJson);
+            var value = document.RootElement;
+            if (value.ValueKind != JsonValueKind.Object) return null;
+            if (value.TryGetProperty("recurrenceRule", out var migrated))
+                return migrated.ValueKind == JsonValueKind.String ? migrated.GetString() : null;
+            if (value.TryGetProperty("source", out var nested)) value = nested;
+            if (value.ValueKind != JsonValueKind.Object) return null;
+            if (value.TryGetProperty("recurrenceRule", out var rule) || value.TryGetProperty("RecurrenceRule", out rule))
+                return rule.ValueKind == JsonValueKind.String ? rule.GetString() : null;
         }
+        catch (JsonException) { }
+        return null;
     }
-    public string? EffectiveRecurrenceRule => RecurrenceRule ?? SourceRecurrenceRule;
     public string? Notes { get; init; }
     public string? ProviderMetadataJson { get; init; }
     public string? SourceMetadataJson { get; init; }

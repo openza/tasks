@@ -239,6 +239,7 @@ public sealed partial class SqliteTaskStore
 
     private static async Task PrepareWorkspaceBootstrapReplacementAsync(SqliteConnection connection, string instanceId, CancellationToken cancellationToken)
     {
+        await CaptureLegacyMicrosoftRecurrenceAsync(connection, instanceId, cancellationToken).ConfigureAwait(false);
         // Keep retained task rows and their device-only metadata/links. Only absent or
         // deleted replica tasks are removed; unpublished local data remains for staging.
         await WorkspaceExecuteAsync(connection, """
@@ -303,6 +304,7 @@ public sealed partial class SqliteTaskStore
 
     private static async Task FinishWorkspaceBootstrapAsync(SqliteConnection connection, string instanceId, string deviceId, long checkpoint, CancellationToken cancellationToken)
     {
+        await StageLegacyMicrosoftRecurrenceAsync(connection, instanceId, deviceId, cancellationToken).ConfigureAwait(false);
         await DetachPersonalCloudOrphansAsync(connection, instanceId, includeMissing: true, cancellationToken).ConfigureAwait(false);
         await WorkspaceExecuteAsync(connection, "INSERT INTO personal_cloud_checkpoints(instance_id,device_id,product,last_change_seq,updated_at) VALUES(@i,@d,'tasks',@q,@now)", cancellationToken,
             ("@i", instanceId), ("@d", deviceId), ("@q", checkpoint), ("@now", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds())).ConfigureAwait(false);

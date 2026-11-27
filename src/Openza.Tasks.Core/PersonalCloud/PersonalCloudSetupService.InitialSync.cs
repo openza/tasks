@@ -65,6 +65,7 @@ public sealed partial class PersonalCloudSetupService
                 return await FinishAsync(firstPass).ConfigureAwait(false);
 
             var staged = await taskStore.ApplyPendingMicrosoftCategoriesAfterPullAsync(current, cancellationToken).ConfigureAwait(false);
+            staged += await taskStore.ApplyPendingMicrosoftRecurrenceAfterPullAsync(current, cancellationToken).ConfigureAwait(false);
             staged += await taskStore.StageUnpublishedTasksForPersonalCloudAsync(current.InstanceId, current.DeviceId, cancellationToken).ConfigureAwait(false);
             var pushed = firstPass.PushedMutations;
             var pulled = firstPass.PulledChanges;

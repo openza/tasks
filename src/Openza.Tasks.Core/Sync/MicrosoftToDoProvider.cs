@@ -204,6 +204,19 @@ public sealed class MicrosoftToDoProvider(HttpClient httpClient, string accessTo
         var labels = MapCategories(task, categories, providerConnectionId);
         var metadata = new Dictionary<string, object> { ["id"] = id, ["listId"] = listId, ["synced_at"] = DateTimeOffset.UtcNow };
         metadata["categories"] = labels.Select(label => new { name = label.Name, color = label.Color });
+        string? recurrenceRule = null;
+        if (task.TryGetProperty("recurrence", out var recurrence))
+        {
+            if (HasCompleteRecurrence(recurrence))
+            {
+                recurrenceRule = JsonSerializer.Serialize(recurrence);
+                metadata["recurrenceObserved"] = true;
+            }
+            else if (recurrence.ValueKind == JsonValueKind.Null)
+            {
+                metadata["recurrenceObserved"] = true;
+            }
+        }
         if (task.TryGetProperty("isReminderOn", out var reminderOn))
             metadata["reminder"] = new { isReminderOn = reminderOn.Clone(),
                 reminderDateTime = task.TryGetProperty("reminderDateTime", out var reminderDate) ? reminderDate.Clone() : (JsonElement?)null };
@@ -230,7 +243,7 @@ public sealed class MicrosoftToDoProvider(HttpClient httpClient, string accessTo
             },
             DeadlineOn = TaskDateValues.FromDateTimeOffset(due),
             DeadlineAt = HasSpecificTime(due) ? due : null,
-            RecurrenceRule = ParseGraphRecurrence(task),
+            RecurrenceRule = recurrenceRule,
             CreatedAt = ParseDate(GetString(task, "createdDateTime")) ?? DateTimeOffset.UtcNow,
             CompletedAt = ParseGraphDate(task, "completedDateTime"),
             Labels = labels,
@@ -241,23 +254,42 @@ public sealed class MicrosoftToDoProvider(HttpClient httpClient, string accessTo
         };
     }
 
-    private static string? ParseGraphRecurrence(JsonElement task)
+    private static bool HasCompleteRecurrence(JsonElement recurrence)
     {
-        if (!task.TryGetProperty("recurrence", out var recurrence) ||
-            recurrence.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
-        {
-            return null;
-        }
+        if (recurrence.ValueKind != JsonValueKind.Object ||
+            !recurrence.TryGetProperty("pattern", out var pattern) || pattern.ValueKind != JsonValueKind.Object ||
+            !recurrence.TryGetProperty("range", out var range) || range.ValueKind != JsonValueKind.Object ||
+            !HasNumber(pattern, "interval", 1, int.MaxValue) || !HasDate(range, "startDate"))
+            return false;
 
-        if (recurrence.TryGetProperty("pattern", out var pattern) &&
-            pattern.TryGetProperty("type", out var type) &&
-            type.ValueKind == JsonValueKind.String)
+        var hasDays = pattern.TryGetProperty("daysOfWeek", out var days) && days.ValueKind == JsonValueKind.Array &&
+            days.GetArrayLength() > 0 && days.EnumerateArray().All(day => day.ValueKind == JsonValueKind.String &&
+                !string.IsNullOrWhiteSpace(day.GetString()));
+        var validPattern = GetString(pattern, "type") switch
         {
-            return type.GetString();
-        }
-
-        return recurrence.GetRawText();
+            "daily" => true,
+            "weekly" => hasDays,
+            "absoluteMonthly" => HasNumber(pattern, "dayOfMonth", 1, 31),
+            "relativeMonthly" => hasDays,
+            "absoluteYearly" => HasNumber(pattern, "dayOfMonth", 1, 31) && HasNumber(pattern, "month", 1, 12),
+            "relativeYearly" => hasDays && HasNumber(pattern, "month", 1, 12),
+            _ => false,
+        };
+        return validPattern && GetString(range, "type") switch
+        {
+            "noEnd" => true,
+            "endDate" => HasDate(range, "endDate"),
+            "numbered" => HasNumber(range, "numberOfOccurrences", 1, int.MaxValue),
+            _ => false,
+        };
     }
+
+    private static bool HasNumber(JsonElement value, string name, int min, int max) =>
+        value.TryGetProperty(name, out var field) && field.ValueKind == JsonValueKind.Number &&
+        field.TryGetInt32(out var number) && number >= min && number <= max;
+
+    private static bool HasDate(JsonElement value, string name) =>
+        DateOnly.TryParseExact(GetString(value, name), "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out _);
 
     private HttpRequestMessage CreateRequest(HttpMethod method, string pathOrUrl)
     {

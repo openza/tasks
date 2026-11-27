@@ -649,9 +649,13 @@
                                     <StackPanel IsVisible="{Binding HasLocalTaskMetadata}" Spacing="8">
                                         <TextBlock FontSize="16" FontWeight="SemiBold" Text="Task information" />
                                         <Border Padding="14" Background="{DynamicResource OpenzaElevatedSurfaceBrush}" BorderBrush="{DynamicResource OpenzaBorderBrush}" BorderThickness="1" CornerRadius="7">
-                                            <Grid ColumnDefinitions="*,*" ColumnSpacing="20">
+                                            <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto" ColumnSpacing="20">
                                                 <StackPanel Spacing="3"><TextBlock Classes="field-label" Text="Created"/><TextBlock Text="{Binding LocalTaskCreated}" TextWrapping="Wrap"/></StackPanel>
                                                 <StackPanel Grid.Column="1" Spacing="3"><TextBlock Classes="field-label" Text="Updated"/><TextBlock Text="{Binding LocalTaskUpdated}" TextWrapping="Wrap"/></StackPanel>
+                                                <StackPanel Grid.Row="1" Grid.ColumnSpan="2" Margin="0,10,0,0" Spacing="3" IsVisible="{Binding HasLocalTaskRecurrence}">
+                                                    <TextBlock Classes="field-label" Text="Repeat rule"/>
+                                                    <TextBlock Text="{Binding LocalTaskRecurrence}" TextWrapping="Wrap"/>
+                                                </StackPanel>
                                             </Grid>
                                         </Border>
                                     </StackPanel>
