@@ -36,12 +36,13 @@ public sealed partial class DesktopControlBehaviorTests
         Assert.False(taskList.IsVisible);
         Assert.False(context.Vm.CalendarDay.IsTodayPanelOpen);
 
+        context.Window.UpdateLayout();
         var todayButton = Assert.Single(dayView.GetVisualDescendants().OfType<Button>(),
             button => Equals(button.Content, "Go to today"));
         Assert.Equal("Go to today", AutomationProperties.GetName(todayButton));
         Assert.Equal("Go to today", ToolTip.GetTip(todayButton));
 
-        var todayPanelButton = context.Window.FindControl<ToggleButton>("CalendarTodayPanelButton")!;
+        var todayPanelButton = context.Window.FindControl<Control>("CalendarTodayPanelButton")!;
         Assert.Equal("Today's tasks", AutomationProperties.GetName(todayPanelButton));
         Assert.Equal("Today's tasks", ToolTip.GetTip(todayPanelButton));
         todayPanelButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
