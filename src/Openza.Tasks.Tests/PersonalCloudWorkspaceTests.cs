@@ -348,7 +348,7 @@ public sealed class PersonalCloudWorkspaceTests : IDisposable
     }
 
     [Fact]
-    public async Task Connected_schedule_edit_queues_a_patch_of_only_the_changed_interval()
+    public async Task Connected_schedule_edit_queues_a_patch_of_the_interval_and_recalculated_duration()
     {
         var store = Store(); await store.InitializeAsync(); await store.SavePersonalCloudWorkspaceCapabilitiesAsync(Instance, true, true);
         await store.ApplyPersonalCloudChangePageAsync(Instance, Device, Page(1, [Space()], [Project()], [TaskRecord()]));
@@ -369,13 +369,14 @@ public sealed class PersonalCloudWorkspaceTests : IDisposable
         });
 
         Assert.Equal(start, updated.ScheduledStart); Assert.Equal(start.AddMinutes(90), updated.ScheduledEnd);
-        Assert.Equal(before.WorkflowStatus, updated.WorkflowStatus); Assert.Equal(before.DurationMinutes, updated.DurationMinutes);
+        Assert.Equal(before.WorkflowStatus, updated.WorkflowStatus); Assert.Equal(90, updated.DurationMinutes);
         var entry = Assert.Single(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device)); Assert.Equal("task.patch", entry.Operation);
         using var document = JsonDocument.Parse(entry.CanonicalJson);
         var fields = document.RootElement.GetProperty("payload").GetProperty("fields");
-        Assert.Equal(new[] { "scheduledEnd", "scheduledStart" }, fields.EnumerateObject().Select(field => field.Name).Order(StringComparer.Ordinal));
+        Assert.Equal(new[] { "durationMinutes", "scheduledEnd", "scheduledStart" }, fields.EnumerateObject().Select(field => field.Name).Order(StringComparer.Ordinal));
         Assert.Equal("2026-10-13T09:00:00.000Z", fields.GetProperty("scheduledStart").GetString());
         Assert.Equal("2026-10-13T10:30:00.000Z", fields.GetProperty("scheduledEnd").GetString());
+        Assert.Equal(90, fields.GetProperty("durationMinutes").GetInt32());
     }
 
     [Fact]

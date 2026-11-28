@@ -23,18 +23,18 @@ public sealed class BackupService(
     public Task<string> CreateBackupAsync(CancellationToken cancellationToken = default) =>
         CreateBackupAsync(BackupReasons.Manual, cancellationToken);
 
-    public async Task<string> CreateBackupAsync(string reason, CancellationToken cancellationToken = default)
+    public async Task<string> CreateBackupAsync(string reason, CancellationToken cancellationToken = default, string? note = null)
     {
-        return await CreateBackupAsync(reason, pruneAfterCreate: true, cancellationToken).ConfigureAwait(false);
+        return await CreateBackupAsync(reason, pruneAfterCreate: true, cancellationToken, note).ConfigureAwait(false);
     }
 
-    private async Task<string> CreateBackupAsync(string reason, bool pruneAfterCreate, CancellationToken cancellationToken)
+    private async Task<string> CreateBackupAsync(string reason, bool pruneAfterCreate, CancellationToken cancellationToken, string? note = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         EnsureBackupStoragePermissions();
         var backupPath = CreateUniqueBackupPath(BackupDirectory);
         await CopyDatabaseOnlineAsync(DatabasePath, backupPath, overwrite: false, cancellationToken).ConfigureAwait(false);
-        await WriteMetadataAsync(backupPath, reason, DateTimeOffset.Now, cancellationToken).ConfigureAwait(false);
+        await WriteMetadataAsync(backupPath, reason, DateTimeOffset.Now, cancellationToken, note).ConfigureAwait(false);
         if (pruneAfterCreate)
         {
             PruneOldBackups();
@@ -44,8 +44,14 @@ public sealed class BackupService(
     }
 
     public IReadOnlyList<string> ListBackups()
+        => ListBackups(ensureStoragePermissions: true);
+
+    private IReadOnlyList<string> ListBackups(bool ensureStoragePermissions)
     {
-        EnsureBackupStoragePermissions();
+        if (ensureStoragePermissions)
+        {
+            EnsureBackupStoragePermissions();
+        }
         if (!Directory.Exists(BackupDirectory))
         {
             return [];
@@ -56,9 +62,11 @@ public sealed class BackupService(
             .ToList();
     }
 
-    public IReadOnlyList<BackupInfo> ListBackupInfo()
+    public IReadOnlyList<BackupInfo> ListBackupInfo() => ListBackupInfo(ensureStoragePermissions: true);
+
+    public IReadOnlyList<BackupInfo> ListBackupInfo(bool ensureStoragePermissions)
     {
-        return ListBackups()
+        return ListBackups(ensureStoragePermissions)
             .Select(ReadBackupInfo)
             .OrderByDescending(info => info.CreatedAt)
             .ToList();
@@ -259,6 +267,7 @@ public sealed class BackupService(
             CreatedAt = metadata?.CreatedAt.LocalDateTime ?? file.LastWriteTime,
             SizeBytes = file.Length,
             Reason = metadata?.Reason ?? BackupReasons.Unknown,
+            Note = metadata?.Note,
             TaskCount = metadata?.TaskCount,
             ProjectCount = metadata?.ProjectCount,
             SpaceCount = metadata?.SpaceCount,
@@ -269,7 +278,7 @@ public sealed class BackupService(
         };
     }
 
-    private async Task WriteMetadataAsync(string backupPath, string reason, DateTimeOffset createdAt, CancellationToken cancellationToken)
+    private async Task WriteMetadataAsync(string backupPath, string reason, DateTimeOffset createdAt, CancellationToken cancellationToken, string? note = null)
     {
         var snapshot = await InspectDatabaseAsync(backupPath, cancellationToken).ConfigureAwait(false);
         var metadata = new BackupMetadata
@@ -277,6 +286,7 @@ public sealed class BackupService(
             BackupPath = backupPath,
             CreatedAt = createdAt,
             Reason = string.IsNullOrWhiteSpace(reason) ? BackupReasons.Manual : reason,
+            Note = string.IsNullOrWhiteSpace(note) ? null : note.Trim(),
             AppIdentity = Context.AppIdentity,
             AppFlavor = Context.AppFlavor,
             AppVersion = Context.AppVersion,
@@ -630,6 +640,7 @@ public sealed class BackupMetadata
     public string BackupPath { get; set; } = string.Empty;
     public DateTimeOffset CreatedAt { get; set; }
     public string Reason { get; set; } = BackupReasons.Unknown;
+    public string? Note { get; set; }
     public string AppIdentity { get; set; } = string.Empty;
     public string AppFlavor { get; set; } = string.Empty;
     public string AppVersion { get; set; } = string.Empty;
@@ -648,6 +659,7 @@ public sealed class BackupInfo
     public DateTime CreatedAt { get; set; }
     public long SizeBytes { get; set; }
     public string Reason { get; set; } = BackupReasons.Unknown;
+    public string? Note { get; set; }
     public int? TaskCount { get; set; }
     public int? ProjectCount { get; set; }
     public int? SpaceCount { get; set; }

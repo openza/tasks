@@ -40,6 +40,7 @@ public interface ITaskStore
     Task MoveTaskToSpaceAsync(string taskId, string targetSpaceId, CancellationToken cancellationToken = default);
     Task UpsertProjectAsync(ProjectItem project, CancellationToken cancellationToken = default);
     Task UpsertLabelAsync(LabelItem label, CancellationToken cancellationToken = default);
+    Task DeleteLabelAsync(string labelId, CancellationToken cancellationToken = default);
     Task SetTaskLabelsAsync(string taskId, IReadOnlyList<LabelItem> labels, CancellationToken cancellationToken = default);
     Task DeleteTaskAsync(string taskId, CancellationToken cancellationToken = default);
     Task<bool> TryDeleteTaskAsync(string taskId, long expectedRevision, CancellationToken cancellationToken = default);

@@ -114,14 +114,17 @@ public sealed class TaskApplicationServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task Schedule_edits_set_and_clear_only_the_interval_and_omitted_fields_keep_it()
+    public async Task Schedule_edits_recalculate_duration_and_keep_planned_date_unchanged()
     {
         var (_, service) = await CreateAsync();
+        var initialStart = new DateTimeOffset(2030, 1, 17, 8, 0, 0, TimeSpan.Zero);
         var created = await service.CreateTaskAsync(new CreateTaskRequest
         {
             Title = "Write draft",
             Status = TaskWorkflowStatus.Next,
             PlannedOn = new DateOnly(2030, 1, 17),
+            ScheduledStart = initialStart,
+            DurationMinutes = 30,
         });
         var start = new DateTimeOffset(2030, 1, 17, 9, 0, 0, TimeSpan.FromHours(5.5));
 
@@ -135,7 +138,7 @@ public sealed class TaskApplicationServiceTests : IDisposable
         Assert.Equal(start.AddHours(1), scheduled.ScheduledEnd);
         Assert.Equal(TaskWorkflowStatus.Next, scheduled.WorkflowStatus);
         Assert.Equal(created.PlannedOn, scheduled.PlannedOn);
-        Assert.Equal(created.DurationMinutes, scheduled.DurationMinutes);
+        Assert.Equal(60, scheduled.DurationMinutes);
 
         var renamed = await service.UpdateTaskAsync(new UpdateTaskRequest
         {
@@ -144,6 +147,7 @@ public sealed class TaskApplicationServiceTests : IDisposable
         });
         Assert.Equal(start, renamed.ScheduledStart);
         Assert.Equal(start.AddHours(1), renamed.ScheduledEnd);
+        Assert.Equal(60, renamed.DurationMinutes);
 
         var cleared = await service.UpdateTaskAsync(new UpdateTaskRequest
         {
@@ -153,6 +157,7 @@ public sealed class TaskApplicationServiceTests : IDisposable
         });
         Assert.Null(cleared.ScheduledStart);
         Assert.Null(cleared.ScheduledEnd);
+        Assert.Null(cleared.DurationMinutes);
         Assert.Equal(TaskWorkflowStatus.Next, cleared.WorkflowStatus);
         Assert.Equal(created.PlannedOn, cleared.PlannedOn);
     }

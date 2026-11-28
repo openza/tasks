@@ -7,7 +7,11 @@ The CLI is a first-party interface to the same local task data used by Openza Ta
 ./dev-cli.sh task list --format json
 ./dev-cli.sh task add "Prepare release notes" --priority high --label release
 ./dev-cli.sh task update TASK_ID --status next --date 2026-08-16
+./dev-cli.sh task add "Write draft" --parent TASK_ID --start 2026-08-16T09:00:00-07:00 --duration 60
+./dev-cli.sh task update TASK_ID --clear-parent --clear-schedule
 ./dev-cli.sh task complete TASK_ID
+./dev-cli.sh project create "Release" --space SPACE_ID --color '#6B8AFD'
+./dev-cli.sh restore-point create --note "Before bulk edit"
 ```
 
 Commands:
@@ -16,9 +20,10 @@ Commands:
 openza status
 openza search <query>
 openza task list|show|add|update|complete|reopen|delete
-openza space list
-openza project list
-openza label list
+openza space list|create|rename|archive
+openza project list|create|rename|update|delete
+openza label list|create|rename|delete
+openza restore-point create|list|restore
 openza sync status --provider todoist --direction push --scope pending
 openza sync run --provider todoist --direction push --scope pending --yes
 openza cloud-budget status
@@ -51,7 +56,7 @@ return one object in `data`; list and search commands return arrays. With
 `--format json`, failures use the same versioned envelope on stderr with an
 `error` object containing `code`, `message`, `exitCode`, and `details`.
 
-Exit codes are `0` success, `1` unexpected failure, `2` invalid arguments, `3` missing or ambiguous reference, `4` concurrent-edit conflict, `5` missing destructive confirmation, and `6` an operation restricted by the task's provider link. Task deletion requires `--yes` and accepts `--revision` for optimistic concurrency.
+Exit codes are `0` success, `1` unexpected failure, `2` invalid arguments, `3` missing or ambiguous reference, `4` concurrent-edit conflict, `5` missing destructive confirmation, and `6` an operation restricted by the task's provider link. Task update, complete, reopen, and delete accept `--revision` for optimistic concurrency; task deletion also requires `--yes`. Space, project, and label records have no revision field in the shared models, so their management commands do not accept `--revision`.
 
 ## Versioned TSV schemas
 
@@ -77,6 +82,12 @@ The stable v1 columns are:
 | `task add`, `task update`, `task complete`, `task reopen` | same as `task show` |
 | `task delete` | `deleted`, `id` |
 | `space list`, `project list`, `label list` | `id`, `name`, `detail` |
+| `space create`, `space rename`, `space archive` | `id`, `name`, `color`, `icon`, `sort_order`, `is_archived` |
+| `project create`, `project rename`, `project update` | `id`, `space_id`, `name`, `description`, `color`, `icon`, `status`, `is_archived`, `is_favorite` |
+| `project delete`, `label delete` | `deleted`, `id` |
+| `label create`, `label rename` | `id`, `name`, `color`, `description` |
+| `restore-point create`, `restore-point list` | `file_name`, `created_at`, `size_bytes`, `reason`, `note`, `task_count`, `project_count`, `space_count`, `integrity_status` |
+| `restore-point restore` | `restored`, `file_name` |
 | `sync status` | `provider`, `direction`, `scope`, `configured`, `active`, `credential_available`, `pending_completions`, `pending_reopens`, `pending_date_updates`, `total_pending`, `last_full_sync_at` |
 | `sync run` | `provider`, `direction`, `scope`, `planned`, `applied`, `remaining`, `success` |
 
@@ -103,6 +114,62 @@ must include `Z` or an explicit UTC offset. JSON task output adds nullable
 `reminderAt`; text task details add `reminder_at`. TSV v1 columns are unchanged.
 Reminders stay on this device and do not send notifications or sync through
 Personal Cloud.
+
+Subtasks can be created with `task add --parent TASK_ID`. When `--space` is
+omitted, the new subtask uses its parent's space; an explicit different space
+is rejected. `task update TASK_ID --parent PARENT_ID` moves a task beneath that
+parent, and `--clear-parent` returns it to the top level. Parent and child must
+be in the same space, and updates that would create a hierarchy cycle are
+rejected. Task lists contain top-level tasks by default; use `--include-subtasks`
+to include nested tasks. Move a task's subtasks before changing the space of a
+task that has children.
+
+Task JSON from `task list` and single-task commands add `parentId` (null for a
+top-level task) and `childCount` (the number of direct children). They also add
+nullable `scheduledStart`, `scheduledEnd`, and `durationMinutes` fields.
+Scheduled instants are ISO 8601 values with an explicit `Z` or UTC offset;
+duration is a positive whole number of minutes. `task add` and `task update`
+accept `--start` and `--duration`; duration requires a scheduled start, and the
+end is calculated from the start and duration. Updating only `--start` reuses
+an existing duration to recalculate the end. Calendar edits that submit both
+interval endpoints recalculate duration from that interval; schedule edits do
+not change the planned date. `task update --clear-schedule`
+clears the start, end, and duration. Text task details add `parent_id`,
+`child_count`, `scheduled_start`, `scheduled_end`, and `duration_minutes`.
+These JSON fields are additive to schema version 2; TSV v1 task columns above
+remain unchanged.
+
+Spaces, projects, and labels can be managed from the CLI as well as listed.
+`space create NAME` accepts optional `--color` and `--icon`; `space rename ID
+NAME` renames a space, and `space archive ID --yes` archives one. The final
+active space cannot be archived. Space create/rename/archive results contain
+`id`, `name`, `color`, `icon`, `sortOrder`, and `isArchived` in JSON.
+
+`project create NAME --space SPACE_ID_OR_UNIQUE_NAME` creates a local project;
+`--description`, `--color`, and `--icon` are optional. `project rename ID NAME`
+renames one. `project update ID` accepts `--name`, `--description`,
+`--clear-description`, `--color`, `--icon`, `--clear-icon`, `--status
+active|completed|archived`, `--favorite`, and `--unfavorite`; specify at least
+one field. `project delete ID --yes` deletes a local project and moves its
+tasks to Inbox. Create/rename/update results contain `id`, `spaceId`, `name`,
+`description`, `color`, `icon`, `status`, `isArchived`, and `isFavorite`.
+
+`label create NAME` accepts optional `--color` and `--description`; a
+case-insensitive existing name is returned unchanged. `label rename ID NAME`
+renames a local label. `label delete ID --yes` deletes a local label and removes
+it from its tasks. Create/rename results contain `id`, `name`, `color`, and
+`description`. Delete results for projects and labels contain `deleted` and
+`id`. All delete subcommands and `space archive` require `--yes`; without it
+they exit 5 and make no requested change.
+
+Restore points are local database snapshots in the current channel's restore
+directory. `restore-point create [--note TEXT]` saves one; `restore-point list`
+lists snapshots newest first; `restore-point restore FILE_NAME --yes` restores
+the exact filename returned by the list. Restore creates a pre-restore safety
+point automatically. Create/list JSON entries contain `fileName`, `createdAt`,
+`sizeBytes`, `reason`, `note`, `taskCount`, `projectCount`, `spaceCount`, and
+`integrityStatus`; restore returns `restored` and `fileName`. Listing is
+read-only. Creating a restore point and restoring one do not contact a provider.
 
 Task JSON from both `task list` and single-task commands includes
 `isRecurring` and `recurrenceRule`. `isRecurring` is `true` exactly when the
