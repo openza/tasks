@@ -10,7 +10,7 @@ namespace Openza.Tasks.Core.Data;
 
 public sealed partial class SqliteTaskStore(string databasePath, bool readOnly = false, TimeProvider? timeProvider = null) : ITaskStore
 {
-    public const int CurrentSchemaVersion = 15;
+    public const int CurrentSchemaVersion = 14;
     public const int MinimumReadOnlySchemaVersion = 5;
 
     private sealed record ParentTaskContext(string Id, string SpaceId, string? ProjectId, TaskWorkflowStatus WorkflowStatus);
@@ -1141,43 +1141,6 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
         }
 
         return entries;
-    }
-
-    public Task MarkPersonalCloudOutboxInFlightAsync(
-        string instanceId,
-        string deviceId,
-        IReadOnlyCollection<string> mutationIds,
-        CancellationToken cancellationToken = default) =>
-        SetPersonalCloudOutboxInFlightAsync(instanceId, deviceId, mutationIds, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), cancellationToken);
-
-    public Task ClearPersonalCloudOutboxInFlightAsync(
-        string instanceId,
-        string deviceId,
-        IReadOnlyCollection<string> mutationIds,
-        CancellationToken cancellationToken = default) =>
-        SetPersonalCloudOutboxInFlightAsync(instanceId, deviceId, mutationIds, null, cancellationToken);
-
-    private async Task SetPersonalCloudOutboxInFlightAsync(
-        string instanceId,
-        string deviceId,
-        IReadOnlyCollection<string> mutationIds,
-        long? dispatchedAt,
-        CancellationToken cancellationToken)
-    {
-        if (mutationIds.Count == 0) return;
-        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
-        await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-        foreach (var mutationId in mutationIds)
-        {
-            var command = connection.CreateCommand();
-            command.CommandText = "UPDATE personal_cloud_outbox SET dispatched_at=@at WHERE instance_id=@i AND device_id=@d AND mutation_id=@m AND acknowledged_at IS NULL";
-            command.Parameters.AddWithValue("@at", (object?)dispatchedAt ?? DBNull.Value);
-            command.Parameters.AddWithValue("@i", instanceId);
-            command.Parameters.AddWithValue("@d", deviceId);
-            command.Parameters.AddWithValue("@m", mutationId);
-            await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-        }
-        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<PersonalCloudK1OutboxEntry> EnqueueExistingTaskForPersonalCloudAsync(
@@ -4932,13 +4895,6 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
             using var reader = new StreamReader(source);
             await ExecuteNonQueryAsync(connection, await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
         }
-        if (!(await GetColumnNamesAsync(connection, "personal_cloud_outbox", cancellationToken).ConfigureAwait(false)).Contains("dispatched_at"))
-        {
-            using var source = typeof(SqliteTaskStore).Assembly.GetManifestResourceStream("Openza.Tasks.Core.Data.Migrations.0015_personal_cloud_outbox_dispatch.sql")
-                ?? throw new InvalidOperationException("The Personal Cloud dispatch migration script is missing.");
-            using var reader = new StreamReader(source);
-            await ExecuteNonQueryAsync(connection, await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
-        }
         await ExecutePragmaAsync(connection, $"PRAGMA user_version = {CurrentSchemaVersion}", cancellationToken).ConfigureAwait(false);
     }
 
@@ -6037,7 +5993,6 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
           canonical_json TEXT NOT NULL,
           canonical_hash TEXT NOT NULL CHECK (length(canonical_hash) = 64),
           created_at INTEGER NOT NULL,
-          dispatched_at INTEGER,
           acknowledged_at INTEGER,
           UNIQUE (instance_id, device_id, device_sequence)
         );

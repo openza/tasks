@@ -41,40 +41,6 @@ public sealed partial class PersonalCloudBatchSyncTests : IDisposable
     }
 
     [Fact]
-    public async Task Schema14_upgrade_adds_dispatch_marker_without_changing_pending_envelopes()
-    {
-        var (store, _, _) = await CreateAsync(0);
-        var original = await store.CreateTaskWithPersonalCloudIntentAsync(new TaskItem
-        {
-            Id = "migration_dispatch_marker_task", Title = "Pending migration", SpaceId = SpaceIds.Default,
-        }, Instance, Device);
-        await using (var connection = new SqliteConnection($"Data Source={store.DatabasePath}"))
-        {
-            await connection.OpenAsync();
-            var downgrade = connection.CreateCommand();
-            downgrade.CommandText = "ALTER TABLE personal_cloud_outbox DROP COLUMN dispatched_at; PRAGMA user_version=14;";
-            await downgrade.ExecuteNonQueryAsync();
-        }
-
-        var upgraded = new SqliteTaskStore(store.DatabasePath);
-        await upgraded.InitializeAsync();
-
-        Assert.Equal(original, Assert.Single(await upgraded.GetPendingPersonalCloudOutboxAsync(Instance, Device)));
-        await using var read = new SqliteConnection($"Data Source={store.DatabasePath};Mode=ReadOnly");
-        await read.OpenAsync();
-        var inFlight = read.CreateCommand();
-        inFlight.CommandText = "SELECT dispatched_at FROM personal_cloud_outbox WHERE mutation_id=@m";
-        inFlight.Parameters.AddWithValue("@m", original.MutationId);
-        Assert.NotEqual(DBNull.Value, await inFlight.ExecuteScalarAsync());
-        var columns = read.CreateCommand();
-        columns.CommandText = "PRAGMA table_info(personal_cloud_outbox)";
-        await using var reader = await columns.ExecuteReaderAsync();
-        var names = new List<string>();
-        while (await reader.ReadAsync()) names.Add(reader.GetString(1));
-        Assert.Contains("dispatched_at", names);
-    }
-
-    [Fact]
     public async Task Ordered_batches_acknowledge_exact_intents_and_keep_the_existing_hundred_change_pass()
     {
         var (store, client, handler) = await CreateAsync(103);
@@ -150,25 +116,6 @@ public sealed partial class PersonalCloudBatchSyncTests : IDisposable
             Assert.Equal("invalid_request", (await client.SyncAsync()).BlockedCode);
         else
             await Assert.ThrowsAsync<PersonalCloudK0ContractException>(() => client.SyncAsync());
-        if (status == 500)
-        {
-            await using var connection = new SqliteConnection($"Data Source={store.DatabasePath};Mode=ReadOnly");
-            await connection.OpenAsync();
-            var marker = connection.CreateCommand();
-            marker.CommandText = "SELECT device_sequence,dispatched_at FROM personal_cloud_outbox WHERE instance_id=@i AND device_id=@d AND acknowledged_at IS NULL ORDER BY device_sequence";
-            marker.Parameters.AddWithValue("@i", Instance);
-            marker.Parameters.AddWithValue("@d", Device);
-            await using var reader = await marker.ExecuteReaderAsync();
-            var marked = new List<long>();
-            var unmarked = new List<long>();
-            while (await reader.ReadAsync())
-            {
-                if (reader.IsDBNull(1)) unmarked.Add(reader.GetInt64(0));
-                else marked.Add(reader.GetInt64(0));
-            }
-            Assert.Equal(original.Take(2).Select(item => item.DeviceSequence), marked);
-            Assert.Equal(original.Skip(2).Select(item => item.DeviceSequence), unmarked);
-        }
         Assert.Equal(0, handler.SinglePosts);
         Assert.Equal(original, await store.GetPendingPersonalCloudOutboxAsync(Instance, Device));
         handler.RouteStatus = null;
