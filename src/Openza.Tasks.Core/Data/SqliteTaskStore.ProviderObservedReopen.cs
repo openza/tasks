@@ -110,14 +110,27 @@ public sealed partial class SqliteTaskStore
                       AND NOT EXISTS(SELECT 1 FROM personal_cloud_outbox o
                         JOIN personal_cloud_initial_sync seed ON seed.instance_id=o.instance_id AND seed.device_id=o.device_id
                         WHERE o.instance_id=c.instance_id AND o.entity_id=c.task_id AND o.operation='task.complete'
-                          AND o.acknowledged_at IS NOT NULL AND seed.seed_end_sequence IS NOT NULL
-                          AND o.device_sequence<=seed.seed_end_sequence
-                          AND o.server_change_seq=c.requested_seq)
+                          AND seed.seed_end_sequence IS NOT NULL AND o.device_sequence<=seed.seed_end_sequence
+                          AND COALESCE(o.server_change_seq,(SELECT applied.change_seq FROM personal_cloud_applied_changes applied
+                            WHERE applied.instance_id=o.instance_id AND applied.product='tasks'
+                              AND applied.mutation_id=o.mutation_id AND applied.entity_id=o.entity_id))=c.requested_seq)
                 OR EXISTS(
                     SELECT 1 FROM personal_cloud_provider_attempts a
                     JOIN personal_cloud_provider_commands c ON c.instance_id=a.instance_id AND c.task_id=a.task_id
                       AND c.requested_seq=a.requested_seq
                     WHERE a.task_id=@t AND c.command='complete' AND c.state='pending_desktop'
+                      AND a.state IN ('claiming','reserved','starting','dispatching','uncertain','outcome'))
+                OR EXISTS(SELECT 1 FROM personal_cloud_provider_commands c
+                    JOIN personal_cloud_provider_sources s ON s.instance_id=c.instance_id AND s.task_id=c.task_id
+                    WHERE c.task_id=@t AND c.command='reopen' AND c.state='pending_desktop'
+                      AND NOT EXISTS(SELECT 1 FROM personal_cloud_provider_attempts a
+                        WHERE a.instance_id=c.instance_id AND a.task_id=c.task_id
+                          AND a.requested_seq=c.requested_seq AND a.state='cancelled'))
+                OR EXISTS(
+                    SELECT 1 FROM personal_cloud_provider_attempts a
+                    JOIN personal_cloud_provider_commands c ON c.instance_id=a.instance_id AND c.task_id=a.task_id
+                      AND c.requested_seq=a.requested_seq
+                    WHERE a.task_id=@t AND c.command='reopen' AND c.state='pending_desktop'
                       AND a.state IN ('claiming','reserved','starting','dispatching','uncertain','outcome'))
                 OR EXISTS(
                     SELECT 1 FROM personal_cloud_outbox o
@@ -126,7 +139,10 @@ public sealed partial class SqliteTaskStore
                       AND NOT (o.operation='task.complete' AND EXISTS(
                         SELECT 1 FROM personal_cloud_initial_sync seed
                         JOIN personal_cloud_provider_commands seeded ON seeded.instance_id=o.instance_id
-                          AND seeded.task_id=o.entity_id AND seeded.command='complete' AND seeded.requested_seq=o.server_change_seq
+                          AND seeded.task_id=o.entity_id AND seeded.command='complete'
+                          AND seeded.requested_seq=COALESCE(o.server_change_seq,(SELECT applied.change_seq FROM personal_cloud_applied_changes applied
+                            WHERE applied.instance_id=o.instance_id AND applied.product='tasks'
+                              AND applied.mutation_id=o.mutation_id AND applied.entity_id=o.entity_id))
                         WHERE seed.instance_id=o.instance_id AND seed.device_id=o.device_id
                           AND seed.seed_end_sequence IS NOT NULL AND o.device_sequence<=seed.seed_end_sequence))
                       AND o.local_sequence=(SELECT MAX(latest.local_sequence) FROM personal_cloud_outbox latest

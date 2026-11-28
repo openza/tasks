@@ -926,6 +926,43 @@ public sealed class TaskSyncEngineTests : IDisposable
     }
 
     [Fact]
+    public async Task Sync_keeps_open_task_open_while_a_cloud_reopen_is_pending_without_local_intent()
+    {
+        var store = CreateStore();
+        await store.InitializeAsync();
+        var provider = new FakeProvider { Title = "Synthetic pending cloud reopen" };
+        var engine = new TaskSyncEngine(store);
+        Assert.True((await engine.SyncAsync(provider)).Success);
+        var source = Assert.Single(await store.GetProviderSourceItemsAsync(IntegrationIds.Todoist));
+        var task = await store.AdoptProviderSourceItemAsync(source.Id);
+        Assert.NotNull(task);
+        await store.UpsertTaskAsync(task! with { CompletionState = TaskCompletionState.Open, CompletedAt = null });
+
+        await using (var connection = new SqliteConnection($"Data Source={Path.Combine(_directory, "openza_tasks.db")}"))
+        {
+            await connection.OpenAsync();
+            await using var command = connection.CreateCommand();
+            command.CommandText = """
+                INSERT INTO personal_cloud_provider_sources(instance_id,task_id,source_json)
+                VALUES('cloud_instance',@task_id,'{}');
+                INSERT INTO personal_cloud_provider_commands(instance_id,task_id,requested_seq,command,state)
+                VALUES('cloud_instance',@task_id,901,'reopen','pending_desktop');
+                """;
+            command.Parameters.AddWithValue("@task_id", task!.Id);
+            await command.ExecuteNonQueryAsync();
+        }
+
+        provider.IncludeActiveTask = false;
+        provider.IncludeCompletedTask = true;
+        Assert.True((await engine.SyncAsync(provider)).Success);
+
+        var refreshed = (await store.GetTaskAsync(task!.Id))!;
+        Assert.Equal(TaskCompletionState.Open, refreshed.CompletionState);
+        Assert.Null(refreshed.CompletedAt);
+        Assert.Equal(0, await ScalarIntAsync("SELECT count(*) FROM personal_cloud_outbox WHERE entity_id=@task_id AND operation IN ('task.complete','task.reopen')", task.Id));
+    }
+
+    [Fact]
     public async Task Sync_reopens_personal_cloud_completed_recurring_task_when_provider_advances()
     {
         var store = CreateStore();

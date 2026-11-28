@@ -300,11 +300,48 @@ public sealed class PersonalCloudProviderObservedReopenSyncTests : IDisposable
         await using var connection = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={store.DatabasePath}");
         await connection.OpenAsync();
         await using var command = connection.CreateCommand();
-        command.CommandText = $"UPDATE personal_cloud_outbox SET server_change_seq=NULL WHERE entity_id='{taskId}' AND operation='task.complete'; UPDATE personal_cloud_provider_commands SET requested_seq=900,state='pending_desktop' WHERE task_id='{taskId}'; INSERT INTO personal_cloud_initial_sync(instance_id,device_id,seed_end_sequence,phase) VALUES('{Instance}','{Device}',2,'uploading');";
+        command.CommandText = """
+            UPDATE personal_cloud_outbox SET server_change_seq=NULL WHERE entity_id=@t AND operation='task.complete';
+            UPDATE personal_cloud_provider_commands SET requested_seq=900,state='pending_desktop' WHERE task_id=@t;
+            INSERT OR REPLACE INTO personal_cloud_initial_sync(instance_id,device_id,seed_end_sequence,phase) VALUES(@i,@d,2,'uploading');
+            INSERT INTO personal_cloud_applied_changes(instance_id,product,change_seq,mutation_id,entity_id,applied_at)
+              VALUES(@i,'tasks',900,'web_completion_after_seed',@t,1);
+            """;
+        command.Parameters.AddWithValue("@i", Instance);
+        command.Parameters.AddWithValue("@d", Device);
+        command.Parameters.AddWithValue("@t", taskId);
         await command.ExecuteNonQueryAsync();
 
         Assert.Equal(0, await store.ReconcileUndeliverableProviderCommandsAsync(Instance, Device));
         Assert.Equal(1, await CountAsync(store, "SELECT count(*) FROM personal_cloud_provider_commands WHERE task_id=@task_id AND state='pending_desktop'", taskId));
+    }
+
+    [Fact]
+    public async Task Legacy_seed_completion_uses_exact_applied_change_mapping_when_ack_sequence_is_missing()
+    {
+        var (store, _, _, taskId) = await CreateAsync();
+        await using var connection = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={store.DatabasePath}");
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE personal_cloud_outbox SET acknowledged_at=NULL,server_change_seq=NULL WHERE entity_id=@t AND operation='task.complete';
+            UPDATE personal_cloud_provider_commands SET requested_seq=900,state='pending_desktop' WHERE task_id=@t;
+            INSERT OR REPLACE INTO personal_cloud_initial_sync(instance_id,device_id,seed_end_sequence,phase) VALUES(@i,@d,2,'uploading');
+            DELETE FROM personal_cloud_applied_changes WHERE instance_id=@i AND product='tasks'
+              AND mutation_id=(SELECT mutation_id FROM personal_cloud_outbox WHERE entity_id=@t AND operation='task.complete');
+            INSERT INTO personal_cloud_applied_changes(instance_id,product,change_seq,mutation_id,entity_id,applied_at)
+              SELECT instance_id,'tasks',900,mutation_id,entity_id,1 FROM personal_cloud_outbox
+              WHERE entity_id=@t AND operation='task.complete';
+            """;
+        command.Parameters.AddWithValue("@i", Instance);
+        command.Parameters.AddWithValue("@d", Device);
+        command.Parameters.AddWithValue("@t", taskId);
+        await command.ExecuteNonQueryAsync();
+
+        Assert.Equal(1, await store.ReconcileUndeliverableProviderCommandsAsync(Instance, Device));
+        Assert.Empty(await store.GetPendingPersonalCloudProviderCommandsAsync(Instance));
+        Assert.Empty(await store.GetPersonalCloudProviderRequestStatusAsync(Instance));
+        Assert.Equal(1, await CountAsync(store, "SELECT count(*) FROM personal_cloud_provider_commands WHERE task_id=@task_id AND state='cancelled'", taskId));
     }
 
     [Fact]
@@ -367,6 +404,66 @@ public sealed class PersonalCloudProviderObservedReopenSyncTests : IDisposable
         using var mutation = JsonDocument.Parse(pending.CanonicalJson);
         Assert.Equal(2, mutation.RootElement.GetProperty("baseEntityVersion").GetInt64());
         Assert.False(await store.HasDeferredHistoricalCompletionImportsAsync(Instance));
+    }
+
+    [Fact]
+    public async Task Retiring_deferred_history_preserves_confirmed_remote_entity_version_and_queued_base()
+    {
+        var (store, _, _, _) = await CreateAsync();
+        const string entityId = "synthetic_confirmed_web_edit_after_history";
+        const string historyMutationId = "synthetic_deferred_history_remote_edit";
+        const string laterMutationId = "synthetic_later_parent_remote_edit";
+        var historicalJson = JsonSerializer.Serialize(new
+        {
+            operation = PersonalCloudK0Protocol.TaskHistoricalCompletionImportOperation,
+            entityId,
+            baseEntityVersion = 1,
+            deviceSequence = 100,
+        });
+        var laterJson = JsonSerializer.Serialize(new
+        {
+            operation = "task.setParent",
+            entityId,
+            baseEntityVersion = 2,
+            deviceSequence = 101,
+        });
+        await using (var connection = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={store.DatabasePath}"))
+        {
+            await connection.OpenAsync();
+            await using var command = connection.CreateCommand();
+            command.CommandText = """
+                INSERT INTO personal_cloud_outbox
+                    (mutation_id,product,instance_id,device_id,device_sequence,operation,entity_id,canonical_json,canonical_hash,created_at)
+                VALUES
+                    (@history_id,'tasks',@i,@d,100,@history_operation,@e,@history_json,@hash,1),
+                    (@later_id,'tasks',@i,@d,101,'task.setParent',@e,@later_json,@hash,2);
+                INSERT OR REPLACE INTO personal_cloud_initial_sync(instance_id,device_id,seed_end_sequence,phase)
+                    VALUES(@i,@d,101,'uploading');
+                UPDATE personal_cloud_device_state SET next_device_sequence=102 WHERE instance_id=@i AND device_id=@d;
+                INSERT INTO personal_cloud_entity_versions(instance_id,product,entity_id,entity_version,updated_at)
+                    VALUES(@i,'tasks',@e,3,3);
+                """;
+            command.Parameters.AddWithValue("@history_id", historyMutationId);
+            command.Parameters.AddWithValue("@later_id", laterMutationId);
+            command.Parameters.AddWithValue("@history_operation", PersonalCloudK0Protocol.TaskHistoricalCompletionImportOperation);
+            command.Parameters.AddWithValue("@history_json", historicalJson);
+            command.Parameters.AddWithValue("@later_json", laterJson);
+            command.Parameters.AddWithValue("@hash", new string('d', 64));
+            command.Parameters.AddWithValue("@i", Instance);
+            command.Parameters.AddWithValue("@d", Device);
+            command.Parameters.AddWithValue("@e", entityId);
+            await command.ExecuteNonQueryAsync();
+        }
+
+        await store.RetireDeferredPersonalCloudMutationAsync(Instance, Device, historyMutationId, "old-cloud");
+
+        Assert.Equal(3L, await ScalarLongAsync(store,
+            $"SELECT entity_version FROM personal_cloud_entity_versions WHERE instance_id='{Instance}' AND product='tasks' AND entity_id='{entityId}'"));
+        var later = Assert.Single(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device));
+        Assert.Equal(laterMutationId, later.MutationId);
+        using var envelope = JsonDocument.Parse(later.CanonicalJson);
+        Assert.Equal(100, envelope.RootElement.GetProperty("deviceSequence").GetInt64());
+        Assert.Equal(2, envelope.RootElement.GetProperty("baseEntityVersion").GetInt64());
     }
 
     [Fact]

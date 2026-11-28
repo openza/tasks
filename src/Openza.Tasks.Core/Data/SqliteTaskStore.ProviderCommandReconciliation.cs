@@ -23,8 +23,10 @@ public sealed partial class SqliteTaskStore
                 WHEN EXISTS(SELECT 1 FROM personal_cloud_outbox o
                   JOIN personal_cloud_initial_sync seed ON seed.instance_id=o.instance_id AND seed.device_id=o.device_id
                   WHERE o.instance_id=c.instance_id AND o.device_id=@d AND o.entity_id=c.task_id
-                    AND o.operation='task.complete' AND o.acknowledged_at IS NOT NULL
-                    AND o.server_change_seq=c.requested_seq
+                    AND o.operation='task.complete'
+                    AND COALESCE(o.server_change_seq,(SELECT applied.change_seq FROM personal_cloud_applied_changes applied
+                      WHERE applied.instance_id=o.instance_id AND applied.product='tasks'
+                        AND applied.mutation_id=o.mutation_id AND applied.entity_id=o.entity_id))=c.requested_seq
                     AND seed.seed_end_sequence IS NOT NULL AND o.device_sequence<=seed.seed_end_sequence) THEN 'initial_seed'
               END
             FROM personal_cloud_provider_commands c
@@ -42,8 +44,10 @@ public sealed partial class SqliteTaskStore
                 OR EXISTS(SELECT 1 FROM personal_cloud_outbox o
                   JOIN personal_cloud_initial_sync seed ON seed.instance_id=o.instance_id AND seed.device_id=o.device_id
                   WHERE o.instance_id=c.instance_id AND o.device_id=@d AND o.entity_id=c.task_id
-                    AND o.operation='task.complete' AND o.acknowledged_at IS NOT NULL
-                    AND o.server_change_seq=c.requested_seq
+                    AND o.operation='task.complete'
+                    AND COALESCE(o.server_change_seq,(SELECT applied.change_seq FROM personal_cloud_applied_changes applied
+                      WHERE applied.instance_id=o.instance_id AND applied.product='tasks'
+                        AND applied.mutation_id=o.mutation_id AND applied.entity_id=o.entity_id))=c.requested_seq
                     AND seed.seed_end_sequence IS NOT NULL AND o.device_sequence<=seed.seed_end_sequence)
               )
             ORDER BY c.requested_seq,c.task_id
@@ -113,6 +117,7 @@ public sealed partial class SqliteTaskStore
         string canonicalHash;
         long createdAt;
         long? skippedEntityVersion = null;
+        long? confirmedEntityVersion = null;
         await using (var reader = await read.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
         {
             if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
@@ -134,6 +139,12 @@ public sealed partial class SqliteTaskStore
             if (historical.RootElement.TryGetProperty("baseEntityVersion", out var baseVersion) &&
                 baseVersion.ValueKind == System.Text.Json.JsonValueKind.Number)
                 skippedEntityVersion = baseVersion.GetInt64();
+            var version = connection.CreateCommand();
+            version.CommandText = "SELECT entity_version FROM personal_cloud_entity_versions WHERE instance_id=@i AND product='tasks' AND entity_id=@e";
+            version.Parameters.AddWithValue("@i", instanceId);
+            version.Parameters.AddWithValue("@e", entityId);
+            var storedVersion = await version.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+            confirmedEntityVersion = storedVersion is null or DBNull ? null : Convert.ToInt64(storedVersion);
             var defer = connection.CreateCommand();
             defer.CommandText = """
                 INSERT OR IGNORE INTO personal_cloud_deferred_historical_completions
@@ -201,6 +212,7 @@ public sealed partial class SqliteTaskStore
                 ?? throw new InvalidOperationException("A queued Personal Cloud mutation has an invalid canonical envelope.");
             envelope["deviceSequence"] = nextSequence;
             if (skippedEntityVersion is { } skippedVersion &&
+                (confirmedEntityVersion is null || confirmedEntityVersion <= skippedVersion) &&
                 envelope["entityId"]?.GetValue<string>() == entityId &&
                 envelope["baseEntityVersion"] is JsonValue queuedBase &&
                 queuedBase.TryGetValue<long>(out var queuedVersion) && queuedVersion > skippedVersion)
@@ -216,16 +228,6 @@ public sealed partial class SqliteTaskStore
             update.Parameters.AddWithValue("@m", item.MutationId);
             if (await update.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
                 throw new InvalidOperationException("A later queued Personal Cloud mutation changed while resequencing.");
-        }
-
-        if (skippedEntityVersion is { } removedVersion)
-        {
-            var rebaseVersion = connection.CreateCommand();
-            rebaseVersion.CommandText = "UPDATE personal_cloud_entity_versions SET entity_version=entity_version-1 WHERE instance_id=@i AND product='tasks' AND entity_id=@e AND entity_version>@v";
-            rebaseVersion.Parameters.AddWithValue("@i", instanceId);
-            rebaseVersion.Parameters.AddWithValue("@e", entityId);
-            rebaseVersion.Parameters.AddWithValue("@v", removedVersion);
-            await rebaseVersion.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
 
         var advance = connection.CreateCommand();
