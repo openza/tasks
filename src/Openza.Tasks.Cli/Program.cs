@@ -70,6 +70,7 @@ internal static partial class OpenzaCli
         root.Subcommands.Add(BuildSpaceCommand(format));
         root.Subcommands.Add(BuildProjectCommand(format));
         root.Subcommands.Add(BuildLabelCommand(format));
+        root.Subcommands.Add(BuildRestorePointCommand(format));
         root.Subcommands.Add(BuildSyncCommand(format, dependencies));
         root.Subcommands.Add(BuildCloudBudgetCommand(format));
         return root;
@@ -353,7 +354,8 @@ internal static partial class OpenzaCli
             {
                 tasks = tasks.Where(task => string.IsNullOrWhiteSpace(task.ParentId)).ToList();
             }
-            WriteTaskList(context.Output, tasks);
+            var childCounts = await context.Service.GetTaskChildCountsAsync(cancellationToken);
+            WriteTaskList(context.Output, tasks, childCounts);
             return Success;
         }, cancellationToken));
         return command;
@@ -368,7 +370,7 @@ internal static partial class OpenzaCli
         {
             var task = await context.Service.GetTaskAsync(parseResult.GetValue(id)!, cancellationToken)
                 ?? throw new KeyNotFoundException($"Task '{parseResult.GetValue(id)}' was not found.");
-            WriteTaskDetails(context.Output, task);
+            await WriteTaskDetailsAsync(context, task, cancellationToken);
             return Success;
         }, cancellationToken));
         return command;
@@ -380,24 +382,29 @@ internal static partial class OpenzaCli
         var notes = new Option<string?>("--notes");
         var space = new Option<string?>("--space");
         var project = new Option<string?>("--project");
+        var parent = new Option<string?>("--parent") { Description = "Parent task ID; creates a subtask in the parent's space." };
         var status = CreateStatusOption(requiredDefault: "inbox");
         var priority = CreatePriorityOption(requiredDefault: "normal");
         var date = CreateDateOption("--date");
         var deadline = CreateDateOption("--deadline");
         var reminder = CreateReminderOption();
+        var scheduledStart = CreateScheduleStartOption();
+        var duration = CreateDurationOption();
         var labels = new Option<string[]>("--label") { AllowMultipleArgumentsPerToken = true, DefaultValueFactory = _ => [] };
         var command = new Command("add", "Create a local task.");
         command.Arguments.Add(title);
-        foreach (var option in new Option[] { notes, space, project, status, priority, date, deadline, reminder, labels }) command.Options.Add(option);
+        foreach (var option in new Option[] { notes, space, project, parent, status, priority, date, deadline, reminder, scheduledStart, duration, labels }) command.Options.Add(option);
         command.SetAction(async (parseResult, cancellationToken) => await ExecuteAsync(parseResult, format, async context =>
         {
             var created = await context.Service.CreateTaskAsync(new CreateTaskRequest
             {
                 Title = parseResult.GetValue(title)!, Notes = parseResult.GetValue(notes), Space = parseResult.GetValue(space), Project = parseResult.GetValue(project),
+                ParentId = parseResult.GetValue(parent),
                 Status = ParseStatus(parseResult.GetValue(status)), Priority = ParsePriority(parseResult.GetValue(priority)), PlannedOn = parseResult.GetValue(date),
                 ReminderAt = parseResult.GetValue(reminder), DeadlineOn = parseResult.GetValue(deadline), Labels = parseResult.GetValue(labels) ?? [],
+                ScheduledStart = parseResult.GetValue(scheduledStart), DurationMinutes = parseResult.GetValue(duration),
             }, cancellationToken);
-            WriteTaskDetails(context.Output, created);
+            await WriteTaskDetailsAsync(context, created, cancellationToken);
             return Success;
         }, cancellationToken));
         return command;
@@ -412,6 +419,8 @@ internal static partial class OpenzaCli
         var space = new Option<string?>("--space");
         var project = new Option<string?>("--project");
         var clearProject = new Option<bool>("--clear-project");
+        var parent = new Option<string?>("--parent") { Description = "Move the task under this parent task ID." };
+        var clearParent = new Option<bool>("--clear-parent") { Description = "Move the task back to the top level." };
         var status = CreateStatusOption();
         var priority = CreatePriorityOption();
         var date = CreateDateOption("--date");
@@ -420,29 +429,37 @@ internal static partial class OpenzaCli
         var reminder = CreateReminderOption();
         var clearDeadline = new Option<bool>("--clear-deadline");
         var clearReminder = new Option<bool>("--clear-reminder");
+        var scheduledStart = CreateScheduleStartOption();
+        var duration = CreateDurationOption();
+        var clearSchedule = new Option<bool>("--clear-schedule") { Description = "Clear the scheduled start and duration." };
         var labels = new Option<string[]>("--label") { AllowMultipleArgumentsPerToken = true };
         var clearLabels = new Option<bool>("--clear-labels");
         var revision = new Option<long?>("--revision") { Description = "Expected task revision for conflict detection." };
-        var command = new Command("update", "Update specified fields on a task.");
+        var command = new Command("update", "Update task fields; moving spaces moves the task and its subtasks together.");
         command.Arguments.Add(id);
-        foreach (var option in new Option[] { title, notes, clearNotes, space, project, clearProject, status, priority, date, clearDate, deadline, clearDeadline, reminder, clearReminder, labels, clearLabels, revision }) command.Options.Add(option);
+        foreach (var option in new Option[] { title, notes, clearNotes, space, project, clearProject, parent, clearParent, status, priority, date, clearDate, deadline, clearDeadline, reminder, clearReminder, scheduledStart, duration, clearSchedule, labels, clearLabels, revision }) command.Options.Add(option);
         command.SetAction(async (parseResult, cancellationToken) => await ExecuteAsync(parseResult, format, async context =>
         {
             EnsureNotBoth(parseResult, project, clearProject); EnsureNotBoth(parseResult, notes, clearNotes); EnsureNotBoth(parseResult, date, clearDate);
             EnsureNotBoth(parseResult, reminder, clearReminder); EnsureNotBoth(parseResult, deadline, clearDeadline); EnsureNotBoth(parseResult, labels, clearLabels);
+            EnsureNotBoth(parseResult, parent, clearParent); EnsureNotBoth(parseResult, scheduledStart, clearSchedule); EnsureNotBoth(parseResult, duration, clearSchedule);
             var updated = await context.Service.UpdateTaskAsync(new UpdateTaskRequest
             {
                 TaskId = parseResult.GetValue(id)!, ExpectedRevision = parseResult.GetValue(revision),
                 Title = FromOption(parseResult, title), Notes = FromOptionOrClear(parseResult, notes, clearNotes), Space = FromOption(parseResult, space),
                 Project = FromOptionOrClear(parseResult, project, clearProject),
+                ParentId = FromOptionOrClear(parseResult, parent, clearParent),
                 Status = parseResult.GetResult(status) is null ? default : OptionalValue<TaskWorkflowStatus>.Set(ParseStatus(parseResult.GetValue(status))),
                 Priority = parseResult.GetResult(priority) is null ? default : OptionalValue<int>.Set(ParsePriority(parseResult.GetValue(priority))),
                 ReminderAt = FromOptionOrClear(parseResult, reminder, clearReminder),
                 PlannedOn = FromOptionOrClear(parseResult, date, clearDate), DeadlineOn = FromOptionOrClear(parseResult, deadline, clearDeadline),
+                ScheduledStart = FromOptionOrClear(parseResult, scheduledStart, clearSchedule),
+                ScheduledEnd = parseResult.GetValue(clearSchedule) ? OptionalValue<DateTimeOffset?>.Set(null) : default,
+                DurationMinutes = FromOptionOrClear(parseResult, duration, clearSchedule),
                 Labels = parseResult.GetValue(clearLabels) ? OptionalValue<IReadOnlyList<string>>.Set([])
                     : parseResult.GetResult(labels) is null ? default : OptionalValue<IReadOnlyList<string>>.Set(parseResult.GetValue(labels) ?? []),
             }, cancellationToken);
-            WriteTaskDetails(context.Output, updated);
+            await WriteTaskDetailsAsync(context, updated, cancellationToken);
             return Success;
         }, cancellationToken));
         return command;
@@ -457,7 +474,7 @@ internal static partial class OpenzaCli
         command.SetAction(async (parseResult, cancellationToken) => await ExecuteAsync(parseResult, format, async context =>
         {
             var updated = await context.Service.SetCompletedAsync(parseResult.GetValue(id)!, completed, parseResult.GetValue(revision), cancellationToken);
-            WriteTaskDetails(context.Output, updated);
+            await WriteTaskDetailsAsync(context, updated, cancellationToken);
             return Success;
         }, cancellationToken));
         return command;
@@ -487,12 +504,9 @@ internal static partial class OpenzaCli
         return command;
     }
 
-    private static Command BuildSpaceCommand(Option<string> format) => BuildReferenceListCommand("space", "List active spaces.", format,
-        async (service, ct) => (await service.ListSpacesAsync(ct)).Select(x => new ReferenceRow(x.Id, x.Name, x.Color)).ToList());
-    private static Command BuildProjectCommand(Option<string> format) => BuildReferenceListCommand("project", "List active projects.", format,
-        async (service, ct) => (await service.ListProjectsAsync(cancellationToken: ct)).Select(x => new ReferenceRow(x.Id, x.Name, x.SpaceId)).ToList());
-    private static Command BuildLabelCommand(Option<string> format) => BuildReferenceListCommand("label", "List labels.", format,
-        async (service, ct) => (await service.ListLabelsAsync(ct)).Select(x => new ReferenceRow(x.Id, x.Name, x.Color)).ToList());
+    private static Command BuildSpaceCommand(Option<string> format) => BuildSpaceManagementCommand(format);
+    private static Command BuildProjectCommand(Option<string> format) => BuildProjectManagementCommand(format);
+    private static Command BuildLabelCommand(Option<string> format) => BuildLabelManagementCommand(format);
 
     private static Command BuildReferenceListCommand(string name, string description, Option<string> format, Func<TaskApplicationService, CancellationToken, Task<IReadOnlyList<ReferenceRow>>> load)
     {
@@ -511,24 +525,38 @@ internal static partial class OpenzaCli
         Option<string> format,
         Func<CliContext, Task<int>> action,
         CancellationToken cancellationToken,
-        bool? readOnlyOverride = null)
+        bool? readOnlyOverride = null,
+        bool databaseReplacement = false,
+        bool initializeStore = true)
     {
         var formatValue = parseResult.GetValue(format) ?? "text";
         try
         {
             var runtime = ResolveRuntime();
             var readOnly = readOnlyOverride ?? IsReadOnlyCommand(parseResult);
-            using var lease = ChannelRuntimeLease.AcquireShared(runtime);
-            using var databaseLease = ChannelRuntimeLease.AcquireDatabaseRead(runtime);
+            using var lease = databaseReplacement
+                ? ChannelRuntimeLease.AcquireExclusive(runtime)
+                : ChannelRuntimeLease.AcquireShared(runtime);
+            using var databaseLease = databaseReplacement
+                ? ChannelRuntimeLease.AcquireDatabaseReplacement(runtime)
+                : ChannelRuntimeLease.AcquireDatabaseRead(runtime);
             var store = new SqliteTaskStore(runtime.DatabasePath, readOnly);
             var connectionStore = new JsonPersonalCloudConnectionStore(
                 Path.Combine(runtime.DataDirectory, "personal-cloud-connection.json"));
             var service = new TaskApplicationService(store, connectionStore.Load);
-            await service.InitializeAsync(cancellationToken);
+            if (initializeStore)
+                await service.InitializeAsync(cancellationToken);
             return await action(new CliContext(runtime, store, service, new CliOutput(formatValue)));
         }
         catch (TaskConflictException exception) { WriteError(formatValue, Conflict, "conflict", exception.Message); return Conflict; }
         catch (ProviderLinkedTaskDeleteException exception) { WriteError(formatValue, OperationRestricted, "operation_restricted", exception.Message); return OperationRestricted; }
+        catch (OperationRestrictedException exception) { WriteError(formatValue, OperationRestricted, "operation_restricted", exception.Message); return OperationRestricted; }
+        catch (PersonalCloudK0ContractException exception) when (MapPersonalCloudContractExitCode(exception.Code) != UnexpectedError)
+        {
+            var exitCode = MapPersonalCloudContractExitCode(exception.Code);
+            WriteError(formatValue, exitCode, exception.Code, exception.Message);
+            return exitCode;
+        }
         catch (Exception exception) when (exception is KeyNotFoundException or ReferenceResolutionException)
         { WriteError(formatValue, NotFoundOrAmbiguous, "not_found_or_ambiguous", exception.Message); return NotFoundOrAmbiguous; }
         catch (ArgumentException exception) { WriteError(formatValue, InvalidArguments, "invalid_arguments", exception.Message); return InvalidArguments; }
@@ -542,22 +570,40 @@ internal static partial class OpenzaCli
         return OpenzaRuntimeContext.Create(channel, devOverride);
     }
 
-    private static void WriteTaskList(CliOutput output, IEnumerable<TaskItem> tasks)
+    internal static int MapPersonalCloudContractExitCode(string code) => code switch
+    {
+        "version_conflict" => Conflict,
+        "entity_not_found" or "parent_not_found" => NotFoundOrAmbiguous,
+        "pending_intents" or "identity_mismatch" or "pending_provider_writes" or "cloud_connected" or
+            "upgrade_required" or "bridge_upgrade_required" or "not_connected" => OperationRestricted,
+        "invalid_request" => InvalidArguments,
+        _ => UnexpectedError,
+    };
+
+    private static void WriteTaskList(CliOutput output, IEnumerable<TaskItem> tasks, IReadOnlyDictionary<string, int> childCounts)
     {
         var rows = tasks.Select(task => new TaskRow(task.Id, task.Title, task.SpaceId, task.ProjectId, task.WorkflowStatus.ToString().ToLowerInvariant(),
             task.IsCompleted, PriorityName(task.Priority), task.Priority, task.PlannedOn, task.DeadlineOn, task.Notes,
-            task.Labels.Select(label => label.Name).ToArray(), !string.IsNullOrWhiteSpace(task.RecurrenceRule), task.RecurrenceRule, task.Revision, task.ReminderAt)).ToList();
+            task.Labels.Select(label => label.Name).ToArray(), !string.IsNullOrWhiteSpace(task.RecurrenceRule), task.RecurrenceRule, task.Revision, task.ReminderAt,
+            task.ParentId, childCounts.GetValueOrDefault(task.Id), task.ScheduledStart, task.ScheduledEnd, task.DurationMinutes)).ToList();
         output.Write(rows,
             rows.Select(x => new[] { x.Id, x.Title, x.Status, x.Priority, x.PlannedOn?.ToString("yyyy-MM-dd") ?? "", x.Completed.ToString() }),
             ["id", "title", "status", "priority", "planned_on", "completed"],
             rows.Select(x => new[] { x.Id, x.Title, x.Status, x.Priority, x.PlannedOn?.ToString("yyyy-MM-dd") ?? "", x.Completed.ToString().ToLowerInvariant() }));
     }
 
-    private static void WriteTaskDetails(CliOutput output, TaskItem task)
+    private static async Task WriteTaskDetailsAsync(CliContext context, TaskItem task, CancellationToken cancellationToken)
+    {
+        var childCounts = await context.Service.GetTaskChildCountsAsync(cancellationToken);
+        WriteTaskDetails(context.Output, task, childCounts.GetValueOrDefault(task.Id));
+    }
+
+    private static void WriteTaskDetails(CliOutput output, TaskItem task, int childCount)
     {
         var row = new TaskRow(task.Id, task.Title, task.SpaceId, task.ProjectId, task.WorkflowStatus.ToString().ToLowerInvariant(),
             task.IsCompleted, PriorityName(task.Priority), task.Priority, task.PlannedOn, task.DeadlineOn, task.Notes,
-            task.Labels.Select(label => label.Name).ToArray(), !string.IsNullOrWhiteSpace(task.RecurrenceRule), task.RecurrenceRule, task.Revision, task.ReminderAt);
+            task.Labels.Select(label => label.Name).ToArray(), !string.IsNullOrWhiteSpace(task.RecurrenceRule), task.RecurrenceRule, task.Revision, task.ReminderAt,
+            task.ParentId, childCount, task.ScheduledStart, task.ScheduledEnd, task.DurationMinutes);
         var textValues = new[]
         {
             row.Id, row.Title, row.SpaceId, row.ProjectId ?? "", row.Status, row.Completed.ToString().ToLowerInvariant(), row.Priority,
@@ -569,7 +615,7 @@ internal static partial class OpenzaCli
         output.WriteTaskDetails(
             row,
             textValues,
-            tsvValues, task.ReminderAt);
+            tsvValues, task.ReminderAt, task.ParentId, childCount, task.ScheduledStart, task.ScheduledEnd, task.DurationMinutes);
     }
 
     private static OptionalValue<T> FromOption<T>(ParseResult result, Option<T> option) => result.GetResult(option) is null ? default : OptionalValue<T>.Set(result.GetValue(option));
@@ -607,6 +653,31 @@ internal static partial class OpenzaCli
             if (!DateTimeOffset.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.None, out _) ||
                 !System.Text.RegularExpressions.Regex.IsMatch(value, @"T.*(Z|[+-]\d{2}:\d{2})$", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
                 result.AddError("--reminder must be an ISO 8601 instant with Z or a UTC offset.");
+        });
+        return option;
+    }
+
+    private static Option<DateTimeOffset?> CreateScheduleStartOption()
+    {
+        var option = new Option<DateTimeOffset?>("--start") { Description = "Scheduled start instant in ISO 8601 with Z or UTC offset." };
+        option.Validators.Add(result =>
+        {
+            if (result.Tokens.Count == 0) return;
+            var value = result.Tokens[0].Value;
+            if (!DateTimeOffset.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.None, out _) ||
+                !System.Text.RegularExpressions.Regex.IsMatch(value, @"T.*(Z|[+-]\d{2}:\d{2})$", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                result.AddError("--start must be an ISO 8601 instant with Z or a UTC offset.");
+        });
+        return option;
+    }
+
+    private static Option<int?> CreateDurationOption()
+    {
+        var option = new Option<int?>("--duration") { Description = "Time-block duration in whole minutes; must be positive." };
+        option.Validators.Add(result =>
+        {
+            if (result.Tokens.Count > 0 && (!int.TryParse(result.Tokens[0].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value) || value <= 0))
+                result.AddError("--duration must be a positive whole number of minutes.");
         });
         return option;
     }
@@ -696,7 +767,13 @@ internal static partial class OpenzaCli
         string[] Labels,
         bool IsRecurring,
         string? RecurrenceRule,
-        long Revision, DateTimeOffset? ReminderAt);
+        long Revision,
+        DateTimeOffset? ReminderAt,
+        string? ParentId,
+        int ChildCount,
+        DateTimeOffset? ScheduledStart,
+        DateTimeOffset? ScheduledEnd,
+        int? DurationMinutes);
 }
 
 internal sealed record CliDependencies(
@@ -733,7 +810,16 @@ internal sealed class CliOutput(string format)
         foreach (var row in rows) Console.WriteLine(string.Join("  ", row));
     }
 
-    public void WriteTaskDetails<T>(T data, string[] textValues, string[] tsvValues, DateTimeOffset? reminderAt)
+    public void WriteTaskDetails<T>(
+        T data,
+        string[] textValues,
+        string[] tsvValues,
+        DateTimeOffset? reminderAt,
+        string? parentId,
+        int childCount,
+        DateTimeOffset? scheduledStart,
+        DateTimeOffset? scheduledEnd,
+        int? durationMinutes)
     {
         if (format == "json")
         {
@@ -750,6 +836,11 @@ internal sealed class CliOutput(string format)
             Console.WriteLine($"{TaskDetailColumns[index]}  {textValues[index]}");
         }
         Console.WriteLine($"reminder_at  {reminderAt?.ToString("O") ?? ""}");
+        Console.WriteLine($"parent_id  {parentId ?? ""}");
+        Console.WriteLine($"child_count  {childCount.ToString(CultureInfo.InvariantCulture)}");
+        Console.WriteLine($"scheduled_start  {scheduledStart?.ToString("O") ?? ""}");
+        Console.WriteLine($"scheduled_end  {scheduledEnd?.ToString("O") ?? ""}");
+        Console.WriteLine($"duration_minutes  {durationMinutes?.ToString(CultureInfo.InvariantCulture) ?? ""}");
     }
 
     public void WriteError(int exitCode, string code, string message)

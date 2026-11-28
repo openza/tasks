@@ -1,6 +1,7 @@
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Openza.Tasks.Application.Tasks;
 using Openza.Tasks.Core.Models;
 
 namespace Openza.Tasks.Desktop.Dialogs;
@@ -66,7 +67,7 @@ public sealed partial class ProjectEditorWindow : Window
             _ => ProjectLifecycleStates.Active,
         };
         var color = string.IsNullOrWhiteSpace(ColorBox.Text) ? "#808080" : ColorBox.Text.Trim();
-        if (!Avalonia.Media.Color.TryParse(color, out _))
+        if (!WorkspaceColorValidation.IsValid(color))
         {
             ColorError.IsVisible = true;
             ColorBox.Focus();

@@ -5,11 +5,12 @@ using Openza.Tasks.Core.Sync;
 
 namespace Openza.Tasks.Application.Tasks;
 
-public sealed class TaskApplicationService(
+public sealed partial class TaskApplicationService(
     ITaskStore store,
     Func<PersonalCloudConnectionProfile?>? personalCloudConnection = null)
 {
     public ITaskStore Store { get; } = store;
+    public bool IsPersonalCloudConnected => PersonalCloudTarget() is not null;
 
     public Task InitializeAsync(CancellationToken cancellationToken = default) => Store.InitializeAsync(cancellationToken);
 
@@ -43,8 +44,12 @@ public sealed class TaskApplicationService(
             throw new ArgumentException("A task title is required.", nameof(request));
         }
 
-        var space = await ResolveSpaceAsync(request.Space, cancellationToken).ConfigureAwait(false);
+        var parent = await ResolveParentTaskAsync(request.ParentId, cancellationToken).ConfigureAwait(false);
+        var space = await ResolveSpaceAsync(request.Space ?? parent?.SpaceId, cancellationToken).ConfigureAwait(false);
+        if (parent is not null && !string.Equals(parent.SpaceId, space.Id, StringComparison.Ordinal))
+            throw new ArgumentException("A subtask must use the same space as its parent.", nameof(request));
         var project = await ResolveProjectAsync(request.Project, space.Id, cancellationToken).ConfigureAwait(false);
+        var (scheduledStart, scheduledEnd, durationMinutes) = ResolveCreateSchedule(request);
         var now = DateTimeOffset.UtcNow;
         var task = new TaskItem
         {
@@ -54,6 +59,7 @@ public sealed class TaskApplicationService(
             Title = title,
             Notes = NullIfEmpty(request.Notes),
             ProjectId = project?.Id,
+            ParentId = parent?.Id,
             WorkflowStatus = request.Status,
             CompletionState = request.Completed ? TaskCompletionState.Completed : TaskCompletionState.Open,
             CompletedAt = request.Completed ? now : null,
@@ -61,6 +67,9 @@ public sealed class TaskApplicationService(
             PlannedOn = request.PlannedOn,
             DeadlineOn = request.DeadlineOn,
             ReminderAt = ReminderValues.Validate(request.ReminderAt),
+            ScheduledStart = scheduledStart,
+            ScheduledEnd = scheduledEnd,
+            DurationMinutes = durationMinutes,
             CreatedAt = now,
             UpdatedAt = now,
             Labels = await ResolveLabelsAsync(request.Labels, cancellationToken).ConfigureAwait(false),
@@ -77,6 +86,7 @@ public sealed class TaskApplicationService(
                 SpaceId = SpaceIds.Default,
                 ProjectId = null,
                 Notes = null,
+                ParentId = null,
                 WorkflowStatus = TaskWorkflowStatus.Inbox,
                 CompletionState = TaskCompletionState.Open,
                 CompletedAt = null,
@@ -93,6 +103,7 @@ public sealed class TaskApplicationService(
             var hasExtendedState = task.SpaceId != cloudBaseTask.SpaceId || task.ProjectId is not null || task.Notes is not null ||
                 task.WorkflowStatus != cloudBaseTask.WorkflowStatus || task.IsCompleted || task.Priority != cloudBaseTask.Priority ||
                 task.PlannedOn is not null || task.DeadlineOn is not null || task.Labels.Count > 0;
+            hasExtendedState |= task.ParentId is not null || task.ScheduledStart is not null || task.ScheduledEnd is not null || task.DurationMinutes is not null;
             if (hasExtendedState)
             {
                 return await UpdateTaskAsync(new UpdateTaskRequest
@@ -107,6 +118,9 @@ public sealed class TaskApplicationService(
                     Priority = task.Priority == cloudBaseTask.Priority ? default : OptionalValue<int>.Set(task.Priority),
                     PlannedOn = task.PlannedOn is null ? default : OptionalValue<DateOnly?>.Set(task.PlannedOn),
                     DeadlineOn = task.DeadlineOn is null ? default : OptionalValue<DateOnly?>.Set(task.DeadlineOn),
+                    ParentId = task.ParentId is null ? default : OptionalValue<string?>.Set(task.ParentId),
+                    ScheduledStart = task.ScheduledStart is null ? default : OptionalValue<DateTimeOffset?>.Set(task.ScheduledStart),
+                    DurationMinutes = task.DurationMinutes is null ? default : OptionalValue<int?>.Set(task.DurationMinutes),
                     Labels = task.Labels.Count == 0 ? default : OptionalValue<IReadOnlyList<string>>.Set(task.Labels.Select(label => label.Name).ToArray()),
                 }, cancellationToken).ConfigureAwait(false);
             }
@@ -122,9 +136,13 @@ public sealed class TaskApplicationService(
     {
         using var connectionLease = AcquirePersonalCloudAuthoringLease();
         var original = await RequireTaskAsync(request.TaskId, cancellationToken).ConfigureAwait(false);
+        if (request.ParentId.IsSpecified && (original.IsProviderTask || original.HasProviderSource))
+            throw new OperationRestrictedException("Parent changes are not supported for provider-linked tasks; the provider may overwrite local parent changes on the next sync.");
         var target = HasCloudFieldEdits(request) ? PersonalCloudTarget() : null;
-        if ((request.ReminderAt.IsSpecified || request.ScheduledStart.IsSpecified || request.ScheduledEnd.IsSpecified) &&
-            target is not null && Store is SqliteTaskStore sqliteStore)
+        var needsTransaction = request.ParentId.IsSpecified ||
+            (target is not null && (request.ReminderAt.IsSpecified || request.ScheduledStart.IsSpecified ||
+             request.ScheduledEnd.IsSpecified || request.DurationMinutes.IsSpecified));
+        if (needsTransaction && Store is SqliteTaskStore sqliteStore)
         {
             return await sqliteStore.ExecuteInTransactionAsync(async () =>
             {
@@ -133,7 +151,7 @@ public sealed class TaskApplicationService(
                 if (current.Revision != original.Revision)
                     throw new TaskConflictException(original.Id);
                 return await UpdateTaskCoreAsync(request, original, target, cancellationToken).ConfigureAwait(false);
-            }, cancellationToken).ConfigureAwait(false);
+            }, cancellationToken, immediate: request.ParentId.IsSpecified).ConfigureAwait(false);
         }
         return await UpdateTaskCoreAsync(request, original, target, cancellationToken).ConfigureAwait(false);
     }
@@ -147,6 +165,9 @@ public sealed class TaskApplicationService(
             ? await ResolveSpaceAsync(request.Space.Value, cancellationToken).ConfigureAwait(false)
             : null;
         var targetSpaceId = targetSpace?.Id ?? original.SpaceId;
+        var targetParentId = request.ParentId.IsSpecified
+            ? await ResolveParentIdAsync(request.TaskId, request.ParentId.Value, targetSpaceId, cancellationToken).ConfigureAwait(false)
+            : targetSpaceId == original.SpaceId ? original.ParentId : null;
         ProjectItem? targetProject = null;
         string? targetProjectId;
         if (request.Project.IsSpecified)
@@ -173,7 +194,7 @@ public sealed class TaskApplicationService(
 
         var plannedOn = request.PlannedOn.IsSpecified ? request.PlannedOn.Value : original.PlannedOn;
         var deadlineOn = request.DeadlineOn.IsSpecified ? request.DeadlineOn.Value : original.DeadlineOn;
-        var (scheduledStart, scheduledEnd) = ResolveSchedule(request, original);
+        var (scheduledStart, scheduledEnd, durationMinutes) = ResolveSchedule(request, original);
         var notes = request.Notes.IsSpecified ? NullIfEmpty(request.Notes.Value) : original.Notes;
         var labels = request.Labels.IsSpecified
             ? await ResolveLabelsAsync(request.Labels.Value ?? [], cancellationToken).ConfigureAwait(false)
@@ -207,7 +228,7 @@ public sealed class TaskApplicationService(
             var entityVersion = await ResolvePersonalCloudEntityVersionAsync(
                 sqliteStore, target, original.Id, cancellationToken).ConfigureAwait(false);
             var changed = request.ReminderAt.IsSpecified;
-            var scheduleFields = ScheduleCloudFields(original, scheduledStart, scheduledEnd);
+            var scheduleFields = ScheduleCloudFields(original, scheduledStart, scheduledEnd, durationMinutes);
             if (scheduleFields.Count > 0)
             {
                 // The transaction already validated the caller's revision; our own reminder write or publish staging may have bumped it since.
@@ -240,6 +261,14 @@ public sealed class TaskApplicationService(
                     original.Id, targetSpace.Id, targetSpace.Name, treeVersions,
                     target.InstanceId, target.DeviceId, cancellationToken).ConfigureAwait(false);
                 entityVersion = checked(treeVersions[original.Id] + 1);
+                changed = true;
+            }
+            if (request.ParentId.IsSpecified && original.ParentId != targetParentId)
+            {
+                await sqliteStore.MutateTaskRelationshipWithPersonalCloudIntentAsync(
+                    original.Id, "task.setParent", targetParentId, null, entityVersion,
+                    target.InstanceId, target.DeviceId, cancellationToken).ConfigureAwait(false);
+                entityVersion = checked(entityVersion + 1);
                 changed = true;
             }
             if (targetProject is not null && !string.Equals(original.ProjectId, targetProject.Id, StringComparison.Ordinal))
@@ -360,7 +389,7 @@ public sealed class TaskApplicationService(
             Notes = notes,
             SpaceId = targetSpaceId,
             ProjectId = targetProjectId,
-            ParentId = targetSpaceId == original.SpaceId ? original.ParentId : null,
+            ParentId = targetParentId,
             WorkflowStatus = request.Status.IsSpecified ? request.Status.Value : original.WorkflowStatus,
             CompletionState = targetCompletionState,
             CompletedAt = completed ? original.CompletedAt ?? now : null,
@@ -372,6 +401,7 @@ public sealed class TaskApplicationService(
             ReminderAt = reminderAt,
             ScheduledStart = scheduledStart,
             ScheduledEnd = scheduledEnd,
+            DurationMinutes = durationMinutes,
             DeadlineOn = deadlineOn,
             DeadlineAt = request.DeadlineOn.IsSpecified
                 ? ProviderWriteBackPlanner.PreserveExactTime(deadlineOn, original.DeadlineOn, original.DeadlineAt)
@@ -384,7 +414,21 @@ public sealed class TaskApplicationService(
             ? null
             : ProviderWriteBackPlanner.CreateCompletion(original, completed, now);
         var pendingDate = ProviderWriteBackPlanner.CreateTodoistDateUpdate(original, updated, DateTimeOffset.UtcNow);
-        if (!await Store.TryUpsertTaskWithPendingUpdatesAsync(updated, expectedRevision, pendingCompletion, pendingDate, cancellationToken).ConfigureAwait(false))
+        bool updatedSuccessfully;
+        if (targetSpaceId != original.SpaceId && Store is SqliteTaskStore moveStore)
+        {
+            updatedSuccessfully = await moveStore.TryUpsertTaskWithPendingUpdatesAndMoveTaskTreeAsync(
+                updated, expectedRevision, pendingCompletion, pendingDate, cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            if (targetSpaceId != original.SpaceId &&
+                (await GetTaskChildCountsAsync(cancellationToken).ConfigureAwait(false)).GetValueOrDefault(original.Id) > 0)
+                throw new ArgumentException("This task store cannot atomically move a task with subtasks to another space.", nameof(request));
+            updatedSuccessfully = await Store.TryUpsertTaskWithPendingUpdatesAsync(
+                updated, expectedRevision, pendingCompletion, pendingDate, cancellationToken).ConfigureAwait(false);
+        }
+        if (!updatedSuccessfully)
         {
             throw new TaskConflictException(original.Id);
         }
@@ -496,31 +540,54 @@ public sealed class TaskApplicationService(
         request.Title.IsSpecified || request.Status.IsSpecified || request.Priority.IsSpecified ||
         request.PlannedOn.IsSpecified || request.Notes.IsSpecified || request.DeadlineOn.IsSpecified ||
         request.Completed.IsSpecified || request.Space.IsSpecified || request.Project.IsSpecified || request.Labels.IsSpecified ||
-        request.ScheduledStart.IsSpecified || request.ScheduledEnd.IsSpecified;
+        request.ScheduledStart.IsSpecified || request.ScheduledEnd.IsSpecified || request.DurationMinutes.IsSpecified ||
+        request.ParentId.IsSpecified;
 
-    private static (DateTimeOffset? Start, DateTimeOffset? End) ResolveSchedule(UpdateTaskRequest request, TaskItem original)
+    private static (DateTimeOffset? Start, DateTimeOffset? End, int? DurationMinutes) ResolveSchedule(UpdateTaskRequest request, TaskItem original)
     {
         var start = request.ScheduledStart.IsSpecified ? TruncateToMilliseconds(request.ScheduledStart.Value) : original.ScheduledStart;
         var end = request.ScheduledEnd.IsSpecified ? TruncateToMilliseconds(request.ScheduledEnd.Value) : original.ScheduledEnd;
-        if (!request.ScheduledStart.IsSpecified && !request.ScheduledEnd.IsSpecified)
-            return (start, end);
+        var duration = request.DurationMinutes.IsSpecified ? request.DurationMinutes.Value : original.DurationMinutes;
+        if (request.ScheduledEnd.IsSpecified && !request.DurationMinutes.IsSpecified)
+            duration = start is not null && end is not null
+                ? (int)Math.Clamp(Math.Round((end.Value - start.Value).TotalMinutes), 1, int.MaxValue)
+                : null;
+        if (duration is <= 0)
+            throw new ArgumentOutOfRangeException(nameof(request), "Duration must be greater than zero.");
+        if (request.DurationMinutes.IsSpecified && duration is not null)
+        {
+            if (start is null)
+                throw new ArgumentException("A duration requires a scheduled start.", nameof(request));
+            end = start.Value.AddMinutes(duration.Value);
+        }
+        else if (request.ScheduledStart.IsSpecified && !request.ScheduledEnd.IsSpecified && start is not null)
+        {
+            if (duration is null && original.ScheduledStart is { } originalStart &&
+                original.ScheduledEnd is { } originalEnd && originalEnd > originalStart)
+                duration = (int)Math.Clamp(Math.Round((originalEnd - originalStart).TotalMinutes), 1, int.MaxValue);
+            if (duration is > 0)
+                end = start.Value.AddMinutes(duration.Value);
+        }
+        if (!request.ScheduledStart.IsSpecified && !request.ScheduledEnd.IsSpecified && !request.DurationMinutes.IsSpecified)
+            return (start, end, duration);
         if (end is not null && start is null)
             throw new ArgumentException("A scheduled end requires a scheduled start.", nameof(request));
         if (start is not null && end is not null && end <= start)
             throw new ArgumentException("The scheduled end must be after the scheduled start.", nameof(request));
         if (!ReminderValues.IsInRange(start) || !ReminderValues.IsInRange(end))
             throw new ArgumentOutOfRangeException(nameof(request), "The scheduled time is out of range.");
-        return (start, end);
+        return (start, end, duration);
     }
 
     private static DateTimeOffset? TruncateToMilliseconds(DateTimeOffset? value) =>
         value is { } moment ? DateTimeOffset.FromUnixTimeMilliseconds(moment.ToUnixTimeMilliseconds()) : null;
 
-    private static Dictionary<string, object?> ScheduleCloudFields(TaskItem original, DateTimeOffset? start, DateTimeOffset? end)
+    private static Dictionary<string, object?> ScheduleCloudFields(TaskItem original, DateTimeOffset? start, DateTimeOffset? end, int? durationMinutes)
     {
         var fields = new Dictionary<string, object?>(StringComparer.Ordinal);
         if (original.ScheduledStart != start) fields["scheduledStart"] = CloudMoment(start);
         if (original.ScheduledEnd != end) fields["scheduledEnd"] = CloudMoment(end);
+        if (original.DurationMinutes != durationMinutes) fields["durationMinutes"] = durationMinutes;
         return fields;
     }
 

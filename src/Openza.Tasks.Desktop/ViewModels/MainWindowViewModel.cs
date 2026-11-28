@@ -176,7 +176,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
                     CurrentAppVersion),
                 databaseReplacementLeaseFactory: Path.GetFullPath(sqliteStore.DatabasePath) == Path.GetFullPath(DesktopDataPaths.DatabasePath)
                     ? () => Openza.Tasks.Application.Runtime.ChannelRuntimeLease.AcquireDatabaseReplacement(DesktopDataPaths.Runtime)
-                    : null)
+                    : null,
+                personalCloudConnected: () => _taskService.IsPersonalCloudConnected)
             : null));
     }
 
@@ -1078,22 +1079,15 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
         await RunBusyAsync(async () =>
         {
-            var spaces = await _store.GetSpacesAsync(includeArchived: true);
-            if (spaces.Any(space => string.Equals(space.Name, name, StringComparison.CurrentCultureIgnoreCase) && !space.IsArchived))
+            try
             {
-                StatusMessage = "A space with that name already exists.";
+                await _taskService.CreateSpaceAsync(name);
+            }
+            catch (ArgumentException exception)
+            {
+                StatusMessage = exception.Message;
                 return;
             }
-
-            await UpsertSpaceWithCloudAsync(new SpaceItem
-            {
-                Id = $"space_{Guid.NewGuid():N}",
-                Name = name,
-                Color = "#6B8AFD",
-                SortOrder = spaces.Count,
-                CreatedAt = DateTimeOffset.UtcNow,
-                UpdatedAt = DateTimeOffset.UtcNow,
-            });
             await ReloadSpacesAsync();
             StatusMessage = "Space created";
         });
@@ -1101,31 +1095,31 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     public async Task ArchiveSpaceAsync(SpaceNavigationItemViewModel item)
     {
-        if (item.Space is null)
+        var space = item.Space;
+        if (space is null)
         {
             return;
         }
+        var spaceId = space.Id;
 
         if (!await SaveSelectedAsync()) return;
 
         await RunBusyAsync(async () =>
         {
-            var activeSpaces = await _store.GetSpacesAsync();
-            if (activeSpaces.Count <= 1)
+            try
             {
-                StatusMessage = "The last active space cannot be archived.";
+                await _taskService.ArchiveSpaceAsync(spaceId);
+            }
+            catch (ArgumentException exception)
+            {
+                StatusMessage = exception.Message;
                 return;
             }
-
-            await UpsertSpaceWithCloudAsync(item.Space with
-            {
-                IsArchived = true,
-                UpdatedAt = DateTimeOffset.UtcNow,
-            });
-            var wasCurrent = _currentSpaceId == item.SpaceId;
+            var activeSpaces = await _store.GetSpacesAsync();
+            var wasCurrent = _currentSpaceId == spaceId;
             if (wasCurrent)
             {
-                _currentSpaceId = activeSpaces.First(space => space.Id != item.SpaceId).Id;
+                _currentSpaceId = activeSpaces.First(space => space.Id != spaceId).Id;
                 SelectedProject = null;
                 SelectedTask = null;
                 SelectedNavigation ??= NavigationItems.First(navigation => navigation.Kind == TaskListKind.Open);
@@ -1148,11 +1142,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
         await RunBusyAsync(async () =>
         {
-            await UpsertSpaceWithCloudAsync(item.Space with
-            {
-                Name = name.Trim(),
-                UpdatedAt = DateTimeOffset.UtcNow,
-            });
+            await _taskService.RenameSpaceAsync(item.Space.Id, name);
             await ReloadSpacesAsync();
             SelectedSpace = SpaceItems.FirstOrDefault(space => space.SpaceId == _currentSpaceId) ?? SpaceItems[0];
             StatusMessage = "Space renamed";
@@ -1995,20 +1985,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
             return;
         }
 
-        var project = new ProjectItem
-        {
-            Id = $"project_{Guid.NewGuid():N}",
-            SpaceId = _currentSpaceId,
-            IntegrationId = IntegrationIds.Local,
-            Name = name,
-            Color = "#6B8AFD",
-            CreatedAt = DateTimeOffset.UtcNow,
-            UpdatedAt = DateTimeOffset.UtcNow,
-        };
-
         await RunBusyAsync(async () =>
         {
-            await UpsertProjectWithCloudAsync(project);
+            var project = await _taskService.CreateProjectAsync(_currentSpaceId, name);
             NewProjectName = string.Empty;
             StatusMessage = "Project created";
             await RefreshAsyncCore();
@@ -2039,22 +2018,16 @@ public sealed partial class MainWindowViewModel : ObservableObject
             return await SaveSelectedAsync();
         }
 
-        var project = new ProjectItem
+        ProjectItem? project = null;
+        if (!await RunBusyAsync(async () =>
         {
-            Id = $"project_{Guid.NewGuid():N}",
-            SpaceId = SelectedTask.Task.SpaceId,
-            IntegrationId = IntegrationIds.Local,
-            Name = trimmedName,
-            Color = "#6B8AFD",
-            CreatedAt = DateTimeOffset.UtcNow,
-            UpdatedAt = DateTimeOffset.UtcNow,
-        };
-        if (!await RunBusyAsync(() => UpsertProjectWithCloudAsync(project)))
+            project = await _taskService.CreateProjectAsync(SelectedTask.Task.SpaceId, trimmedName);
+        }))
         {
             return false;
         }
 
-        var option = new ProjectOptionViewModel(project);
+        var option = new ProjectOptionViewModel(project!);
         ProjectOptions.Add(option);
         DetailProject = option;
         return await SaveSelectedAsync();
@@ -2075,22 +2048,16 @@ public sealed partial class MainWindowViewModel : ObservableObject
             return true;
         }
 
-        var project = new ProjectItem
+        ProjectItem? project = null;
+        if (!await RunBusyAsync(async () =>
         {
-            Id = $"project_{Guid.NewGuid():N}",
-            SpaceId = item.Task.SpaceId,
-            IntegrationId = IntegrationIds.Local,
-            Name = trimmedName,
-            Color = "#6B8AFD",
-            CreatedAt = DateTimeOffset.UtcNow,
-            UpdatedAt = DateTimeOffset.UtcNow,
-        };
-        if (!await RunBusyAsync(() => UpsertProjectWithCloudAsync(project)))
+            project = await _taskService.CreateProjectAsync(item.Task.SpaceId, trimmedName);
+        }))
         {
             return false;
         }
 
-        await SetTaskProjectFromRowAsync(item, project.Id);
+        await SetTaskProjectFromRowAsync(item, project!.Id);
         return true;
     }
 
@@ -2110,11 +2077,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         var project = SelectedProject.Project;
         await RunBusyAsync(async () =>
         {
-            await UpsertProjectWithCloudAsync(project with
-            {
-                Name = name.Trim(),
-                UpdatedAt = DateTimeOffset.UtcNow,
-            });
+            await _taskService.RenameProjectAsync(project.Id, name);
             PageTitle = name.Trim();
             StatusMessage = "Project renamed";
             await RefreshAsyncCore();
@@ -2141,14 +2104,13 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 .FirstOrDefault(item => item.Id == projectId);
             if (project is null || project.IntegrationId != IntegrationIds.Local) return;
             var isSelected = SelectedProject?.Project.Id == projectId;
-            await UpsertProjectWithCloudAsync(project with
+            await _taskService.UpdateProjectAsync(new UpdateProjectRequest
             {
-                Name = name.Trim(),
-                Status = status,
-                Color = color ?? project.Color,
-                IsArchived = status == ProjectLifecycleStates.Archived,
-                IsFavorite = isFavorite,
-                UpdatedAt = DateTimeOffset.UtcNow,
+                ProjectId = projectId,
+                Name = OptionalValue<string?>.Set(name.Trim()),
+                Status = OptionalValue<string?>.Set(status),
+                Color = color is null ? default : OptionalValue<string?>.Set(color),
+                IsFavorite = OptionalValue<bool>.Set(isFavorite),
             });
             if (isSelected) PageTitle = name.Trim();
             StatusMessage = "Project updated";
@@ -2175,10 +2137,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 .FirstOrDefault(item => item.Id == projectId);
             if (project is null || project.IntegrationId != IntegrationIds.Local) return;
             var isSelected = SelectedProject?.Project.Id == projectId;
-            if (_store is Openza.Tasks.Core.Data.SqliteTaskStore sqlite && _personalCloudSetup?.CurrentConnection is { } cloud &&
-                await sqlite.SupportsPersonalCloudWorkspaceAsync(cloud.InstanceId))
-                await sqlite.DeleteProjectWithPersonalCloudIntentAsync(projectId, cloud.InstanceId, cloud.DeviceId);
-            else await _store.DeleteProjectAsync(projectId, moveTasksToInbox: true);
+            await _taskService.DeleteProjectAsync(projectId);
             if (isSelected)
             {
                 SelectedProject = null;

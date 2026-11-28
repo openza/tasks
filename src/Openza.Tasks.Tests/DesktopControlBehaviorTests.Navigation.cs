@@ -115,6 +115,8 @@ public sealed partial class DesktopControlBehaviorTests
     public Task Calendar_block_schedule_updates_and_removal_preserve_task_status_and_dates() => Run(async context =>
     {
         var existing = (await context.Store.GetTaskAsync("task-0"))!;
+        var dayStart = DateTime.Today.AddHours(8);
+        var initialStart = new DateTimeOffset(dayStart, TimeZoneInfo.Local.GetUtcOffset(dayStart));
         var task = existing with
         {
             Id = "calendar-schedule-edit-task",
@@ -122,15 +124,16 @@ public sealed partial class DesktopControlBehaviorTests
             ProjectId = null,
             ParentId = null,
             PlannedOn = DateOnly.FromDateTime(DateTime.Today),
-            ScheduledStart = null,
-            ScheduledEnd = null,
+            ScheduledStart = initialStart,
+            ScheduledEnd = initialStart.AddMinutes(60),
+            DurationMinutes = 60,
             CompletionState = TaskCompletionState.Open,
             WorkflowStatus = TaskWorkflowStatus.Waiting,
         };
         await context.Store.UpsertTaskAsync(task);
         await context.Vm.SelectNavigationAsync(context.Vm.NavigationItems.Single(item => item.Kind == TaskListKind.Calendar));
         var item = Assert.Single(context.Vm.CalendarDay.BlockPickerTasks, candidate => candidate.Task.Id == task.Id);
-        var start = DateTimeOffset.Now.AddHours(2);
+        var start = initialStart.AddHours(2);
         var end = start.AddMinutes(75);
 
         await context.Vm.SetCalendarTaskScheduleAsync(item, start, end);
@@ -141,12 +144,22 @@ public sealed partial class DesktopControlBehaviorTests
         Assert.Equal(task.WorkflowStatus, scheduled.WorkflowStatus);
         Assert.Equal(task.CompletionState, scheduled.CompletionState);
         Assert.Equal(task.PlannedOn, scheduled.PlannedOn);
+        Assert.Equal(75, scheduled.DurationMinutes);
+
+        await context.Vm.SetCalendarTaskScheduleAsync(item, start.AddHours(1), null);
+
+        var startOnly = (await context.Store.GetTaskAsync(task.Id))!;
+        Assert.Equal(start.AddHours(1).ToUnixTimeMilliseconds(), startOnly.ScheduledStart!.Value.ToUnixTimeMilliseconds());
+        Assert.Null(startOnly.ScheduledEnd);
+        Assert.Null(startOnly.DurationMinutes);
+        Assert.Equal(task.PlannedOn, startOnly.PlannedOn);
 
         await context.Vm.SetCalendarTaskScheduleAsync(item, null, null);
 
         var removed = (await context.Store.GetTaskAsync(task.Id))!;
         Assert.Null(removed.ScheduledStart);
         Assert.Null(removed.ScheduledEnd);
+        Assert.Null(removed.DurationMinutes);
         Assert.Equal(task.WorkflowStatus, removed.WorkflowStatus);
         Assert.Equal(task.CompletionState, removed.CompletionState);
         Assert.Equal(task.PlannedOn, removed.PlannedOn);

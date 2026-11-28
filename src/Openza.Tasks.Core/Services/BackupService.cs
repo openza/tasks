@@ -2,6 +2,8 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
+using Openza.Tasks.Core.Data;
+using Openza.Tasks.Core.PersonalCloud;
 
 namespace Openza.Tasks.Core.Services;
 
@@ -10,31 +12,37 @@ public sealed class BackupService(
     string backupDirectory,
     BackupRetentionPolicy? retentionPolicy = null,
     BackupContext? context = null,
-    Func<IDisposable>? databaseReplacementLeaseFactory = null)
+    Func<IDisposable>? databaseReplacementLeaseFactory = null,
+    Func<bool>? personalCloudConnected = null)
 {
     private static readonly JsonSerializerOptions MetadataJsonOptions = new() { WriteIndented = true };
+
+    private sealed record PersonalCloudRestoreState(
+        HashSet<string> InstanceIds,
+        HashSet<(string InstanceId, string DeviceId)> Identities);
 
     public string DatabasePath { get; } = databasePath;
     public string BackupDirectory { get; } = backupDirectory;
     public BackupRetentionPolicy RetentionPolicy { get; } = retentionPolicy ?? BackupRetentionPolicy.Default;
     public BackupContext Context { get; } = context ?? BackupContext.Unknown;
     private Func<IDisposable>? DatabaseReplacementLeaseFactory { get; } = databaseReplacementLeaseFactory;
+    private Func<bool>? PersonalCloudConnected { get; } = personalCloudConnected;
 
     public Task<string> CreateBackupAsync(CancellationToken cancellationToken = default) =>
         CreateBackupAsync(BackupReasons.Manual, cancellationToken);
 
-    public async Task<string> CreateBackupAsync(string reason, CancellationToken cancellationToken = default)
+    public async Task<string> CreateBackupAsync(string reason, CancellationToken cancellationToken = default, string? note = null)
     {
-        return await CreateBackupAsync(reason, pruneAfterCreate: true, cancellationToken).ConfigureAwait(false);
+        return await CreateBackupAsync(reason, pruneAfterCreate: true, cancellationToken, note).ConfigureAwait(false);
     }
 
-    private async Task<string> CreateBackupAsync(string reason, bool pruneAfterCreate, CancellationToken cancellationToken)
+    private async Task<string> CreateBackupAsync(string reason, bool pruneAfterCreate, CancellationToken cancellationToken, string? note = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         EnsureBackupStoragePermissions();
         var backupPath = CreateUniqueBackupPath(BackupDirectory);
         await CopyDatabaseOnlineAsync(DatabasePath, backupPath, overwrite: false, cancellationToken).ConfigureAwait(false);
-        await WriteMetadataAsync(backupPath, reason, DateTimeOffset.Now, cancellationToken).ConfigureAwait(false);
+        await WriteMetadataAsync(backupPath, reason, DateTimeOffset.Now, cancellationToken, note).ConfigureAwait(false);
         if (pruneAfterCreate)
         {
             PruneOldBackups();
@@ -44,8 +52,14 @@ public sealed class BackupService(
     }
 
     public IReadOnlyList<string> ListBackups()
+        => ListBackups(ensureStoragePermissions: true);
+
+    private IReadOnlyList<string> ListBackups(bool ensureStoragePermissions)
     {
-        EnsureBackupStoragePermissions();
+        if (ensureStoragePermissions)
+        {
+            EnsureBackupStoragePermissions();
+        }
         if (!Directory.Exists(BackupDirectory))
         {
             return [];
@@ -56,9 +70,11 @@ public sealed class BackupService(
             .ToList();
     }
 
-    public IReadOnlyList<BackupInfo> ListBackupInfo()
+    public IReadOnlyList<BackupInfo> ListBackupInfo() => ListBackupInfo(ensureStoragePermissions: true);
+
+    public IReadOnlyList<BackupInfo> ListBackupInfo(bool ensureStoragePermissions)
     {
-        return ListBackups()
+        return ListBackups(ensureStoragePermissions)
             .Select(ReadBackupInfo)
             .OrderByDescending(info => info.CreatedAt)
             .ToList();
@@ -123,6 +139,15 @@ public sealed class BackupService(
             cancellationToken.ThrowIfCancellationRequested();
             if (TryValidateSqliteFile(backup.Path, out _))
             {
+                try
+                {
+                    await EnsurePersonalCloudRestoreIsSafeAsync(
+                        File.Exists(DatabasePath) ? DatabasePath : null, backup.Path, cancellationToken).ConfigureAwait(false);
+                }
+                catch (PersonalCloudK0ContractException)
+                {
+                    continue;
+                }
                 return backup;
             }
         }
@@ -212,6 +237,15 @@ public sealed class BackupService(
         using var replacementLease = DatabaseReplacementLeaseFactory?.Invoke();
         cancellationToken.ThrowIfCancellationRequested();
         ValidateSqliteFile(sourcePath);
+        if (PersonalCloudConnected?.Invoke() == true)
+            throw new PersonalCloudK0ContractException("cloud_connected",
+                "Restore is refused while Personal Cloud is connected because rollback isn't supported with the cloud on yet. Disconnect Personal Cloud before restoring.");
+        if (File.Exists(DatabasePath))
+            await RecoverLiveDatabaseBeforeRestoreAsync(cancellationToken).ConfigureAwait(false);
+        await EnsurePersonalCloudRestoreIsSafeAsync(
+            File.Exists(DatabasePath) ? DatabasePath : null,
+            sourcePath,
+            cancellationToken).ConfigureAwait(false);
         Directory.CreateDirectory(Path.GetDirectoryName(DatabasePath) ?? ".");
 
         string? safetyBackupPath = null;
@@ -226,13 +260,17 @@ public sealed class BackupService(
         try
         {
             File.Copy(sourcePath, restoreTempPath, overwrite: false);
+            SqliteConnection.ClearAllPools();
             File.Copy(restoreTempPath, DatabasePath, overwrite: true);
             PrivateFilePermissions.EnsureFile(DatabasePath);
+            if (safetyBackupPath is not null)
+                await PreservePersonalCloudSequenceStateAsync(safetyBackupPath, DatabasePath, cancellationToken).ConfigureAwait(false);
         }
         catch
         {
             if (!string.IsNullOrWhiteSpace(safetyBackupPath) && File.Exists(safetyBackupPath))
             {
+                SqliteConnection.ClearAllPools();
                 File.Copy(safetyBackupPath, DatabasePath, overwrite: true);
                 PrivateFilePermissions.EnsureFile(DatabasePath);
             }
@@ -248,6 +286,279 @@ public sealed class BackupService(
         }
     }
 
+    private static async Task PreservePersonalCloudSequenceStateAsync(
+        string currentDatabasePath,
+        string restoredDatabasePath,
+        CancellationToken cancellationToken)
+    {
+        var deviceSequences = new List<(string InstanceId, string DeviceId, long NextSequence)>();
+        var reportSequences = new List<(string InstanceId, string DeviceId, long ReportSequence)>();
+        await using (var current = new SqliteConnection(new SqliteConnectionStringBuilder
+        {
+            DataSource = currentDatabasePath,
+            Mode = SqliteOpenMode.ReadOnly,
+            Pooling = false,
+        }.ToString()))
+        {
+            await current.OpenAsync(cancellationToken).ConfigureAwait(false);
+            if (await HasTableAsync(current, "personal_cloud_device_state", cancellationToken).ConfigureAwait(false))
+            {
+                var read = current.CreateCommand();
+                read.CommandText = "SELECT instance_id,device_id,next_device_sequence FROM personal_cloud_device_state";
+                await using var reader = await read.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+                while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                    deviceSequences.Add((reader.GetString(0), reader.GetString(1), reader.GetInt64(2)));
+            }
+            if (await HasTableAsync(current, "personal_cloud_initial_sync", cancellationToken).ConfigureAwait(false))
+            {
+                var read = current.CreateCommand();
+                read.CommandText = "SELECT instance_id,device_id,report_sequence FROM personal_cloud_initial_sync";
+                await using var reader = await read.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+                while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                    reportSequences.Add((reader.GetString(0), reader.GetString(1), reader.GetInt64(2)));
+            }
+        }
+        if (deviceSequences.Count == 0 && reportSequences.Count == 0) return;
+
+        await using var restored = new SqliteConnection(new SqliteConnectionStringBuilder
+        {
+            DataSource = restoredDatabasePath,
+            Mode = SqliteOpenMode.ReadWrite,
+            Pooling = false,
+        }.ToString());
+        await restored.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = await restored.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        if (deviceSequences.Count > 0)
+        {
+            var create = restored.CreateCommand();
+            create.CommandText = """
+                CREATE TABLE IF NOT EXISTS personal_cloud_device_state (
+                    instance_id TEXT NOT NULL,
+                    device_id TEXT NOT NULL,
+                    next_device_sequence INTEGER NOT NULL CHECK (next_device_sequence > 0),
+                    PRIMARY KEY (instance_id, device_id)
+                )
+                """;
+            await create.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            foreach (var sequence in deviceSequences)
+            {
+                var upsert = restored.CreateCommand();
+                upsert.CommandText = """
+                    INSERT INTO personal_cloud_device_state(instance_id,device_id,next_device_sequence)
+                    VALUES(@i,@d,@q)
+                    ON CONFLICT(instance_id,device_id) DO UPDATE
+                    SET next_device_sequence=MAX(next_device_sequence,excluded.next_device_sequence)
+                    """;
+                upsert.Parameters.AddWithValue("@i", sequence.InstanceId);
+                upsert.Parameters.AddWithValue("@d", sequence.DeviceId);
+                upsert.Parameters.AddWithValue("@q", sequence.NextSequence);
+                await upsert.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            }
+        }
+        if (reportSequences.Count > 0)
+        {
+            var create = restored.CreateCommand();
+            create.CommandText = """
+                CREATE TABLE IF NOT EXISTS personal_cloud_initial_sync (
+                    instance_id TEXT NOT NULL,
+                    device_id TEXT NOT NULL,
+                    seed_end_sequence INTEGER,
+                    phase TEXT NOT NULL DEFAULT 'Preparing',
+                    error_code TEXT,
+                    report_sequence INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY (instance_id, device_id)
+                )
+                """;
+            await create.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            foreach (var sequence in reportSequences)
+            {
+                var upsert = restored.CreateCommand();
+                upsert.CommandText = """
+                    INSERT INTO personal_cloud_initial_sync(instance_id,device_id,report_sequence)
+                    VALUES(@i,@d,@q)
+                    ON CONFLICT(instance_id,device_id) DO UPDATE
+                    SET report_sequence=MAX(report_sequence,excluded.report_sequence)
+                    """;
+                upsert.Parameters.AddWithValue("@i", sequence.InstanceId);
+                upsert.Parameters.AddWithValue("@d", sequence.DeviceId);
+                upsert.Parameters.AddWithValue("@q", sequence.ReportSequence);
+                await upsert.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            }
+        }
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task RecoverLiveDatabaseBeforeRestoreAsync(CancellationToken cancellationToken)
+    {
+        await using var connection = await OpenConnectionAsync(DatabasePath, SqliteOpenMode.ReadWrite, cancellationToken).ConfigureAwait(false);
+        await ExecuteScalarAsync(connection, "PRAGMA user_version", cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task EnsurePersonalCloudRestoreIsSafeAsync(
+        string? currentDatabasePath,
+        string restorePointPath,
+        CancellationToken cancellationToken)
+    {
+        if (currentDatabasePath is not null)
+            await EnsureNoPendingProviderWritesAsync(currentDatabasePath, cancellationToken).ConfigureAwait(false);
+        await EnsureNoPendingProviderWritesAsync(restorePointPath, cancellationToken).ConfigureAwait(false);
+        if (currentDatabasePath is not null)
+            await EnsureNoPendingPersonalCloudIntentsAsync(currentDatabasePath, cancellationToken).ConfigureAwait(false);
+        await EnsureNoPendingPersonalCloudIntentsAsync(restorePointPath, cancellationToken).ConfigureAwait(false);
+
+        var current = currentDatabasePath is null
+            ? new PersonalCloudRestoreState([], [])
+            : await ReadPersonalCloudRestoreStateAsync(currentDatabasePath, cancellationToken).ConfigureAwait(false);
+        var restorePoint = await ReadPersonalCloudRestoreStateAsync(restorePointPath, cancellationToken).ConfigureAwait(false);
+        if (currentDatabasePath is null && (restorePoint.InstanceIds.Count > 0 || restorePoint.Identities.Count > 0))
+        {
+            throw new PersonalCloudK0ContractException("pending_intents",
+                "Restore is refused because the live database is missing and the selected restore point contains Personal Cloud state whose accepted sequence high-water marks cannot be verified. Recover the live database or restore a local-only snapshot. Restore points do not roll back Personal Cloud.");
+        }
+        if (currentDatabasePath is not null &&
+            (current.InstanceIds.Count > 0 || restorePoint.InstanceIds.Count > 0) &&
+            (!current.InstanceIds.SetEquals(restorePoint.InstanceIds) ||
+             !current.Identities.SetEquals(restorePoint.Identities)))
+        {
+            throw new PersonalCloudK0ContractException("identity_mismatch",
+                "Restore is refused because the live database and selected restore point contain different Personal Cloud identities. Restore points replace local data only and do not roll back Personal Cloud.");
+        }
+    }
+
+    private static async Task EnsureNoPendingProviderWritesAsync(string databasePath, CancellationToken cancellationToken)
+    {
+        await using var connection = await OpenConnectionAsync(databasePath, SqliteOpenMode.ReadOnly, cancellationToken).ConfigureAwait(false);
+        long pendingCount = 0;
+        foreach (var table in new[] { "pending_completions", "pending_task_date_updates" })
+        {
+            if (!await HasTableAsync(connection, table, cancellationToken).ConfigureAwait(false)) continue;
+            var command = connection.CreateCommand();
+            command.CommandText = $"SELECT COUNT(*) FROM {table}";
+            pendingCount += Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), CultureInfo.InvariantCulture);
+        }
+
+        if (pendingCount > 0)
+            throw new PersonalCloudK0ContractException("pending_provider_writes",
+                "Restore is refused because the live database or selected restore point contains pending provider writes. Run provider sync or choose a restore point without queued provider changes before restoring.");
+    }
+
+    private static async Task EnsureNoPendingPersonalCloudIntentsAsync(string databasePath, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await new SqliteTaskStore(databasePath, readOnly: true)
+                .EnsureNoPendingPersonalCloudIntentsAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (PersonalCloudK0ContractException exception) when (exception.Code == "pending_intents")
+        {
+            throw new PersonalCloudK0ContractException("pending_intents",
+                "Restore is refused because unresolved Personal Cloud changes exist in the live database or selected restore point. Sync or resolve them before restoring. Restore points replace local data only and do not roll back Personal Cloud.", exception);
+        }
+    }
+
+    private static async Task<PersonalCloudRestoreState> ReadPersonalCloudRestoreStateAsync(
+        string databasePath,
+        CancellationToken cancellationToken)
+    {
+        var instanceIds = new HashSet<string>(StringComparer.Ordinal);
+        var identities = new HashSet<(string InstanceId, string DeviceId)>();
+        await using var connection = new SqliteConnection(new SqliteConnectionStringBuilder
+        {
+            DataSource = databasePath,
+            Mode = SqliteOpenMode.ReadOnly,
+            Pooling = false,
+        }.ToString());
+        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+
+        if (await HasTableAsync(connection, "personal_cloud_device_state", cancellationToken).ConfigureAwait(false))
+        {
+            if (!await HasColumnAsync(connection, "personal_cloud_device_state", "instance_id", cancellationToken).ConfigureAwait(false) ||
+                !await HasColumnAsync(connection, "personal_cloud_device_state", "device_id", cancellationToken).ConfigureAwait(false) ||
+                !await HasColumnAsync(connection, "personal_cloud_device_state", "next_device_sequence", cancellationToken).ConfigureAwait(false))
+                throw CreateUncertainPersonalCloudStateException();
+            var command = connection.CreateCommand();
+            command.CommandText = "SELECT instance_id,device_id FROM personal_cloud_device_state";
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                var identity = (reader.GetString(0), reader.GetString(1));
+                instanceIds.Add(identity.Item1);
+                identities.Add(identity);
+            }
+        }
+
+        if (await HasTableAsync(connection, "personal_cloud_outbox", cancellationToken).ConfigureAwait(false))
+        {
+            if (!await HasColumnAsync(connection, "personal_cloud_outbox", "acknowledged_at", cancellationToken).ConfigureAwait(false) ||
+                !await HasColumnAsync(connection, "personal_cloud_outbox", "instance_id", cancellationToken).ConfigureAwait(false) ||
+                !await HasColumnAsync(connection, "personal_cloud_outbox", "device_id", cancellationToken).ConfigureAwait(false))
+                throw CreateUncertainPersonalCloudStateException();
+            var command = connection.CreateCommand();
+            command.CommandText = "SELECT DISTINCT instance_id,device_id FROM personal_cloud_outbox";
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                var identity = (reader.GetString(0), reader.GetString(1));
+                instanceIds.Add(identity.Item1);
+                identities.Add(identity);
+            }
+        }
+
+        if (await HasTableAsync(connection, "personal_cloud_initial_sync", cancellationToken).ConfigureAwait(false))
+        {
+            if (!await HasColumnAsync(connection, "personal_cloud_initial_sync", "instance_id", cancellationToken).ConfigureAwait(false) ||
+                !await HasColumnAsync(connection, "personal_cloud_initial_sync", "device_id", cancellationToken).ConfigureAwait(false) ||
+                !await HasColumnAsync(connection, "personal_cloud_initial_sync", "report_sequence", cancellationToken).ConfigureAwait(false) ||
+                !await HasColumnAsync(connection, "personal_cloud_initial_sync", "phase", cancellationToken).ConfigureAwait(false))
+                throw CreateUncertainPersonalCloudStateException();
+            var command = connection.CreateCommand();
+            command.CommandText = "SELECT instance_id,device_id,phase FROM personal_cloud_initial_sync";
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                var identity = (reader.GetString(0), reader.GetString(1));
+                if (!string.Equals(reader.GetString(2), "Complete", StringComparison.OrdinalIgnoreCase))
+                    throw CreateUncertainPersonalCloudStateException();
+                instanceIds.Add(identity.Item1);
+                identities.Add(identity);
+            }
+        }
+
+        if (await HasTableAsync(connection, "personal_cloud_provider_commands", cancellationToken).ConfigureAwait(false))
+        {
+            if (!await HasColumnAsync(connection, "personal_cloud_provider_commands", "state", cancellationToken).ConfigureAwait(false))
+                throw CreateUncertainPersonalCloudStateException();
+            var command = connection.CreateCommand();
+            command.CommandText = "SELECT EXISTS(SELECT 1 FROM personal_cloud_provider_commands WHERE state IN ('pending_desktop','rejected'))";
+            if (Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)) != 0)
+                throw CreateUncertainPersonalCloudStateException();
+        }
+
+        return new PersonalCloudRestoreState(instanceIds, identities);
+    }
+
+    private static PersonalCloudK0ContractException CreateUncertainPersonalCloudStateException() =>
+        new("pending_intents",
+            "Restore is refused because Personal Cloud synchronization is incomplete or its saved sequence state is ambiguous. Finish or resolve sync before restoring. Restore points replace local data only and do not roll back Personal Cloud.");
+
+    private static async Task<bool> HasTableAsync(SqliteConnection connection, string tableName, CancellationToken cancellationToken)
+    {
+        var command = connection.CreateCommand();
+        command.CommandText = "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name=@name)";
+        command.Parameters.AddWithValue("@name", tableName);
+        return Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)) != 0;
+    }
+
+    private static async Task<bool> HasColumnAsync(SqliteConnection connection, string tableName, string columnName, CancellationToken cancellationToken)
+    {
+        var command = connection.CreateCommand();
+        command.CommandText = $"PRAGMA table_info({tableName})";
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            if (string.Equals(reader.GetString(1), columnName, StringComparison.Ordinal)) return true;
+        return false;
+    }
+
     private BackupInfo ReadBackupInfo(string path)
     {
         var file = new FileInfo(path);
@@ -259,6 +570,7 @@ public sealed class BackupService(
             CreatedAt = metadata?.CreatedAt.LocalDateTime ?? file.LastWriteTime,
             SizeBytes = file.Length,
             Reason = metadata?.Reason ?? BackupReasons.Unknown,
+            Note = metadata?.Note,
             TaskCount = metadata?.TaskCount,
             ProjectCount = metadata?.ProjectCount,
             SpaceCount = metadata?.SpaceCount,
@@ -269,7 +581,7 @@ public sealed class BackupService(
         };
     }
 
-    private async Task WriteMetadataAsync(string backupPath, string reason, DateTimeOffset createdAt, CancellationToken cancellationToken)
+    private async Task WriteMetadataAsync(string backupPath, string reason, DateTimeOffset createdAt, CancellationToken cancellationToken, string? note = null)
     {
         var snapshot = await InspectDatabaseAsync(backupPath, cancellationToken).ConfigureAwait(false);
         var metadata = new BackupMetadata
@@ -277,6 +589,7 @@ public sealed class BackupService(
             BackupPath = backupPath,
             CreatedAt = createdAt,
             Reason = string.IsNullOrWhiteSpace(reason) ? BackupReasons.Manual : reason,
+            Note = string.IsNullOrWhiteSpace(note) ? null : note.Trim(),
             AppIdentity = Context.AppIdentity,
             AppFlavor = Context.AppFlavor,
             AppVersion = Context.AppVersion,
@@ -343,7 +656,12 @@ public sealed class BackupService(
             retained.Add(backup.Path);
         }
 
-        foreach (var backup in backups.Where(backup => !IsDailyBackup(backup)).Take(RetentionPolicy.EventBackups))
+        foreach (var backup in backups.Where(IsSafetyBackup))
+        {
+            retained.Add(backup.Path);
+        }
+
+        foreach (var backup in backups.Where(backup => !IsDailyBackup(backup) && !IsSafetyBackup(backup)).Take(RetentionPolicy.EventBackups))
         {
             retained.Add(backup.Path);
         }
@@ -361,6 +679,11 @@ public sealed class BackupService(
 
     private static bool IsDailyBackup(BackupInfo backup) =>
         string.Equals(backup.Reason, BackupReasons.Daily, StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsSafetyBackup(BackupInfo backup) =>
+        string.Equals(backup.Reason, BackupReasons.PreRestore, StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(backup.Reason, BackupReasons.PreImport, StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(backup.Reason, BackupReasons.PreMigration, StringComparison.OrdinalIgnoreCase);
 
     private static string CreateUniqueBackupPath(string backupDirectory, string? preferredFileName = null)
     {
@@ -630,6 +953,7 @@ public sealed class BackupMetadata
     public string BackupPath { get; set; } = string.Empty;
     public DateTimeOffset CreatedAt { get; set; }
     public string Reason { get; set; } = BackupReasons.Unknown;
+    public string? Note { get; set; }
     public string AppIdentity { get; set; } = string.Empty;
     public string AppFlavor { get; set; } = string.Empty;
     public string AppVersion { get; set; } = string.Empty;
@@ -648,6 +972,7 @@ public sealed class BackupInfo
     public DateTime CreatedAt { get; set; }
     public long SizeBytes { get; set; }
     public string Reason { get; set; } = BackupReasons.Unknown;
+    public string? Note { get; set; }
     public int? TaskCount { get; set; }
     public int? ProjectCount { get; set; }
     public int? SpaceCount { get; set; }

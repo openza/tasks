@@ -13,7 +13,9 @@ public interface ITaskStore
     Task<TaskCountSummary> GetTaskCountsAsync(string? spaceId = null, CancellationToken cancellationToken = default);
     Task<TaskItem?> GetTaskAsync(string id, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<ProjectItem>> GetProjectsAsync(string? spaceId = null, bool includeArchived = false, CancellationToken cancellationToken = default);
+    Task<ProjectItem?> GetProjectAsync(string id, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<LabelItem>> GetLabelsAsync(CancellationToken cancellationToken = default);
+    Task<LabelItem?> GetLabelAsync(string id, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<ProjectItem>> GetProviderProjectsAsync(string integrationId, bool includeArchived = false, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<LabelItem>> GetProviderLabelsAsync(string integrationId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<IntegrationInfo>> GetIntegrationsAsync(CancellationToken cancellationToken = default);
@@ -40,6 +42,7 @@ public interface ITaskStore
     Task MoveTaskToSpaceAsync(string taskId, string targetSpaceId, CancellationToken cancellationToken = default);
     Task UpsertProjectAsync(ProjectItem project, CancellationToken cancellationToken = default);
     Task UpsertLabelAsync(LabelItem label, CancellationToken cancellationToken = default);
+    Task DeleteLabelAsync(string labelId, CancellationToken cancellationToken = default);
     Task SetTaskLabelsAsync(string taskId, IReadOnlyList<LabelItem> labels, CancellationToken cancellationToken = default);
     Task DeleteTaskAsync(string taskId, CancellationToken cancellationToken = default);
     Task<bool> TryDeleteTaskAsync(string taskId, long expectedRevision, CancellationToken cancellationToken = default);
