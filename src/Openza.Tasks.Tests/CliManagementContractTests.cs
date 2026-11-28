@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Openza.Tasks.Application.Runtime;
+using Openza.Tasks.Application.Tasks;
 using Openza.Tasks.Core.Models;
 using Openza.Tasks.Core.PersonalCloud;
 
@@ -374,6 +375,48 @@ public sealed partial class CliContractTests
         Assert.Contains(pending, item => item.Operation == "project.put");
         Assert.Contains(pending, item => item.Operation == "project.delete");
         Assert.Equal(2, pending.Count(item => item.Operation == "task.removeLabel"));
+    }
+
+    [Fact]
+    public async Task Legacy_cloud_task_creation_emits_parent_after_move_and_keeps_schedule_local()
+    {
+        var store = await CreateStoreAsync();
+        const string instanceId = "instance_00000000000000000000000000000062";
+        const string deviceId = "device_00000000000000000000000000000062";
+        await store.SavePersonalCloudWorkspaceCapabilitiesAsync(instanceId, false, false);
+        var space = new SpaceItem { Id = "space_legacy_create", Name = "Legacy space" };
+        await store.UpsertSpaceAsync(space);
+        var profile = new PersonalCloudConnectionProfile
+        {
+            ServiceOrigin = new Uri("https://openza-personal-test.workers.dev/"),
+            InstanceId = instanceId,
+            DeviceId = deviceId,
+            ArtifactVersion = "1.2.3",
+            ConnectedAt = DateTimeOffset.UtcNow,
+        };
+        var service = new TaskApplicationService(store, () => profile);
+        await service.InitializeAsync();
+        var parent = await service.CreateTaskAsync(new CreateTaskRequest { Title = "Legacy parent", Space = space.Id });
+        var start = new DateTimeOffset(2030, 7, 8, 9, 0, 0, TimeSpan.Zero);
+        var child = await service.CreateTaskAsync(new CreateTaskRequest
+        {
+            Title = "Legacy child",
+            Space = space.Id,
+            ParentId = parent.Id,
+            ScheduledStart = start,
+            DurationMinutes = 45,
+        });
+
+        Assert.Equal(space.Id, child.SpaceId);
+        Assert.Equal(parent.Id, child.ParentId);
+        Assert.Equal(start, child.ScheduledStart);
+        Assert.Equal(start.AddMinutes(45), child.ScheduledEnd);
+        var childIntents = await store.GetPendingPersonalCloudOutboxAsync(instanceId, deviceId);
+        var move = Assert.Single(childIntents, item => item.EntityId == child.Id && item.Operation == "task.move");
+        var parentIntent = Assert.Single(childIntents, item => item.EntityId == child.Id && item.Operation == "task.setParent");
+        Assert.True(move.DeviceSequence < parentIntent.DeviceSequence);
+        Assert.Contains(parent.Id, parentIntent.CanonicalJson, StringComparison.Ordinal);
+        Assert.DoesNotContain(childIntents, item => item.EntityId == child.Id && item.Operation == "task.patch");
     }
 
     [Fact]

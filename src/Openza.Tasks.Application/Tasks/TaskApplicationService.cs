@@ -85,6 +85,7 @@ public sealed partial class TaskApplicationService(
                 SpaceId = SpaceIds.Default,
                 ProjectId = null,
                 Notes = null,
+                ParentId = null,
                 WorkflowStatus = TaskWorkflowStatus.Inbox,
                 CompletionState = TaskCompletionState.Open,
                 CompletedAt = null,
@@ -101,7 +102,7 @@ public sealed partial class TaskApplicationService(
             var hasExtendedState = task.SpaceId != cloudBaseTask.SpaceId || task.ProjectId is not null || task.Notes is not null ||
                 task.WorkflowStatus != cloudBaseTask.WorkflowStatus || task.IsCompleted || task.Priority != cloudBaseTask.Priority ||
                 task.PlannedOn is not null || task.DeadlineOn is not null || task.Labels.Count > 0;
-            hasExtendedState |= task.ParentId is not null || task.ScheduledStart is not null || task.DurationMinutes is not null;
+            hasExtendedState |= task.ParentId is not null || task.ScheduledStart is not null || task.ScheduledEnd is not null || task.DurationMinutes is not null;
             if (hasExtendedState)
             {
                 return await UpdateTaskAsync(new UpdateTaskRequest
