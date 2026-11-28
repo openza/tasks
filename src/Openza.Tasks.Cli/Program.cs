@@ -533,7 +533,9 @@ internal static partial class OpenzaCli
         {
             var runtime = ResolveRuntime();
             var readOnly = readOnlyOverride ?? IsReadOnlyCommand(parseResult);
-            using var lease = ChannelRuntimeLease.AcquireShared(runtime);
+            using var lease = databaseReplacement
+                ? ChannelRuntimeLease.AcquireExclusive(runtime)
+                : ChannelRuntimeLease.AcquireShared(runtime);
             using var databaseLease = databaseReplacement
                 ? ChannelRuntimeLease.AcquireDatabaseReplacement(runtime)
                 : ChannelRuntimeLease.AcquireDatabaseRead(runtime);

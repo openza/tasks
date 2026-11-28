@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
+using Openza.Tasks.Application.Runtime;
 using Openza.Tasks.Core.Models;
 using Openza.Tasks.Core.PersonalCloud;
 
@@ -413,6 +414,29 @@ public sealed partial class CliContractTests
             (await restoredStore.GetPendingPersonalCloudOutboxAsync(instanceId, deviceId)).Select(item => item.CanonicalJson));
         Assert.Equal(instanceId, new JsonPersonalCloudConnectionStore(Path.Combine(_directory, "personal-cloud-connection.json")).Load()!.InstanceId);
         AssertSuccess(await RunAsync("restore-point", "list", "--format", "json"));
+    }
+
+    [Fact]
+    public async Task Restore_refuses_while_the_desktop_holds_the_shared_runtime_lease()
+    {
+        var store = await CreateStoreAsync();
+        var added = await RunAsync("task", "add", "Before blocked restore", "--format", "json");
+        AssertSuccess(added);
+        using var addedJson = JsonDocument.Parse(added.Stdout);
+        var taskId = addedJson.RootElement.GetProperty("data").GetProperty("id").GetString()!;
+        var point = await RunAsync("restore-point", "create", "--format", "json");
+        AssertSuccess(point);
+        using var pointJson = JsonDocument.Parse(point.Stdout);
+        var fileName = pointJson.RootElement.GetProperty("data").GetProperty("fileName").GetString()!;
+        AssertSuccess(await RunAsync("task", "update", taskId, "--notes", "Keep current data"));
+
+        using var desktopLease = ChannelRuntimeLease.AcquireShared(
+            OpenzaRuntimeContext.Create(OpenzaChannel.Dev, _directory));
+        var restore = await RunAsync("restore-point", "restore", fileName, "--yes", "--format", "json");
+
+        Assert.Equal(1, restore.ExitCode);
+        Assert.Contains("before replacing its data", restore.Stderr, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("Keep current data", (await store.GetTaskAsync(taskId))!.Notes);
     }
 
     [Fact]
