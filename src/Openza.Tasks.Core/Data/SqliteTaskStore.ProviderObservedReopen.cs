@@ -151,7 +151,9 @@ public sealed partial class SqliteTaskStore
                       AND NOT EXISTS(SELECT 1 FROM personal_cloud_provider_commands c
                         WHERE c.instance_id=o.instance_id AND c.task_id=o.entity_id
                           AND c.state IN ('confirmed','rejected','cancelled')
-                          AND (c.requested_seq>=COALESCE(o.server_change_seq,(SELECT applied.change_seq FROM personal_cloud_applied_changes applied
+                          AND ((o.operation='task.complete' AND c.command='complete')
+                            OR (o.operation='task.reopen' AND c.command='reopen'))
+                          AND (c.requested_seq=COALESCE(o.server_change_seq,(SELECT applied.change_seq FROM personal_cloud_applied_changes applied
                                 WHERE applied.instance_id=o.instance_id AND applied.product='tasks'
                                   AND applied.mutation_id=o.mutation_id AND applied.entity_id=o.entity_id))
                             OR (COALESCE(o.server_change_seq,(SELECT applied.change_seq FROM personal_cloud_applied_changes applied
@@ -162,8 +164,19 @@ public sealed partial class SqliteTaskStore
                                   AND result.operation IN ('externalCommand.confirm','externalCommand.reject','externalCommand.cancel')
                                   AND result.acknowledged_at IS NOT NULL
                                   AND CAST(json_extract(result.canonical_json,'$.payload.requestedChangeSeq') AS INTEGER)=c.requested_seq
-                                  AND result.local_sequence>o.local_sequence)))
-                )))
+                                  AND result.local_sequence>o.local_sequence)
+                            OR (c.requested_seq>COALESCE(o.server_change_seq,(SELECT applied.change_seq FROM personal_cloud_applied_changes applied
+                                  WHERE applied.instance_id=o.instance_id AND applied.product='tasks'
+                                    AND applied.mutation_id=o.mutation_id AND applied.entity_id=o.entity_id))
+                              AND c.state='confirmed'
+                              AND EXISTS(SELECT 1 FROM provider_completion_confirmations f
+                                WHERE f.instance_id=c.instance_id AND f.task_id=c.task_id
+                                  AND f.requested_change_seq=c.requested_seq)
+                              AND EXISTS(SELECT 1 FROM personal_cloud_outbox result
+                                WHERE result.instance_id=c.instance_id AND result.entity_id=c.task_id
+                                  AND result.operation='externalCommand.confirm' AND result.acknowledged_at IS NOT NULL
+                                  AND CAST(json_extract(result.canonical_json,'$.payload.requestedChangeSeq') AS INTEGER)=c.requested_seq)))
+                ))))
             """;
         command.Parameters.AddWithValue("@t", taskId);
         return Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)) != 0;

@@ -545,6 +545,7 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
                 source,
                 parentContext,
                 ShouldSyncPlannedDateFromSource(source, existing),
+                existing?.CompletionState == TaskCompletionState.Completed ? existing.LastSeenAt : null,
                 cancellationToken).ConfigureAwait(false);
         }
 
@@ -4303,22 +4304,41 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
         ProviderSourceItem source,
         ParentTaskContext? parent,
         bool syncPlannedDate,
+        DateTimeOffset? previousProviderCompletionAt,
         CancellationToken cancellationToken)
     {
         var (plannedOn, plannedAt) = NormalizeDatePair(source.PlannedOn, source.PlannedAt);
         var (deadlineOn, deadlineAt) = NormalizeDatePair(source.DeadlineOn, source.DeadlineAt);
         var currentStateCommand = connection.CreateCommand();
-        currentStateCommand.CommandText = "SELECT completion_state FROM tasks WHERE id=@task_id";
+        currentStateCommand.CommandText = "SELECT completion_state,completed_at FROM tasks WHERE id=@task_id";
         currentStateCommand.Parameters.AddWithValue("@task_id", source.AdoptedTaskId!);
-        var currentCompletionState = (string?)await currentStateCommand.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+        string? currentCompletionState = null;
+        DateTimeOffset? currentCompletedAt = null;
+        await using (var currentStateReader = await currentStateCommand.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+        {
+            if (await currentStateReader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                currentCompletionState = currentStateReader.GetString(0);
+                currentCompletedAt = SqliteReadValues.ReadDate(currentStateReader, 1);
+            }
+        }
         var completionInFlight = await IsProviderCompletionIntentInFlightAsync(connection, source.AdoptedTaskId!, cancellationToken).ConfigureAwait(false);
         var confirmedAt = await GetProviderStateConfirmedAtAsync(connection, source.AdoptedTaskId!, cancellationToken).ConfigureAwait(false);
+        var cloudManagedCommand = connection.CreateCommand();
+        cloudManagedCommand.CommandText = "SELECT EXISTS(SELECT 1 FROM personal_cloud_entity_versions WHERE product='tasks' AND entity_id=@task_id)";
+        cloudManagedCommand.Parameters.AddWithValue("@task_id", source.AdoptedTaskId!);
+        var cloudManaged = Convert.ToInt64(await cloudManagedCommand.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)) != 0;
         var providerObservedAt = DateTimeOffset.FromUnixTimeMilliseconds(source.LastSeenAt.ToUnixTimeMilliseconds());
+        var providerCompletionWasObservedAfterCurrentCompletion = previousProviderCompletionAt is { } previousCompletion &&
+            currentCompletedAt is { } taskCompletion && previousCompletion > taskCompletion && providerObservedAt > previousCompletion;
         var providerOpenIsFresh = currentCompletionState == "completed" &&
-            source.CompletionState == TaskCompletionState.Open && confirmedAt is { } confirmation && providerObservedAt > confirmation;
-        var preserveCompletion = (completionInFlight && confirmedAt is null) ||
+            source.CompletionState == TaskCompletionState.Open &&
+            (confirmedAt is { } confirmation
+                ? providerObservedAt > confirmation
+                : providerCompletionWasObservedAfterCurrentCompletion);
+        var preserveCompletion = completionInFlight ||
             (currentCompletionState == "completed" && source.CompletionState == TaskCompletionState.Open &&
-             confirmedAt is not null && !providerOpenIsFresh);
+             (cloudManaged ? !providerOpenIsFresh : confirmedAt is not null && !providerOpenIsFresh));
         var command = connection.CreateCommand();
         command.CommandText = """
             UPDATE tasks

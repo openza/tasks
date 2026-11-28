@@ -841,6 +841,7 @@ public sealed class TaskSyncEngineTests : IDisposable
         });
         await store.CompleteTaskAsync(task.Id);
 
+        provider.SnapshotDelayMilliseconds = 10;
         provider.PlannedOn = new DateOnly(2026, 7, 6);
         var secondSync = await engine.SyncAsync(provider);
 
@@ -857,8 +858,10 @@ public sealed class TaskSyncEngineTests : IDisposable
         Assert.Null(refreshed.RecurrenceRule);
     }
 
-    [Fact]
-    public async Task Sync_reopens_task_completed_only_in_provider_without_cloud_confirmation()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Sync_reopens_task_completed_only_in_provider_without_cloud_confirmation(bool storeCompletedAtAsUnixMilliseconds)
     {
         var store = CreateStore();
         await store.InitializeAsync();
@@ -873,6 +876,20 @@ public sealed class TaskSyncEngineTests : IDisposable
         provider.IncludeCompletedTask = true;
         Assert.True((await engine.SyncAsync(provider)).Success);
         Assert.Equal(TaskCompletionState.Completed, (await store.GetTaskAsync(task!.Id))!.CompletionState);
+
+        var storedCompletionAt = DateTimeOffset.UtcNow.AddDays(-1);
+        var completedAtValue = storeCompletedAtAsUnixMilliseconds
+            ? storedCompletionAt.ToUnixTimeMilliseconds()
+            : storedCompletionAt.ToUnixTimeSeconds();
+        await using (var connection = new SqliteConnection($"Data Source={Path.Combine(_directory, "openza_tasks.db")}"))
+        {
+            await connection.OpenAsync();
+            await using var command = connection.CreateCommand();
+            command.CommandText = "UPDATE tasks SET completed_at=@completed_at WHERE id=@task_id";
+            command.Parameters.AddWithValue("@completed_at", completedAtValue);
+            command.Parameters.AddWithValue("@task_id", task.Id);
+            await command.ExecuteNonQueryAsync();
+        }
 
         provider.IncludeActiveTask = true;
         provider.IncludeCompletedTask = false;
@@ -923,7 +940,7 @@ public sealed class TaskSyncEngineTests : IDisposable
         Assert.Equal(new DateOnly(2026, 12, 27), refreshed.PlannedOn);
         Assert.Equal(0, provider.CompletedCalls);
         Assert.Equal(0, await ScalarIntAsync("SELECT count(*) FROM personal_cloud_provider_commands WHERE task_id=@task_id", task.Id));
-        Assert.Equal(0, await ScalarIntAsync("SELECT count(*) FROM personal_cloud_provider_observed_reopens WHERE task_id=@task_id", task.Id));
+        Assert.Equal(1, await ScalarIntAsync("SELECT count(*) FROM personal_cloud_provider_observed_reopens WHERE task_id=@task_id", task.Id));
     }
 
     [Fact]
@@ -1138,10 +1155,99 @@ public sealed class TaskSyncEngineTests : IDisposable
     }
 
     [Theory]
+    [InlineData(-1)]
+    [InlineData(0)]
+    public async Task Prior_provider_completion_does_not_override_a_current_confirmation(int readOffsetSeconds)
+    {
+        var (store, _, task, confirmedAt) = await CreateConfirmedCloudTaskAsync(
+            "Synthetic stale provider completion", repeating: true);
+        var source = Assert.Single(await store.GetProviderSourceItemsAsync(IntegrationIds.Todoist, includeAdopted: true));
+        await store.UpsertProviderSourceItemAsync(source with
+        {
+            CompletionState = TaskCompletionState.Completed,
+            LastSeenAt = confirmedAt.AddSeconds(-10),
+        });
+        source = Assert.Single(await store.GetProviderSourceItemsAsync(IntegrationIds.Todoist, includeAdopted: true));
+        await store.UpsertProviderSourceItemAsync(source with
+        {
+            CompletionState = TaskCompletionState.Open,
+            LastSeenAt = confirmedAt.AddSeconds(readOffsetSeconds),
+        });
+
+        Assert.Equal(TaskCompletionState.Completed, (await store.GetTaskAsync(task.Id))!.CompletionState);
+        Assert.Equal(0, await ScalarIntAsync("SELECT count(*) FROM personal_cloud_provider_observed_reopens WHERE task_id=@task_id", task.Id));
+    }
+
+    [Fact]
+    public async Task Pending_recompletion_stays_guarded_after_an_older_provider_confirmation()
+    {
+        var (store, _, task, confirmedAt) = await CreateConfirmedCloudTaskAsync(
+            "Synthetic in-flight recompletion", repeating: true);
+        await using (var connection = new SqliteConnection($"Data Source={Path.Combine(_directory, "openza_tasks.db")}"))
+        {
+            await connection.OpenAsync();
+            await using var command = connection.CreateCommand();
+            command.CommandText = """
+                INSERT INTO pending_completions(id,task_id,provider,provider_task_id,created_at)
+                VALUES('pending_recompletion',@task_id,'todoist','provider_task',@created_at)
+                """;
+            command.Parameters.AddWithValue("@task_id", task.Id);
+            command.Parameters.AddWithValue("@created_at", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+            await command.ExecuteNonQueryAsync();
+        }
+
+        var source = Assert.Single(await store.GetProviderSourceItemsAsync(IntegrationIds.Todoist, includeAdopted: true));
+        await store.UpsertProviderSourceItemAsync(source with
+        {
+            CompletionState = TaskCompletionState.Open,
+            LastSeenAt = confirmedAt.AddSeconds(1),
+        });
+
+        Assert.Equal(TaskCompletionState.Completed, (await store.GetTaskAsync(task.Id))!.CompletionState);
+        Assert.Equal(0, await ScalarIntAsync("SELECT count(*) FROM personal_cloud_provider_observed_reopens WHERE task_id=@task_id", task.Id));
+    }
+
+    [Fact]
+    public async Task Higher_cancelled_provider_command_does_not_supersede_latest_completion_intent()
+    {
+        var (store, _, task, confirmedAt) = await CreateConfirmedCloudTaskAsync(
+            "Synthetic cancelled newer command", repeating: true);
+        await using (var connection = new SqliteConnection($"Data Source={Path.Combine(_directory, "openza_tasks.db")}"))
+        {
+            await connection.OpenAsync();
+            await using var command = connection.CreateCommand();
+            command.CommandText = """
+                INSERT INTO personal_cloud_outbox
+                    (mutation_id,product,instance_id,device_id,device_sequence,operation,entity_id,canonical_json,canonical_hash,created_at,acknowledged_at,server_change_seq)
+                VALUES('mutation_newer_completion','tasks','cloud_instance','desktop_test',3,'task.complete',@task_id,'{}',@hash,@at,@at,3);
+                UPDATE personal_cloud_provider_commands SET requested_seq=4,state='cancelled'
+                  WHERE instance_id='cloud_instance' AND task_id=@task_id;
+                DELETE FROM personal_cloud_entity_versions WHERE instance_id='cloud_instance' AND entity_id=@task_id;
+                UPDATE personal_cloud_device_state SET next_device_sequence=4
+                  WHERE instance_id='cloud_instance' AND device_id='desktop_test';
+                """;
+            command.Parameters.AddWithValue("@task_id", task.Id);
+            command.Parameters.AddWithValue("@hash", new string('f', 64));
+            command.Parameters.AddWithValue("@at", confirmedAt.AddSeconds(1).ToUnixTimeMilliseconds());
+            await command.ExecuteNonQueryAsync();
+        }
+
+        var source = Assert.Single(await store.GetProviderSourceItemsAsync(IntegrationIds.Todoist, includeAdopted: true));
+        await store.UpsertProviderSourceItemAsync(source with
+        {
+            CompletionState = TaskCompletionState.Open,
+            LastSeenAt = confirmedAt.AddSeconds(2),
+        });
+
+        Assert.Equal(TaskCompletionState.Completed, (await store.GetTaskAsync(task.Id))!.CompletionState);
+        Assert.Equal(0, await ScalarIntAsync("SELECT count(*) FROM personal_cloud_provider_observed_reopens WHERE task_id=@task_id", task.Id));
+    }
+
+    [Theory]
     [InlineData("rejected", false)]
     [InlineData("cancelled", false)]
     [InlineData("rejected", true)]
-    public async Task Failed_or_cancelled_completion_is_not_confirmation_evidence(string terminalState, bool legacyConfirmation)
+    public async Task Failed_or_cancelled_completion_without_confirmation_keeps_cloud_completion(string terminalState, bool legacyConfirmation)
     {
         var (store, _, task, confirmedAt) = await CreateConfirmedCloudTaskAsync(
             "Synthetic failed completion", repeating: false, legacyConfirmation: legacyConfirmation);
@@ -1166,7 +1272,7 @@ public sealed class TaskSyncEngineTests : IDisposable
             LastSeenAt = failedAt.AddSeconds(-1),
         });
 
-        Assert.Equal(TaskCompletionState.Open, (await store.GetTaskAsync(task.Id))!.CompletionState);
+        Assert.Equal(TaskCompletionState.Completed, (await store.GetTaskAsync(task.Id))!.CompletionState);
         Assert.Equal(0, await ScalarIntAsync("SELECT count(*) FROM personal_cloud_provider_observed_reopens WHERE task_id=@task_id", task.Id));
     }
 
@@ -1476,14 +1582,18 @@ public sealed class TaskSyncEngineTests : IDisposable
         public bool IncludeActiveTask { get; set; } = true;
         public bool IncludeCompletedTask { get; set; }
         public bool IncludeChildTask { get; set; }
+        public int SnapshotDelayMilliseconds { get; set; }
         public int CompletedCalls { get; private set; }
         public bool ThrowOnMove { get; set; }
         public List<string> OutboundOperationOrder { get; } = [];
         public List<PendingTaskDateUpdate> DateUpdates { get; } = [];
         public List<(string TaskId, string ProjectId)> ProjectMoves { get; } = [];
 
-        public Task<ProviderSnapshot> FetchSnapshotAsync(CancellationToken cancellationToken = default)
+        public async Task<ProviderSnapshot> FetchSnapshotAsync(CancellationToken cancellationToken = default)
         {
+            if (SnapshotDelayMilliseconds > 0)
+                await Task.Delay(SnapshotDelayMilliseconds, cancellationToken).ConfigureAwait(false);
+
             List<TaskItem> tasks = [];
             if (IncludeActiveTask)
             {
@@ -1527,13 +1637,13 @@ public sealed class TaskSyncEngineTests : IDisposable
                 });
             }
 
-            return Task.FromResult(new ProviderSnapshot(
+            return new ProviderSnapshot(
                 tasks,
                 Projects,
                 SnapshotLabels)
             {
                 CompletedTasks = completedTasks,
-            });
+            };
         }
 
         public Task CompleteTaskAsync(PendingCompletion completion, CancellationToken cancellationToken = default)
