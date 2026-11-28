@@ -435,7 +435,7 @@ internal static partial class OpenzaCli
         var labels = new Option<string[]>("--label") { AllowMultipleArgumentsPerToken = true };
         var clearLabels = new Option<bool>("--clear-labels");
         var revision = new Option<long?>("--revision") { Description = "Expected task revision for conflict detection." };
-        var command = new Command("update", "Update specified fields on a task.");
+        var command = new Command("update", "Update task fields; moving spaces moves the task and its subtasks together.");
         command.Arguments.Add(id);
         foreach (var option in new Option[] { title, notes, clearNotes, space, project, clearProject, parent, clearParent, status, priority, date, clearDate, deadline, clearDeadline, reminder, clearReminder, scheduledStart, duration, clearSchedule, labels, clearLabels, revision }) command.Options.Add(option);
         command.SetAction(async (parseResult, cancellationToken) => await ExecuteAsync(parseResult, format, async context =>
@@ -550,6 +550,13 @@ internal static partial class OpenzaCli
         }
         catch (TaskConflictException exception) { WriteError(formatValue, Conflict, "conflict", exception.Message); return Conflict; }
         catch (ProviderLinkedTaskDeleteException exception) { WriteError(formatValue, OperationRestricted, "operation_restricted", exception.Message); return OperationRestricted; }
+        catch (OperationRestrictedException exception) { WriteError(formatValue, OperationRestricted, "operation_restricted", exception.Message); return OperationRestricted; }
+        catch (PersonalCloudK0ContractException exception) when (MapPersonalCloudContractExitCode(exception.Code) != UnexpectedError)
+        {
+            var exitCode = MapPersonalCloudContractExitCode(exception.Code);
+            WriteError(formatValue, exitCode, exception.Code, exception.Message);
+            return exitCode;
+        }
         catch (Exception exception) when (exception is KeyNotFoundException or ReferenceResolutionException)
         { WriteError(formatValue, NotFoundOrAmbiguous, "not_found_or_ambiguous", exception.Message); return NotFoundOrAmbiguous; }
         catch (ArgumentException exception) { WriteError(formatValue, InvalidArguments, "invalid_arguments", exception.Message); return InvalidArguments; }
@@ -562,6 +569,15 @@ internal static partial class OpenzaCli
         var devOverride = channel == OpenzaChannel.Dev ? Environment.GetEnvironmentVariable("OPENZA_TASKS_DEV_DATA_DIR") : null;
         return OpenzaRuntimeContext.Create(channel, devOverride);
     }
+
+    internal static int MapPersonalCloudContractExitCode(string code) => code switch
+    {
+        "version_conflict" => Conflict,
+        "entity_not_found" or "parent_not_found" => NotFoundOrAmbiguous,
+        "pending_intents" or "identity_mismatch" or "pending_provider_writes" or "cloud_connected" or
+            "upgrade_required" or "bridge_upgrade_required" or "invalid_request" or "not_connected" => OperationRestricted,
+        _ => UnexpectedError,
+    };
 
     private static void WriteTaskList(CliOutput output, IEnumerable<TaskItem> tasks, IReadOnlyDictionary<string, int> childCounts)
     {

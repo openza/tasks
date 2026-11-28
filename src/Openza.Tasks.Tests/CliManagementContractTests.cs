@@ -13,7 +13,7 @@ public sealed partial class CliContractTests
     [Fact]
     public async Task Task_cli_supports_subtasks_time_blocks_and_additive_json_fields()
     {
-        _ = await CreateStoreAsync();
+        var store = await CreateStoreAsync();
         var parent = await RunAsync("task", "add", "Parent", "--format", "json");
         AssertSuccess(parent);
         using var parentCreated = JsonDocument.Parse(parent.Stdout);
@@ -41,7 +41,6 @@ public sealed partial class CliContractTests
         AssertSuccess(otherSpace);
         using var otherSpaceJson = JsonDocument.Parse(otherSpace.Stdout);
         var otherSpaceId = otherSpaceJson.RootElement.GetProperty("data").GetProperty("id").GetString()!;
-        AssertCliError(await RunAsync("task", "update", parentId, "--space", otherSpaceId, "--format", "json"), 2, "invalid_arguments");
         AssertCliError(await RunAsync("task", "add", "Cross-space child", "--parent", parentId,
             "--space", otherSpaceId, "--format", "json"), 2, "invalid_arguments");
 
@@ -94,6 +93,28 @@ public sealed partial class CliContractTests
         var listedTasks = nestedJson.RootElement.GetProperty("data").EnumerateArray().ToList();
         Assert.Equal(3, listedTasks.Count);
         Assert.Contains(listedTasks, task => task.GetProperty("id").GetString() == parentId && task.GetProperty("childCount").GetInt32() == 0);
+
+        AssertSuccess(await RunAsync("task", "update", childId, "--parent", parentId));
+        var staleParent = await RunAsync("task", "show", parentId, "--format", "json");
+        AssertSuccess(staleParent);
+        using var staleParentJson = JsonDocument.Parse(staleParent.Stdout);
+        var staleMoveRevision = staleParentJson.RootElement.GetProperty("data").GetProperty("revision").GetInt64();
+        AssertSuccess(await RunAsync("task", "update", parentId, "--notes", "Concurrent space edit"));
+        AssertCliError(await RunAsync("task", "update", parentId, "--space", otherSpaceId, "--revision",
+            staleMoveRevision.ToString(CultureInfo.InvariantCulture), "--format", "json"), 4, "conflict");
+        Assert.Equal(SpaceIds.Default, (await store.GetTaskAsync(parentId))!.SpaceId);
+        Assert.Equal(SpaceIds.Default, (await store.GetTaskAsync(childId))!.SpaceId);
+        var currentParentRevision = (await store.GetTaskAsync(parentId))!.Revision;
+        var movedTree = await RunAsync("task", "update", parentId, "--space", otherSpaceId, "--revision",
+            currentParentRevision.ToString(CultureInfo.InvariantCulture), "--format", "json");
+        AssertSuccess(movedTree);
+        using var movedTreeJson = JsonDocument.Parse(movedTree.Stdout);
+        Assert.Equal(otherSpaceId, movedTreeJson.RootElement.GetProperty("data").GetProperty("spaceId").GetString());
+        var movedChild = await RunAsync("task", "show", childId, "--format", "json");
+        AssertSuccess(movedChild);
+        using var movedChildJson = JsonDocument.Parse(movedChild.Stdout);
+        Assert.Equal(otherSpaceId, movedChildJson.RootElement.GetProperty("data").GetProperty("spaceId").GetString());
+        Assert.Equal(parentId, movedChildJson.RootElement.GetProperty("data").GetProperty("parentId").GetString());
     }
 
     [Fact]
@@ -330,6 +351,20 @@ public sealed partial class CliContractTests
         using var spaceJson = JsonDocument.Parse(space.Stdout);
         var spaceId = spaceJson.RootElement.GetProperty("data").GetProperty("id").GetString()!;
         AssertSuccess(await RunAsync("space", "rename", spaceId, "Connected renamed space"));
+
+        var cloudTreeRoot = await RunAsync("task", "add", "Cloud tree root", "--format", "json");
+        AssertSuccess(cloudTreeRoot);
+        using var cloudTreeRootJson = JsonDocument.Parse(cloudTreeRoot.Stdout);
+        var cloudTreeRootId = cloudTreeRootJson.RootElement.GetProperty("data").GetProperty("id").GetString()!;
+        var cloudTreeChild = await RunAsync("task", "add", "Cloud tree child", "--parent", cloudTreeRootId, "--format", "json");
+        AssertSuccess(cloudTreeChild);
+        using var cloudTreeChildJson = JsonDocument.Parse(cloudTreeChild.Stdout);
+        var cloudTreeChildId = cloudTreeChildJson.RootElement.GetProperty("data").GetProperty("id").GetString()!;
+        AssertSuccess(await RunAsync("task", "update", cloudTreeRootId, "--space", spaceId));
+        Assert.Equal(spaceId, (await store.GetTaskAsync(cloudTreeRootId))!.SpaceId);
+        Assert.Equal(spaceId, (await store.GetTaskAsync(cloudTreeChildId))!.SpaceId);
+        AssertSuccess(await RunAsync("task", "update", cloudTreeRootId, "--space", SpaceIds.Default));
+
         var project = await RunAsync("project", "create", "Connected project", "--space", spaceId, "--format", "json");
         AssertSuccess(project);
         using var projectJson = JsonDocument.Parse(project.Stdout);
@@ -337,36 +372,11 @@ public sealed partial class CliContractTests
         AssertSuccess(await RunAsync("project", "update", projectId, "--color", "#123456"));
         AssertSuccess(await RunAsync("project", "delete", projectId, "--yes"));
         AssertSuccess(await RunAsync("space", "archive", spaceId, "--yes"));
-        AssertSuccess(await RunAsync("label", "rename", labelId, "Focus renamed"));
-
-        var labeledTaskIds = new[] { childId, siblingId }.Order(StringComparer.Ordinal).ToArray();
-        await using (var connection = new SqliteConnection($"Data Source={store.DatabasePath}"))
-        {
-            await connection.OpenAsync();
-            var trigger = connection.CreateCommand();
-            trigger.CommandText = $"CREATE TRIGGER synthetic_label_conflict BEFORE DELETE ON task_labels WHEN OLD.task_id = '{labeledTaskIds[1]}' AND OLD.label_id = '{labelId}' BEGIN SELECT RAISE(ABORT, 'synthetic revision conflict'); END;";
-            await trigger.ExecuteNonQueryAsync();
-        }
-        var beforeConflict = await store.GetPendingPersonalCloudOutboxAsync(instanceId, deviceId);
-        var failedDelete = await RunAsync("label", "delete", labelId, "--yes", "--format", "json");
-        Assert.NotEqual(0, failedDelete.ExitCode);
-        Assert.Contains(await store.GetLabelsAsync(), item => item.Id == labelId);
-        foreach (var id in labeledTaskIds)
-            Assert.Contains((await store.GetTaskAsync(id))!.Labels, item => item.Id == labelId);
-        Assert.Equal(beforeConflict.Select(item => item.CanonicalJson),
-            (await store.GetPendingPersonalCloudOutboxAsync(instanceId, deviceId)).Select(item => item.CanonicalJson));
-
-        await using (var connection = new SqliteConnection($"Data Source={store.DatabasePath}"))
-        {
-            await connection.OpenAsync();
-            var drop = connection.CreateCommand();
-            drop.CommandText = "DROP TRIGGER synthetic_label_conflict";
-            await drop.ExecuteNonQueryAsync();
-        }
-        AssertSuccess(await RunAsync("label", "delete", labelId, "--yes"));
-        Assert.DoesNotContain(await store.GetLabelsAsync(), item => item.Id == labelId);
-        foreach (var id in labeledTaskIds)
-            Assert.DoesNotContain((await store.GetTaskAsync(id))!.Labels, item => item.Id == labelId);
+        AssertCliError(await RunAsync("label", "rename", labelId, "Focus renamed", "--format", "json"), 6, "operation_restricted");
+        AssertCliError(await RunAsync("label", "delete", labelId, "--yes", "--format", "json"), 6, "operation_restricted");
+        Assert.Contains(await store.GetLabelsAsync(), item => item.Id == labelId && item.Name == "Focus");
+        Assert.Contains((await store.GetTaskAsync(childId))!.Labels, item => item.Id == labelId);
+        Assert.Contains((await store.GetTaskAsync(siblingId))!.Labels, item => item.Id == labelId);
 
         var pending = await store.GetPendingPersonalCloudOutboxAsync(instanceId, deviceId);
         Assert.Contains(pending, item => item.EntityId == childId && item.Operation == "task.setParent");
@@ -374,7 +384,8 @@ public sealed partial class CliContractTests
         Assert.Contains(pending, item => item.Operation == "space.put");
         Assert.Contains(pending, item => item.Operation == "project.put");
         Assert.Contains(pending, item => item.Operation == "project.delete");
-        Assert.Equal(2, pending.Count(item => item.Operation == "task.removeLabel"));
+        Assert.Equal(2, pending.Count(item => item.Operation == "task.addLabel"));
+        Assert.DoesNotContain(pending, item => item.Operation == "task.removeLabel");
     }
 
     [Fact]
@@ -420,7 +431,7 @@ public sealed partial class CliContractTests
     }
 
     [Fact]
-    public async Task Connected_restore_refuses_unresolved_cloud_intents_without_changing_live_state()
+    public async Task Connected_restore_refuses_with_cloud_connected_error_without_changing_live_state()
     {
         var store = await CreateStoreAsync();
         const string instanceId = "instance_00000000000000000000000000000018";
@@ -448,7 +459,11 @@ public sealed partial class CliContractTests
         AssertSuccess(await RunAsync("task", "update", taskId, "--notes", "After rollback"));
         var pendingAfterUpdate = await store.GetPendingPersonalCloudOutboxAsync(instanceId, deviceId);
         Assert.NotEqual(beforeRestore.Count, pendingAfterUpdate.Count);
-        AssertCliError(await RunAsync("restore-point", "restore", fileName, "--yes", "--format", "json"), 6, "pending_intents");
+        var blockedRestore = await RunAsync("restore-point", "restore", fileName, "--yes", "--format", "json");
+        AssertCliError(blockedRestore, 6, "cloud_connected");
+        using var blockedRestoreJson = JsonDocument.Parse(blockedRestore.Stderr);
+        Assert.Contains("rollback isn't supported with the cloud on yet",
+            blockedRestoreJson.RootElement.GetProperty("error").GetProperty("message").GetString(), StringComparison.Ordinal);
 
         Assert.Equal("After rollback", (await store.GetTaskAsync(taskId))!.Notes);
         Assert.Equal(pendingAfterUpdate.Select(item => item.CanonicalJson),
@@ -517,7 +532,7 @@ public sealed partial class CliContractTests
     [Fact]
     public async Task Workspace_commands_report_invalid_names_and_missing_targets()
     {
-        _ = await CreateStoreAsync();
+        var store = await CreateStoreAsync();
         AssertCliError(await RunAsync("space", "create", "   ", "--format", "json"), 2, "invalid_arguments");
         AssertCliError(await RunAsync("space", "rename", "space_default", "   ", "--format", "json"), 2, "invalid_arguments");
         AssertCliError(await RunAsync("space", "rename", "missing-space", "Renamed", "--format", "json"), 3, "not_found_or_ambiguous");
@@ -528,9 +543,112 @@ public sealed partial class CliContractTests
         AssertCliError(await RunAsync("project", "update", "missing-project", "--name", "Renamed", "--format", "json"), 3, "not_found_or_ambiguous");
         AssertCliError(await RunAsync("project", "delete", "missing-project", "--yes", "--format", "json"), 3, "not_found_or_ambiguous");
 
+        var project = await RunAsync("project", "create", "Color target", "--space", "space_default", "--format", "json");
+        AssertSuccess(project);
+        using var projectJson = JsonDocument.Parse(project.Stdout);
+        var projectId = projectJson.RootElement.GetProperty("data").GetProperty("id").GetString()!;
+        AssertCliError(await RunAsync("project", "update", projectId, "--color", "banana", "--format", "json"), 2, "invalid_arguments");
+
+        await store.UpsertProjectAsync(new ProjectItem
+        {
+            Id = "project_provider_owned", Name = "Provider project", IntegrationId = IntegrationIds.Todoist,
+        });
+        AssertSuccess(await RunAsync("project", "rename", "project_provider_owned", "Local rename", "--format", "json"));
+        Assert.Equal("Local rename", (await store.GetProviderProjectsAsync(IntegrationIds.Todoist)).Single().Name);
+        AssertCliError(await RunAsync("project", "update", "project_provider_owned", "--color", "#123456", "--format", "json"),
+            2, "invalid_arguments");
+
         AssertCliError(await RunAsync("label", "create", "   ", "--format", "json"), 2, "invalid_arguments");
         AssertCliError(await RunAsync("label", "rename", "missing-label", "Renamed", "--format", "json"), 3, "not_found_or_ambiguous");
         AssertCliError(await RunAsync("label", "delete", "missing-label", "--yes", "--format", "json"), 3, "not_found_or_ambiguous");
+    }
+
+    [Fact]
+    public async Task Label_rename_and_delete_are_local_only_when_cloud_connected_or_provider_owned()
+    {
+        var store = await CreateStoreAsync();
+        var localLabel = new LabelItem { Id = "label_local_only", Name = "Local" };
+        await store.UpsertLabelAsync(localLabel);
+        AssertSuccess(await RunAsync("label", "rename", localLabel.Id, "Renamed"));
+        Assert.Equal("Renamed", (await store.GetLabelsAsync()).Single(item => item.Id == localLabel.Id).Name);
+        AssertSuccess(await RunAsync("label", "delete", localLabel.Id, "--yes"));
+        Assert.DoesNotContain(await store.GetLabelsAsync(), item => item.Id == localLabel.Id);
+
+        var providerLabel = new LabelItem { Id = "label_provider_owned", Name = "Provider", IntegrationId = IntegrationIds.Todoist };
+        await store.UpsertLabelAsync(providerLabel);
+        AssertCliError(await RunAsync("label", "rename", providerLabel.Id, "Changed", "--format", "json"), 6, "operation_restricted");
+        AssertCliError(await RunAsync("label", "delete", providerLabel.Id, "--yes", "--format", "json"), 6, "operation_restricted");
+
+        var cloudLabel = new LabelItem { Id = "label_cloud_owned", Name = "Cloud label" };
+        await store.UpsertLabelAsync(cloudLabel);
+        await store.UpsertTaskAsync(new TaskItem
+        {
+            Id = "task_cloud_label", Title = "Cloud label task", IntegrationId = IntegrationIds.Todoist, Labels = [cloudLabel],
+        });
+        await SavePersonalCloudConnectionAsync();
+
+        AssertCliError(await RunAsync("label", "rename", cloudLabel.Id, "Changed", "--format", "json"), 6, "operation_restricted");
+        AssertCliError(await RunAsync("label", "delete", cloudLabel.Id, "--yes", "--format", "json"), 6, "operation_restricted");
+        Assert.Contains(await store.GetLabelsAsync(), item => item.Id == cloudLabel.Id && item.Name == cloudLabel.Name);
+        Assert.Contains((await store.GetTaskAsync("task_cloud_label"))!.Labels, item => item.Id == cloudLabel.Id);
+    }
+
+    [Fact]
+    public async Task Local_label_delete_does_not_partially_remove_task_relationships_on_conflict()
+    {
+        var store = await CreateStoreAsync();
+        var label = new LabelItem { Id = "label_local_atomic", Name = "Atomic" };
+        await store.UpsertLabelAsync(label);
+        foreach (var id in new[] { "task_atomic_first", "task_atomic_second" })
+            await store.UpsertTaskAsync(new TaskItem { Id = id, Title = id, Labels = [label] });
+        var beforeFirst = (await store.GetTaskAsync("task_atomic_first"))!;
+        var beforeSecond = (await store.GetTaskAsync("task_atomic_second"))!;
+
+        await using (var connection = new SqliteConnection($"Data Source={store.DatabasePath}"))
+        {
+            await connection.OpenAsync();
+            var trigger = connection.CreateCommand();
+            trigger.CommandText = "CREATE TRIGGER synthetic_local_label_conflict BEFORE DELETE ON task_labels WHEN OLD.task_id = 'task_atomic_second' AND OLD.label_id = 'label_local_atomic' BEGIN SELECT RAISE(ABORT, 'synthetic relationship conflict'); END;";
+            await trigger.ExecuteNonQueryAsync();
+        }
+
+        var result = await RunAsync("label", "delete", label.Id, "--yes", "--format", "json");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains(await store.GetLabelsAsync(), item => item.Id == label.Id);
+        var afterFirst = (await store.GetTaskAsync("task_atomic_first"))!;
+        var afterSecond = (await store.GetTaskAsync("task_atomic_second"))!;
+        Assert.Contains(afterFirst.Labels, item => item.Id == label.Id);
+        Assert.Contains(afterSecond.Labels, item => item.Id == label.Id);
+        Assert.Equal(beforeFirst.Revision, afterFirst.Revision);
+        Assert.Equal(beforeSecond.Revision, afterSecond.Revision);
+    }
+
+    [Fact]
+    public async Task Parent_edits_on_provider_linked_tasks_are_restricted_with_or_without_cloud()
+    {
+        var store = await CreateStoreAsync();
+        await store.UpsertTaskAsync(new TaskItem { Id = "task_parent_target", Title = "Parent" });
+        await store.UpsertTaskAsync(new TaskItem
+        {
+            Id = "task_provider_parent", Title = "Todoist task", IntegrationId = IntegrationIds.Todoist,
+        });
+
+        AssertCliError(await RunAsync("task", "update", "task_provider_parent", "--parent", "task_parent_target", "--format", "json"),
+            6, "operation_restricted");
+        await SavePersonalCloudConnectionAsync();
+        AssertCliError(await RunAsync("task", "update", "task_provider_parent", "--clear-parent", "--format", "json"),
+            6, "operation_restricted");
+        Assert.Null((await store.GetTaskAsync("task_provider_parent"))!.ParentId);
+    }
+
+    [Fact]
+    public void Personal_cloud_contract_errors_map_to_documented_exit_codes()
+    {
+        Assert.Equal(6, OpenzaCli.MapPersonalCloudContractExitCode("upgrade_required"));
+        Assert.Equal(6, OpenzaCli.MapPersonalCloudContractExitCode("invalid_request"));
+        Assert.Equal(4, OpenzaCli.MapPersonalCloudContractExitCode("version_conflict"));
+        Assert.Equal(3, OpenzaCli.MapPersonalCloudContractExitCode("entity_not_found"));
     }
 
     [Fact]
@@ -620,6 +738,17 @@ public sealed partial class CliContractTests
         Assert.Contains("--color", projectHelp.Stdout);
         Assert.Contains("--yes", restoreHelp.Stdout);
     }
+
+    private Task SavePersonalCloudConnectionAsync() =>
+        new JsonPersonalCloudConnectionStore(Path.Combine(_directory, "personal-cloud-connection.json")).SaveAsync(
+            new PersonalCloudConnectionProfile
+            {
+                ServiceOrigin = new Uri("https://cloud.example"),
+                InstanceId = "instance_00000000000000000000000000000071",
+                DeviceId = "device_00000000000000000000000000000071",
+                ArtifactVersion = "test",
+                ConnectedAt = DateTimeOffset.UtcNow,
+            });
 
     private static void AssertCliError(CliResult result, int exitCode, string code)
     {

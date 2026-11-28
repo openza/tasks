@@ -12,7 +12,8 @@ public sealed class BackupService(
     string backupDirectory,
     BackupRetentionPolicy? retentionPolicy = null,
     BackupContext? context = null,
-    Func<IDisposable>? databaseReplacementLeaseFactory = null)
+    Func<IDisposable>? databaseReplacementLeaseFactory = null,
+    Func<bool>? personalCloudConnected = null)
 {
     private static readonly JsonSerializerOptions MetadataJsonOptions = new() { WriteIndented = true };
 
@@ -25,6 +26,7 @@ public sealed class BackupService(
     public BackupRetentionPolicy RetentionPolicy { get; } = retentionPolicy ?? BackupRetentionPolicy.Default;
     public BackupContext Context { get; } = context ?? BackupContext.Unknown;
     private Func<IDisposable>? DatabaseReplacementLeaseFactory { get; } = databaseReplacementLeaseFactory;
+    private Func<bool>? PersonalCloudConnected { get; } = personalCloudConnected;
 
     public Task<string> CreateBackupAsync(CancellationToken cancellationToken = default) =>
         CreateBackupAsync(BackupReasons.Manual, cancellationToken);
@@ -237,6 +239,9 @@ public sealed class BackupService(
         using var replacementLease = DatabaseReplacementLeaseFactory?.Invoke();
         cancellationToken.ThrowIfCancellationRequested();
         ValidateSqliteFile(sourcePath);
+        if (PersonalCloudConnected?.Invoke() == true)
+            throw new PersonalCloudK0ContractException("cloud_connected",
+                "Restore is refused while Personal Cloud is connected because rollback isn't supported with the cloud on yet. Disconnect Personal Cloud before restoring.");
         if (File.Exists(DatabasePath))
             await RecoverLiveDatabaseBeforeRestoreAsync(cancellationToken).ConfigureAwait(false);
         await EnsurePersonalCloudRestoreIsSafeAsync(
@@ -397,6 +402,9 @@ public sealed class BackupService(
         CancellationToken cancellationToken)
     {
         if (currentDatabasePath is not null)
+            await EnsureNoPendingProviderWritesAsync(currentDatabasePath, cancellationToken).ConfigureAwait(false);
+        await EnsureNoPendingProviderWritesAsync(restorePointPath, cancellationToken).ConfigureAwait(false);
+        if (currentDatabasePath is not null)
             await EnsureNoPendingPersonalCloudIntentsAsync(currentDatabasePath, cancellationToken).ConfigureAwait(false);
         await EnsureNoPendingPersonalCloudIntentsAsync(restorePointPath, cancellationToken).ConfigureAwait(false);
 
@@ -417,6 +425,23 @@ public sealed class BackupService(
             throw new PersonalCloudK0ContractException("identity_mismatch",
                 "Restore is refused because the live database and selected restore point contain different Personal Cloud identities. Restore points replace local data only and do not roll back Personal Cloud.");
         }
+    }
+
+    private static async Task EnsureNoPendingProviderWritesAsync(string databasePath, CancellationToken cancellationToken)
+    {
+        await using var connection = await OpenConnectionAsync(databasePath, SqliteOpenMode.ReadOnly, cancellationToken).ConfigureAwait(false);
+        long pendingCount = 0;
+        foreach (var table in new[] { "pending_completions", "pending_task_date_updates" })
+        {
+            if (!await HasTableAsync(connection, table, cancellationToken).ConfigureAwait(false)) continue;
+            var command = connection.CreateCommand();
+            command.CommandText = $"SELECT COUNT(*) FROM {table}";
+            pendingCount += Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), CultureInfo.InvariantCulture);
+        }
+
+        if (pendingCount > 0)
+            throw new PersonalCloudK0ContractException("pending_provider_writes",
+                "Restore is refused because the live database or selected restore point contains pending provider writes. Run provider sync or choose a restore point without queued provider changes before restoring.");
     }
 
     private static async Task EnsureNoPendingPersonalCloudIntentsAsync(string databasePath, CancellationToken cancellationToken)
@@ -633,7 +658,12 @@ public sealed class BackupService(
             retained.Add(backup.Path);
         }
 
-        foreach (var backup in backups.Where(backup => !IsDailyBackup(backup)).Take(RetentionPolicy.EventBackups))
+        foreach (var backup in backups.Where(IsSafetyBackup))
+        {
+            retained.Add(backup.Path);
+        }
+
+        foreach (var backup in backups.Where(backup => !IsDailyBackup(backup) && !IsSafetyBackup(backup)).Take(RetentionPolicy.EventBackups))
         {
             retained.Add(backup.Path);
         }
@@ -651,6 +681,11 @@ public sealed class BackupService(
 
     private static bool IsDailyBackup(BackupInfo backup) =>
         string.Equals(backup.Reason, BackupReasons.Daily, StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsSafetyBackup(BackupInfo backup) =>
+        string.Equals(backup.Reason, BackupReasons.PreRestore, StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(backup.Reason, BackupReasons.PreImport, StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(backup.Reason, BackupReasons.PreMigration, StringComparison.OrdinalIgnoreCase);
 
     private static string CreateUniqueBackupPath(string backupDirectory, string? preferredFileName = null)
     {

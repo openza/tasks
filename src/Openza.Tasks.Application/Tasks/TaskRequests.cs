@@ -56,4 +56,6 @@ public sealed record UpdateProjectRequest
 public sealed class TaskConflictException(string taskId)
     : InvalidOperationException($"Task '{taskId}' changed after it was loaded. Refresh and try again.");
 
+public sealed class OperationRestrictedException(string message) : InvalidOperationException(message);
+
 public sealed class ReferenceResolutionException(string message) : InvalidOperationException(message);

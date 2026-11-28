@@ -56,7 +56,7 @@ return one object in `data`; list and search commands return arrays. With
 `--format json`, failures use the same versioned envelope on stderr with an
 `error` object containing `code`, `message`, `exitCode`, and `details`.
 
-Exit codes are `0` success, `1` unexpected failure, `2` invalid arguments, `3` missing or ambiguous reference, `4` concurrent-edit conflict, `5` missing destructive confirmation, and `6` an operation restricted by the task's provider link. Task update, complete, reopen, and delete accept `--revision` for optimistic concurrency; task deletion also requires `--yes`. Space, project, and label records have no revision field in the shared models, so their management commands do not accept `--revision`.
+Exit codes are `0` success, `1` unexpected failure, `2` invalid arguments, `3` missing or ambiguous reference, `4` concurrent-edit conflict, `5` missing destructive confirmation, and `6` an operation restricted by a provider link or Personal Cloud safety boundary. Task update, complete, reopen, and delete accept `--revision` for optimistic concurrency; task deletion also requires `--yes`. Space, project, and label records have no revision field in the shared models, so their management commands do not accept `--revision`.
 
 ## Versioned TSV schemas
 
@@ -120,9 +120,11 @@ omitted, the new subtask uses its parent's space; an explicit different space
 is rejected. `task update TASK_ID --parent PARENT_ID` moves a task beneath that
 parent, and `--clear-parent` returns it to the top level. Parent and child must
 be in the same space, and updates that would create a hierarchy cycle are
-rejected. Task lists contain top-level tasks by default; use `--include-subtasks`
-to include nested tasks. Move a task's subtasks before changing the space of a
-task that has children.
+rejected. Parent changes are refused for provider-linked tasks because their
+provider may overwrite local parent changes on the next sync. Changing a task's
+space moves the whole task tree, including subtasks, to match Desktop behavior.
+Task lists contain top-level tasks by default; use `--include-subtasks` to
+include nested tasks.
 
 Task JSON from `task list` and single-task commands add `parentId` (null for a
 top-level task) and `childCount` (the number of direct children). They also add
@@ -148,20 +150,25 @@ Spaces, projects, and labels can be managed from the CLI as well as listed.
 NAME` renames a space, and `space archive ID --yes` archives one. The final
 active space cannot be archived. Space create/rename/archive results contain
 `id`, `name`, `color`, `icon`, `sortOrder`, and `isArchived` in JSON.
+Space, project, and label colors must be valid hexadecimal or named colors.
 
 `project create NAME --space SPACE_ID_OR_UNIQUE_NAME` creates a local project;
 `--description`, `--color`, and `--icon` are optional. `project rename ID NAME`
 renames one. `project update ID` accepts `--name`, `--description`,
 `--clear-description`, `--color`, `--icon`, `--clear-icon`, `--status
 active|completed|archived`, `--favorite`, and `--unfavorite`; specify at least
-one field. `project delete ID --yes` deletes a local project and moves its
+one field. Non-local projects retain Desktop's local rename behavior; changing
+other project fields remains restricted to local projects. `project delete ID
+--yes` deletes a local project and moves its
 tasks to Inbox. Create/rename/update results contain `id`, `spaceId`, `name`,
 `description`, `color`, `icon`, `status`, `isArchived`, and `isFavorite`.
 
 `label create NAME` accepts optional `--color` and `--description`; a
 case-insensitive existing name is returned unchanged. `label rename ID NAME`
 renames a local label. `label delete ID --yes` deletes a local label and removes
-it from its tasks. Create/rename results contain `id`, `name`, `color`, and
+it from its tasks. Both operations are refused for provider-owned labels and
+while Personal Cloud is connected because cloud label mutations are not yet
+supported; local-only setups continue to support them. Create/rename results contain `id`, `name`, `color`, and
 `description`. Delete results for projects and labels contain `deleted` and
 `id`. All delete subcommands and `space archive` require `--yes`; without it
 they exit 5 and make no requested change.
@@ -174,8 +181,11 @@ point automatically. Create/list JSON entries contain `fileName`, `createdAt`,
 `sizeBytes`, `reason`, `note`, `taskCount`, `projectCount`, `spaceCount`, and
 `integrityStatus`; restore returns `restored` and `fileName`. Listing is
 read-only. Creating a restore point and restoring one do not contact a provider.
-Restore is refused before replacing the database if either the live database or
-selected snapshot contains unresolved Personal Cloud edits, conflicts, deferred
+Restore is refused while Personal Cloud is connected because rollback isn't
+supported with the cloud on yet. It is also refused before replacing the
+database if either the live database or selected snapshot contains pending
+provider writes (including Todoist completions and planned-date updates), or
+unresolved Personal Cloud edits, conflicts, deferred
 changes, provider commands, or incomplete sync, or if both contain incompatible
 cloud identities. Sync or resolve those changes first. An unfinished initial-sync
 record remains blocking if its device is disconnected or the sync is abandoned,
@@ -184,8 +194,8 @@ quiescent compatible cloud state, restore preserves the live device-sequence and
 initial-report high-water marks. If the live database is missing, restore also
 refuses a snapshot containing Personal Cloud state because those accepted
 high-water marks cannot be verified; local-only snapshots remain restorable.
-Restore points replace local data only; they do not undo Personal Cloud changes,
-and later sync may reapply remote state.
+Manual restore points cannot evict pre-restore, pre-import, or pre-migration
+safety points. Restore points replace local data only; they do not undo Personal Cloud changes, and later sync may reapply remote state.
 
 Task JSON from both `task list` and single-task commands includes
 `isRecurring` and `recurrenceRule`. `isRecurring` is `true` exactly when the

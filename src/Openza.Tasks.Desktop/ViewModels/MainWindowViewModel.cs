@@ -176,7 +176,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
                     CurrentAppVersion),
                 databaseReplacementLeaseFactory: Path.GetFullPath(sqliteStore.DatabasePath) == Path.GetFullPath(DesktopDataPaths.DatabasePath)
                     ? () => Openza.Tasks.Application.Runtime.ChannelRuntimeLease.AcquireDatabaseReplacement(DesktopDataPaths.Runtime)
-                    : null)
+                    : null,
+                personalCloudConnected: () => _taskService.IsPersonalCloudConnected)
             : null));
     }
 

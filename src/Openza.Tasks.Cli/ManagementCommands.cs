@@ -216,7 +216,7 @@ internal static partial class OpenzaCli
     {
         var id = new Argument<string>("id");
         var name = new Argument<string>("name");
-        var command = new Command("rename", "Rename a label.");
+        var command = new Command("rename", "Rename a local label; unavailable for provider-owned labels or while Personal Cloud is connected.");
         command.Arguments.Add(id);
         command.Arguments.Add(name);
         command.SetAction(async (parseResult, cancellationToken) => await ExecuteAsync(parseResult, format, async context =>
@@ -232,7 +232,7 @@ internal static partial class OpenzaCli
     {
         var id = new Argument<string>("id");
         var yes = new Option<bool>("--yes") { Description = "Confirm deleting the label and removing it from tasks." };
-        var command = new Command("delete", "Delete a label and remove it from tasks.");
+        var command = new Command("delete", "Delete a local label and remove it from tasks; unavailable for provider-owned labels or while Personal Cloud is connected.");
         command.Arguments.Add(id);
         command.Options.Add(yes);
         command.SetAction(async (parseResult, cancellationToken) => await ExecuteAsync(parseResult, format, async context =>
@@ -291,7 +291,7 @@ internal static partial class OpenzaCli
     {
         var fileName = new Argument<string>("file-name") { Description = "Exact restore-point filename from restore-point list." };
         var yes = new Option<bool>("--yes") { Description = "Confirm replacing the current local database." };
-        var command = new Command("restore", "Restore a listed restore point; a pre-restore safety point is created automatically.");
+        var command = new Command("restore", "Restore a listed point; refused with connected Personal Cloud or pending provider writes.");
         command.Arguments.Add(fileName);
         command.Options.Add(yes);
         command.SetAction(async (parseResult, cancellationToken) =>
@@ -327,7 +327,8 @@ internal static partial class OpenzaCli
     }
 
     private static BackupService CreateBackupService(CliContext context) =>
-        new(context.Runtime.DatabasePath, context.Runtime.RestorePointDirectory);
+        new(context.Runtime.DatabasePath, context.Runtime.RestorePointDirectory,
+            personalCloudConnected: () => context.Service.IsPersonalCloudConnected);
 
     private static void WriteSpace(CliOutput output, SpaceItem space)
     {

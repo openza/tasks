@@ -10,6 +10,7 @@ public sealed partial class TaskApplicationService(
     Func<PersonalCloudConnectionProfile?>? personalCloudConnection = null)
 {
     public ITaskStore Store { get; } = store;
+    public bool IsPersonalCloudConnected => PersonalCloudTarget() is not null;
 
     public Task InitializeAsync(CancellationToken cancellationToken = default) => Store.InitializeAsync(cancellationToken);
 
@@ -135,6 +136,8 @@ public sealed partial class TaskApplicationService(
     {
         using var connectionLease = AcquirePersonalCloudAuthoringLease();
         var original = await RequireTaskAsync(request.TaskId, cancellationToken).ConfigureAwait(false);
+        if (request.ParentId.IsSpecified && original.IntegrationId != IntegrationIds.Local)
+            throw new OperationRestrictedException("Parent changes are not supported for provider-linked tasks; the provider may overwrite local parent changes on the next sync.");
         var target = HasCloudFieldEdits(request) ? PersonalCloudTarget() : null;
         if ((request.ReminderAt.IsSpecified || request.ScheduledStart.IsSpecified || request.ScheduledEnd.IsSpecified ||
              request.DurationMinutes.IsSpecified || request.ParentId.IsSpecified) &&
@@ -379,12 +382,6 @@ public sealed partial class TaskApplicationService(
                 ? await RequireTaskAsync(original.Id, cancellationToken).ConfigureAwait(false)
                 : original;
         }
-        if (targetSpaceId != original.SpaceId)
-        {
-            var childCounts = await GetTaskChildCountsAsync(cancellationToken).ConfigureAwait(false);
-            if (childCounts.GetValueOrDefault(original.Id) > 0)
-                throw new ArgumentException("Move a task's subtasks before moving the task to another space.", nameof(request));
-        }
         var updated = original with
         {
             Title = title,
@@ -416,7 +413,21 @@ public sealed partial class TaskApplicationService(
             ? null
             : ProviderWriteBackPlanner.CreateCompletion(original, completed, now);
         var pendingDate = ProviderWriteBackPlanner.CreateTodoistDateUpdate(original, updated, DateTimeOffset.UtcNow);
-        if (!await Store.TryUpsertTaskWithPendingUpdatesAsync(updated, expectedRevision, pendingCompletion, pendingDate, cancellationToken).ConfigureAwait(false))
+        bool updatedSuccessfully;
+        if (targetSpaceId != original.SpaceId && Store is SqliteTaskStore moveStore)
+        {
+            updatedSuccessfully = await moveStore.TryUpsertTaskWithPendingUpdatesAndMoveTaskTreeAsync(
+                updated, expectedRevision, pendingCompletion, pendingDate, cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            if (targetSpaceId != original.SpaceId &&
+                (await GetTaskChildCountsAsync(cancellationToken).ConfigureAwait(false)).GetValueOrDefault(original.Id) > 0)
+                throw new ArgumentException("This task store cannot atomically move a task with subtasks to another space.", nameof(request));
+            updatedSuccessfully = await Store.TryUpsertTaskWithPendingUpdatesAsync(
+                updated, expectedRevision, pendingCompletion, pendingDate, cancellationToken).ConfigureAwait(false);
+        }
+        if (!updatedSuccessfully)
         {
             throw new TaskConflictException(original.Id);
         }

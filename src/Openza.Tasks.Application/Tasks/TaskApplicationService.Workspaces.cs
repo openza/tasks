@@ -32,7 +32,7 @@ public sealed partial class TaskApplicationService
         {
             Id = $"space_{Guid.NewGuid():N}",
             Name = name,
-            Color = color ?? "#6B8AFD",
+            Color = WorkspaceColorValidation.Normalize(color, "#6B8AFD", nameof(color)),
             Icon = icon,
             SortOrder = spaces.Count,
             CreatedAt = now,
@@ -86,7 +86,7 @@ public sealed partial class TaskApplicationService
             IntegrationId = IntegrationIds.Local,
             Name = name,
             Description = NullIfEmpty(description),
-            Color = color ?? "#6B8AFD",
+            Color = WorkspaceColorValidation.Normalize(color, "#6B8AFD", nameof(color)),
             Icon = icon,
             CreatedAt = now,
             UpdatedAt = now,
@@ -106,7 +106,9 @@ public sealed partial class TaskApplicationService
     {
         using var lease = AcquirePersonalCloudAuthoringLease();
         var project = await RequireProjectByIdAsync(request.ProjectId, cancellationToken).ConfigureAwait(false);
-        if (project.IntegrationId != IntegrationIds.Local)
+        if (project.IntegrationId != IntegrationIds.Local &&
+            (request.Description.IsSpecified || request.Color.IsSpecified || request.Icon.IsSpecified ||
+             request.Status.IsSpecified || request.IsFavorite.IsSpecified))
             throw new ArgumentException("Only local projects can be edited.", nameof(request));
         var name = request.Name.IsSpecified ? RequireName(request.Name.Value, "project") : project.Name;
         var status = request.Status.IsSpecified ? ProjectLifecycleStates.Normalize(request.Status.Value) : project.Status;
@@ -114,13 +116,18 @@ public sealed partial class TaskApplicationService
         {
             Name = name,
             Description = request.Description.IsSpecified ? NullIfEmpty(request.Description.Value) : project.Description,
-            Color = request.Color.IsSpecified ? request.Color.Value ?? "#808080" : project.Color,
+            Color = request.Color.IsSpecified ? WorkspaceColorValidation.Normalize(request.Color.Value, "#808080", nameof(request)) : project.Color,
             Icon = request.Icon.IsSpecified ? NullIfEmpty(request.Icon.Value) : project.Icon,
             Status = status,
             IsArchived = request.Status.IsSpecified ? status == ProjectLifecycleStates.Archived : project.IsArchived,
             IsFavorite = request.IsFavorite.IsSpecified ? request.IsFavorite.Value : project.IsFavorite,
             UpdatedAt = DateTimeOffset.UtcNow,
         };
+        if (project.IntegrationId != IntegrationIds.Local)
+        {
+            await Store.UpsertProjectAsync(updated, cancellationToken).ConfigureAwait(false);
+            return updated;
+        }
         await UpsertProjectWithCloudAsync(updated, cancellationToken).ConfigureAwait(false);
         return updated;
     }
@@ -148,7 +155,7 @@ public sealed partial class TaskApplicationService
         {
             Id = $"label_{Guid.NewGuid():N}",
             Name = name,
-            Color = color ?? "#808080",
+            Color = WorkspaceColorValidation.Normalize(color, "#808080", nameof(color)),
             Description = NullIfEmpty(description),
             CreatedAt = DateTimeOffset.UtcNow,
         };
@@ -158,10 +165,13 @@ public sealed partial class TaskApplicationService
 
     public async Task<LabelItem> RenameLabelAsync(string labelId, string name, CancellationToken cancellationToken = default)
     {
+        using var lease = AcquirePersonalCloudAuthoringLease();
         name = RequireName(name, "label");
         var label = await RequireLabelByIdAsync(labelId, cancellationToken).ConfigureAwait(false);
         if (label.IntegrationId != IntegrationIds.Local)
-            throw new ArgumentException("Only local labels can be renamed.", nameof(labelId));
+            throw new OperationRestrictedException("Provider-owned labels cannot be renamed locally.");
+        if (PersonalCloudTarget() is not null)
+            throw new OperationRestrictedException("Label rename is not synchronized to Personal Cloud yet; disconnect Personal Cloud before renaming labels.");
         if ((await Store.GetLabelsAsync(cancellationToken).ConfigureAwait(false)).Any(item =>
             item.Id != labelId && string.Equals(item.Name, name, StringComparison.CurrentCultureIgnoreCase)))
             throw new ArgumentException("A label with that name already exists.", nameof(name));
@@ -175,20 +185,9 @@ public sealed partial class TaskApplicationService
         using var lease = AcquirePersonalCloudAuthoringLease();
         var label = await RequireLabelByIdAsync(labelId, cancellationToken).ConfigureAwait(false);
         if (label.IntegrationId != IntegrationIds.Local)
-            throw new ArgumentException("Only local labels can be deleted.", nameof(labelId));
-        if (PersonalCloudTarget() is { } target && Store is SqliteTaskStore sqliteStore)
-        {
-            var tasks = await Store.GetTasksAsync(new TaskQuery { Kind = TaskListKind.All, IncludeSubtasks = true }, cancellationToken).ConfigureAwait(false);
-            var localOnlyTaskIds = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var task in tasks.Where(task => task.Labels.Any(item => item.Id == labelId)))
-            {
-                if (await sqliteStore.IsPersonalCloudTaskRecoveryCopyAsync(target.InstanceId, task.Id, cancellationToken).ConfigureAwait(false))
-                    localOnlyTaskIds.Add(task.Id);
-            }
-            await sqliteStore.DeleteLabelWithPersonalCloudIntentsAsync(
-                labelId, target.InstanceId, target.DeviceId, localOnlyTaskIds, cancellationToken).ConfigureAwait(false);
-            return;
-        }
+            throw new OperationRestrictedException("Provider-owned labels cannot be deleted locally.");
+        if (PersonalCloudTarget() is not null)
+            throw new OperationRestrictedException("Label deletion is not synchronized to Personal Cloud yet; disconnect Personal Cloud before deleting labels.");
         await Store.DeleteLabelAsync(labelId, cancellationToken).ConfigureAwait(false);
     }
 
@@ -229,11 +228,11 @@ public sealed partial class TaskApplicationService
         ?? throw new KeyNotFoundException($"Space '{id}' was not found.");
 
     private async Task<ProjectItem> RequireProjectByIdAsync(string id, CancellationToken cancellationToken) =>
-        (await Store.GetProjectsAsync(includeArchived: true, cancellationToken: cancellationToken).ConfigureAwait(false)).FirstOrDefault(project => project.Id == id)
+        await Store.GetProjectAsync(id, cancellationToken).ConfigureAwait(false)
         ?? throw new KeyNotFoundException($"Project '{id}' was not found.");
 
     private async Task<LabelItem> RequireLabelByIdAsync(string id, CancellationToken cancellationToken) =>
-        (await Store.GetLabelsAsync(cancellationToken).ConfigureAwait(false)).FirstOrDefault(label => label.Id == id)
+        await Store.GetLabelAsync(id, cancellationToken).ConfigureAwait(false)
         ?? throw new KeyNotFoundException($"Label '{id}' was not found.");
 
     private async Task UpsertSpaceWithCloudAsync(SpaceItem space, CancellationToken cancellationToken)

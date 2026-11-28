@@ -193,6 +193,21 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
         return projects;
     }
 
+    public async Task<ProjectItem?> GetProjectAsync(string id, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT id, external_id, space_id, integration_id, provider_connection_id, name, description, color, icon, parent_id,
+                   sort_order, is_favorite, is_archived, status, provider_metadata, created_at, updated_at
+            FROM projects
+            WHERE id = @id
+            """;
+        command.Parameters.AddWithValue("@id", id);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        return await reader.ReadAsync(cancellationToken).ConfigureAwait(false) ? ReadProject(reader) : null;
+    }
+
     public async Task<IReadOnlyList<LabelItem>> GetLabelsAsync(CancellationToken cancellationToken = default)
     {
         await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
@@ -213,6 +228,21 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
         }
 
         return labels;
+    }
+
+    public async Task<LabelItem?> GetLabelAsync(string id, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT id, external_id, integration_id, provider_connection_id, name, color, description, sort_order,
+                   is_favorite, provider_metadata, created_at
+            FROM labels
+            WHERE id = @id
+            """;
+        command.Parameters.AddWithValue("@id", id);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        return await reader.ReadAsync(cancellationToken).ConfigureAwait(false) ? ReadLabel(reader) : null;
     }
 
     public async Task<IReadOnlyList<ProjectItem>> GetProviderProjectsAsync(string integrationId, bool includeArchived = false, CancellationToken cancellationToken = default)
@@ -3582,6 +3612,77 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
         {
             await QueueTaskDateUpdateCoreAsync(connection, dateUpdate, cancellationToken).ConfigureAwait(false);
         }
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return true;
+    }
+
+    public async Task<bool> TryUpsertTaskWithPendingUpdatesAndMoveTaskTreeAsync(
+        TaskItem task,
+        long expectedRevision,
+        PendingCompletion? completion,
+        PendingTaskDateUpdate? dateUpdate,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        var revisionCommand = connection.CreateCommand();
+        revisionCommand.CommandText = "SELECT revision FROM tasks WHERE id = @id";
+        revisionCommand.Parameters.AddWithValue("@id", task.Id);
+        var current = await revisionCommand.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+        if (current is null || current is DBNull || Convert.ToInt64(current) != expectedRevision)
+        {
+            await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
+            return false;
+        }
+
+        await UpsertTaskCoreAsync(connection, task, cancellationToken).ConfigureAwait(false);
+        await SetTaskLabelsCoreAsync(connection, task.Id, task.Labels, cancellationToken).ConfigureAwait(false);
+
+        var moveDescendants = connection.CreateCommand();
+        moveDescendants.CommandText = """
+            WITH RECURSIVE moved_tasks(id) AS (
+                SELECT id FROM tasks WHERE id = @task_id
+                UNION ALL
+                SELECT child.id
+                FROM tasks child
+                INNER JOIN moved_tasks parent ON child.parent_id = parent.id
+            )
+            UPDATE tasks
+            SET space_id = @space_id,
+                project_id = NULL,
+                updated_at = @updated_at,
+                revision = revision + 1
+            WHERE id IN (SELECT id FROM moved_tasks) AND id != @task_id
+            """;
+        moveDescendants.Parameters.AddWithValue("@task_id", task.Id);
+        moveDescendants.Parameters.AddWithValue("@space_id", task.SpaceId);
+        moveDescendants.Parameters.AddWithValue("@updated_at", ToDbValue(task.UpdatedAt));
+        await moveDescendants.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+
+        if (completion is not null)
+            await QueueCompletionCoreAsync(connection, completion, cancellationToken).ConfigureAwait(false);
+        if (dateUpdate is not null)
+            await QueueTaskDateUpdateCoreAsync(connection, dateUpdate, cancellationToken).ConfigureAwait(false);
+
+        var updateSources = connection.CreateCommand();
+        updateSources.CommandText = """
+            WITH RECURSIVE moved_tasks(id) AS (
+                SELECT id FROM tasks WHERE id = @task_id
+                UNION ALL
+                SELECT child.id
+                FROM tasks child
+                INNER JOIN moved_tasks parent ON child.parent_id = parent.id
+            )
+            UPDATE provider_source_items
+            SET suggested_space_id = @space_id,
+                updated_at = @updated_at
+            WHERE adopted_task_id IN (SELECT id FROM moved_tasks)
+            """;
+        updateSources.Parameters.AddWithValue("@task_id", task.Id);
+        updateSources.Parameters.AddWithValue("@space_id", task.SpaceId);
+        updateSources.Parameters.AddWithValue("@updated_at", ToDbValue(task.UpdatedAt));
+        await updateSources.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return true;
     }

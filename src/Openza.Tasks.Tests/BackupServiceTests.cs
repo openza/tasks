@@ -167,9 +167,28 @@ public sealed class BackupServiceTests : IDisposable
 
         var backups = service.ListBackupInfo();
 
-        Assert.Equal(2, backups.Count);
+        Assert.Equal(3, backups.Count);
         Assert.Single(backups, backup => backup.Reason == BackupReasons.Daily);
+        Assert.Single(backups, backup => backup.Reason == BackupReasons.Manual);
         Assert.Single(backups, backup => backup.Reason == BackupReasons.PreImport);
+    }
+
+    [Fact]
+    public async Task Manual_retention_does_not_evict_restore_safety_points()
+    {
+        var databasePath = await CreateDatabaseAsync("safety-retention.db", taskId: "task_safety_retention");
+        var service = CreateService(databasePath, Path.Combine(_directory, "safety-retention"),
+            new BackupRetentionPolicy(DailyBackups: 0, WeeklyBackups: 0, MonthlyBackups: 0, EventBackups: 1));
+        var preRestore = await service.CreateBackupAsync(BackupReasons.PreRestore);
+        var preMigration = await service.CreateBackupAsync(BackupReasons.PreMigration);
+
+        for (var index = 0; index < 4; index++)
+            await service.CreateBackupAsync(BackupReasons.Manual);
+
+        var backups = service.ListBackupInfo();
+        Assert.Contains(backups, backup => backup.Path == preRestore);
+        Assert.Contains(backups, backup => backup.Path == preMigration);
+        Assert.Single(backups, backup => backup.Reason == BackupReasons.Manual);
     }
 
     [Fact]
@@ -189,6 +208,71 @@ public sealed class BackupServiceTests : IDisposable
         Assert.Null(await restoredStore.GetTaskAsync("task_current"));
         Assert.NotNull(await restoredStore.GetTaskAsync("task_restored"));
         Assert.Single(backups, backup => backup.Reason == BackupReasons.PreRestore);
+    }
+
+    [Fact]
+    public async Task Restore_refuses_pending_provider_writes_in_live_database()
+    {
+        var currentPath = await CreateDatabaseAsync("provider-queue-live.db", taskId: "task_current");
+        var restorePointPath = await CreateDatabaseAsync("provider-queue-snapshot.db", taskId: "task_snapshot");
+        var store = new SqliteTaskStore(currentPath);
+        await store.QueueCompletionAsync(new PendingCompletion
+        {
+            Id = "queued-completion", TaskId = "task_current", Provider = IntegrationIds.Todoist,
+            ProviderTaskId = "remote-current", Completed = true, CreatedAt = DateTimeOffset.UtcNow,
+        });
+        await store.QueueTaskDateUpdateAsync(new PendingTaskDateUpdate
+        {
+            Id = "queued-date", TaskId = "task_current", Provider = IntegrationIds.Todoist,
+            ProviderTaskId = "remote-current", PlannedOn = new DateOnly(2030, 1, 2), CreatedAt = DateTimeOffset.UtcNow,
+        });
+        var service = CreateService(currentPath);
+
+        var exception = await Assert.ThrowsAsync<PersonalCloudK0ContractException>(() => service.RestoreBackupAsync(restorePointPath));
+
+        Assert.Equal("pending_provider_writes", exception.Code);
+        Assert.NotNull(await store.GetTaskAsync("task_current"));
+        Assert.Equal(1, (await store.GetPendingProviderWriteSummaryAsync(IntegrationIds.Todoist)).Completions);
+        Assert.Equal(1, (await store.GetPendingProviderWriteSummaryAsync(IntegrationIds.Todoist)).DateUpdates);
+        Assert.Empty(service.ListBackupInfo());
+    }
+
+    [Fact]
+    public async Task Restore_refuses_pending_provider_writes_in_selected_snapshot()
+    {
+        var currentPath = await CreateDatabaseAsync("provider-queue-current.db", taskId: "task_current");
+        var restorePointPath = await CreateDatabaseAsync("provider-queue-point.db", taskId: "task_snapshot");
+        var snapshotStore = new SqliteTaskStore(restorePointPath);
+        await snapshotStore.QueueTaskDateUpdateAsync(new PendingTaskDateUpdate
+        {
+            Id = "snapshot-date", TaskId = "task_snapshot", Provider = IntegrationIds.Todoist,
+            ProviderTaskId = "remote-snapshot", PlannedOn = new DateOnly(2030, 1, 3), CreatedAt = DateTimeOffset.UtcNow,
+        });
+        var service = CreateService(currentPath);
+        var currentStore = new SqliteTaskStore(currentPath);
+
+        var exception = await Assert.ThrowsAsync<PersonalCloudK0ContractException>(() => service.RestoreBackupAsync(restorePointPath));
+
+        Assert.Equal("pending_provider_writes", exception.Code);
+        Assert.NotNull(await currentStore.GetTaskAsync("task_current"));
+        Assert.Null(await currentStore.GetTaskAsync("task_snapshot"));
+        Assert.Equal(1, (await snapshotStore.GetPendingProviderWriteSummaryAsync(IntegrationIds.Todoist)).DateUpdates);
+        Assert.Empty(service.ListBackupInfo());
+    }
+
+    [Fact]
+    public async Task Restore_refuses_when_personal_cloud_is_connected()
+    {
+        var currentPath = await CreateDatabaseAsync("connected-cloud-current.db", taskId: "task_current");
+        var restorePointPath = await CreateDatabaseAsync("connected-cloud-point.db", taskId: "task_snapshot");
+        var service = CreateService(currentPath, personalCloudConnected: () => true);
+
+        var exception = await Assert.ThrowsAsync<PersonalCloudK0ContractException>(() => service.RestoreBackupAsync(restorePointPath));
+
+        Assert.Equal("cloud_connected", exception.Code);
+        Assert.Contains("rollback isn't supported with the cloud on yet", exception.Message, StringComparison.Ordinal);
+        Assert.NotNull(await new SqliteTaskStore(currentPath).GetTaskAsync("task_current"));
+        Assert.Empty(service.ListBackupInfo());
     }
 
     [Fact]
@@ -582,12 +666,14 @@ public sealed class BackupServiceTests : IDisposable
     private BackupService CreateService(
         string databasePath,
         string? backupDirectory = null,
-        BackupRetentionPolicy? retentionPolicy = null) =>
+        BackupRetentionPolicy? retentionPolicy = null,
+        Func<bool>? personalCloudConnected = null) =>
         new(
             databasePath,
             backupDirectory ?? Path.Combine(_directory, "backups"),
             retentionPolicy,
-            new BackupContext("test.identity", "test", "1.2.3.4"));
+            new BackupContext("test.identity", "test", "1.2.3.4"),
+            personalCloudConnected: personalCloudConnected);
 
     private sealed class TrackingDisposable : IDisposable
     {
