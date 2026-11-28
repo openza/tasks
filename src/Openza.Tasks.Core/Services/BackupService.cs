@@ -385,6 +385,11 @@ public sealed class BackupService(
             ? new PersonalCloudRestoreState([], [])
             : await ReadPersonalCloudRestoreStateAsync(currentDatabasePath, cancellationToken).ConfigureAwait(false);
         var restorePoint = await ReadPersonalCloudRestoreStateAsync(restorePointPath, cancellationToken).ConfigureAwait(false);
+        if (currentDatabasePath is null && (restorePoint.InstanceIds.Count > 0 || restorePoint.Identities.Count > 0))
+        {
+            throw new PersonalCloudK0ContractException("pending_intents",
+                "Restore is refused because the live database is missing and the selected restore point contains Personal Cloud state whose accepted sequence high-water marks cannot be verified. Recover the live database or restore a local-only snapshot. Restore points do not roll back Personal Cloud.");
+        }
         if (currentDatabasePath is not null &&
             (current.InstanceIds.Count > 0 || restorePoint.InstanceIds.Count > 0) &&
             (!current.InstanceIds.SetEquals(restorePoint.InstanceIds) ||

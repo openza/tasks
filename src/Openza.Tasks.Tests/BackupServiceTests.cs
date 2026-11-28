@@ -288,6 +288,33 @@ public sealed class BackupServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Restore_refuses_cloud_snapshot_when_live_database_is_missing_but_restores_local_snapshot()
+    {
+        const string instanceId = "instance_00000000000000000000000000000065";
+        const string deviceId = "device_00000000000000000000000000000065";
+        var cloudSnapshot = await CreateDatabaseAsync("missing-live-cloud-snapshot.db", taskId: "cloud_snapshot_task");
+        var cloudStore = new SqliteTaskStore(cloudSnapshot);
+        await cloudStore.InitializeAsync();
+        await cloudStore.BeginPersonalCloudInitialSyncAsync(instanceId, deviceId);
+        await cloudStore.SetPersonalCloudInitialSyncPhaseAsync(instanceId, deviceId, PersonalCloudInitialSyncPhase.Complete);
+        var missingCloudDatabase = Path.Combine(_directory, "missing-live-cloud.db");
+        var cloudService = CreateService(missingCloudDatabase);
+
+        var exception = await Assert.ThrowsAsync<PersonalCloudK0ContractException>(() => cloudService.RestoreBackupAsync(cloudSnapshot));
+
+        Assert.Equal("pending_intents", exception.Code);
+        Assert.Contains("live database is missing", exception.Message);
+        Assert.False(File.Exists(missingCloudDatabase));
+
+        var localSnapshot = await CreateDatabaseAsync("missing-live-local-snapshot.db", taskId: "local_snapshot_task");
+        var missingLocalDatabase = Path.Combine(_directory, "missing-live-local.db");
+        await CreateService(missingLocalDatabase).RestoreBackupAsync(localSnapshot);
+
+        Assert.True(File.Exists(missingLocalDatabase));
+        Assert.NotNull(await new SqliteTaskStore(missingLocalDatabase).GetTaskAsync("local_snapshot_task"));
+    }
+
+    [Fact]
     public async Task Restore_preserves_quiescent_cloud_high_water_across_repeated_restores()
     {
         const string instanceId = "instance_00000000000000000000000000000064";

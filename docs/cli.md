@@ -179,8 +179,11 @@ selected snapshot contains unresolved Personal Cloud edits, conflicts, deferred
 changes, provider commands, or incomplete sync, or if both contain incompatible
 cloud identities. Sync or resolve those changes first. With quiescent compatible
 cloud state, restore preserves the live device-sequence and initial-report
-high-water marks. Restore points replace local data only; they do not undo
-Personal Cloud changes, and later sync may reapply remote state.
+high-water marks. If the live database is missing, restore also refuses a
+snapshot containing Personal Cloud state because those accepted high-water marks
+cannot be verified; local-only snapshots remain restorable. Restore points
+replace local data only; they do not undo Personal Cloud changes, and later sync
+may reapply remote state.
 
 Task JSON from both `task list` and single-task commands includes
 `isRecurring` and `recurrenceRule`. `isRecurring` is `true` exactly when the
