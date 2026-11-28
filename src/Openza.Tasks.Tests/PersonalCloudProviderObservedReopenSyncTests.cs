@@ -85,6 +85,29 @@ public sealed class PersonalCloudProviderObservedReopenSyncTests : IDisposable
         Assert.Contains(PersonalCloudK0Protocol.ProviderObservedReopenOperation, handler.SingleOperations);
     }
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(2)]
+    public async Task Provider_observed_receipt_at_base_or_newer_version_does_not_block_later_mutations(long versionOffset)
+    {
+        var (store, client, handler, taskId) = await CreateAsync();
+        handler.SupportsObserved = true;
+        handler.ProviderObservedReceiptIsNoop = true;
+        await store.PrepareProviderObservedReopensAsync(Instance, Device, "supported:test");
+        var baseVersion = await store.GetPersonalCloudEntityVersionAsync(Instance, taskId);
+        Assert.NotNull(baseVersion);
+        handler.ProviderObservedReceiptEntityVersion = baseVersion.Value + versionOffset;
+        var laterMutation = await AddUnrelatedTaskAsync(store, "unrelated_after_observation_receipt");
+
+        for (var attempt = 0; attempt < 3 && (await store.GetPendingPersonalCloudOutboxAsync(Instance, Device)).Count > 0; attempt++)
+            Assert.Null((await client.SyncAsync()).BlockedCode);
+
+        Assert.Contains(laterMutation.EntityId, handler.SingleEntityIds);
+        Assert.Equal(1, handler.ObservedPosts);
+        Assert.Empty(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device));
+        Assert.Equal(baseVersion.Value + versionOffset, await store.GetPersonalCloudEntityVersionAsync(Instance, taskId));
+    }
+
     [Fact]
     public async Task Reconciles_synthetic_199_missing_sources_and_63_cancelled_attempts_and_clears_settings_requests()
     {
@@ -667,6 +690,8 @@ public sealed class PersonalCloudProviderObservedReopenSyncTests : IDisposable
         public bool RejectCancellationAsSuperseded { get; set; }
         public bool RejectHistoricalCompletionAsUnknown { get; set; }
         public bool RejectObserved { get; set; }
+        public long? ProviderObservedReceiptEntityVersion { get; set; }
+        public bool ProviderObservedReceiptIsNoop { get; set; }
         public int ObservedPosts { get; private set; }
         public int CreatePosts { get; private set; }
         public int CancellationPosts { get; private set; }
@@ -744,11 +769,14 @@ public sealed class PersonalCloudProviderObservedReopenSyncTests : IDisposable
         private object Accept(JsonElement mutation)
         {
             var operation = mutation.GetProperty("operation").GetString();
-            var sequence = checked(++_changeSequence);
+            var sequence = operation == PersonalCloudK0Protocol.ProviderObservedReopenOperation && ProviderObservedReceiptIsNoop
+                ? _changeSequence : checked(++_changeSequence);
             var entityVersion = operation switch
             {
-                PersonalCloudK0Protocol.CompleteTaskOperation or PersonalCloudK0Protocol.ReopenTaskOperation or
-                    PersonalCloudK0Protocol.ProviderObservedReopenOperation => mutation.GetProperty("baseEntityVersion").GetInt64() + 1,
+                PersonalCloudK0Protocol.CompleteTaskOperation or PersonalCloudK0Protocol.ReopenTaskOperation =>
+                    mutation.GetProperty("baseEntityVersion").GetInt64() + 1,
+                PersonalCloudK0Protocol.ProviderObservedReopenOperation => ProviderObservedReceiptEntityVersion ??
+                    mutation.GetProperty("baseEntityVersion").GetInt64() + 1,
                 PersonalCloudK0Protocol.TaskHistoricalCompletionImportOperation =>
                     mutation.GetProperty("baseEntityVersion").ValueKind == JsonValueKind.Number
                         ? mutation.GetProperty("baseEntityVersion").GetInt64() + 1 : 1,

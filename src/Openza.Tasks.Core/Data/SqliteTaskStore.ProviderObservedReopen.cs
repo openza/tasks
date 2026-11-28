@@ -168,19 +168,10 @@ public sealed partial class SqliteTaskStore
                                       AND CAST(json_extract(result.canonical_json,'$.payload.requestedChangeSeq') AS INTEGER)=c.requested_seq
                                       AND result.local_sequence>o.local_sequence))
                             )
-                            OR (c.command='complete' AND c.state='confirmed'
-                              AND c.requested_seq>COALESCE(o.server_change_seq,(SELECT applied.change_seq FROM personal_cloud_applied_changes applied
-                                    WHERE applied.instance_id=o.instance_id AND applied.product='tasks'
-                                      AND applied.mutation_id=o.mutation_id AND applied.entity_id=o.entity_id))
-                              AND EXISTS(SELECT 1 FROM personal_cloud_outbox result
-                                WHERE result.instance_id=c.instance_id AND result.entity_id=c.task_id
-                                  AND result.operation='externalCommand.confirm' AND result.acknowledged_at IS NOT NULL
-                                  AND result.local_sequence>o.local_sequence
-                                  AND CAST(json_extract(result.canonical_json,'$.payload.requestedChangeSeq') AS INTEGER)=c.requested_seq
-                                  AND (EXISTS(SELECT 1 FROM provider_completion_confirmations f
-                                        WHERE f.instance_id=c.instance_id AND f.task_id=c.task_id
-                                          AND f.requested_change_seq=c.requested_seq)
-                                    OR json_extract(result.canonical_json,'$.payload.resolvedAt') IS NOT NULL)))
+                            OR c.requested_seq>COALESCE(o.server_change_seq,(SELECT applied.change_seq FROM personal_cloud_applied_changes applied
+                                  WHERE applied.instance_id=o.instance_id AND applied.product='tasks'
+                                    AND applied.mutation_id=o.mutation_id AND applied.entity_id=o.entity_id)
+                            )
                           ))
                 )))
             """;

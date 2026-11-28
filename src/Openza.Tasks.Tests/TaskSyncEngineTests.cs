@@ -1106,6 +1106,41 @@ public sealed class TaskSyncEngineTests : IDisposable
     }
 
     [Fact]
+    public async Task Synthetic_five_fresh_repeating_observations_reopen_and_fourteen_stale_one_offs_stay_completed()
+    {
+        var reopened = 0;
+        var retainedCompleted = 0;
+        for (var index = 0; index < 19; index++)
+        {
+            var isRepeating = index < 5;
+            var (store, _, task, confirmedAt) = await CreateConfirmedCloudTaskAsync(
+                $"Synthetic freshness split {index}", isRepeating,
+                databaseFileName: $"synthetic_freshness_split_{index:D2}.db");
+            var source = Assert.Single(await store.GetProviderSourceItemsAsync(IntegrationIds.Todoist, includeAdopted: true));
+            await store.UpsertProviderSourceItemAsync(source with
+            {
+                CompletionState = TaskCompletionState.Open,
+                LastSeenAt = isRepeating ? confirmedAt.AddSeconds(1) : confirmedAt.AddSeconds(-1),
+            });
+
+            var refreshed = await store.GetTaskAsync(task.Id);
+            if (isRepeating)
+            {
+                Assert.Equal(TaskCompletionState.Open, refreshed!.CompletionState);
+                reopened++;
+            }
+            else
+            {
+                Assert.Equal(TaskCompletionState.Completed, refreshed!.CompletionState);
+                retainedCompleted++;
+            }
+        }
+
+        Assert.Equal(5, reopened);
+        Assert.Equal(14, retainedCompleted);
+    }
+
+    [Fact]
     public async Task Later_legacy_completion_intent_without_exact_change_sequence_keeps_task_completed()
     {
         var (store, _, task, confirmedAt) = await CreateConfirmedCloudTaskAsync(
@@ -1221,7 +1256,7 @@ public sealed class TaskSyncEngineTests : IDisposable
     }
 
     [Fact]
-    public async Task Higher_cancelled_provider_command_does_not_supersede_latest_completion_intent()
+    public async Task Higher_cancelled_provider_command_releases_older_acknowledged_completion_intent()
     {
         var (store, _, task, confirmedAt) = await CreateConfirmedCloudTaskAsync(
             "Synthetic cancelled newer command", repeating: true);
@@ -1252,8 +1287,81 @@ public sealed class TaskSyncEngineTests : IDisposable
             LastSeenAt = confirmedAt.AddSeconds(2),
         });
 
-        Assert.Equal(TaskCompletionState.Completed, (await store.GetTaskAsync(task.Id))!.CompletionState);
+        Assert.Equal(TaskCompletionState.Open, (await store.GetTaskAsync(task.Id))!.CompletionState);
         Assert.Equal(0, await ScalarIntAsync("SELECT count(*) FROM personal_cloud_provider_observed_reopens WHERE task_id=@task_id", task.Id));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Higher_terminal_web_reopen_releases_older_completion_intent_for_provider_completion(bool confirmedOnThisDesktop)
+    {
+        var (store, provider, task, confirmedAt) = await CreateConfirmedCloudTaskAsync(
+            "Synthetic newer remote reopen", repeating: true);
+        var reopenConfirmedAt = DateTimeOffset.UtcNow;
+        await using (var connection = new SqliteConnection($"Data Source={Path.Combine(_directory, "openza_tasks.db")}"))
+        {
+            await connection.OpenAsync();
+            await using var command = connection.CreateCommand();
+            command.CommandText = """
+                INSERT INTO personal_cloud_outbox
+                    (mutation_id,product,instance_id,device_id,device_sequence,operation,entity_id,canonical_json,canonical_hash,created_at,acknowledged_at,server_change_seq)
+                VALUES('mutation_older_completion_intent','tasks','cloud_instance','desktop_test',3,'task.complete',@task_id,'{}',@hash,@at,@at,10);
+                UPDATE personal_cloud_provider_commands SET requested_seq=12,command='reopen',state='confirmed'
+                  WHERE instance_id='cloud_instance' AND task_id=@task_id;
+                UPDATE personal_cloud_device_state SET next_device_sequence=4
+                  WHERE instance_id='cloud_instance' AND device_id='desktop_test';
+                """;
+            command.Parameters.AddWithValue("@task_id", task.Id);
+            command.Parameters.AddWithValue("@hash", new string('d', 64));
+            command.Parameters.AddWithValue("@at", confirmedAt.AddSeconds(1).ToUnixTimeMilliseconds());
+            await command.ExecuteNonQueryAsync();
+
+            if (confirmedOnThisDesktop)
+            {
+                await using var result = connection.CreateCommand();
+                result.CommandText = """
+                    INSERT INTO personal_cloud_outbox
+                        (mutation_id,product,instance_id,device_id,device_sequence,operation,entity_id,canonical_json,canonical_hash,created_at,acknowledged_at,server_change_seq)
+                    VALUES('mutation_confirm_newer_reopen','tasks','cloud_instance','desktop_test',4,'externalCommand.confirm',@task_id,@json,@hash,@at,@at,12);
+                    UPDATE personal_cloud_device_state SET next_device_sequence=5
+                      WHERE instance_id='cloud_instance' AND device_id='desktop_test';
+                    """;
+                result.Parameters.AddWithValue("@task_id", task.Id);
+                result.Parameters.AddWithValue("@hash", new string('e', 64));
+                result.Parameters.AddWithValue("@at", reopenConfirmedAt.ToUnixTimeMilliseconds());
+                result.Parameters.AddWithValue("@json", System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    payload = new
+                    {
+                        requestedChangeSeq = 12,
+                        resolvedAt = reopenConfirmedAt.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", System.Globalization.CultureInfo.InvariantCulture),
+                    },
+                }));
+                await result.ExecuteNonQueryAsync();
+            }
+        }
+
+        var source = Assert.Single(await store.GetProviderSourceItemsAsync(IntegrationIds.Todoist, includeAdopted: true));
+        await store.UpsertProviderSourceItemAsync(source with
+        {
+            CompletionState = TaskCompletionState.Completed,
+            LastSeenAt = confirmedAt.AddSeconds(1),
+        });
+        await store.UpsertProviderSourceItemAsync(source with
+        {
+            CompletionState = TaskCompletionState.Open,
+            LastSeenAt = reopenConfirmedAt,
+        });
+        Assert.Equal(TaskCompletionState.Open, (await store.GetTaskAsync(task.Id))!.CompletionState);
+        Assert.Equal(1, await ScalarIntAsync("SELECT count(*) FROM personal_cloud_provider_observed_reopens WHERE task_id=@task_id", task.Id));
+
+        provider.IncludeActiveTask = false;
+        provider.IncludeCompletedTask = true;
+        provider.CompletedAt = reopenConfirmedAt.AddSeconds(1);
+        Assert.True((await new TaskSyncEngine(store).SyncAsync(provider)).Success);
+
+        Assert.Equal(TaskCompletionState.Completed, (await store.GetTaskAsync(task.Id))!.CompletionState);
     }
 
     [Theory]
@@ -1535,16 +1643,16 @@ public sealed class TaskSyncEngineTests : IDisposable
         Assert.Null(refreshed.RecurrenceRule);
     }
 
-    private SqliteTaskStore CreateStore()
+    private SqliteTaskStore CreateStore(string databaseFileName = "openza_tasks.db")
     {
         Directory.CreateDirectory(_directory);
-        return new SqliteTaskStore(Path.Combine(_directory, "openza_tasks.db"));
+        return new SqliteTaskStore(Path.Combine(_directory, databaseFileName));
     }
 
     private async Task<(SqliteTaskStore Store, FakeProvider Provider, TaskItem Task, DateTimeOffset ConfirmedAt)> CreateConfirmedCloudTaskAsync(
-        string title, bool repeating, bool legacyConfirmation = false)
+        string title, bool repeating, bool legacyConfirmation = false, string databaseFileName = "openza_tasks.db")
     {
-        var store = CreateStore();
+        var store = CreateStore(databaseFileName);
         await store.InitializeAsync();
         var provider = new FakeProvider
         {
@@ -1558,7 +1666,7 @@ public sealed class TaskSyncEngineTests : IDisposable
         Assert.NotNull(task);
         await store.CompleteTaskWithPersonalCloudIntentAsync(task!.Id, DateTimeOffset.UtcNow.AddMinutes(-5), 1, "cloud_instance", "desktop_test");
         var confirmedAt = DateTimeOffset.UtcNow.AddSeconds(-1);
-        await using (var connection = new SqliteConnection($"Data Source={Path.Combine(_directory, "openza_tasks.db")}"))
+        await using (var connection = new SqliteConnection($"Data Source={store.DatabasePath}"))
         {
             await connection.OpenAsync();
             await using var command = connection.CreateCommand();
@@ -1653,6 +1761,7 @@ public sealed class TaskSyncEngineTests : IDisposable
         public bool IncludeActiveTask { get; set; } = true;
         public bool IncludeCompletedTask { get; set; }
         public bool IncludeChildTask { get; set; }
+        public DateTimeOffset? CompletedAt { get; set; }
         public int CompletedCalls { get; private set; }
         public bool ThrowOnMove { get; set; }
         public List<string> OutboundOperationOrder { get; } = [];
@@ -1700,7 +1809,7 @@ public sealed class TaskSyncEngineTests : IDisposable
                     IntegrationId = IntegrationIds.Todoist,
                     Title = Title,
                     CompletionState = TaskCompletionState.Completed,
-                    CompletedAt = new DateTimeOffset(2026, 5, 17, 10, 0, 0, TimeSpan.Zero),
+                    CompletedAt = CompletedAt ?? new DateTimeOffset(2026, 5, 17, 10, 0, 0, TimeSpan.Zero),
                 });
             }
 

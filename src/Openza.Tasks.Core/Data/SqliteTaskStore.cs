@@ -2782,9 +2782,8 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
                 "invalid_request",
                 "The mutation receipt does not match a local Personal Cloud outbox entry.");
         }
-        var expectedEntityVersion = PersonalCloudMutationEntityVersion(operation!, canonicalJson!, instanceId);
         var auxiliary = operation is "source.refreshSnapshot" or "externalCommand.confirm" or "externalCommand.reject" or "externalCommand.cancel";
-        if (!auxiliary && receipt.EntityVersion != expectedEntityVersion)
+        if (!IsValidPersonalCloudMutationReceiptEntityVersion(operation!, canonicalJson!, instanceId, receipt.EntityVersion))
         {
             throw new PersonalCloudK0ContractException(
                 "invalid_request",
@@ -2916,6 +2915,16 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
                 WorkspaceMutationVersion(canonicalJson),
             _ => throw new PersonalCloudK0ContractException("invalid_request", "The local outbox operation is unsupported."),
         };
+
+    private static bool IsValidPersonalCloudMutationReceiptEntityVersion(
+        string operation, string canonicalJson, string instanceId, long entityVersion)
+    {
+        if (operation is "source.refreshSnapshot" or "externalCommand.confirm" or "externalCommand.reject" or "externalCommand.cancel")
+            return true;
+        if (operation == PersonalCloudK0Protocol.ProviderObservedReopenOperation)
+            return entityVersion >= PersonalCloudProviderObservedReopenCodec.ParseMutation(canonicalJson, instanceId).BaseEntityVersion;
+        return entityVersion == PersonalCloudMutationEntityVersion(operation, canonicalJson, instanceId);
+    }
 
     private static long HistoricalCompletionImportEntityVersion(string canonicalJson)
     {
