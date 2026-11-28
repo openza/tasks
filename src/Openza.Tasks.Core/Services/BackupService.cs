@@ -234,13 +234,17 @@ public sealed class BackupService(
         try
         {
             File.Copy(sourcePath, restoreTempPath, overwrite: false);
+            SqliteConnection.ClearAllPools();
             File.Copy(restoreTempPath, DatabasePath, overwrite: true);
             PrivateFilePermissions.EnsureFile(DatabasePath);
+            if (safetyBackupPath is not null)
+                await PreservePersonalCloudSequenceStateAsync(safetyBackupPath, DatabasePath, cancellationToken).ConfigureAwait(false);
         }
         catch
         {
             if (!string.IsNullOrWhiteSpace(safetyBackupPath) && File.Exists(safetyBackupPath))
             {
+                SqliteConnection.ClearAllPools();
                 File.Copy(safetyBackupPath, DatabasePath, overwrite: true);
                 PrivateFilePermissions.EnsureFile(DatabasePath);
             }
@@ -254,6 +258,116 @@ public sealed class BackupService(
                 File.Delete(restoreTempPath);
             }
         }
+    }
+
+    private static async Task PreservePersonalCloudSequenceStateAsync(
+        string currentDatabasePath,
+        string restoredDatabasePath,
+        CancellationToken cancellationToken)
+    {
+        var deviceSequences = new List<(string InstanceId, string DeviceId, long NextSequence)>();
+        var reportSequences = new List<(string InstanceId, string DeviceId, long ReportSequence)>();
+        await using (var current = new SqliteConnection(new SqliteConnectionStringBuilder
+        {
+            DataSource = currentDatabasePath,
+            Mode = SqliteOpenMode.ReadOnly,
+            Pooling = false,
+        }.ToString()))
+        {
+            await current.OpenAsync(cancellationToken).ConfigureAwait(false);
+            if (await HasTableAsync(current, "personal_cloud_device_state", cancellationToken).ConfigureAwait(false))
+            {
+                var read = current.CreateCommand();
+                read.CommandText = "SELECT instance_id,device_id,next_device_sequence FROM personal_cloud_device_state";
+                await using var reader = await read.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+                while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                    deviceSequences.Add((reader.GetString(0), reader.GetString(1), reader.GetInt64(2)));
+            }
+            if (await HasTableAsync(current, "personal_cloud_initial_sync", cancellationToken).ConfigureAwait(false))
+            {
+                var read = current.CreateCommand();
+                read.CommandText = "SELECT instance_id,device_id,report_sequence FROM personal_cloud_initial_sync";
+                await using var reader = await read.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+                while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                    reportSequences.Add((reader.GetString(0), reader.GetString(1), reader.GetInt64(2)));
+            }
+        }
+        if (deviceSequences.Count == 0 && reportSequences.Count == 0) return;
+
+        await using var restored = new SqliteConnection(new SqliteConnectionStringBuilder
+        {
+            DataSource = restoredDatabasePath,
+            Mode = SqliteOpenMode.ReadWrite,
+            Pooling = false,
+        }.ToString());
+        await restored.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = await restored.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        if (deviceSequences.Count > 0)
+        {
+            var create = restored.CreateCommand();
+            create.CommandText = """
+                CREATE TABLE IF NOT EXISTS personal_cloud_device_state (
+                    instance_id TEXT NOT NULL,
+                    device_id TEXT NOT NULL,
+                    next_device_sequence INTEGER NOT NULL CHECK (next_device_sequence > 0),
+                    PRIMARY KEY (instance_id, device_id)
+                )
+                """;
+            await create.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            foreach (var sequence in deviceSequences)
+            {
+                var upsert = restored.CreateCommand();
+                upsert.CommandText = """
+                    INSERT INTO personal_cloud_device_state(instance_id,device_id,next_device_sequence)
+                    VALUES(@i,@d,@q)
+                    ON CONFLICT(instance_id,device_id) DO UPDATE
+                    SET next_device_sequence=MAX(next_device_sequence,excluded.next_device_sequence)
+                    """;
+                upsert.Parameters.AddWithValue("@i", sequence.InstanceId);
+                upsert.Parameters.AddWithValue("@d", sequence.DeviceId);
+                upsert.Parameters.AddWithValue("@q", sequence.NextSequence);
+                await upsert.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            }
+        }
+        if (reportSequences.Count > 0)
+        {
+            var create = restored.CreateCommand();
+            create.CommandText = """
+                CREATE TABLE IF NOT EXISTS personal_cloud_initial_sync (
+                    instance_id TEXT NOT NULL,
+                    device_id TEXT NOT NULL,
+                    seed_end_sequence INTEGER,
+                    phase TEXT NOT NULL DEFAULT 'Preparing',
+                    error_code TEXT,
+                    report_sequence INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY (instance_id, device_id)
+                )
+                """;
+            await create.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            foreach (var sequence in reportSequences)
+            {
+                var upsert = restored.CreateCommand();
+                upsert.CommandText = """
+                    INSERT INTO personal_cloud_initial_sync(instance_id,device_id,report_sequence)
+                    VALUES(@i,@d,@q)
+                    ON CONFLICT(instance_id,device_id) DO UPDATE
+                    SET report_sequence=MAX(report_sequence,excluded.report_sequence)
+                    """;
+                upsert.Parameters.AddWithValue("@i", sequence.InstanceId);
+                upsert.Parameters.AddWithValue("@d", sequence.DeviceId);
+                upsert.Parameters.AddWithValue("@q", sequence.ReportSequence);
+                await upsert.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            }
+        }
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task<bool> HasTableAsync(SqliteConnection connection, string tableName, CancellationToken cancellationToken)
+    {
+        var command = connection.CreateCommand();
+        command.CommandText = "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name=@name)";
+        command.Parameters.AddWithValue("@name", tableName);
+        return Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)) != 0;
     }
 
     private BackupInfo ReadBackupInfo(string path)

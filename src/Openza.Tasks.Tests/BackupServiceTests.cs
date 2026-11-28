@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Openza.Tasks.Core.Data;
 using Openza.Tasks.Core.Models;
+using Openza.Tasks.Core.PersonalCloud;
 using Openza.Tasks.Core.Services;
 
 namespace Openza.Tasks.Tests;
@@ -188,6 +189,64 @@ public sealed class BackupServiceTests : IDisposable
         Assert.Null(await restoredStore.GetTaskAsync("task_current"));
         Assert.NotNull(await restoredStore.GetTaskAsync("task_restored"));
         Assert.Single(backups, backup => backup.Reason == BackupReasons.PreRestore);
+    }
+
+    [Fact]
+    public async Task Restore_preserves_personal_cloud_device_and_initial_report_sequences()
+    {
+        const string instanceId = "instance_00000000000000000000000000000061";
+        const string deviceId = "device_00000000000000000000000000000061";
+        var currentPath = await CreateDatabaseAsync("sequence-current.db");
+        var store = new SqliteTaskStore(currentPath);
+        await store.InitializeAsync();
+        await store.BeginPersonalCloudInitialSyncAsync(instanceId, deviceId);
+        Assert.Equal(1, await store.AdvancePersonalCloudInitialReportSequenceAsync(instanceId, deviceId));
+        var first = await store.CreateTaskWithPersonalCloudIntentAsync(
+            new TaskItem { Id = "sequence_before_restore", Title = "Before restore", SpaceId = SpaceIds.Default },
+            instanceId, deviceId);
+        await AcceptAsync(store, first);
+
+        var service = CreateService(currentPath);
+        var restorePoint = await service.CreateBackupAsync();
+        var second = await store.CreateTaskWithPersonalCloudIntentAsync(
+            new TaskItem { Id = "sequence_after_backup_1", Title = "Accepted 1", SpaceId = SpaceIds.Default },
+            instanceId, deviceId);
+        await AcceptAsync(store, second);
+        var third = await store.CreateTaskWithPersonalCloudIntentAsync(
+            new TaskItem { Id = "sequence_after_backup_2", Title = "Accepted 2", SpaceId = SpaceIds.Default },
+            instanceId, deviceId);
+        await AcceptAsync(store, third);
+        Assert.Equal(2, await store.AdvancePersonalCloudInitialReportSequenceAsync(instanceId, deviceId));
+        Assert.Equal(3, await store.AdvancePersonalCloudInitialReportSequenceAsync(instanceId, deviceId));
+
+        await service.RestoreBackupAsync(restorePoint);
+
+        var restoredStore = new SqliteTaskStore(currentPath);
+        await restoredStore.InitializeAsync();
+        Assert.NotNull(await restoredStore.GetTaskAsync("sequence_before_restore"));
+        Assert.Null(await restoredStore.GetTaskAsync("sequence_after_backup_1"));
+        var next = await restoredStore.CreateTaskWithPersonalCloudIntentAsync(
+            new TaskItem { Id = "sequence_after_restore", Title = "After restore", SpaceId = SpaceIds.Default },
+            instanceId, deviceId);
+        Assert.Equal(third.DeviceSequence + 1, next.DeviceSequence);
+        Assert.Equal(4, await restoredStore.AdvancePersonalCloudInitialReportSequenceAsync(instanceId, deviceId));
+    }
+
+    private static async Task AcceptAsync(SqliteTaskStore store, PersonalCloudK1OutboxEntry entry)
+    {
+        using var document = JsonDocument.Parse(entry.CanonicalJson);
+        var baseVersion = document.RootElement.GetProperty("baseEntityVersion");
+        await store.AcknowledgePersonalCloudMutationAsync(entry.InstanceId, entry.DeviceId, PersonalCloudK0Codec.Serialize(new K0MutationReceipt
+        {
+            ProtocolVersion = 1,
+            Product = "tasks",
+            MutationId = entry.MutationId,
+            EntityId = entry.EntityId,
+            Outcome = "accepted",
+            EntityVersion = baseVersion.ValueKind == JsonValueKind.Null ? 1 : baseVersion.GetInt64() + 1,
+            ChangeSeq = entry.DeviceSequence,
+            ServerAcceptedAt = "2026-11-28T12:00:00.000Z",
+        }));
     }
 
     [Fact]
