@@ -14,6 +14,19 @@ namespace Openza.Tasks.Tests;
 public sealed class PersonalCloudProviderBridgeTests : IDisposable
 {
     [Fact]
+    public async Task Fresh_pending_completion_with_live_source_and_no_attempt_is_delivered()
+    {
+        var store = await StoreAsync("fresh-delivery.db");
+        Assert.Single(await store.GetPendingPersonalCloudProviderCommandsAsync(Instance));
+        Assert.Equal(0, await store.ReconcileUndeliverableProviderCommandsAsync(Instance, Device));
+        var provider = new FakeProvider();
+        var bridge = await BridgeAsync(store, new DeliveryHandler());
+
+        Assert.Equal(1, (await bridge.RunAsync([new(provider, "synthetic-account")])).Confirmed);
+        Assert.Equal(1, provider.Actions);
+    }
+
+    [Fact]
     public async Task Openza_completion_does_not_create_provider_delivery_and_legacy_phantoms_are_hidden()
     {
         var store = await StoreAsync("local-completion.db");

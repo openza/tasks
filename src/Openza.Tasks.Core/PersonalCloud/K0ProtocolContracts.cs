@@ -20,6 +20,9 @@ public static class PersonalCloudK0Protocol
     public const string TaskCompletedOperation = "task.completed";
     public const string ReopenTaskOperation = "task.reopen";
     public const string TaskReopenedOperation = "task.reopened";
+    public const string ProviderObservedReopenOperation = "task.providerObservedReopen";
+    public const string TaskHistoricalCompletionImportOperation = "task.createHistoricalCompletion";
+    public const string ExternalCommandCancelOperation = "externalCommand.cancel";
     public const string DeleteTaskOperation = "task.delete";
     public const string TaskDeletedOperation = "task.deleted";
     public const int MaximumIdentifierLength = 128;

@@ -13,10 +13,11 @@ public sealed class TaskSyncEngine(ITaskStore store)
         {
             var dateUpdatesSynced = await SyncPendingTaskDateUpdatesAsync(provider, cancellationToken).ConfigureAwait(false);
             var completionsSynced = await SyncPendingCompletionsAsync(provider, cancellationToken).ConfigureAwait(false);
+            var providerReadStartedAt = DateTimeOffset.UtcNow;
             var snapshot = await provider.FetchSnapshotAsync(cancellationToken).ConfigureAwait(false);
             async Task SaveSourceAsync(ProviderSourceItem source)
             {
-                await store.UpsertProviderSourceItemAsync(source, cancellationToken).ConfigureAwait(false);
+                await store.UpsertProviderSourceItemAsync(source with { LastSeenAt = providerReadStartedAt }, cancellationToken).ConfigureAwait(false);
             }
             var providerConnectionId = provider.ProviderConnectionId;
             var existing = await store.GetProviderSourceItemsAsync(provider.IntegrationId, includeAdopted: true, includeIgnored: true, cancellationToken: cancellationToken).ConfigureAwait(false);

@@ -111,7 +111,7 @@ public sealed class PersonalCloudDispatchCostEmissionTests : IDisposable
 
     [Theory]
     [InlineData("fanout-budget-v1.json", "a696ad137ba19a235d8ed22e256ec9f792a2d245f622b23906003ead0aee1971")]
-    [InlineData("dispatch-budget-v1.json", "2b63f6281a83a5477a9cce5750def63522007c2e05efd467f98d98dba7630f2d")]
+    [InlineData("dispatch-budget-v1.json", "e8fdd5c930a61bd65fd8b77654ea11aa5d242592b1f61d74656c4e1029086190")]
     [InlineData("catchup-status-v1.json", "a7e244e35417fd86f13667a6492ce728db86a497f8aaeb57c7f2a80f79573d2c")]
     public void Paired_companion_cost_fixtures_are_exact(string name, string expected)
     {

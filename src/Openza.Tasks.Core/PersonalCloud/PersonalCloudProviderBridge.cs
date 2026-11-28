@@ -32,6 +32,7 @@ public sealed partial class PersonalCloudProviderBridge(SqliteTaskStore store, P
         using var runLease = new FileStream(store.DatabasePath + ".provider-bridge.lock", FileMode.OpenOrCreate,
             FileAccess.ReadWrite, FileShare.None);
         Openza.Tasks.Core.Services.PrivateFilePermissions.EnsureFile(store.DatabasePath + ".provider-bridge.lock");
+        await store.ReconcileUndeliverableProviderCommandsAsync(connection.InstanceId, connection.DeviceId, cancellationToken).ConfigureAwait(false);
         if (providers.Count > 0 && !await delivery.IsEnabledAsync(cancellationToken).ConfigureAwait(false))
             return new(0, 0, 0, (await store.GetPendingPersonalCloudProviderCommandsAsync(connection.InstanceId, cancellationToken: cancellationToken).ConfigureAwait(false)).Count);
         var confirmed = 0; var rejected = 0; var uncertain = 0; var pending = 0;

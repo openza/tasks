@@ -12,6 +12,10 @@ public sealed partial class PersonalCloudSyncClient
     private bool _supportsWorkspace;
     private bool _supportsProviderScopes;
     private bool _supportsFanoutBudget;
+    private bool _supportsProviderObservedReopen;
+    private bool _supportsProviderCommandCancellation;
+    private bool _supportsHistoricalCompletionImport;
+    private string? _cloudArtifactVersion;
     private sealed class BatchEndpointUnavailableException : Exception { }
 
     private async Task<(int Pushed, string? Blocked, bool Parked)> PushPendingAsync(IReadOnlyList<PersonalCloudK1OutboxEntry> pending,
@@ -21,6 +25,32 @@ public sealed partial class PersonalCloudSyncClient
         var pushed = 0;
         while (pushed < pending.Count)
         {
+            var operation = pending[pushed].Operation;
+            if (operation == PersonalCloudK0Protocol.ExternalCommandCancelOperation && !_supportsProviderCommandCancellation ||
+                operation == PersonalCloudK0Protocol.TaskHistoricalCompletionImportOperation && !_supportsHistoricalCompletionImport)
+            {
+                await store.RetireDeferredPersonalCloudMutationAsync(connection.InstanceId, connection.DeviceId,
+                    pending[pushed].MutationId,
+                    null,
+                    cancellationToken: cancellationToken).ConfigureAwait(false);
+                return (pushed, operation == PersonalCloudK0Protocol.TaskHistoricalCompletionImportOperation ? "upgrade_required" : null, true);
+            }
+            if (operation is PersonalCloudK0Protocol.ExternalCommandCancelOperation or PersonalCloudK0Protocol.TaskHistoricalCompletionImportOperation &&
+                await store.IsPersonalCloudMutationDeferredAsync(connection.InstanceId, pending[pushed].MutationId,
+                    _cloudArtifactVersion ?? "unknown", cancellationToken).ConfigureAwait(false))
+            {
+                await store.RetireDeferredPersonalCloudMutationAsync(connection.InstanceId, connection.DeviceId,
+                    pending[pushed].MutationId,
+                    operation == PersonalCloudK0Protocol.TaskHistoricalCompletionImportOperation ? null : _cloudArtifactVersion ?? "unknown",
+                    cancellationToken: cancellationToken).ConfigureAwait(false);
+                return (pushed, operation == PersonalCloudK0Protocol.TaskHistoricalCompletionImportOperation ? "upgrade_required" : null, true);
+            }
+            if (pending[pushed].Operation == PersonalCloudK0Protocol.ProviderObservedReopenOperation && !_supportsProviderObservedReopen)
+            {
+                await store.DeferRejectedProviderObservedReopenAsync(connection.InstanceId, connection.DeviceId,
+                    pending[pushed].MutationId, ProviderObservedReopenCapabilityKey(), cancellationToken).ConfigureAwait(false);
+                return (pushed, null, true);
+            }
             if (!_supportsWorkspace && IsWorkspaceOperation(pending[pushed].Operation)) return (pushed, "upgrade_required", false);
             if (!_supportsProviderScopes && IsScopedProviderOperation(pending[pushed])) return (pushed, "upgrade_required", false);
             var batch = BuildBatch(pending, pushed);
@@ -81,9 +111,43 @@ public sealed partial class PersonalCloudSyncClient
             }
             catch (PersonalCloudK0ContractException exception) when (IsPermanentMutationRejection(exception.Code))
             {
-                if (exception.IsDefinitiveMutationRejection && await store.ParkRejectedPersonalCloudTaskAsync(mutation, exception.Code, cancellationToken).ConfigureAwait(false))
+                if (mutation.Operation == PersonalCloudK0Protocol.ExternalCommandCancelOperation && exception.Code == "command_busy")
+                {
+                    await store.RetireDeferredPersonalCloudMutationAsync(connection.InstanceId, connection.DeviceId,
+                        mutation.MutationId, _cloudArtifactVersion ?? "unknown", cancellationToken: cancellationToken).ConfigureAwait(false);
+                    return (pushed, exception.Code, true);
+                }
+                if (mutation.Operation == PersonalCloudK0Protocol.ExternalCommandCancelOperation && exception.Code == "command_superseded")
+                {
+                    await store.RetireDeferredPersonalCloudMutationAsync(connection.InstanceId, connection.DeviceId,
+                        mutation.MutationId, _cloudArtifactVersion ?? "unknown", superseded: true, cancellationToken: cancellationToken).ConfigureAwait(false);
+                    return (pushed, null, true);
+                }
+                if (mutation.Operation is PersonalCloudK0Protocol.ExternalCommandCancelOperation or PersonalCloudK0Protocol.TaskHistoricalCompletionImportOperation &&
+                    exception.IsDefinitiveMutationRejection)
+                {
+                    await store.RetireDeferredPersonalCloudMutationAsync(connection.InstanceId, connection.DeviceId,
+                        mutation.MutationId, _cloudArtifactVersion ?? "unknown", cancellationToken: cancellationToken).ConfigureAwait(false);
+                    return (pushed, mutation.Operation == PersonalCloudK0Protocol.TaskHistoricalCompletionImportOperation ? exception.Code : null, true);
+                }
+                if (mutation.Operation == PersonalCloudK0Protocol.ProviderObservedReopenOperation && exception.IsDefinitiveMutationRejection)
+                {
+                    await store.DeferRejectedProviderObservedReopenAsync(connection.InstanceId, connection.DeviceId,
+                        mutation.MutationId, ProviderObservedReopenCapabilityKey(), cancellationToken).ConfigureAwait(false);
+                    return (pushed, null, true);
+                }
+                if (exception.IsDefinitiveMutationRejection && await store.ParkRejectedPersonalCloudTaskAsync(mutation, exception.Code, cancellationToken, _cloudArtifactVersion).ConfigureAwait(false))
                     return (pushed, null, true);
                 return (pushed, exception.Code, false);
+            }
+            catch (PersonalCloudK0ContractException exception) when (exception.Code == "unknown_operation" &&
+                mutation.Operation is PersonalCloudK0Protocol.ExternalCommandCancelOperation or PersonalCloudK0Protocol.TaskHistoricalCompletionImportOperation)
+            {
+                await store.RetireDeferredPersonalCloudMutationAsync(connection.InstanceId, connection.DeviceId,
+                    mutation.MutationId,
+                    mutation.Operation == PersonalCloudK0Protocol.TaskHistoricalCompletionImportOperation ? _cloudArtifactVersion : _cloudArtifactVersion ?? "unknown",
+                    cancellationToken: cancellationToken).ConfigureAwait(false);
+                return (pushed, mutation.Operation == PersonalCloudK0Protocol.TaskHistoricalCompletionImportOperation ? "upgrade_required" : null, true);
             }
             SqliteTaskStore.ValidatePersonalCloudMutationReceipt(mutation, receiptJson);
             await store.AcknowledgePersonalCloudMutationAsync(connection.InstanceId, connection.DeviceId, receiptJson, cancellationToken).ConfigureAwait(false);
@@ -98,16 +162,18 @@ public sealed partial class PersonalCloudSyncClient
         string accessToken, CancellationToken cancellationToken)
     {
         var pushed = 0;
+        string? deferredBlocked = null;
         for (var parked = 0; pushed + parked < PushBatchLimit; parked++)
         {
             var items = prefix.Items.Take(PushBatchLimit - pushed - parked).ToArray();
             var result = await PushPendingAsync(items, accessToken, cancellationToken).ConfigureAwait(false);
             pushed += result.Pushed;
+            deferredBlocked ??= result.Blocked;
             if (!result.Parked)
             {
                 if (result.Blocked is null && items.Length == prefix.Items.Count && prefix.PauseAfter && PersonalCloudDispatchHttp.PolicyFor(http) is { } dispatch)
-                    return (pushed, (await dispatch.PauseBudgetAsync(connection.ServiceOrigin, prefix.OversizedUnits, cancellationToken).ConfigureAwait(false)).Code);
-                return (pushed, result.Blocked);
+                    return (pushed, deferredBlocked ?? (await dispatch.PauseBudgetAsync(connection.ServiceOrigin, prefix.OversizedUnits, cancellationToken).ConfigureAwait(false)).Code);
+                return (pushed, result.Blocked ?? deferredBlocked);
             }
 
             // Only the validated accepted prefix was acknowledged. Re-read the
@@ -115,7 +181,7 @@ public sealed partial class PersonalCloudSyncClient
             var pending = await store.GetPendingPersonalCloudOutboxAsync(connection.InstanceId, connection.DeviceId, cancellationToken).ConfigureAwait(false);
             prefix = await SelectBudgetPrefixAsync(pending, cancellationToken).ConfigureAwait(false);
         }
-        return (pushed, null);
+        return (pushed, deferredBlocked);
     }
 
     internal async Task DiscoverCapabilitiesAsync(CancellationToken cancellationToken)
@@ -128,6 +194,11 @@ public sealed partial class PersonalCloudSyncClient
         _supportsWorkspacePaging = false;
         _supportsFanoutBudget = false;
         _supportsCatchupStatus = false;
+        _supportsProviderObservedReopen = false;
+        _supportsProviderCommandCancellation = false;
+        _supportsHistoricalCompletionImport = false;
+        _cloudArtifactVersion = null;
+        await store.ReconcileUndeliverableProviderCommandsAsync(connection.InstanceId, connection.DeviceId, cancellationToken).ConfigureAwait(false);
         try
         {
             var health = await new PersonalCloudHealthClient(http).InspectAsync(connection.ServiceOrigin, cancellationToken).ConfigureAwait(false);
@@ -139,7 +210,20 @@ public sealed partial class PersonalCloudSyncClient
             _supportsWorkspacePaging = health.SupportsWorkspacePaging;
             _supportsFanoutBudget = health.SupportsFanoutBudget;
             _supportsCatchupStatus = health.SupportsCatchupStatus;
+            _supportsProviderObservedReopen = health.SupportsProviderObservedReopen;
+            _supportsProviderCommandCancellation = health.SupportsProviderCommandCancellation;
+            _supportsHistoricalCompletionImport = health.SupportsHistoricalCompletionImport;
+            _cloudArtifactVersion = health.ArtifactVersion;
             await store.SavePersonalCloudWorkspaceCapabilitiesAsync(connection.InstanceId, health.SupportsWorkspace, health.SupportsProviderCatalog, cancellationToken, health.ProviderCatalogProtocolVersion).ConfigureAwait(false);
+            if (_supportsHistoricalCompletionImport)
+                await store.PrepareDeferredHistoricalCompletionImportsAsync(connection.InstanceId, connection.DeviceId,
+                    health.ArtifactVersion, cancellationToken).ConfigureAwait(false);
+            if (_supportsProviderObservedReopen)
+                await store.PrepareProviderObservedReopensAsync(connection.InstanceId, connection.DeviceId,
+                    ProviderObservedReopenCapabilityKey(), cancellationToken).ConfigureAwait(false);
+            if (_supportsProviderCommandCancellation)
+                await store.PrepareProviderCommandCancellationsAsync(connection.InstanceId, connection.DeviceId,
+                    health.ArtifactVersion, cancellationToken).ConfigureAwait(false);
         }
         catch (PersonalCloudK0ContractException exception) when (exception.Code == "health_unsupported" && !_supportsWorkspace && catalogProtocol == 0)
         {
@@ -149,6 +233,9 @@ public sealed partial class PersonalCloudSyncClient
     }
 
     private static bool IsWorkspaceOperation(string operation) => operation is "space.put" or "project.put" or "project.delete" or "task.createRich" or "task.patch" or "task.moveTree" || operation.StartsWith("provider.", StringComparison.Ordinal);
+
+    private string ProviderObservedReopenCapabilityKey() =>
+        $"{(_supportsProviderObservedReopen ? "supported" : "unsupported")}:{_cloudArtifactVersion ?? "unknown"}";
 
     private static bool IsScopedProviderOperation(PersonalCloudK1OutboxEntry entry)
     {
@@ -163,6 +250,8 @@ public sealed partial class PersonalCloudSyncClient
     {
         if (_batchCapability is not { } capability) return null;
         if (pending[start].MutationId == _singleAttemptMutationId) return null;
+        if (pending[start].Operation is PersonalCloudK0Protocol.ProviderObservedReopenOperation or
+            PersonalCloudK0Protocol.ExternalCommandCancelOperation or PersonalCloudK0Protocol.TaskHistoricalCompletionImportOperation) return null;
         if (PersonalCloudDispatchHttp.PolicyFor(http) is not null && PersonalCloudMutationCost.IsFanout(pending[start].Operation))
             return null; // A failed route probe must not double-reserve a fanout attempt.
         var items = new List<PersonalCloudK1OutboxEntry>();
@@ -170,6 +259,8 @@ public sealed partial class PersonalCloudSyncClient
         for (var index = start; index < pending.Count && items.Count < capability.MaxMutations; index++)
         {
             if (!_supportsWorkspace && IsWorkspaceOperation(pending[index].Operation)) break;
+            if (pending[index].Operation is PersonalCloudK0Protocol.ProviderObservedReopenOperation or
+                PersonalCloudK0Protocol.ExternalCommandCancelOperation or PersonalCloudK0Protocol.TaskHistoricalCompletionImportOperation) break;
             if (items.Count > 0 && PersonalCloudMutationCost.IsFanout(pending[index].Operation)) break;
             if (!_supportsProviderScopes && IsScopedProviderOperation(pending[index])) break;
             if (items.Count > 0 && pending[index].DeviceSequence != items[^1].DeviceSequence + 1) break;

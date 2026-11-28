@@ -8,7 +8,7 @@ public sealed partial class SqliteTaskStore
     public static void ValidatePersonalCloudMutationReceipt(PersonalCloudK1OutboxEntry mutation, string json)
     {
         var receipt = PersonalCloudK0Codec.ParseMutationReceipt(json);
-        var auxiliary = mutation.Operation is "source.refreshSnapshot" or "externalCommand.confirm" or "externalCommand.reject";
+        var auxiliary = mutation.Operation is "source.refreshSnapshot" or "externalCommand.confirm" or "externalCommand.reject" or "externalCommand.cancel";
         if (receipt.MutationId != mutation.MutationId || receipt.EntityId != mutation.EntityId ||
             !auxiliary && receipt.EntityVersion != PersonalCloudMutationEntityVersion(mutation.Operation, mutation.CanonicalJson, mutation.InstanceId))
             throw new PersonalCloudK0ContractException("invalid_response", "The receipt did not match the submitted intent. Pending edits have been preserved.");

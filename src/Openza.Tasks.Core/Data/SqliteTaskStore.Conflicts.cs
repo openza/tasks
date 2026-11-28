@@ -28,8 +28,12 @@ public sealed partial class SqliteTaskStore
     public async Task<bool> ParkPersonalCloudTaskConflictAsync(PersonalCloudK1OutboxEntry rejected, CancellationToken cancellationToken = default)
         => await ParkRejectedPersonalCloudTaskAsync(rejected, "version_conflict", cancellationToken).ConfigureAwait(false);
 
-    internal async Task<bool> ParkRejectedPersonalCloudTaskAsync(PersonalCloudK1OutboxEntry rejected, string code, CancellationToken cancellationToken)
+    internal async Task<bool> ParkRejectedPersonalCloudTaskAsync(PersonalCloudK1OutboxEntry rejected, string code, CancellationToken cancellationToken,
+        string? artifactVersion = null)
     {
+        if (rejected.Operation == PersonalCloudK0Protocol.ProviderObservedReopenOperation &&
+            code is "invalid_request" or "unsupported_protocol" or "upgrade_required" && !string.IsNullOrWhiteSpace(artifactVersion))
+            return await DeferRejectedProviderObservedReopenAsync(rejected.InstanceId, rejected.DeviceId, rejected.MutationId, artifactVersion, cancellationToken).ConfigureAwait(false);
         // These are semantic rejections, not transport failures or indications that the
         // server's sequence/idempotency state differs from ours.
         if (!rejected.Operation.StartsWith("task.", StringComparison.Ordinal) ||

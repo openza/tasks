@@ -5,11 +5,11 @@
   "operations": {
     "task.patch":25,"source.refreshSnapshot":16,
     "task.create":50,"task.createRich":50,"task.updateOpenzaFields":50,
-    "task.complete":50,"task.reopen":50,"task.delete":50,
+    "task.complete":50,"task.reopen":50,"task.providerObservedReopen":50,"task.createHistoricalCompletion":50,"task.delete":50,
     "task.setProject":50,"task.move":50,"task.addLabel":50,"task.removeLabel":50,"task.setParent":50,
     "space.put":50,"project.put":50,"provider.scope.put":50,"provider.catalog.put":50,
     "provider.intent.request":50,"provider.intent.start":50,"provider.intent.resolve":50,
-    "externalCommand.confirm":50,"externalCommand.reject":50,
+    "externalCommand.confirm":50,"externalCommand.reject":50,"externalCommand.cancel":50,
     "project.delete":45000,"task.moveTree":45000
   },
   "richCreationPerLabel":10,
@@ -25,6 +25,9 @@
     {"operation":"task.createRich","payload":{"task":{"labels":[]}},"credits":50},
     {"operation":"task.createRich","payload":{"task":{"labels":[{},{}]},"source":{}},"credits":86},
     {"operation":"task.create","payload":{"source":{}},"credits":66},
+    {"operation":"task.providerObservedReopen","payload":{"observedAt":"2026-11-27T12:00:00.000Z"},"credits":50},
+    {"operation":"task.createHistoricalCompletion","payload":{"completedAt":"2026-11-27T12:00:00.000Z"},"credits":50},
+    {"operation":"externalCommand.cancel","payload":{"requestedChangeSeq":1},"credits":50},
     {"operation":"project.delete","payload":{},"credits":45000},
     {"operation":"task.moveTree","payload":{},"credits":45000},
     {"operation":"future.operation","payload":{},"credits":45001}
