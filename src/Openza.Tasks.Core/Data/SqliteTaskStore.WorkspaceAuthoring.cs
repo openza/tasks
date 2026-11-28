@@ -272,7 +272,8 @@ public sealed partial class SqliteTaskStore
         if (task.ParentId is not null)
             await AppendWorkspaceMutationAsync(connection, instanceId, deviceId, "task.setParent", task.Id, version++, new { parentId = task.ParentId }, cancellationToken).ConfigureAwait(false);
         if (task.IsCompleted)
-            await AppendWorkspaceMutationAsync(connection, instanceId, deviceId, "task.complete", task.Id, version, new { completedAt = PersonalCloudK0Mapper.FormatTimestamp(task.CompletedAt ?? DateTimeOffset.UtcNow) }, cancellationToken).ConfigureAwait(false);
+            await AppendWorkspaceMutationAsync(connection, instanceId, deviceId, PersonalCloudK0Protocol.TaskHistoricalCompletionImportOperation,
+                task.Id, version, new { completedAt = PersonalCloudK0Mapper.FormatTimestamp(task.CompletedAt ?? DateTimeOffset.UtcNow) }, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task<int> StagePersonalCloudWorkspaceSeedAsync(string instanceId, string deviceId, CancellationToken cancellationToken)

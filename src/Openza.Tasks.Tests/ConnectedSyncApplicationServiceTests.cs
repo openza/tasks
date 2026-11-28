@@ -86,6 +86,21 @@ public sealed class ConnectedSyncApplicationServiceTests : IDisposable
         Assert.Equal(1, cloud.SyncCalls);
     }
 
+    [Fact]
+    public async Task Deferred_historical_import_does_not_block_provider_bridge_or_report_sync_success()
+    {
+        var cloud = new Cloud(_trace) { DeferredHistory = true };
+        var service = await CreateAsync(new(_trace), cloud);
+
+        var result = await service.RunAsync();
+
+        Assert.Equal("upgrade_required", result.PersonalCloud!.BlockedCode);
+        Assert.True(result.PersonalCloud.CanContinueOtherWork);
+        Assert.NotNull(result.ProviderBridge);
+        Assert.Equal(2, cloud.SyncCalls);
+        Assert.Contains("bridge", _trace);
+    }
+
     [Theory]
     [InlineData("unauthorized")]
     [InlineData("health_mismatch")]
@@ -206,6 +221,7 @@ public sealed class ConnectedSyncApplicationServiceTests : IDisposable
         public bool IsConfigured => true;
         public bool Paired { get; init; } = true;
         public bool Blocked { get; init; }
+        public bool DeferredHistory { get; init; }
         public bool Cancel { get; init; }
         public int FailureStage { get; init; }
         public string? ContractErrorCode { get; init; }
@@ -223,7 +239,8 @@ public sealed class ConnectedSyncApplicationServiceTests : IDisposable
             if (ContractErrorCode is { } code) throw new PersonalCloudK0ContractException(code, "Synthetic contract rejection");
             if (FailureStage == 1 || (FailureStage == 3 && SyncCalls == 2)) throw new InvalidOperationException("Synthetic cloud failure");
             return Task.FromResult(new PersonalCloudSyncResult(SyncCalls, SyncCalls + 1, SyncCalls * 10)
-            { BlockedCode = Blocked ? "synthetic_block" : null,
+            { BlockedCode = DeferredHistory ? "upgrade_required" : Blocked ? "synthetic_block" : null,
+              CanContinueOtherWork = DeferredHistory,
               InitialSyncProgress = new("synthetic-instance", "synthetic-device", PersonalCloudInitialSyncPhase.Uploading, SyncCalls, 2) });
         }
         public Task<PersonalCloudProviderBridgeResult> RunProviderBridgeAsync(IReadOnlyList<PersonalCloudConfiguredProvider> providers, CancellationToken cancellationToken = default)

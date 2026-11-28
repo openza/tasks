@@ -138,7 +138,8 @@ public sealed class MicrosoftStepAdoptionTests : IDisposable
         var entries = (await store.GetPendingPersonalCloudOutboxAsync(Instance, Device)).Where(entry => entry.EntityId == child.Id).ToArray();
         Assert.Equal(workspace ? "task.createRich" : "task.create", entries[0].Operation);
         Assert.Contains(entries, entry => entry.Operation == "task.setParent");
-        Assert.Contains(entries, entry => entry.Operation == "task.complete");
+        Assert.Contains(entries, entry => entry.Operation == "task.createHistoricalCompletion");
+        Assert.DoesNotContain(entries, entry => entry.Operation == "task.complete");
         Assert.All(entries.Skip(1).Select((entry, index) => (entry, index)), pair =>
         {
             using var json = JsonDocument.Parse(pair.entry.CanonicalJson);

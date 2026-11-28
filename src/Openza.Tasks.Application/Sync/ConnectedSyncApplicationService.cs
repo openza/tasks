@@ -76,13 +76,14 @@ public sealed class ConnectedSyncApplicationService(
             try
             {
                 cloudResult = await SyncCloudAsync();
-                if (cloudResult.BlockedCode is null && personalCloud is IPersonalCloudProviderBridgeService bridge)
+                if ((cloudResult.BlockedCode is null || cloudResult.CanContinueOtherWork) && personalCloud is IPersonalCloudProviderBridgeService bridge)
                 {
                     bridgeResult = await Task.Run(() => bridge.RunProviderBridgeAsync(bridgeProviders, cancellationToken));
                     var resultPass = await SyncCloudAsync();
                     cloudResult = new PersonalCloudSyncResult(cloudResult.PushedMutations + resultPass.PushedMutations,
                         cloudResult.PulledChanges + resultPass.PulledChanges, resultPass.Checkpoint)
-                    { BlockedCode = resultPass.BlockedCode, InitialSyncProgress = resultPass.InitialSyncProgress };
+                    { BlockedCode = resultPass.BlockedCode, InitialSyncProgress = resultPass.InitialSyncProgress,
+                        CanContinueOtherWork = resultPass.CanContinueOtherWork };
                 }
             }
             catch (Exception exception)

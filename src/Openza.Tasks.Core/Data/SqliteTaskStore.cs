@@ -10,7 +10,7 @@ namespace Openza.Tasks.Core.Data;
 
 public sealed partial class SqliteTaskStore(string databasePath, bool readOnly = false, TimeProvider? timeProvider = null) : ITaskStore
 {
-    public const int CurrentSchemaVersion = 14;
+    public const int CurrentSchemaVersion = 17;
     public const int MinimumReadOnlySchemaVersion = 5;
 
     private sealed record ParentTaskContext(string Id, string SpaceId, string? ProjectId, TaskWorkflowStatus WorkflowStatus);
@@ -506,6 +506,7 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         var existing = await ReadProviderSourceItemByExternalAsync(connection, item.ProviderConnectionId, item.ExternalId, cancellationToken).ConfigureAwait(false);
         var restoredAdoption = await ResolveProviderSourceAdoptionAsync(connection, existing, item, cancellationToken).ConfigureAwait(false);
+        var updatedAt = DateTimeOffset.UtcNow;
         var source = item with
         {
             Id = string.IsNullOrWhiteSpace(item.Id) ? BuildProviderSourceItemId(item.ProviderConnectionId, item.ExternalId) : item.Id,
@@ -513,8 +514,8 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
             AdoptedTaskId = restoredAdoption.AdoptedTaskId,
             SuggestedSpaceId = await ResolveProviderSourceSpaceIdAsync(connection, existing?.SuggestedSpaceId, item.SuggestedSpaceId, cancellationToken).ConfigureAwait(false),
             FirstSeenAt = existing?.FirstSeenAt ?? item.FirstSeenAt,
-            LastSeenAt = DateTimeOffset.UtcNow,
-            UpdatedAt = DateTimeOffset.UtcNow,
+            LastSeenAt = item.LastSeenAt,
+            UpdatedAt = updatedAt,
         };
 
         await UpsertProviderSourceItemCoreAsync(connection, source, cancellationToken).ConfigureAwait(false);
@@ -544,6 +545,7 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
                 source,
                 parentContext,
                 ShouldSyncPlannedDateFromSource(source, existing),
+                existing?.CompletionState == TaskCompletionState.Completed ? existing.LastSeenAt : null,
                 cancellationToken).ConfigureAwait(false);
         }
 
@@ -1450,9 +1452,14 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
             var version = versions[task.Id];
             var completedAt = (task.CompletedAt ?? task.UpdatedAt ?? DateTimeOffset.UtcNow).ToUniversalTime().ToString(
                 "yyyy-MM-dd'T'HH:mm:ss.fff'Z'", System.Globalization.CultureInfo.InvariantCulture);
-            var mutation = PersonalCloudCompletionCodec.CreateMutation(
-                instanceId, deviceId, MutationId(), sequence, task.Id, version, completedAt, Timestamp());
-            await AppendAsync(PersonalCloudK0Protocol.CompleteTaskOperation, task.Id, mutation).ConfigureAwait(false);
+            var mutation = new
+            {
+                protocolVersion = 1, product = PersonalCloudK0Protocol.TasksProduct, instanceId, deviceId,
+                mutationId = MutationId(), deviceSequence = sequence,
+                operation = PersonalCloudK0Protocol.TaskHistoricalCompletionImportOperation,
+                entityId = task.Id, baseEntityVersion = version, payload = new { completedAt }, clientCreatedAt = Timestamp(),
+            };
+            await AppendAsync(PersonalCloudK0Protocol.TaskHistoricalCompletionImportOperation, task.Id, mutation).ConfigureAwait(false);
             versions[task.Id] = checked(version + 1);
         }
 
@@ -2253,6 +2260,7 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
         updateCommand.Parameters.AddWithValue("@id", taskId);
         if (await updateCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
             throw new PersonalCloudK0ContractException("invalid_transition", "Only an open task can be completed.");
+        await SupersedeUnmaterializedProviderObservedReopensAsync(connection, taskId, cancellationToken).ConfigureAwait(false);
 
         var outboxCommand = connection.CreateCommand();
         outboxCommand.CommandText = """
@@ -2774,9 +2782,8 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
                 "invalid_request",
                 "The mutation receipt does not match a local Personal Cloud outbox entry.");
         }
-        var expectedEntityVersion = PersonalCloudMutationEntityVersion(operation!, canonicalJson!, instanceId);
-        var auxiliary = operation is "source.refreshSnapshot" or "externalCommand.confirm" or "externalCommand.reject";
-        if (!auxiliary && receipt.EntityVersion != expectedEntityVersion)
+        var auxiliary = operation is "source.refreshSnapshot" or "externalCommand.confirm" or "externalCommand.reject" or "externalCommand.cancel";
+        if (!IsValidPersonalCloudMutationReceiptEntityVersion(operation!, canonicalJson!, instanceId, receipt.EntityVersion))
         {
             throw new PersonalCloudK0ContractException(
                 "invalid_request",
@@ -2786,13 +2793,15 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
         var acknowledgeCommand = connection.CreateCommand();
         acknowledgeCommand.CommandText = """
             UPDATE personal_cloud_outbox
-            SET acknowledged_at = COALESCE(acknowledged_at, @acknowledged_at)
+            SET acknowledged_at = COALESCE(acknowledged_at, @acknowledged_at),
+                server_change_seq = COALESCE(server_change_seq, @change_seq)
             WHERE mutation_id = @mutation_id
               AND product = @product
               AND instance_id = @instance_id
               AND device_id = @device_id
             """;
         acknowledgeCommand.Parameters.AddWithValue("@acknowledged_at", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+        acknowledgeCommand.Parameters.AddWithValue("@change_seq", receipt.ChangeSeq);
         acknowledgeCommand.Parameters.AddWithValue("@mutation_id", receipt.MutationId);
         acknowledgeCommand.Parameters.AddWithValue("@product", PersonalCloudK0Protocol.TasksProduct);
         acknowledgeCommand.Parameters.AddWithValue("@instance_id", instanceId);
@@ -2807,10 +2816,32 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
                 connection, instanceId, entityId, receipt.EntityVersion, cancellationToken).ConfigureAwait(false);
         if (operation is "externalCommand.confirm" or "externalCommand.reject")
         {
+            using var resultMutation = JsonDocument.Parse(canonicalJson!);
+            var resolvedAt = DateTimeOffset.Parse(resultMutation.RootElement.GetProperty("payload").GetProperty("resolvedAt").GetString()!,
+                System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AssumeUniversal);
+            var requestedChangeSeq = resultMutation.RootElement.GetProperty("payload").GetProperty("requestedChangeSeq").GetInt64();
+            await RecordProviderStateConfirmationAsync(connection, instanceId, entityId, receipt.MutationId,
+                requestedChangeSeq, resolvedAt, cancellationToken).ConfigureAwait(false);
             var settle = connection.CreateCommand();
             settle.CommandText = "UPDATE personal_cloud_provider_attempts SET state='settled' WHERE result_mutation_id=@m AND state='outcome'";
             settle.Parameters.AddWithValue("@m", receipt.MutationId);
             await settle.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+        if (operation == PersonalCloudK0Protocol.ProviderObservedReopenOperation)
+        {
+            var clearObserved = connection.CreateCommand();
+            clearObserved.CommandText = "DELETE FROM personal_cloud_provider_observed_reopens WHERE instance_id=@i AND observation_id=@m";
+            clearObserved.Parameters.AddWithValue("@i", instanceId);
+            clearObserved.Parameters.AddWithValue("@m", receipt.MutationId);
+            await clearObserved.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+        if (operation == PersonalCloudK0Protocol.ExternalCommandCancelOperation)
+        {
+            var clearCancellation = connection.CreateCommand();
+            clearCancellation.CommandText = "DELETE FROM personal_cloud_provider_command_cancellations WHERE instance_id=@i AND mutation_id=@m";
+            clearCancellation.Parameters.AddWithValue("@i", instanceId);
+            clearCancellation.Parameters.AddWithValue("@m", receipt.MutationId);
+            await clearCancellation.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
 
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
@@ -2871,16 +2902,36 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
                 checked(PersonalCloudCompletionCodec.ParseMutation(canonicalJson, instanceId).BaseEntityVersion + 1),
             PersonalCloudK0Protocol.ReopenTaskOperation =>
                 checked(PersonalCloudReopenCodec.ParseMutation(canonicalJson, instanceId).BaseEntityVersion + 1),
+            PersonalCloudK0Protocol.ProviderObservedReopenOperation =>
+                checked(PersonalCloudProviderObservedReopenCodec.ParseMutation(canonicalJson, instanceId).BaseEntityVersion + 1),
+            PersonalCloudK0Protocol.TaskHistoricalCompletionImportOperation => HistoricalCompletionImportEntityVersion(canonicalJson),
             PersonalCloudK0Protocol.DeleteTaskOperation =>
                 checked(PersonalCloudDeleteCodec.ParseMutation(canonicalJson, instanceId).BaseEntityVersion + 1),
             "task.setProject" or "task.move" or "task.addLabel" or "task.removeLabel" or "task.setParent" =>
                 checked(JsonDocument.Parse(canonicalJson).RootElement.GetProperty("baseEntityVersion").GetInt64() + 1),
-            "source.refreshSnapshot" or "externalCommand.confirm" or "externalCommand.reject" => 0L,
+            "source.refreshSnapshot" or "externalCommand.confirm" or "externalCommand.reject" or "externalCommand.cancel" => 0L,
             "space.put" or "project.put" or "project.delete" or "task.patch" or "task.moveTree" or
             "provider.scope.put" or "provider.catalog.put" or "provider.intent.request" or "provider.intent.start" or "provider.intent.resolve" =>
                 WorkspaceMutationVersion(canonicalJson),
             _ => throw new PersonalCloudK0ContractException("invalid_request", "The local outbox operation is unsupported."),
         };
+
+    private static bool IsValidPersonalCloudMutationReceiptEntityVersion(
+        string operation, string canonicalJson, string instanceId, long entityVersion)
+    {
+        if (operation is "source.refreshSnapshot" or "externalCommand.confirm" or "externalCommand.reject" or "externalCommand.cancel")
+            return true;
+        if (operation == PersonalCloudK0Protocol.ProviderObservedReopenOperation)
+            return entityVersion >= PersonalCloudProviderObservedReopenCodec.ParseMutation(canonicalJson, instanceId).BaseEntityVersion;
+        return entityVersion == PersonalCloudMutationEntityVersion(operation, canonicalJson, instanceId);
+    }
+
+    private static long HistoricalCompletionImportEntityVersion(string canonicalJson)
+    {
+        using var document = JsonDocument.Parse(canonicalJson);
+        var version = document.RootElement.GetProperty("baseEntityVersion");
+        return version.ValueKind == JsonValueKind.Number ? checked(version.GetInt64() + 1) : 1L;
+    }
 
     private static async Task UpsertPersonalCloudEntityVersionAsync(
         SqliteConnection connection,
@@ -3284,6 +3335,9 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
                     "yyyy-MM-dd'T'HH:mm:ss.fff'Z'",
                     System.Globalization.CultureInfo.InvariantCulture,
                     System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal);
+                if (await ShouldPreserveDeferredProviderOpenAsync(connection, instanceId, completed.EntityId, completedAt,
+                        cancellationToken).ConfigureAwait(false))
+                    break;
                 var updateTaskCommand = connection.CreateCommand();
                 updateTaskCommand.CommandText = """
                     UPDATE tasks
@@ -3324,13 +3378,14 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
                 updateTaskCommand.Parameters.AddWithValue("@id", reopened.EntityId);
                 if (await updateTaskCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
                 {
-                    var existsCommand = connection.CreateCommand();
-                    existsCommand.CommandText = "SELECT COUNT(*) FROM tasks WHERE id = @id";
-                    existsCommand.Parameters.AddWithValue("@id", reopened.EntityId);
-                    var exists = Convert.ToInt64(await existsCommand.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)) == 1;
+                    var stateCommand = connection.CreateCommand();
+                    stateCommand.CommandText = "SELECT completion_state FROM tasks WHERE id = @id";
+                    stateCommand.Parameters.AddWithValue("@id", reopened.EntityId);
+                    var completionState = (string?)await stateCommand.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+                    if (completionState == "open") break;
                     throw new PersonalCloudK0ContractException(
-                        exists ? "invalid_transition" : "entity_not_found",
-                        exists ? "Only a completed replica task can be reopened." : "The replica does not contain the task to reopen.");
+                        completionState is null ? "entity_not_found" : "invalid_transition",
+                        completionState is null ? "The replica does not contain the task to reopen." : "Only a completed replica task can be reopened.");
                 }
                 break;
             }
@@ -3947,10 +4002,19 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
     public async Task MarkCompletionSyncedAsync(string completionId, CancellationToken cancellationToken = default)
     {
         await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        var read = connection.CreateCommand();
+        read.CommandText = "SELECT task_id FROM pending_completions WHERE id=@id";
+        read.Parameters.AddWithValue("@id", completionId);
+        var taskId = (string?)await read.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+        if (taskId is not null)
+            await RecordProviderStateConfirmationAsync(connection, null, taskId, completionId, null,
+                DateTimeOffset.UtcNow, cancellationToken).ConfigureAwait(false);
         var command = connection.CreateCommand();
         command.CommandText = "DELETE FROM pending_completions WHERE id = @id";
         command.Parameters.AddWithValue("@id", completionId);
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
     }
 
     public async Task QueueTaskDateUpdateAsync(PendingTaskDateUpdate update, CancellationToken cancellationToken = default)
@@ -4096,6 +4160,8 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
         {
             throw new InvalidOperationException("The task no longer exists.");
         }
+        if (completed)
+            await SupersedeUnmaterializedProviderObservedReopensAsync(connection, taskId, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task UpdateIntegrationFlagsAsync(string id, bool? configured, bool? active, CancellationToken cancellationToken)
@@ -4237,7 +4303,7 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
         command.Parameters.AddWithValue("@adoption_state", source.AdoptionState);
         command.Parameters.AddWithValue("@adopted_task_id", ToDbValue(source.AdoptedTaskId));
         command.Parameters.AddWithValue("@first_seen_at", ToDbDate(source.FirstSeenAt));
-        command.Parameters.AddWithValue("@last_seen_at", ToDbDate(source.LastSeenAt));
+        command.Parameters.AddWithValue("@last_seen_at", source.LastSeenAt.ToUnixTimeMilliseconds());
         command.Parameters.AddWithValue("@updated_at", ToDbValue(source.UpdatedAt));
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
@@ -4247,10 +4313,41 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
         ProviderSourceItem source,
         ParentTaskContext? parent,
         bool syncPlannedDate,
+        DateTimeOffset? previousProviderCompletionAt,
         CancellationToken cancellationToken)
     {
         var (plannedOn, plannedAt) = NormalizeDatePair(source.PlannedOn, source.PlannedAt);
         var (deadlineOn, deadlineAt) = NormalizeDatePair(source.DeadlineOn, source.DeadlineAt);
+        var currentStateCommand = connection.CreateCommand();
+        currentStateCommand.CommandText = "SELECT completion_state,completed_at FROM tasks WHERE id=@task_id";
+        currentStateCommand.Parameters.AddWithValue("@task_id", source.AdoptedTaskId!);
+        string? currentCompletionState = null;
+        DateTimeOffset? currentCompletedAt = null;
+        await using (var currentStateReader = await currentStateCommand.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+        {
+            if (await currentStateReader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                currentCompletionState = currentStateReader.GetString(0);
+                currentCompletedAt = SqliteReadValues.ReadDate(currentStateReader, 1);
+            }
+        }
+        var completionInFlight = await IsProviderCompletionIntentInFlightAsync(connection, source.AdoptedTaskId!, cancellationToken).ConfigureAwait(false);
+        var confirmedAt = await GetProviderStateConfirmedAtAsync(connection, source.AdoptedTaskId!, cancellationToken).ConfigureAwait(false);
+        var cloudManagedCommand = connection.CreateCommand();
+        cloudManagedCommand.CommandText = "SELECT EXISTS(SELECT 1 FROM personal_cloud_entity_versions WHERE product='tasks' AND entity_id=@task_id)";
+        cloudManagedCommand.Parameters.AddWithValue("@task_id", source.AdoptedTaskId!);
+        var cloudManaged = Convert.ToInt64(await cloudManagedCommand.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)) != 0;
+        var providerObservedAt = DateTimeOffset.FromUnixTimeMilliseconds(source.LastSeenAt.ToUnixTimeMilliseconds());
+        var providerCompletionWasObservedAfterCurrentCompletion = previousProviderCompletionAt is { } previousCompletion &&
+            currentCompletedAt is { } taskCompletion && providerObservedAt > previousCompletion && providerObservedAt > taskCompletion;
+        var providerOpenIsFresh = currentCompletionState == "completed" &&
+            source.CompletionState == TaskCompletionState.Open &&
+            (confirmedAt is { } confirmation
+                ? providerObservedAt > confirmation
+                : providerCompletionWasObservedAfterCurrentCompletion);
+        var preserveCompletion = completionInFlight ||
+            (currentCompletionState == "completed" && source.CompletionState == TaskCompletionState.Open &&
+             (cloudManaged ? !providerOpenIsFresh : confirmedAt is not null && !providerOpenIsFresh));
         var command = connection.CreateCommand();
         command.CommandText = """
             UPDATE tasks
@@ -4276,9 +4373,7 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
                     ELSE workflow_status
                 END,
                 completion_state = CASE
-                    WHEN EXISTS (SELECT 1 FROM pending_completions WHERE task_id = @task_id) THEN completion_state
-                    WHEN EXISTS (SELECT 1 FROM personal_cloud_outbox WHERE entity_id = @task_id AND operation IN ('task.complete','task.reopen'))
-                      OR EXISTS (SELECT 1 FROM personal_cloud_provider_commands WHERE task_id = @task_id) THEN completion_state
+                    WHEN @preserve_completion = 1 THEN completion_state
                     ELSE @completion_state
                 END,
                 source_integration_id = @source_integration_id,
@@ -4309,15 +4404,14 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
                 updated_at = @updated_at,
                 revision = revision + 1,
                 completed_at = CASE
-                    WHEN EXISTS (SELECT 1 FROM pending_completions WHERE task_id = @task_id) THEN completed_at
-                    WHEN EXISTS (SELECT 1 FROM personal_cloud_outbox WHERE entity_id = @task_id AND operation IN ('task.complete','task.reopen'))
-                      OR EXISTS (SELECT 1 FROM personal_cloud_provider_commands WHERE task_id = @task_id) THEN completed_at
+                    WHEN @preserve_completion = 1 THEN completed_at
                     WHEN @completion_state = 'completed' THEN COALESCE(completed_at, @updated_at)
                     ELSE NULL
                 END
             WHERE id = @task_id
             """;
         command.Parameters.AddWithValue("@task_id", source.AdoptedTaskId);
+        command.Parameters.AddWithValue("@preserve_completion", preserveCompletion ? 1 : 0);
         command.Parameters.AddWithValue("@sync_planned_date", syncPlannedDate ? 1 : 0);
         command.Parameters.AddWithValue("@source_description", ToDbValue(source.Description));
         command.Parameters.AddWithValue("@parent_id", ToDbValue(parent?.Id));
@@ -4338,6 +4432,8 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
         command.Parameters.AddWithValue("@recurrence_rule", ToDbValue(source.RecurrenceRule));
         command.Parameters.AddWithValue("@updated_at", ToDbDate(DateTimeOffset.UtcNow));
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        if (providerOpenIsFresh && !completionInFlight)
+            await QueueProviderObservedReopenAsync(connection, source.AdoptedTaskId!, source.LastSeenAt, cancellationToken).ConfigureAwait(false);
     }
 
     private static async Task<(string AdoptionState, string? AdoptedTaskId)> ResolveProviderSourceAdoptionAsync(
@@ -4791,6 +4887,33 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
         {
             using var source = typeof(SqliteTaskStore).Assembly.GetManifestResourceStream("Openza.Tasks.Core.Data.Migrations.0014_task_reminders.sql")
                 ?? throw new InvalidOperationException("The reminder migration script is missing.");
+            using var reader = new StreamReader(source);
+            await ExecuteNonQueryAsync(connection, await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
+        }
+        if (!(await GetColumnNamesAsync(connection, "personal_cloud_outbox", cancellationToken).ConfigureAwait(false)).Contains("server_change_seq"))
+        {
+            using var source = typeof(SqliteTaskStore).Assembly.GetManifestResourceStream("Openza.Tasks.Core.Data.Migrations.0015_provider_observed_reopen.sql")
+                ?? throw new InvalidOperationException("The provider-observed reopen migration script is missing.");
+            using var reader = new StreamReader(source);
+            await ExecuteNonQueryAsync(connection, await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
+        }
+        var hasCommandCancellationTable = connection.CreateCommand();
+        hasCommandCancellationTable.CommandText = "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='personal_cloud_provider_command_cancellations')";
+        if (Convert.ToInt64(await hasCommandCancellationTable.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)) == 0)
+        {
+            using var source = typeof(SqliteTaskStore).Assembly.GetManifestResourceStream("Openza.Tasks.Core.Data.Migrations.0016_provider_command_reconciliation.sql")
+                ?? throw new InvalidOperationException("The provider-command reconciliation migration script is missing.");
+            using var reader = new StreamReader(source);
+            await ExecuteNonQueryAsync(connection, await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
+        }
+        else
+            await AddColumnIfMissingAsync(connection, "personal_cloud_outbox", "blocked_artifact_version", "TEXT", cancellationToken).ConfigureAwait(false);
+        var hasDeferredHistoricalCompletions = connection.CreateCommand();
+        hasDeferredHistoricalCompletions.CommandText = "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='personal_cloud_deferred_historical_completions')";
+        if (Convert.ToInt64(await hasDeferredHistoricalCompletions.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)) == 0)
+        {
+            using var source = typeof(SqliteTaskStore).Assembly.GetManifestResourceStream("Openza.Tasks.Core.Data.Migrations.0017_deferred_historical_completions.sql")
+                ?? throw new InvalidOperationException("The deferred historical-completion migration script is missing.");
             using var reader = new StreamReader(source);
             await ExecuteNonQueryAsync(connection, await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
         }
@@ -5893,8 +6016,44 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
           canonical_hash TEXT NOT NULL CHECK (length(canonical_hash) = 64),
           created_at INTEGER NOT NULL,
           acknowledged_at INTEGER,
+          server_change_seq INTEGER,
           UNIQUE (instance_id, device_id, device_sequence)
         );
+
+        CREATE TABLE IF NOT EXISTS provider_completion_confirmations (
+          confirmation_id TEXT PRIMARY KEY NOT NULL,
+          instance_id TEXT,
+          task_id TEXT NOT NULL,
+          requested_change_seq INTEGER,
+          confirmed_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS ix_provider_completion_confirmations_current
+          ON provider_completion_confirmations(instance_id,task_id,requested_change_seq);
+
+        CREATE TABLE IF NOT EXISTS personal_cloud_provider_observed_reopens (
+          instance_id TEXT NOT NULL,
+          task_id TEXT NOT NULL,
+          observation_id TEXT NOT NULL,
+          observed_at INTEGER NOT NULL,
+          blocked_artifact_version TEXT,
+          PRIMARY KEY(instance_id, observation_id)
+        );
+        CREATE INDEX IF NOT EXISTS ix_provider_observed_reopens_pending
+          ON personal_cloud_provider_observed_reopens(instance_id,blocked_artifact_version,observed_at);
+
+        CREATE TABLE IF NOT EXISTS personal_cloud_deferred_historical_completions (
+          instance_id TEXT NOT NULL,
+          device_id TEXT NOT NULL,
+          mutation_id TEXT NOT NULL,
+          entity_id TEXT NOT NULL,
+          canonical_json TEXT NOT NULL,
+          canonical_hash TEXT NOT NULL CHECK(length(canonical_hash)=64),
+          created_at INTEGER NOT NULL,
+          blocked_artifact_version TEXT,
+          PRIMARY KEY(instance_id,device_id,mutation_id)
+        );
+        CREATE INDEX IF NOT EXISTS ix_deferred_historical_completions_pending
+          ON personal_cloud_deferred_historical_completions(instance_id,device_id,blocked_artifact_version,created_at);
 
         CREATE TABLE IF NOT EXISTS personal_cloud_task_conflicts (
           mutation_id TEXT PRIMARY KEY,

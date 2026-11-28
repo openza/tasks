@@ -10,7 +10,7 @@ public sealed class PersonalCloudHealthClient(HttpClient http)
     // ownership; 20 guards ambiguous provider aliases; 21 adds optional initial upload feedback.
     // Schema22 adds bounded sequential batches; schema23 adds workspace/catalog;
     // schema24 adds optional byte-bounded workspace paging.
-    // Schema26 adds optional current catch-up metadata; schema25 stays supported.
+    // Provider-observed reopen is an optional capability over the existing schema26 contract.
     // Cloud releases ship independently and may be newer than this Desktop
     // (personal-cloud/docs/cloud-releases.md): unknown health fields, unknown
     // capabilities, extra capability keys and higher schema versions are
@@ -59,6 +59,11 @@ public sealed class PersonalCloudHealthClient(HttpClient http)
             var catalogProtocol = ParseProviderCatalog(body.Capabilities);
             var catalog = catalogProtocol > 0;
             var paging = ParseWorkspacePaging(body.Capabilities);
+            var providerObservedReopen = ParseProviderObservedReopen(body.Capabilities);
+            var providerCommandCancellation = ParseProviderCommandCancellation(body.Capabilities);
+            var historicalCompletionImport = ParseHistoricalCompletionImport(body.Capabilities);
+            if ((providerCommandCancellation || historicalCompletionImport) && body.SchemaVersion < 27)
+                throw new PersonalCloudK0ContractException("health_mismatch", "Provider-command cancellation and historical-completion import require the current cloud schema.");
             if ((workspace || catalog) && body.SchemaVersion < 23 || catalog && !workspace || paging && (!workspace || body.SchemaVersion < 24))
                 throw new PersonalCloudK0ContractException("health_mismatch", "The workspace capabilities do not match the cloud schema.");
             return new PersonalCloudHealth(body.ArtifactVersion, body.SchemaVersion)
@@ -67,6 +72,9 @@ public sealed class PersonalCloudHealthClient(HttpClient http)
                 SupportsWorkspacePaging = paging,
                 SupportsFanoutBudget = ParseFanoutBudget(body.Capabilities),
                 SupportsCatchupStatus = ParseCatchupStatus(body.Capabilities),
+                SupportsProviderObservedReopen = providerObservedReopen,
+                SupportsProviderCommandCancellation = providerCommandCancellation,
+                SupportsHistoricalCompletionImport = historicalCompletionImport,
             };
         }
         catch (JsonException exception)
@@ -117,6 +125,33 @@ public sealed class PersonalCloudHealthClient(HttpClient http)
         if (!ExactCapability(value, "protocolVersion", "path", "staleAfterSeconds") ||
             !Integer(value, "protocolVersion", 1) || !Text(value, "path", "/sync/catchup-status") || !Integer(value, "staleAfterSeconds", 900))
             throw new PersonalCloudK0ContractException("health_mismatch", "Invalid catch-up status capability.");
+        return true;
+    }
+
+    private static bool ParseProviderObservedReopen(JsonElement? capabilities)
+    {
+        if (capabilities is null || capabilities.Value.ValueKind != JsonValueKind.Object ||
+            !capabilities.Value.TryGetProperty("providerObservedReopen", out var value)) return false;
+        if (!ExactCapability(value, "protocolVersion") || !Integer(value, "protocolVersion", 1))
+            throw new PersonalCloudK0ContractException("health_mismatch", "Invalid provider-observed reopen capability.");
+        return true;
+    }
+
+    private static bool ParseProviderCommandCancellation(JsonElement? capabilities)
+    {
+        if (capabilities is null || capabilities.Value.ValueKind != JsonValueKind.Object ||
+            !capabilities.Value.TryGetProperty("providerCommandCancellation", out var value)) return false;
+        if (!ExactCapability(value, "protocolVersion") || !Integer(value, "protocolVersion", 1))
+            throw new PersonalCloudK0ContractException("health_mismatch", "Invalid provider-command cancellation capability.");
+        return true;
+    }
+
+    private static bool ParseHistoricalCompletionImport(JsonElement? capabilities)
+    {
+        if (capabilities is null || capabilities.Value.ValueKind != JsonValueKind.Object ||
+            !capabilities.Value.TryGetProperty("historicalCompletionImport", out var value)) return false;
+        if (!ExactCapability(value, "protocolVersion") || !Integer(value, "protocolVersion", 1))
+            throw new PersonalCloudK0ContractException("health_mismatch", "Invalid historical-completion import capability.");
         return true;
     }
 
@@ -176,4 +211,7 @@ public sealed record PersonalCloudHealth(string ArtifactVersion, int SchemaVersi
     public bool SupportsWorkspacePaging { get; init; }
     public bool SupportsFanoutBudget { get; init; }
     public bool SupportsCatchupStatus { get; init; }
+    public bool SupportsProviderObservedReopen { get; init; }
+    public bool SupportsProviderCommandCancellation { get; init; }
+    public bool SupportsHistoricalCompletionImport { get; init; }
 }

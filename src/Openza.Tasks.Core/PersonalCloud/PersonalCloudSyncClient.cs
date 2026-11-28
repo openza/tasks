@@ -10,6 +10,7 @@ public sealed record PersonalCloudSyncResult(int PushedMutations, int PulledChan
 {
     public int TaskConflictCount { get; init; }
     public string? BlockedCode { get; init; }
+    public bool CanContinueOtherWork { get; init; }
     public PersonalCloudInitialSyncProgress? InitialSyncProgress { get; init; }
 }
 
@@ -32,8 +33,8 @@ public sealed partial class PersonalCloudSyncClient(
         // Negotiation is scoped to this pass, including retries on the same client.
         _batchCapabilityKnown = false;
         _catchupReportRejected = false;
-        var pending = await store.GetPendingPersonalCloudOutboxAsync(connection.InstanceId, connection.DeviceId, cancellationToken).ConfigureAwait(false);
         await DiscoverCapabilitiesAsync(cancellationToken).ConfigureAwait(false);
+        var pending = await store.GetPendingPersonalCloudOutboxAsync(connection.InstanceId, connection.DeviceId, cancellationToken).ConfigureAwait(false);
         var prefix = await SelectBudgetPrefixAsync(pending, cancellationToken).ConfigureAwait(false);
         var access = await identity.IssueAccessTokenAsync(connection.ServiceOrigin, cancellationToken).ConfigureAwait(false);
         if (!string.Equals(access.InstanceId, connection.InstanceId, StringComparison.Ordinal) ||
@@ -57,10 +58,17 @@ public sealed partial class PersonalCloudSyncClient(
         else if (prefix.PauseAfter && PersonalCloudDispatchHttp.PolicyFor(http) is { } pausedDispatch)
             blockedCode = (await pausedDispatch.GetStatusAsync(connection.ServiceOrigin, cancellationToken).ConfigureAwait(false)).Code;
 
+        var canContinueOtherWork = blockedCode is null &&
+            await store.HasDeferredHistoricalCompletionImportsAsync(connection.InstanceId, cancellationToken).ConfigureAwait(false);
+        if (canContinueOtherWork)
+            blockedCode = "upgrade_required";
+
         if (progress is not null) await progress(PersonalCloudInitialSyncPhase.Downloading, cancellationToken).ConfigureAwait(false);
         if (_supportsWorkspace && blockedCode is null && !await store.HasPersonalCloudWorkspaceBaselineAsync(connection.InstanceId, cancellationToken).ConfigureAwait(false) &&
             (await store.GetPendingPersonalCloudOutboxAsync(connection.InstanceId, connection.DeviceId, cancellationToken).ConfigureAwait(false)).Count == 0 &&
-            (await store.GetPersonalCloudTaskConflictsAsync(connection.InstanceId, cancellationToken).ConfigureAwait(false)).Count == 0)
+            (await store.GetPersonalCloudTaskConflictsAsync(connection.InstanceId, cancellationToken).ConfigureAwait(false)).Count == 0 &&
+            !await store.HasDeferredProviderCommandCancellationsAsync(connection.InstanceId, cancellationToken).ConfigureAwait(false) &&
+            !await store.HasDeferredHistoricalCompletionImportsAsync(connection.InstanceId, cancellationToken).ConfigureAwait(false))
         {
             await ReplaceWorkspaceBaselineAsync(access.AccessToken, ReserveBootstrapAttempt, cancellationToken).ConfigureAwait(false);
         }
@@ -144,7 +152,8 @@ public sealed partial class PersonalCloudSyncClient(
         if (blockedCode == "fanout_bound_exceeded" && PersonalCloudDispatchHttp.PolicyFor(http) is { } retryPolicy)
             await retryPolicy.RecordFailureAsync(connection.ServiceOrigin, cancellationToken).ConfigureAwait(false);
         await ReportCatchupStatusAsync(cancellationToken).ConfigureAwait(false);
-        return new PersonalCloudSyncResult(pushed, pulled, checkpoint) { BlockedCode = blockedCode, TaskConflictCount = conflicts.Count };
+        return new PersonalCloudSyncResult(pushed, pulled, checkpoint)
+        { BlockedCode = blockedCode, TaskConflictCount = conflicts.Count, CanContinueOtherWork = canContinueOtherWork };
     }
 
     private HttpRequestMessage CreateAuthorizedRequest(HttpMethod method, string path, string accessToken)
@@ -201,7 +210,7 @@ public sealed partial class PersonalCloudSyncClient(
                     if (document.RootElement.TryGetProperty("error", out var error) && error.ValueKind == JsonValueKind.Object &&
                         error.TryGetProperty("code", out var value) && value.ValueKind == JsonValueKind.String &&
                         value.GetString() is { } returnedCode &&
-                        (IsPermanentMutationRejection(returnedCode) || returnedCode is "checkpoint_expired" or "upgrade_required" or "bootstrap_changed" or "response_too_large" ||
+                        (IsPermanentMutationRejection(returnedCode) || returnedCode is "unknown_operation" or "checkpoint_expired" or "upgrade_required" or "bootstrap_changed" or "response_too_large" ||
                          returnedCode == "fanout_bound_exceeded" && response.StatusCode == System.Net.HttpStatusCode.Conflict &&
                          _supportsFanoutBudget && request.Options.TryGetValue(PersonalCloudMutationCost.GuardedFanoutBound, out _) &&
                          error.TryGetProperty("retryable", out var retryable) && retryable.ValueKind == JsonValueKind.True))
@@ -227,6 +236,6 @@ public sealed partial class PersonalCloudSyncClient(
 
     private static bool IsPermanentMutationRejection(string code) => code is
         "version_conflict" or "entity_exists" or "entity_not_found" or "invalid_transition" or
-        "command_superseded" or "sequence_gap" or "mutation_id_reuse" or "mutation_id_reused" or "invalid_request" or
-        "parent_not_found" or "source_not_found" or "command_not_found" or "source_identity_conflict" or "stale_snapshot" or "response_too_large";
+        "command_superseded" or "command_busy" or "sequence_gap" or "mutation_id_reuse" or "mutation_id_reused" or "invalid_request" or
+        "parent_not_found" or "source_not_found" or "command_not_found" or "source_identity_conflict" or "stale_snapshot" or "response_too_large" or "unknown_operation";
 }

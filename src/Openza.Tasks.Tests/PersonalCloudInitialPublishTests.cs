@@ -59,7 +59,8 @@ public sealed class PersonalCloudInitialPublishTests : IDisposable
         Assert.All(outbox.Take(2), entry => Assert.Equal("task.create", entry.Operation));
         Assert.All(outbox.Skip(2).Take(2), entry => Assert.Equal("task.move", entry.Operation));
         Assert.Equal("task.setParent", outbox[^2].Operation);
-        Assert.Equal("task.complete", outbox[^1].Operation);
+        Assert.Equal(PersonalCloudK0Protocol.TaskHistoricalCompletionImportOperation, outbox[^1].Operation);
+        Assert.DoesNotContain(outbox, entry => entry.Operation == PersonalCloudK0Protocol.CompleteTaskOperation);
         Assert.Equal(Enumerable.Range(1, outbox.Count).Select(value => (long)value), outbox.Select(entry => entry.DeviceSequence));
 
         var versions = new Dictionary<string, long>(StringComparer.Ordinal);

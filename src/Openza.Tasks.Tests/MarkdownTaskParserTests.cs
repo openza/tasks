@@ -108,7 +108,7 @@ public sealed class MarkdownTaskParserTests
 
     [Theory]
     [InlineData("task.updateOpenzaFields")]
-    [InlineData("task.complete")]
+    [InlineData("task.createHistoricalCompletion")]
     public async Task Import_legacy_cloud_rolls_back_task_and_all_intents_on_failure(string operation)
     {
         var directory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
@@ -142,7 +142,8 @@ public sealed class MarkdownTaskParserTests
             var entries = await store.GetPendingPersonalCloudOutboxAsync(cloud.InstanceId, cloud.DeviceId);
             Assert.Equal(Enumerable.Range(1, entries.Count).Select(value => (long)value), entries.Select(entry => entry.DeviceSequence));
             Assert.Equal("task.create", entries[0].Operation);
-            Assert.Equal("task.complete", entries[^1].Operation);
+            Assert.Equal("task.createHistoricalCompletion", entries[^1].Operation);
+            Assert.DoesNotContain(entries, entry => entry.Operation == "task.complete");
             Assert.Equal(entries.Count - 1, imported.Revision);
         }
         finally { Directory.Delete(directory, recursive: true); }
@@ -289,7 +290,8 @@ public sealed class MarkdownTaskParserTests
                     return entry.Operation == "task.updateOpenzaFields" && mutation.RootElement.GetProperty("payload").TryGetProperty(field, out _);
                 });
             }
-            Assert.Equal(completed ? 1 : 0, entries.Count(entry => entry.Operation == "task.complete"));
+            Assert.Equal(completed ? 1 : 0, entries.Count(entry => entry.Operation == "task.createHistoricalCompletion"));
+            Assert.DoesNotContain(entries, entry => entry.Operation == "task.complete");
             Assert.Equal(0, await store.StageUnpublishedTasksForPersonalCloudAsync(cloud.InstanceId, cloud.DeviceId));
         }
         finally { Directory.Delete(directory, recursive: true); }

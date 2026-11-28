@@ -90,7 +90,7 @@ public sealed class ScheduleContractEdgeTests : IDisposable
         var operations = (await store.GetPendingPersonalCloudOutboxAsync(Instance, Device)).Where(x => x.EntityId == before.Id).ToArray();
         string[] expected = reopening ? ["task.patch", "task.reopen", "task.moveTree", "task.updateOpenzaFields"] :
             ["task.patch", "task.moveTree", "task.updateOpenzaFields", "task.complete"];
-        var prefix = published ? Array.Empty<string>() : reopening ? ["task.createRich", "task.complete"] : ["task.createRich"];
+        var prefix = published ? Array.Empty<string>() : reopening ? ["task.createRich", "task.createHistoricalCompletion"] : ["task.createRich"];
         Assert.Equal(prefix.Concat(expected), operations.Select(x => x.Operation));
         var version = 1L;
         foreach (var entry in operations.Where(x => x.Operation != "task.createRich"))

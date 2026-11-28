@@ -97,7 +97,7 @@ public sealed partial class SqliteTaskStore
         var command = connection.CreateCommand();
         command.CommandText = """
             SELECT EXISTS(SELECT 1 FROM personal_cloud_outbox WHERE instance_id=@i AND entity_id=@e
-              AND acknowledged_at IS NULL AND operation NOT IN('source.refreshSnapshot','externalCommand.confirm','externalCommand.reject'))
+              AND acknowledged_at IS NULL AND operation NOT IN('source.refreshSnapshot','externalCommand.confirm','externalCommand.reject','externalCommand.cancel'))
               OR EXISTS(SELECT 1 FROM personal_cloud_task_conflicts WHERE instance_id=@i AND entity_id=@e)
               OR EXISTS(SELECT 1 FROM personal_cloud_workspace_indirect_versions v JOIN personal_cloud_outbox o ON o.mutation_id=v.mutation_id
                 WHERE v.instance_id=@i AND v.entity_id=@e AND o.acknowledged_at IS NULL)
@@ -105,6 +105,25 @@ public sealed partial class SqliteTaskStore
                 WHERE v.instance_id=@i AND v.entity_id=@e)
             """;
         command.Parameters.AddWithValue("@i", instanceId); command.Parameters.AddWithValue("@e", id);
+        return Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)) != 0;
+    }
+
+    private static async Task<bool> ShouldPreserveDeferredProviderOpenAsync(SqliteConnection connection, string instanceId,
+        string id, DateTimeOffset? cloudCompletedAt, CancellationToken cancellationToken)
+    {
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT EXISTS(
+              SELECT 1 FROM tasks t
+              JOIN personal_cloud_provider_observed_reopens q ON q.task_id=t.id AND q.instance_id=@i
+              WHERE t.id=@e AND t.completion_state='open'
+                AND (@completed_at IS NULL OR q.observed_at>@completed_at))
+            """;
+        command.Parameters.AddWithValue("@i", instanceId);
+        command.Parameters.AddWithValue("@e", id);
+        command.Parameters.AddWithValue("@completed_at", cloudCompletedAt is { } completed
+            ? completed.ToUnixTimeMilliseconds()
+            : DBNull.Value);
         return Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)) != 0;
     }
 
@@ -169,17 +188,20 @@ public sealed partial class SqliteTaskStore
             var sourceJson = item.GetProperty("source");
             var source = sourceJson.ValueKind == JsonValueKind.Null ? null : PersonalCloudK0Codec.Deserialize<K0SafeSourceDescriptor>(sourceJson.GetRawText());
             existing.TryGetValue(id, out var prior);
+            var cloudCompletedAt = WText(item, "completionState") == "completed" ? WMoment(item, "completedAt") : null;
+            var preserveDeferredProviderOpen = await ShouldPreserveDeferredProviderOpenAsync(connection, instanceId, id,
+                cloudCompletedAt, cancellationToken).ConfigureAwait(false);
             var priorSource = prior is null ? null : PersonalCloudK0Mapper.CreateSafeSourceDescriptor(prior);
             var sameSource = source is not null && priorSource is not null && source.IntegrationKind == priorSource.IntegrationKind && source.ExternalIdHash == priorSource.ExternalIdHash;
             var task = (prior ?? new TaskItem { Id = id }) with
             {
                 SpaceId = WText(item, "spaceId")!, ProjectId = WText(item, "projectId"), ParentId = WText(item, "parentId"),
-                Title = WText(item, "title")!, CompletionState = TaskStatusExtensions.CompletionFromStorageValue(WText(item, "completionState")),
+                Title = WText(item, "title")!, CompletionState = preserveDeferredProviderOpen ? TaskCompletionState.Open : TaskStatusExtensions.CompletionFromStorageValue(WText(item, "completionState")),
                 WorkflowStatus = TaskStatusExtensions.WorkflowFromStorageValue(WText(item, "workflowStatus")), Priority = item.GetProperty("priority").GetInt32(),
                 PlannedOn = WDay(item, "plannedOn"), PlannedAt = WMoment(item, "plannedAt"), DeadlineOn = WDay(item, "deadlineOn"), DeadlineAt = WMoment(item, "deadlineAt"),
                 ScheduledStart = WMoment(item, "scheduledStart"), ScheduledEnd = WMoment(item, "scheduledEnd"),
                 DurationMinutes = item.GetProperty("durationMinutes").ValueKind == JsonValueKind.Null ? null : item.GetProperty("durationMinutes").GetInt32(),
-                RecurrenceRule = WText(item, "recurrenceRule"), Notes = WText(item, "notes"), CompletedAt = WMoment(item, "completedAt"),
+                RecurrenceRule = WText(item, "recurrenceRule"), Notes = WText(item, "notes"), CompletedAt = preserveDeferredProviderOpen ? null : WMoment(item, "completedAt"),
                 CreatedAt = WMoment(item, "createdAt")!.Value,
                 UpdatedAt = item.TryGetProperty("updatedAt", out _) ? WMoment(item, "updatedAt") : prior?.UpdatedAt,
                 Revision = (prior?.Revision ?? 0) + 1,
