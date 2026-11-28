@@ -4330,7 +4330,7 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
         var cloudManaged = Convert.ToInt64(await cloudManagedCommand.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)) != 0;
         var providerObservedAt = DateTimeOffset.FromUnixTimeMilliseconds(source.LastSeenAt.ToUnixTimeMilliseconds());
         var providerCompletionWasObservedAfterCurrentCompletion = previousProviderCompletionAt is { } previousCompletion &&
-            currentCompletedAt is { } taskCompletion && previousCompletion > taskCompletion && providerObservedAt > previousCompletion;
+            currentCompletedAt is { } taskCompletion && providerObservedAt > previousCompletion && providerObservedAt > taskCompletion;
         var providerOpenIsFresh = currentCompletionState == "completed" &&
             source.CompletionState == TaskCompletionState.Open &&
             (confirmedAt is { } confirmation

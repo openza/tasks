@@ -841,7 +841,8 @@ public sealed class TaskSyncEngineTests : IDisposable
         });
         await store.CompleteTaskAsync(task.Id);
 
-        provider.SnapshotDelayMilliseconds = 10;
+        Assert.Equal(1, await engine.SyncPendingCompletionsAsync(provider));
+        await WaitUntilUnixSecondAfterAsync(DateTimeOffset.UtcNow);
         provider.PlannedOn = new DateOnly(2026, 7, 6);
         var secondSync = await engine.SyncAsync(provider);
 
@@ -871,13 +872,21 @@ public sealed class TaskSyncEngineTests : IDisposable
         var source = Assert.Single(await store.GetProviderSourceItemsAsync(IntegrationIds.Todoist));
         var task = await store.AdoptProviderSourceItemAsync(source.Id);
         Assert.NotNull(task);
+        await using (var connection = new SqliteConnection($"Data Source={Path.Combine(_directory, "openza_tasks.db")}"))
+        {
+            await connection.OpenAsync();
+            await using var command = connection.CreateCommand();
+            command.CommandText = "INSERT INTO personal_cloud_provider_sources(instance_id,task_id,source_json) VALUES('cloud_instance',@task_id,'{}')";
+            command.Parameters.AddWithValue("@task_id", task!.Id);
+            await command.ExecuteNonQueryAsync();
+        }
 
         provider.IncludeActiveTask = false;
         provider.IncludeCompletedTask = true;
         Assert.True((await engine.SyncAsync(provider)).Success);
         Assert.Equal(TaskCompletionState.Completed, (await store.GetTaskAsync(task!.Id))!.CompletionState);
 
-        var storedCompletionAt = DateTimeOffset.UtcNow.AddDays(-1);
+        var storedCompletionAt = (await store.GetTaskAsync(task.Id))!.CompletedAt!.Value;
         var completedAtValue = storeCompletedAtAsUnixMilliseconds
             ? storedCompletionAt.ToUnixTimeMilliseconds()
             : storedCompletionAt.ToUnixTimeSeconds();
@@ -891,6 +900,7 @@ public sealed class TaskSyncEngineTests : IDisposable
             await command.ExecuteNonQueryAsync();
         }
 
+        await WaitUntilUnixSecondAfterAsync(storedCompletionAt);
         provider.IncludeActiveTask = true;
         provider.IncludeCompletedTask = false;
         provider.PlannedOn = new DateOnly(2026, 12, 27);
@@ -902,6 +912,7 @@ public sealed class TaskSyncEngineTests : IDisposable
         Assert.Equal(new DateOnly(2026, 12, 27), refreshed.PlannedOn);
         Assert.Equal(0, provider.CompletedCalls);
         Assert.Equal(0, await ScalarIntAsync("SELECT count(*) FROM personal_cloud_provider_commands WHERE task_id=@task_id", task.Id));
+        Assert.Equal(1, await ScalarIntAsync("SELECT count(*) FROM personal_cloud_provider_observed_reopens WHERE task_id=@task_id", task.Id));
     }
 
     [Fact]
@@ -929,6 +940,8 @@ public sealed class TaskSyncEngineTests : IDisposable
         Assert.True((await engine.SyncAsync(provider)).Success);
         Assert.Equal(TaskCompletionState.Completed, (await store.GetTaskAsync(task!.Id))!.CompletionState);
 
+        var completedAt = (await store.GetTaskAsync(task.Id))!.CompletedAt!.Value;
+        await WaitUntilUnixSecondAfterAsync(completedAt);
         provider.IncludeActiveTask = true;
         provider.IncludeCompletedTask = false;
         provider.PlannedOn = new DateOnly(2026, 12, 27);
@@ -1553,6 +1566,13 @@ public sealed class TaskSyncEngineTests : IDisposable
         return (store, provider, task, confirmedAt);
     }
 
+    private static async Task WaitUntilUnixSecondAfterAsync(DateTimeOffset timestamp)
+    {
+        var nextSecond = timestamp.ToUnixTimeSeconds() + 1;
+        while (DateTimeOffset.UtcNow.ToUnixTimeSeconds() < nextSecond)
+            await Task.Delay(10).ConfigureAwait(false);
+    }
+
     private async Task<int> ScalarIntAsync(string sql, string taskId)
     {
         await using var connection = new SqliteConnection($"Data Source={Path.Combine(_directory, "openza_tasks.db")}");
@@ -1582,18 +1602,14 @@ public sealed class TaskSyncEngineTests : IDisposable
         public bool IncludeActiveTask { get; set; } = true;
         public bool IncludeCompletedTask { get; set; }
         public bool IncludeChildTask { get; set; }
-        public int SnapshotDelayMilliseconds { get; set; }
         public int CompletedCalls { get; private set; }
         public bool ThrowOnMove { get; set; }
         public List<string> OutboundOperationOrder { get; } = [];
         public List<PendingTaskDateUpdate> DateUpdates { get; } = [];
         public List<(string TaskId, string ProjectId)> ProjectMoves { get; } = [];
 
-        public async Task<ProviderSnapshot> FetchSnapshotAsync(CancellationToken cancellationToken = default)
+        public Task<ProviderSnapshot> FetchSnapshotAsync(CancellationToken cancellationToken = default)
         {
-            if (SnapshotDelayMilliseconds > 0)
-                await Task.Delay(SnapshotDelayMilliseconds, cancellationToken).ConfigureAwait(false);
-
             List<TaskItem> tasks = [];
             if (IncludeActiveTask)
             {
@@ -1637,13 +1653,13 @@ public sealed class TaskSyncEngineTests : IDisposable
                 });
             }
 
-            return new ProviderSnapshot(
+            return Task.FromResult(new ProviderSnapshot(
                 tasks,
                 Projects,
                 SnapshotLabels)
             {
                 CompletedTasks = completedTasks,
-            };
+            });
         }
 
         public Task CompleteTaskAsync(PendingCompletion completion, CancellationToken cancellationToken = default)
