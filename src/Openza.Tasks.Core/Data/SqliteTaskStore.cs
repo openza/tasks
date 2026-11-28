@@ -4316,7 +4316,7 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
         var providerObservedAt = DateTimeOffset.FromUnixTimeMilliseconds(source.LastSeenAt.ToUnixTimeMilliseconds());
         var providerOpenIsFresh = currentCompletionState == "completed" &&
             source.CompletionState == TaskCompletionState.Open && confirmedAt is { } confirmation && providerObservedAt > confirmation;
-        var preserveCompletion = completionInFlight ||
+        var preserveCompletion = (completionInFlight && confirmedAt is null) ||
             (currentCompletionState == "completed" && source.CompletionState == TaskCompletionState.Open &&
              confirmedAt is not null && !providerOpenIsFresh);
         var command = connection.CreateCommand();

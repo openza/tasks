@@ -148,16 +148,22 @@ public sealed partial class SqliteTaskStore
                       AND o.local_sequence=(SELECT MAX(latest.local_sequence) FROM personal_cloud_outbox latest
                         WHERE latest.instance_id=o.instance_id AND latest.entity_id=o.entity_id
                           AND latest.operation IN ('task.complete','task.reopen') AND latest.acknowledged_at IS NOT NULL)
-                      AND (
-                        NOT EXISTS(SELECT 1 FROM personal_cloud_provider_commands c
-                          WHERE c.instance_id=o.instance_id AND c.task_id=o.entity_id)
-                        OR EXISTS(
-                        SELECT 1 FROM personal_cloud_provider_commands c
+                      AND NOT EXISTS(SELECT 1 FROM personal_cloud_provider_commands c
                         WHERE c.instance_id=o.instance_id AND c.task_id=o.entity_id
-                          AND ((o.server_change_seq IS NOT NULL AND c.requested_seq=o.server_change_seq)
-                            OR (o.server_change_seq IS NULL AND c.command=CASE o.operation WHEN 'task.complete' THEN 'complete' ELSE 'reopen' END))
-                          AND c.state NOT IN ('confirmed','rejected','cancelled')))
-                ))
+                          AND c.state IN ('confirmed','rejected','cancelled')
+                          AND (c.requested_seq>=COALESCE(o.server_change_seq,(SELECT applied.change_seq FROM personal_cloud_applied_changes applied
+                                WHERE applied.instance_id=o.instance_id AND applied.product='tasks'
+                                  AND applied.mutation_id=o.mutation_id AND applied.entity_id=o.entity_id))
+                            OR (COALESCE(o.server_change_seq,(SELECT applied.change_seq FROM personal_cloud_applied_changes applied
+                                  WHERE applied.instance_id=o.instance_id AND applied.product='tasks'
+                                    AND applied.mutation_id=o.mutation_id AND applied.entity_id=o.entity_id)) IS NULL
+                              AND EXISTS(SELECT 1 FROM personal_cloud_outbox result
+                                WHERE result.instance_id=o.instance_id AND result.entity_id=o.entity_id
+                                  AND result.operation IN ('externalCommand.confirm','externalCommand.reject','externalCommand.cancel')
+                                  AND result.acknowledged_at IS NOT NULL
+                                  AND CAST(json_extract(result.canonical_json,'$.payload.requestedChangeSeq') AS INTEGER)=c.requested_seq
+                                  AND result.local_sequence>o.local_sequence)))
+                )))
             """;
         command.Parameters.AddWithValue("@t", taskId);
         return Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)) != 0;
@@ -267,13 +273,28 @@ public sealed partial class SqliteTaskStore
         await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         var read = connection.CreateCommand();
-        read.CommandText = "SELECT local_sequence,device_sequence,entity_id FROM personal_cloud_outbox WHERE instance_id=@i AND device_id=@d AND mutation_id=@m AND operation=@o AND acknowledged_at IS NULL";
+        read.CommandText = "SELECT local_sequence,device_sequence,entity_id,canonical_json FROM personal_cloud_outbox WHERE instance_id=@i AND device_id=@d AND mutation_id=@m AND operation=@o AND acknowledged_at IS NULL";
         read.Parameters.AddWithValue("@i", instanceId); read.Parameters.AddWithValue("@d", deviceId); read.Parameters.AddWithValue("@m", mutationId);
         read.Parameters.AddWithValue("@o", PersonalCloudK0Protocol.ProviderObservedReopenOperation);
-        (long Local, long Sequence, string TaskId)? rejected = null;
+        (long Local, long Sequence, string TaskId, string Json)? rejected = null;
         await using (var reader = await read.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
-            if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) rejected = (reader.GetInt64(0), reader.GetInt64(1), reader.GetString(2));
+            if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) rejected = (reader.GetInt64(0), reader.GetInt64(1), reader.GetString(2), reader.GetString(3));
         if (rejected is null) return false;
+        using var rejectedEnvelope = System.Text.Json.JsonDocument.Parse(rejected.Value.Json);
+        var skippedEntityVersion = rejectedEnvelope.RootElement.TryGetProperty("baseEntityVersion", out var skippedVersionElement) &&
+                                   skippedVersionElement.ValueKind == System.Text.Json.JsonValueKind.Number
+            ? skippedVersionElement.GetInt64()
+            : (long?)null;
+        long? confirmedEntityVersion = null;
+        if (skippedEntityVersion is not null)
+        {
+            var version = connection.CreateCommand();
+            version.CommandText = "SELECT entity_version FROM personal_cloud_entity_versions WHERE instance_id=@i AND product='tasks' AND entity_id=@e";
+            version.Parameters.AddWithValue("@i", instanceId);
+            version.Parameters.AddWithValue("@e", rejected.Value.TaskId);
+            var storedVersion = await version.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+            confirmedEntityVersion = storedVersion is null or DBNull ? null : Convert.ToInt64(storedVersion);
+        }
         var tailRead = connection.CreateCommand();
         tailRead.CommandText = "SELECT local_sequence,mutation_id,device_sequence,operation,entity_id,canonical_json,created_at FROM personal_cloud_outbox WHERE instance_id=@i AND device_id=@d AND acknowledged_at IS NULL AND device_sequence>=@q ORDER BY device_sequence";
         tailRead.Parameters.AddWithValue("@i", instanceId); tailRead.Parameters.AddWithValue("@d", deviceId); tailRead.Parameters.AddWithValue("@q", rejected.Value.Sequence);
@@ -298,6 +319,12 @@ public sealed partial class SqliteTaskStore
             var jsonNode = JsonNode.Parse(row.Json)!.AsObject();
             var newId = $"mutation_{Guid.NewGuid():N}";
             jsonNode["mutationId"] = newId; jsonNode["deviceSequence"] = next;
+            if (skippedEntityVersion is { } skipped &&
+                (confirmedEntityVersion is null || confirmedEntityVersion <= skipped) &&
+                row.Entity == rejected.Value.TaskId &&
+                jsonNode["baseEntityVersion"] is JsonValue queuedBase &&
+                queuedBase.TryGetValue<long>(out var queuedVersion) && queuedVersion > skipped)
+                jsonNode["baseEntityVersion"] = queuedVersion - 1;
             var json = PersonalCloudK0Codec.Canonicalize(jsonNode.ToJsonString());
             var insert = connection.CreateCommand();
             insert.CommandText = "INSERT INTO personal_cloud_outbox(local_sequence,mutation_id,product,instance_id,device_id,device_sequence,operation,entity_id,canonical_json,canonical_hash,created_at) VALUES(@l,@m,'tasks',@i,@d,@q,@o,@e,@j,@h,@a)";
@@ -311,6 +338,8 @@ public sealed partial class SqliteTaskStore
             attempt.Parameters.AddWithValue("@n", newId); attempt.Parameters.AddWithValue("@m", row.Id); await attempt.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
             var queue = connection.CreateCommand(); queue.CommandText = "UPDATE personal_cloud_provider_observed_reopens SET observation_id=@n WHERE instance_id=@i AND observation_id=@m";
             queue.Parameters.AddWithValue("@n", newId); queue.Parameters.AddWithValue("@i", instanceId); queue.Parameters.AddWithValue("@m", row.Id); await queue.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            var cancellation = connection.CreateCommand(); cancellation.CommandText = "UPDATE personal_cloud_provider_command_cancellations SET mutation_id=@n WHERE instance_id=@i AND mutation_id=@m";
+            cancellation.Parameters.AddWithValue("@n", newId); cancellation.Parameters.AddWithValue("@i", instanceId); cancellation.Parameters.AddWithValue("@m", row.Id); await cancellation.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
             next++;
         }
         var updateSequence = connection.CreateCommand(); updateSequence.CommandText = "UPDATE personal_cloud_device_state SET next_device_sequence=@q WHERE instance_id=@i AND device_id=@d";
