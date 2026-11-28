@@ -548,9 +548,13 @@ public sealed partial class TaskApplicationService(
                 throw new ArgumentException("A duration requires a scheduled start.", nameof(request));
             end = start.Value.AddMinutes(duration.Value);
         }
-        else if (request.ScheduledStart.IsSpecified && !request.ScheduledEnd.IsSpecified && duration is > 0 && start is not null)
+        else if (request.ScheduledStart.IsSpecified && !request.ScheduledEnd.IsSpecified && start is not null)
         {
-            end = start.Value.AddMinutes(duration.Value);
+            if (duration is null && original.ScheduledStart is { } originalStart &&
+                original.ScheduledEnd is { } originalEnd && originalEnd > originalStart)
+                duration = (int)Math.Clamp(Math.Round((originalEnd - originalStart).TotalMinutes), 1, int.MaxValue);
+            if (duration is > 0)
+                end = start.Value.AddMinutes(duration.Value);
         }
         if (!request.ScheduledStart.IsSpecified && !request.ScheduledEnd.IsSpecified && !request.DurationMinutes.IsSpecified)
             return (start, end, duration);

@@ -163,6 +163,31 @@ public sealed class TaskApplicationServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Start_only_schedule_edit_infers_duration_from_existing_interval_without_duration()
+    {
+        var (store, service) = await CreateAsync();
+        var originalStart = new DateTimeOffset(2030, 1, 17, 9, 0, 0, TimeSpan.Zero);
+        await store.UpsertTaskAsync(new TaskItem
+        {
+            Id = "scheduled_without_duration",
+            Title = "Existing interval",
+            ScheduledStart = originalStart,
+            ScheduledEnd = originalStart.AddHours(1),
+        });
+
+        var movedStart = originalStart.AddMinutes(90);
+        var moved = await service.UpdateTaskAsync(new UpdateTaskRequest
+        {
+            TaskId = "scheduled_without_duration",
+            ScheduledStart = OptionalValue<DateTimeOffset?>.Set(movedStart),
+        });
+
+        Assert.Equal(movedStart, moved.ScheduledStart);
+        Assert.Equal(movedStart.AddHours(1), moved.ScheduledEnd);
+        Assert.Equal(60, moved.DurationMinutes);
+    }
+
+    [Fact]
     public async Task Schedule_edits_reject_an_end_without_a_later_start()
     {
         var (_, service) = await CreateAsync();
