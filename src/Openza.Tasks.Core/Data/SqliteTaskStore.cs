@@ -3760,9 +3760,44 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
                 continue;
             }
 
-            var version = await ReadPersonalCloudEntityVersionAsync(connection, instanceId, taskId, cancellationToken).ConfigureAwait(false) ?? 1;
+            var version = await ReadPersonalCloudEntityVersionAsync(connection, instanceId, taskId, cancellationToken).ConfigureAwait(false);
+            var deletionState = connection.CreateCommand();
+            deletionState.CommandText = """
+                SELECT
+                    EXISTS(SELECT 1 FROM personal_cloud_tombstones WHERE instance_id=@i AND product='tasks' AND entity_id=@e)
+                    OR EXISTS(SELECT 1 FROM personal_cloud_outbox WHERE instance_id=@i AND entity_id=@e
+                        AND operation='task.delete' AND acknowledged_at IS NULL),
+                    EXISTS(SELECT 1 FROM personal_cloud_outbox WHERE instance_id=@i AND entity_id=@e
+                        AND operation IN('task.create','task.createRich') AND acknowledged_at IS NULL)
+                """;
+            deletionState.Parameters.AddWithValue("@i", instanceId);
+            deletionState.Parameters.AddWithValue("@e", taskId);
+            bool isDeleting;
+            bool hasPendingCreate;
+            await using (var reader = await deletionState.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+            {
+                await reader.ReadAsync(cancellationToken).ConfigureAwait(false);
+                isDeleting = reader.GetBoolean(0);
+                hasPendingCreate = reader.GetBoolean(1);
+            }
+            if (localOnlyTaskIds?.Contains(taskId) == true || isDeleting || version is null && !hasPendingCreate)
+            {
+                var remove = connection.CreateCommand();
+                remove.CommandText = "DELETE FROM task_labels WHERE task_id=@task AND label_id=@label";
+                remove.Parameters.AddWithValue("@task", taskId);
+                remove.Parameters.AddWithValue("@label", labelId);
+                if (await remove.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+                    throw new PersonalCloudK0ContractException("invalid_transition", "The label relationship changed during deletion.");
+                var revision = connection.CreateCommand();
+                revision.CommandText = "UPDATE tasks SET revision=revision+1,updated_at=@now WHERE id=@task";
+                revision.Parameters.AddWithValue("@now", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+                revision.Parameters.AddWithValue("@task", taskId);
+                await revision.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+                continue;
+            }
+
             await MutateTaskRelationshipWithPersonalCloudIntentCoreAsync(
-                connection, taskId, "task.removeLabel", labelId, null, version, instanceId, deviceId, cancellationToken).ConfigureAwait(false);
+                connection, taskId, "task.removeLabel", labelId, null, version ?? 1, instanceId, deviceId, cancellationToken).ConfigureAwait(false);
         }
 
         var delete = connection.CreateCommand();

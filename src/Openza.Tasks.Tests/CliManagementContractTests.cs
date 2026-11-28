@@ -483,6 +483,38 @@ public sealed partial class CliContractTests
     }
 
     [Fact]
+    public async Task Label_delete_skips_cloud_removals_for_unpublished_and_pending_delete_tasks()
+    {
+        var store = await CreateStoreAsync();
+        const string instanceId = "instance_00000000000000000000000000000063";
+        const string deviceId = "device_00000000000000000000000000000063";
+        var label = new LabelItem { Id = "label_pending_cloud_delete", Name = "Focus" };
+        await store.UpsertLabelAsync(label);
+        await store.UpsertTaskAsync(new TaskItem
+        {
+            Id = "task_unpublished_with_label",
+            Title = "Unpublished",
+            Labels = [label],
+        });
+        await store.CreateTaskWithPersonalCloudIntentAsync(new TaskItem
+        {
+            Id = "task_pending_delete_with_label",
+            Title = "Pending delete",
+            Labels = [label],
+        }, instanceId, deviceId);
+        await store.DeleteTaskWithPersonalCloudIntentAsync(
+            "task_pending_delete_with_label", DateTimeOffset.UtcNow, 1, instanceId, deviceId);
+
+        await store.DeleteLabelWithPersonalCloudIntentsAsync(label.Id, instanceId, deviceId);
+
+        var pending = await store.GetPendingPersonalCloudOutboxAsync(instanceId, deviceId);
+        Assert.Contains(pending, item => item.EntityId == "task_pending_delete_with_label" && item.Operation == "task.delete");
+        Assert.DoesNotContain(pending, item => item.Operation == "task.removeLabel");
+        Assert.DoesNotContain((await store.GetTaskAsync("task_unpublished_with_label"))!.Labels, item => item.Id == label.Id);
+        Assert.Null(await store.GetTaskAsync("task_pending_delete_with_label"));
+    }
+
+    [Fact]
     public async Task Workspace_commands_report_invalid_names_and_missing_targets()
     {
         _ = await CreateStoreAsync();
