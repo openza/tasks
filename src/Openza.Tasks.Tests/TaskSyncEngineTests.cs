@@ -1257,6 +1257,57 @@ public sealed class TaskSyncEngineTests : IDisposable
     }
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Later_confirmed_web_completion_supersedes_an_older_acknowledged_reopen(bool legacyConfirmation)
+    {
+        var (store, _, task, confirmedAt) = await CreateConfirmedCloudTaskAsync(
+            "Synthetic later completion", repeating: true);
+        var laterConfirmedAt = confirmedAt.AddSeconds(2);
+        await using (var connection = new SqliteConnection($"Data Source={Path.Combine(_directory, "openza_tasks.db")}"))
+        {
+            await connection.OpenAsync();
+            await using var command = connection.CreateCommand();
+            command.CommandText = """
+                INSERT INTO personal_cloud_outbox
+                    (mutation_id,product,instance_id,device_id,device_sequence,operation,entity_id,canonical_json,canonical_hash,created_at,acknowledged_at,server_change_seq)
+                VALUES('mutation_older_desktop_reopen','tasks','cloud_instance','desktop_test',3,'task.reopen',@task_id,'{}',@hash,@older_at,@older_at,3);
+                UPDATE personal_cloud_provider_commands SET requested_seq=4,command='complete',state='confirmed'
+                  WHERE instance_id='cloud_instance' AND task_id=@task_id;
+                INSERT INTO personal_cloud_outbox
+                    (mutation_id,product,instance_id,device_id,device_sequence,operation,entity_id,canonical_json,canonical_hash,created_at,acknowledged_at,server_change_seq)
+                VALUES('confirmation_newer_web_completion','tasks','cloud_instance','desktop_test',4,'externalCommand.confirm',@task_id,@json,@hash,@confirmed_at,@confirmed_at,5);
+                INSERT INTO provider_completion_confirmations(confirmation_id,instance_id,task_id,requested_change_seq,confirmed_at)
+                SELECT 'confirmation_newer_web_completion','cloud_instance',@task_id,4,@confirmed_at WHERE @legacy=0;
+                """;
+            command.Parameters.AddWithValue("@task_id", task.Id);
+            command.Parameters.AddWithValue("@hash", new string('c', 64));
+            command.Parameters.AddWithValue("@older_at", confirmedAt.AddSeconds(1).ToUnixTimeMilliseconds());
+            command.Parameters.AddWithValue("@confirmed_at", laterConfirmedAt.ToUnixTimeMilliseconds());
+            command.Parameters.AddWithValue("@legacy", legacyConfirmation ? 1 : 0);
+            command.Parameters.AddWithValue("@json", System.Text.Json.JsonSerializer.Serialize(new
+            {
+                payload = new
+                {
+                    requestedChangeSeq = 4,
+                    resolvedAt = laterConfirmedAt.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", System.Globalization.CultureInfo.InvariantCulture),
+                },
+            }));
+            await command.ExecuteNonQueryAsync();
+        }
+
+        var source = Assert.Single(await store.GetProviderSourceItemsAsync(IntegrationIds.Todoist, includeAdopted: true));
+        await store.UpsertProviderSourceItemAsync(source with
+        {
+            CompletionState = TaskCompletionState.Open,
+            LastSeenAt = laterConfirmedAt.AddMilliseconds(1),
+        });
+
+        Assert.Equal(TaskCompletionState.Open, (await store.GetTaskAsync(task.Id))!.CompletionState);
+        Assert.Equal(1, await ScalarIntAsync("SELECT count(*) FROM personal_cloud_provider_observed_reopens WHERE task_id=@task_id", task.Id));
+    }
+
+    [Theory]
     [InlineData("rejected", false)]
     [InlineData("cancelled", false)]
     [InlineData("rejected", true)]
