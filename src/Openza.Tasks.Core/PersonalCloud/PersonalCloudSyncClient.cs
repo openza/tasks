@@ -10,6 +10,7 @@ public sealed record PersonalCloudSyncResult(int PushedMutations, int PulledChan
 {
     public int TaskConflictCount { get; init; }
     public string? BlockedCode { get; init; }
+    public bool CanContinueOtherWork { get; init; }
     public PersonalCloudInitialSyncProgress? InitialSyncProgress { get; init; }
 }
 
@@ -57,7 +58,9 @@ public sealed partial class PersonalCloudSyncClient(
         else if (prefix.PauseAfter && PersonalCloudDispatchHttp.PolicyFor(http) is { } pausedDispatch)
             blockedCode = (await pausedDispatch.GetStatusAsync(connection.ServiceOrigin, cancellationToken).ConfigureAwait(false)).Code;
 
-        if (blockedCode is null && await store.HasDeferredHistoricalCompletionImportsAsync(connection.InstanceId, cancellationToken).ConfigureAwait(false))
+        var canContinueOtherWork = blockedCode is null &&
+            await store.HasDeferredHistoricalCompletionImportsAsync(connection.InstanceId, cancellationToken).ConfigureAwait(false);
+        if (canContinueOtherWork)
             blockedCode = "upgrade_required";
 
         if (progress is not null) await progress(PersonalCloudInitialSyncPhase.Downloading, cancellationToken).ConfigureAwait(false);
@@ -149,7 +152,8 @@ public sealed partial class PersonalCloudSyncClient(
         if (blockedCode == "fanout_bound_exceeded" && PersonalCloudDispatchHttp.PolicyFor(http) is { } retryPolicy)
             await retryPolicy.RecordFailureAsync(connection.ServiceOrigin, cancellationToken).ConfigureAwait(false);
         await ReportCatchupStatusAsync(cancellationToken).ConfigureAwait(false);
-        return new PersonalCloudSyncResult(pushed, pulled, checkpoint) { BlockedCode = blockedCode, TaskConflictCount = conflicts.Count };
+        return new PersonalCloudSyncResult(pushed, pulled, checkpoint)
+        { BlockedCode = blockedCode, TaskConflictCount = conflicts.Count, CanContinueOtherWork = canContinueOtherWork };
     }
 
     private HttpRequestMessage CreateAuthorizedRequest(HttpMethod method, string path, string accessToken)

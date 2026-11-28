@@ -61,7 +61,7 @@ public sealed partial class PersonalCloudSetupService
                 heartbeat = HeartbeatAsync(current, client, heartbeatCancellation.Token);
             }
             var firstPass = await client.SyncAsync(cancellationToken).ConfigureAwait(false);
-            if (firstPass.BlockedCode is not null)
+            if (firstPass.BlockedCode is not null && !firstPass.CanContinueOtherWork)
                 return await FinishAsync(firstPass).ConfigureAwait(false);
 
             var staged = await taskStore.ApplyPendingMicrosoftCategoriesAfterPullAsync(current, cancellationToken).ConfigureAwait(false);
@@ -69,6 +69,8 @@ public sealed partial class PersonalCloudSetupService
             var pushed = firstPass.PushedMutations;
             var pulled = firstPass.PulledChanges;
             var checkpoint = firstPass.Checkpoint;
+            var blockedCode = firstPass.BlockedCode;
+            var canContinueOtherWork = firstPass.CanContinueOtherWork;
             // A restarted initial seed is already staged; one retry must drain its remaining batches too.
             if (staged > 0 || tracking)
             {
@@ -78,11 +80,15 @@ public sealed partial class PersonalCloudSetupService
                     pushed = checked(pushed + pass.PushedMutations);
                     pulled = checked(pulled + pass.PulledChanges);
                     checkpoint = pass.Checkpoint;
-                    if (pass.BlockedCode is not null)
-                        return await FinishAsync(new(pushed, pulled, checkpoint) { BlockedCode = pass.BlockedCode }).ConfigureAwait(false);
+                    blockedCode = pass.BlockedCode;
+                    canContinueOtherWork = pass.CanContinueOtherWork;
+                    if (pass.BlockedCode is not null && (!pass.CanContinueOtherWork || pass.PushedMutations == 0))
+                        return await FinishAsync(new(pushed, pulled, checkpoint)
+                            { BlockedCode = pass.BlockedCode, CanContinueOtherWork = pass.CanContinueOtherWork }).ConfigureAwait(false);
                 }
             }
-            return await FinishAsync(new(pushed, pulled, checkpoint)).ConfigureAwait(false);
+            return await FinishAsync(new(pushed, pulled, checkpoint)
+                { BlockedCode = blockedCode, CanContinueOtherWork = canContinueOtherWork }).ConfigureAwait(false);
         }
         catch (Exception exception)
         {

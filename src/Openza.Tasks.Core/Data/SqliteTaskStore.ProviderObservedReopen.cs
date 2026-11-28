@@ -46,15 +46,15 @@ public sealed partial class SqliteTaskStore
               AND CAST(json_extract(result.canonical_json,'$.payload.requestedChangeSeq') AS INTEGER)=c.requested_seq
             WHERE f.task_id=@t AND c.command='complete' AND c.state='confirmed'
               AND f.requested_change_seq=c.requested_seq
-              AND EXISTS(SELECT 1 FROM personal_cloud_outbox intent
+              AND NOT EXISTS(SELECT 1 FROM personal_cloud_outbox intent
                 WHERE intent.instance_id=c.instance_id AND intent.entity_id=c.task_id
-                  AND intent.operation='task.complete'
+                  AND intent.operation IN ('task.complete','task.reopen')
                   AND intent.local_sequence=(SELECT MAX(o.local_sequence) FROM personal_cloud_outbox o
                     WHERE o.instance_id=c.instance_id AND o.entity_id=c.task_id
                       AND o.operation IN ('task.complete','task.reopen'))
-                  AND intent.acknowledged_at IS NOT NULL
-                  AND ((intent.server_change_seq IS NOT NULL AND intent.server_change_seq=c.requested_seq)
-                    OR (intent.server_change_seq IS NULL AND intent.local_sequence<result.local_sequence)))
+                  AND (intent.acknowledged_at IS NULL
+                    OR (intent.server_change_seq IS NOT NULL AND intent.server_change_seq>c.requested_seq)
+                    OR (intent.server_change_seq IS NULL AND intent.local_sequence>=result.local_sequence)))
             UNION ALL
             SELECT json_extract(result.canonical_json,'$.payload.resolvedAt')
             FROM personal_cloud_provider_commands c
@@ -63,15 +63,15 @@ public sealed partial class SqliteTaskStore
               AND result.acknowledged_at IS NOT NULL
               AND CAST(json_extract(result.canonical_json,'$.payload.requestedChangeSeq') AS INTEGER)=c.requested_seq
             WHERE c.task_id=@t AND c.command='complete' AND c.state='confirmed'
-              AND EXISTS(SELECT 1 FROM personal_cloud_outbox intent
+              AND NOT EXISTS(SELECT 1 FROM personal_cloud_outbox intent
                 WHERE intent.instance_id=c.instance_id AND intent.entity_id=c.task_id
-                  AND intent.operation='task.complete'
+                  AND intent.operation IN ('task.complete','task.reopen')
                   AND intent.local_sequence=(SELECT MAX(o.local_sequence) FROM personal_cloud_outbox o
                     WHERE o.instance_id=c.instance_id AND o.entity_id=c.task_id
                       AND o.operation IN ('task.complete','task.reopen'))
-                  AND intent.acknowledged_at IS NOT NULL
-                  AND ((intent.server_change_seq IS NOT NULL AND intent.server_change_seq=c.requested_seq)
-                    OR (intent.server_change_seq IS NULL AND intent.local_sequence<result.local_sequence)))
+                  AND (intent.acknowledged_at IS NULL
+                    OR (intent.server_change_seq IS NOT NULL AND intent.server_change_seq>c.requested_seq)
+                    OR (intent.server_change_seq IS NULL AND intent.local_sequence>=result.local_sequence)))
             """;
         command.Parameters.AddWithValue("@t", taskId);
         var confirmations = new List<DateTimeOffset>();
@@ -103,7 +103,7 @@ public sealed partial class SqliteTaskStore
                         AND seed.seed_end_sequence IS NOT NULL AND o.device_sequence<=seed.seed_end_sequence)))
                 OR EXISTS(SELECT 1 FROM personal_cloud_provider_commands c
                     JOIN personal_cloud_provider_sources s ON s.instance_id=c.instance_id AND s.task_id=c.task_id
-                    WHERE c.task_id=@t AND c.state='pending_desktop'
+                    WHERE c.task_id=@t AND c.command='complete' AND c.state='pending_desktop'
                       AND NOT EXISTS(SELECT 1 FROM personal_cloud_provider_attempts a
                         WHERE a.instance_id=c.instance_id AND a.task_id=c.task_id
                           AND a.requested_seq=c.requested_seq AND a.state='cancelled')
@@ -112,24 +112,23 @@ public sealed partial class SqliteTaskStore
                         WHERE o.instance_id=c.instance_id AND o.entity_id=c.task_id AND o.operation='task.complete'
                           AND o.acknowledged_at IS NOT NULL AND seed.seed_end_sequence IS NOT NULL
                           AND o.device_sequence<=seed.seed_end_sequence
-                          AND (o.server_change_seq=c.requested_seq OR (o.server_change_seq IS NULL AND NOT EXISTS(
-                            SELECT 1 FROM personal_cloud_outbox later WHERE later.instance_id=o.instance_id
-                              AND later.device_id=o.device_id AND later.entity_id=o.entity_id
-                              AND later.operation='task.complete' AND later.device_sequence>seed.seed_end_sequence))))
+                          AND o.server_change_seq=c.requested_seq)
                 OR EXISTS(
                     SELECT 1 FROM personal_cloud_provider_attempts a
                     JOIN personal_cloud_provider_commands c ON c.instance_id=a.instance_id AND c.task_id=a.task_id
                       AND c.requested_seq=a.requested_seq
-                    WHERE a.task_id=@t AND c.state='pending_desktop'
+                    WHERE a.task_id=@t AND c.command='complete' AND c.state='pending_desktop'
                       AND a.state IN ('claiming','reserved','starting','dispatching','uncertain','outcome'))
                 OR EXISTS(
                     SELECT 1 FROM personal_cloud_outbox o
                     JOIN personal_cloud_provider_sources s ON s.instance_id=o.instance_id AND s.task_id=o.entity_id
                     WHERE o.entity_id=@t AND o.operation IN ('task.complete','task.reopen') AND o.acknowledged_at IS NOT NULL
                       AND NOT (o.operation='task.complete' AND EXISTS(
-                        SELECT 1 FROM personal_cloud_initial_sync seed WHERE seed.instance_id=o.instance_id
-                          AND seed.device_id=o.device_id AND seed.seed_end_sequence IS NOT NULL
-                          AND o.device_sequence<=seed.seed_end_sequence))
+                        SELECT 1 FROM personal_cloud_initial_sync seed
+                        JOIN personal_cloud_provider_commands seeded ON seeded.instance_id=o.instance_id
+                          AND seeded.task_id=o.entity_id AND seeded.command='complete' AND seeded.requested_seq=o.server_change_seq
+                        WHERE seed.instance_id=o.instance_id AND seed.device_id=o.device_id
+                          AND seed.seed_end_sequence IS NOT NULL AND o.device_sequence<=seed.seed_end_sequence))
                       AND o.local_sequence=(SELECT MAX(latest.local_sequence) FROM personal_cloud_outbox latest
                         WHERE latest.instance_id=o.instance_id AND latest.entity_id=o.entity_id
                           AND latest.operation IN ('task.complete','task.reopen') AND latest.acknowledged_at IS NOT NULL)

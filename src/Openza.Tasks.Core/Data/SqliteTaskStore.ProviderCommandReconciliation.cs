@@ -24,10 +24,7 @@ public sealed partial class SqliteTaskStore
                   JOIN personal_cloud_initial_sync seed ON seed.instance_id=o.instance_id AND seed.device_id=o.device_id
                   WHERE o.instance_id=c.instance_id AND o.device_id=@d AND o.entity_id=c.task_id
                     AND o.operation='task.complete' AND o.acknowledged_at IS NOT NULL
-                    AND (o.server_change_seq=c.requested_seq OR (o.server_change_seq IS NULL AND NOT EXISTS(
-                      SELECT 1 FROM personal_cloud_outbox later WHERE later.instance_id=o.instance_id
-                        AND later.device_id=o.device_id AND later.entity_id=o.entity_id
-                        AND later.operation='task.complete' AND later.device_sequence>seed.seed_end_sequence)))
+                    AND o.server_change_seq=c.requested_seq
                     AND seed.seed_end_sequence IS NOT NULL AND o.device_sequence<=seed.seed_end_sequence) THEN 'initial_seed'
               END
             FROM personal_cloud_provider_commands c
@@ -46,10 +43,7 @@ public sealed partial class SqliteTaskStore
                   JOIN personal_cloud_initial_sync seed ON seed.instance_id=o.instance_id AND seed.device_id=o.device_id
                   WHERE o.instance_id=c.instance_id AND o.device_id=@d AND o.entity_id=c.task_id
                     AND o.operation='task.complete' AND o.acknowledged_at IS NOT NULL
-                    AND (o.server_change_seq=c.requested_seq OR (o.server_change_seq IS NULL AND NOT EXISTS(
-                      SELECT 1 FROM personal_cloud_outbox later WHERE later.instance_id=o.instance_id
-                        AND later.device_id=o.device_id AND later.entity_id=o.entity_id
-                        AND later.operation='task.complete' AND later.device_sequence>seed.seed_end_sequence)))
+                    AND o.server_change_seq=c.requested_seq
                     AND seed.seed_end_sequence IS NOT NULL AND o.device_sequence<=seed.seed_end_sequence)
               )
             ORDER BY c.requested_seq,c.task_id
@@ -118,6 +112,7 @@ public sealed partial class SqliteTaskStore
         string canonicalJson;
         string canonicalHash;
         long createdAt;
+        long? skippedEntityVersion = null;
         await using (var reader = await read.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
         {
             if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
@@ -135,6 +130,10 @@ public sealed partial class SqliteTaskStore
 
         if (operation == PersonalCloudK0Protocol.TaskHistoricalCompletionImportOperation)
         {
+            using var historical = System.Text.Json.JsonDocument.Parse(canonicalJson);
+            if (historical.RootElement.TryGetProperty("baseEntityVersion", out var baseVersion) &&
+                baseVersion.ValueKind == System.Text.Json.JsonValueKind.Number)
+                skippedEntityVersion = baseVersion.GetInt64();
             var defer = connection.CreateCommand();
             defer.CommandText = """
                 INSERT OR IGNORE INTO personal_cloud_deferred_historical_completions
@@ -188,12 +187,24 @@ public sealed partial class SqliteTaskStore
         if (await delete.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
             throw new InvalidOperationException("The deferred Personal Cloud mutation changed while it was being retired.");
 
+        var adjustSeed = connection.CreateCommand();
+        adjustSeed.CommandText = "UPDATE personal_cloud_initial_sync SET seed_end_sequence=seed_end_sequence-1 WHERE instance_id=@i AND device_id=@d AND seed_end_sequence>=@q";
+        adjustSeed.Parameters.AddWithValue("@i", instanceId);
+        adjustSeed.Parameters.AddWithValue("@d", deviceId);
+        adjustSeed.Parameters.AddWithValue("@q", sequence);
+        await adjustSeed.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+
         foreach (var item in later)
         {
             var nextSequence = checked(item.DeviceSequence - 1);
             var envelope = JsonNode.Parse(item.CanonicalJson)?.AsObject()
                 ?? throw new InvalidOperationException("A queued Personal Cloud mutation has an invalid canonical envelope.");
             envelope["deviceSequence"] = nextSequence;
+            if (skippedEntityVersion is { } skippedVersion &&
+                envelope["entityId"]?.GetValue<string>() == entityId &&
+                envelope["baseEntityVersion"] is JsonValue queuedBase &&
+                queuedBase.TryGetValue<long>(out var queuedVersion) && queuedVersion > skippedVersion)
+                envelope["baseEntityVersion"] = queuedVersion - 1;
             var json = PersonalCloudK0Codec.Canonicalize(envelope.ToJsonString());
             var update = connection.CreateCommand();
             update.CommandText = "UPDATE personal_cloud_outbox SET device_sequence=@q,canonical_json=@j,canonical_hash=@h WHERE instance_id=@i AND device_id=@d AND mutation_id=@m AND acknowledged_at IS NULL";
@@ -205,6 +216,16 @@ public sealed partial class SqliteTaskStore
             update.Parameters.AddWithValue("@m", item.MutationId);
             if (await update.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
                 throw new InvalidOperationException("A later queued Personal Cloud mutation changed while resequencing.");
+        }
+
+        if (skippedEntityVersion is { } removedVersion)
+        {
+            var rebaseVersion = connection.CreateCommand();
+            rebaseVersion.CommandText = "UPDATE personal_cloud_entity_versions SET entity_version=entity_version-1 WHERE instance_id=@i AND product='tasks' AND entity_id=@e AND entity_version>@v";
+            rebaseVersion.Parameters.AddWithValue("@i", instanceId);
+            rebaseVersion.Parameters.AddWithValue("@e", entityId);
+            rebaseVersion.Parameters.AddWithValue("@v", removedVersion);
+            await rebaseVersion.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
 
         var advance = connection.CreateCommand();
@@ -221,15 +242,20 @@ public sealed partial class SqliteTaskStore
     {
         await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        var ensureDevice = connection.CreateCommand();
+        ensureDevice.CommandText = "INSERT OR IGNORE INTO personal_cloud_device_state(instance_id,device_id,next_device_sequence) VALUES(@i,@d,1)";
+        ensureDevice.Parameters.AddWithValue("@i", instanceId);
+        ensureDevice.Parameters.AddWithValue("@d", deviceId);
+        await ensureDevice.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         var read = connection.CreateCommand();
-        read.CommandText = "SELECT mutation_id,entity_id,canonical_json FROM personal_cloud_deferred_historical_completions WHERE instance_id=@i AND device_id=@d AND (blocked_artifact_version IS NULL OR blocked_artifact_version<>@v) ORDER BY created_at,mutation_id";
+        read.CommandText = "SELECT device_id,mutation_id,entity_id,canonical_json FROM personal_cloud_deferred_historical_completions WHERE instance_id=@i AND (blocked_artifact_version IS NULL OR blocked_artifact_version<>@v OR device_id<>@d) ORDER BY created_at,mutation_id";
         read.Parameters.AddWithValue("@i", instanceId);
         read.Parameters.AddWithValue("@d", deviceId);
         read.Parameters.AddWithValue("@v", artifactVersion);
-        var rows = new List<(string MutationId, string EntityId, string CanonicalJson)>();
+        var rows = new List<(string DeviceId, string MutationId, string EntityId, string CanonicalJson)>();
         await using (var reader = await read.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
             while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-                rows.Add((reader.GetString(0), reader.GetString(1), reader.GetString(2)));
+                rows.Add((reader.GetString(0), reader.GetString(1), reader.GetString(2), reader.GetString(3)));
 
         foreach (var row in rows)
         {
@@ -248,9 +274,9 @@ public sealed partial class SqliteTaskStore
                 PersonalCloudK0Protocol.TaskHistoricalCompletionImportOperation, row.EntityId, baseVersion,
                 new { completedAt }, cancellationToken).ConfigureAwait(false);
             var delete = connection.CreateCommand();
-            delete.CommandText = "DELETE FROM personal_cloud_deferred_historical_completions WHERE instance_id=@i AND device_id=@d AND mutation_id=@m";
+            delete.CommandText = "DELETE FROM personal_cloud_deferred_historical_completions WHERE instance_id=@i AND device_id=@oldDevice AND mutation_id=@m";
             delete.Parameters.AddWithValue("@i", instanceId);
-            delete.Parameters.AddWithValue("@d", deviceId);
+            delete.Parameters.AddWithValue("@oldDevice", row.DeviceId);
             delete.Parameters.AddWithValue("@m", row.MutationId);
             await delete.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }

@@ -33,7 +33,7 @@ public sealed partial class PersonalCloudSyncClient
                     pending[pushed].MutationId,
                     null,
                     cancellationToken: cancellationToken).ConfigureAwait(false);
-                return (pushed, operation == PersonalCloudK0Protocol.TaskHistoricalCompletionImportOperation ? "upgrade_required" : null, true);
+                return (pushed, null, true);
             }
             if (operation is PersonalCloudK0Protocol.ExternalCommandCancelOperation or PersonalCloudK0Protocol.TaskHistoricalCompletionImportOperation &&
                 await store.IsPersonalCloudMutationDeferredAsync(connection.InstanceId, pending[pushed].MutationId,
@@ -43,7 +43,7 @@ public sealed partial class PersonalCloudSyncClient
                     pending[pushed].MutationId,
                     operation == PersonalCloudK0Protocol.TaskHistoricalCompletionImportOperation ? null : _cloudArtifactVersion ?? "unknown",
                     cancellationToken: cancellationToken).ConfigureAwait(false);
-                return (pushed, operation == PersonalCloudK0Protocol.TaskHistoricalCompletionImportOperation ? "upgrade_required" : null, true);
+                return (pushed, null, true);
             }
             if (pending[pushed].Operation == PersonalCloudK0Protocol.ProviderObservedReopenOperation && !_supportsProviderObservedReopen)
             {
@@ -115,7 +115,7 @@ public sealed partial class PersonalCloudSyncClient
                 {
                     await store.RetireDeferredPersonalCloudMutationAsync(connection.InstanceId, connection.DeviceId,
                         mutation.MutationId, _cloudArtifactVersion ?? "unknown", cancellationToken: cancellationToken).ConfigureAwait(false);
-                    return (pushed, exception.Code, true);
+                    return (pushed, null, true);
                 }
                 if (mutation.Operation == PersonalCloudK0Protocol.ExternalCommandCancelOperation && exception.Code == "command_superseded")
                 {
@@ -128,7 +128,7 @@ public sealed partial class PersonalCloudSyncClient
                 {
                     await store.RetireDeferredPersonalCloudMutationAsync(connection.InstanceId, connection.DeviceId,
                         mutation.MutationId, _cloudArtifactVersion ?? "unknown", cancellationToken: cancellationToken).ConfigureAwait(false);
-                    return (pushed, mutation.Operation == PersonalCloudK0Protocol.TaskHistoricalCompletionImportOperation ? exception.Code : null, true);
+                    return (pushed, null, true);
                 }
                 if (mutation.Operation == PersonalCloudK0Protocol.ProviderObservedReopenOperation && exception.IsDefinitiveMutationRejection)
                 {
@@ -147,7 +147,7 @@ public sealed partial class PersonalCloudSyncClient
                     mutation.MutationId,
                     mutation.Operation == PersonalCloudK0Protocol.TaskHistoricalCompletionImportOperation ? _cloudArtifactVersion : _cloudArtifactVersion ?? "unknown",
                     cancellationToken: cancellationToken).ConfigureAwait(false);
-                return (pushed, mutation.Operation == PersonalCloudK0Protocol.TaskHistoricalCompletionImportOperation ? "upgrade_required" : null, true);
+                return (pushed, null, true);
             }
             SqliteTaskStore.ValidatePersonalCloudMutationReceipt(mutation, receiptJson);
             await store.AcknowledgePersonalCloudMutationAsync(connection.InstanceId, connection.DeviceId, receiptJson, cancellationToken).ConfigureAwait(false);

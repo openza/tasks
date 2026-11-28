@@ -235,6 +235,7 @@ public sealed class PersonalCloudProviderObservedReopenSyncTests : IDisposable
         await AddUnrelatedTaskAsync(store, "unrelated_while_history_deferred");
 
         Assert.Equal("upgrade_required", (await client.SyncAsync()).BlockedCode);
+        Assert.True((await client.SyncAsync()).CanContinueOtherWork);
         Assert.Equal(0, handler.HistoricalCompletionPosts);
         Assert.Contains("unrelated_while_history_deferred", handler.SingleEntityIds);
         Assert.True(await store.HasDeferredHistoricalCompletionImportsAsync(Instance));
@@ -272,6 +273,7 @@ public sealed class PersonalCloudProviderObservedReopenSyncTests : IDisposable
 
         var rejected = await client.SyncAsync();
         Assert.NotNull(rejected.BlockedCode);
+        Assert.True(rejected.CanContinueOtherWork);
         Assert.Equal(1, handler.HistoricalCompletionPosts);
         Assert.True(await store.HasDeferredHistoricalCompletionImportsAsync(Instance));
         Assert.Contains("unrelated_after_historical_rejection", handler.SingleEntityIds.Concat(handler.BatchEntityIds));
@@ -289,6 +291,82 @@ public sealed class PersonalCloudProviderObservedReopenSyncTests : IDisposable
         Assert.False(await store.HasDeferredHistoricalCompletionImportsAsync(Instance));
         Assert.Empty(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device));
         Assert.DoesNotContain(PersonalCloudK0Protocol.CompleteTaskOperation, handler.SingleOperations);
+    }
+
+    [Fact]
+    public async Task Seed_sequence_without_exact_server_change_does_not_cancel_a_later_web_completion()
+    {
+        var (store, _, _, taskId) = await CreateAsync();
+        await using var connection = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={store.DatabasePath}");
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = $"UPDATE personal_cloud_outbox SET server_change_seq=NULL WHERE entity_id='{taskId}' AND operation='task.complete'; UPDATE personal_cloud_provider_commands SET requested_seq=900,state='pending_desktop' WHERE task_id='{taskId}'; INSERT INTO personal_cloud_initial_sync(instance_id,device_id,seed_end_sequence,phase) VALUES('{Instance}','{Device}',2,'uploading');";
+        await command.ExecuteNonQueryAsync();
+
+        Assert.Equal(0, await store.ReconcileUndeliverableProviderCommandsAsync(Instance, Device));
+        Assert.Equal(1, await CountAsync(store, "SELECT count(*) FROM personal_cloud_provider_commands WHERE task_id=@task_id AND state='pending_desktop'", taskId));
+    }
+
+    [Fact]
+    public async Task Later_web_completion_after_older_local_intent_confirms_with_mixed_timestamps()
+    {
+        var (store, _, _, taskId) = await CreateAsync();
+        var current = DateTimeOffset.UtcNow.AddSeconds(-5);
+        var old = current.AddMinutes(-1);
+        await using var connection = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={store.DatabasePath}");
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE personal_cloud_provider_commands SET requested_seq=3 WHERE instance_id=@i AND task_id=@t;
+            INSERT INTO personal_cloud_outbox(mutation_id,product,instance_id,device_id,device_sequence,operation,entity_id,canonical_json,canonical_hash,created_at,acknowledged_at,server_change_seq)
+              VALUES('web_completion_current','tasks',@i,@d,4,'externalCommand.confirm',@t,@current_json,@hash,@current_at,@current_at,4);
+            INSERT INTO provider_completion_confirmations(confirmation_id,instance_id,task_id,requested_change_seq,confirmed_at) VALUES('web_completion_current',@i,@t,3,@current_at);
+            INSERT INTO personal_cloud_outbox(mutation_id,product,instance_id,device_id,device_sequence,operation,entity_id,canonical_json,canonical_hash,created_at,acknowledged_at,server_change_seq)
+              VALUES('web_completion_old_text','tasks',@i,@d,5,'externalCommand.confirm',@t,@old_json,@old_hash,@old_at,@old_at,5);
+            INSERT INTO provider_completion_confirmations(confirmation_id,instance_id,task_id,requested_change_seq,confirmed_at) VALUES('web_completion_old_text',@i,@t,3,@old_at);
+            UPDATE personal_cloud_device_state SET next_device_sequence=6 WHERE instance_id=@i AND device_id=@d;
+            """;
+        command.Parameters.AddWithValue("@i", Instance); command.Parameters.AddWithValue("@d", Device); command.Parameters.AddWithValue("@t", taskId);
+        command.Parameters.AddWithValue("@current_json", JsonSerializer.Serialize(new { payload = new { requestedChangeSeq = 3, resolvedAt = current.ToString("O") } }));
+        command.Parameters.AddWithValue("@hash", new string('b', 64)); command.Parameters.AddWithValue("@current_at", current.ToUnixTimeMilliseconds());
+        command.Parameters.AddWithValue("@old_json", JsonSerializer.Serialize(new { payload = new { requestedChangeSeq = 3, resolvedAt = old.ToString("O") } }));
+        command.Parameters.AddWithValue("@old_hash", new string('c', 64)); command.Parameters.AddWithValue("@old_at", old.ToString("O"));
+        await command.ExecuteNonQueryAsync();
+
+        await store.PrepareProviderObservedReopensAsync(Instance, Device, "supported:test");
+        Assert.Contains(await store.GetPendingPersonalCloudOutboxAsync(Instance, Device),
+            entry => entry.Operation == PersonalCloudK0Protocol.ProviderObservedReopenOperation && entry.EntityId == taskId);
+    }
+
+    [Fact]
+    public async Task Deferred_historical_parent_rebases_seed_version_and_rebinds_after_repair()
+    {
+        var (store, client, handler, _) = await CreateAsync();
+        const string parent = "synthetic_history_parent";
+        const string child = "synthetic_history_child";
+        await store.UpsertTaskAsync(new TaskItem { Id = parent, Title = "Parent", SpaceId = SpaceIds.Default });
+        await store.UpsertTaskAsync(new TaskItem { Id = child, Title = "Completed child", SpaceId = SpaceIds.Default,
+            ParentId = parent, CompletionState = TaskCompletionState.Completed,
+            CompletedAt = DateTimeOffset.Parse("2026-11-20T12:00:00Z") });
+        await store.BeginPersonalCloudInitialSyncAsync(Instance, Device);
+        await store.StageUnpublishedTasksForPersonalCloudAsync(Instance, Device);
+        var seedEnd = await ScalarLongAsync(store, $"SELECT seed_end_sequence FROM personal_cloud_initial_sync WHERE instance_id='{Instance}' AND device_id='{Device}'");
+
+        var result = await client.SyncAsync();
+        Assert.Equal("upgrade_required", result.BlockedCode);
+        Assert.True(result.CanContinueOtherWork);
+        Assert.True(await store.HasDeferredHistoricalCompletionImportsAsync(Instance));
+        Assert.Equal(2, await ScalarLongAsync(store, $"SELECT entity_version FROM personal_cloud_entity_versions WHERE instance_id='{Instance}' AND product='tasks' AND entity_id='{child}'"));
+        Assert.Equal(seedEnd - 1, await ScalarLongAsync(store, $"SELECT seed_end_sequence FROM personal_cloud_initial_sync WHERE instance_id='{Instance}' AND device_id='{Device}'"));
+        Assert.DoesNotContain(PersonalCloudK0Protocol.CompleteTaskOperation, handler.SingleOperations);
+
+        const string newDevice = "device_repaired_00000000000001";
+        await store.PrepareDeferredHistoricalCompletionImportsAsync(Instance, newDevice, "test-v2");
+        var pending = Assert.Single(await store.GetPendingPersonalCloudOutboxAsync(Instance, newDevice));
+        Assert.Equal(PersonalCloudK0Protocol.TaskHistoricalCompletionImportOperation, pending.Operation);
+        using var mutation = JsonDocument.Parse(pending.CanonicalJson);
+        Assert.Equal(2, mutation.RootElement.GetProperty("baseEntityVersion").GetInt64());
+        Assert.False(await store.HasDeferredHistoricalCompletionImportsAsync(Instance));
     }
 
     [Fact]
@@ -338,8 +416,8 @@ public sealed class PersonalCloudProviderObservedReopenSyncTests : IDisposable
         await store.PrepareProviderCommandCancellationsAsync(Instance, Device, handler.ArtifactVersion);
         await AddUnrelatedTaskAsync(store, "unrelated_while_busy_cancellation");
 
-        var blocked = await client.SyncAsync();
-        Assert.Equal("command_busy", blocked.BlockedCode);
+        var deferred = await client.SyncAsync();
+        Assert.Null(deferred.BlockedCode);
         Assert.Equal(1, handler.CancellationPosts);
         Assert.Equal(1, handler.CreatePosts);
         Assert.Empty(await store.GetPendingPersonalCloudProviderCommandsAsync(Instance));
@@ -469,6 +547,15 @@ public sealed class PersonalCloudProviderObservedReopenSyncTests : IDisposable
         return Convert.ToInt32(await command.ExecuteScalarAsync());
     }
 
+    private static async Task<long> ScalarLongAsync(SqliteTaskStore store, string sql)
+    {
+        await using var connection = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={store.DatabasePath}");
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = sql;
+        return Convert.ToInt64(await command.ExecuteScalarAsync());
+    }
+
     public void Dispose() => TestDirectory.Delete(_directory);
 
     private sealed class TestHandler : HttpMessageHandler
@@ -568,6 +655,7 @@ public sealed class PersonalCloudProviderObservedReopenSyncTests : IDisposable
                 PersonalCloudK0Protocol.TaskHistoricalCompletionImportOperation =>
                     mutation.GetProperty("baseEntityVersion").ValueKind == JsonValueKind.Number
                         ? mutation.GetProperty("baseEntityVersion").GetInt64() + 1 : 1,
+                "task.setParent" => mutation.GetProperty("baseEntityVersion").GetInt64() + 1,
                 _ => 1,
             };
             return new
