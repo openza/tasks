@@ -420,7 +420,7 @@ public sealed partial class CliContractTests
     }
 
     [Fact]
-    public async Task Connected_restore_point_rolls_back_task_and_pending_cloud_intents()
+    public async Task Connected_restore_refuses_unresolved_cloud_intents_without_changing_live_state()
     {
         var store = await CreateStoreAsync();
         const string instanceId = "instance_00000000000000000000000000000018";
@@ -446,15 +446,13 @@ public sealed partial class CliContractTests
         var fileName = pointJson.RootElement.GetProperty("data").GetProperty("fileName").GetString()!;
 
         AssertSuccess(await RunAsync("task", "update", taskId, "--notes", "After rollback"));
-        Assert.NotEqual(beforeRestore.Count, (await store.GetPendingPersonalCloudOutboxAsync(instanceId, deviceId)).Count);
-        AssertSuccess(await RunAsync("restore-point", "restore", fileName, "--yes", "--format", "json"));
+        var pendingAfterUpdate = await store.GetPendingPersonalCloudOutboxAsync(instanceId, deviceId);
+        Assert.NotEqual(beforeRestore.Count, pendingAfterUpdate.Count);
+        AssertCliError(await RunAsync("restore-point", "restore", fileName, "--yes", "--format", "json"), 6, "pending_intents");
 
-        SqliteConnection.ClearAllPools();
-        var restoredStore = new Openza.Tasks.Core.Data.SqliteTaskStore(Path.Combine(_directory, "openza-tasks.db"));
-        await restoredStore.InitializeAsync();
-        Assert.Null((await restoredStore.GetTaskAsync(taskId))!.Notes);
-        Assert.Equal(beforeRestore.Select(item => item.CanonicalJson),
-            (await restoredStore.GetPendingPersonalCloudOutboxAsync(instanceId, deviceId)).Select(item => item.CanonicalJson));
+        Assert.Equal("After rollback", (await store.GetTaskAsync(taskId))!.Notes);
+        Assert.Equal(pendingAfterUpdate.Select(item => item.CanonicalJson),
+            (await store.GetPendingPersonalCloudOutboxAsync(instanceId, deviceId)).Select(item => item.CanonicalJson));
         Assert.Equal(instanceId, new JsonPersonalCloudConnectionStore(Path.Combine(_directory, "personal-cloud-connection.json")).Load()!.InstanceId);
         AssertSuccess(await RunAsync("restore-point", "list", "--format", "json"));
     }

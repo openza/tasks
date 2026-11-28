@@ -2,6 +2,7 @@ using System.CommandLine;
 using System.Globalization;
 using Openza.Tasks.Application.Tasks;
 using Openza.Tasks.Core.Models;
+using Openza.Tasks.Core.PersonalCloud;
 using Openza.Tasks.Core.Services;
 
 internal static partial class OpenzaCli
@@ -308,11 +309,19 @@ internal static partial class OpenzaCli
                 var requestedFileName = parseResult.GetValue(fileName)!;
                 var backup = backupService.ListBackupInfo().FirstOrDefault(item => string.Equals(item.FileName, requestedFileName, StringComparison.Ordinal))
                     ?? throw new KeyNotFoundException($"Restore point '{requestedFileName}' was not found.");
-                await backupService.RestoreBackupAsync(backup.Path, cancellationToken);
+                try
+                {
+                    await backupService.RestoreBackupAsync(backup.Path, cancellationToken);
+                }
+                catch (PersonalCloudK0ContractException exception) when (exception.Code is "pending_intents" or "identity_mismatch")
+                {
+                    context.Output.WriteError(OperationRestricted, exception.Code, exception.Message);
+                    return OperationRestricted;
+                }
                 context.Output.Write(new { restored = true, fileName = backup.FileName }, [["Restored", backup.FileName]],
                     ["restored", "file_name"], [["true", backup.FileName]]);
                 return Success;
-            }, cancellationToken, readOnlyOverride: false, databaseReplacement: true);
+            }, cancellationToken, readOnlyOverride: false, databaseReplacement: true, initializeStore: false);
         });
         return command;
     }

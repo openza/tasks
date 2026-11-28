@@ -192,11 +192,107 @@ public sealed class BackupServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task Restore_preserves_personal_cloud_device_and_initial_report_sequences()
+    public async Task Restore_refuses_live_pending_personal_cloud_intents_without_replacing_the_database()
     {
         const string instanceId = "instance_00000000000000000000000000000061";
         const string deviceId = "device_00000000000000000000000000000061";
-        var currentPath = await CreateDatabaseAsync("sequence-current.db");
+        var currentPath = await CreateDatabaseAsync("live-pending-cloud.db");
+        var store = new SqliteTaskStore(currentPath);
+        await store.InitializeAsync();
+        var service = CreateService(currentPath);
+        var restorePoint = await service.CreateBackupAsync();
+        var pending = await store.CreateTaskWithPersonalCloudIntentAsync(
+            new TaskItem { Id = "live_pending_cloud_task", Title = "Unresolved live edit", SpaceId = SpaceIds.Default },
+            instanceId, deviceId);
+        var backupCount = service.ListBackupInfo().Count;
+
+        var exception = await Assert.ThrowsAsync<PersonalCloudK0ContractException>(() => service.RestoreBackupAsync(restorePoint));
+
+        Assert.Equal("pending_intents", exception.Code);
+        Assert.NotNull(await store.GetTaskAsync(pending.EntityId));
+        Assert.Equal(pending, Assert.Single(await store.GetPendingPersonalCloudOutboxAsync(instanceId, deviceId)));
+        Assert.Equal(backupCount, service.ListBackupInfo().Count);
+    }
+
+    [Fact]
+    public async Task Restore_refuses_pending_personal_cloud_intents_in_snapshot_without_replacing_live_database()
+    {
+        const string instanceId = "instance_00000000000000000000000000000062";
+        const string deviceId = "device_00000000000000000000000000000062";
+        var currentPath = await CreateDatabaseAsync("snapshot-pending-cloud.db");
+        var store = new SqliteTaskStore(currentPath);
+        await store.InitializeAsync();
+        var pendingAtSnapshot = await store.CreateTaskWithPersonalCloudIntentAsync(
+            new TaskItem { Id = "snapshot_pending_cloud_task", Title = "Snapshot edit", SpaceId = SpaceIds.Default },
+            instanceId, deviceId);
+        var service = CreateService(currentPath);
+        var restorePoint = await service.CreateBackupAsync();
+        await AcceptAsync(store, pendingAtSnapshot);
+        var liveOnly = await store.CreateTaskWithPersonalCloudIntentAsync(
+            new TaskItem { Id = "live_only_cloud_task", Title = "Accepted after snapshot", SpaceId = SpaceIds.Default },
+            instanceId, deviceId);
+        await AcceptAsync(store, liveOnly);
+        var backupCount = service.ListBackupInfo().Count;
+
+        var exception = await Assert.ThrowsAsync<PersonalCloudK0ContractException>(() => service.RestoreBackupAsync(restorePoint));
+
+        Assert.Equal("pending_intents", exception.Code);
+        Assert.NotNull(await store.GetTaskAsync(liveOnly.EntityId));
+        Assert.Empty(await store.GetPendingPersonalCloudOutboxAsync(instanceId, deviceId));
+        Assert.Equal(backupCount, service.ListBackupInfo().Count);
+    }
+
+    [Fact]
+    public async Task Restore_refuses_incomplete_personal_cloud_sync_without_replacing_live_database()
+    {
+        const string instanceId = "instance_00000000000000000000000000000063";
+        const string deviceId = "device_00000000000000000000000000000063";
+        var currentPath = await CreateDatabaseAsync("incomplete-cloud-sync.db", taskId: "task_live");
+        var store = new SqliteTaskStore(currentPath);
+        await store.InitializeAsync();
+        await store.BeginPersonalCloudInitialSyncAsync(instanceId, deviceId);
+        var service = CreateService(currentPath);
+        var restorePoint = await CreateDatabaseAsync("local-only-restore-point.db", taskId: "task_restore");
+        var backupCount = service.ListBackupInfo().Count;
+
+        var exception = await Assert.ThrowsAsync<PersonalCloudK0ContractException>(() => service.RestoreBackupAsync(restorePoint));
+
+        Assert.Equal("pending_intents", exception.Code);
+        Assert.NotNull(await store.GetTaskAsync("task_live"));
+        Assert.Equal(PersonalCloudInitialSyncPhase.Preparing,
+            (await store.GetPersonalCloudInitialSyncProgressAsync(instanceId, deviceId))!.Phase);
+        Assert.Equal(backupCount, service.ListBackupInfo().Count);
+    }
+
+    [Fact]
+    public async Task Restore_refuses_incompatible_personal_cloud_identities()
+    {
+        var currentPath = await CreateDatabaseAsync("identity-current.db", taskId: "task_current_identity");
+        var restorePoint = await CreateDatabaseAsync("identity-snapshot.db", taskId: "task_snapshot_identity");
+        var currentStore = new SqliteTaskStore(currentPath);
+        var snapshotStore = new SqliteTaskStore(restorePoint);
+        await currentStore.InitializeAsync();
+        await snapshotStore.InitializeAsync();
+        await currentStore.BeginPersonalCloudInitialSyncAsync("instance_current", "device_current");
+        await snapshotStore.BeginPersonalCloudInitialSyncAsync("instance_snapshot", "device_snapshot");
+        await currentStore.SetPersonalCloudInitialSyncPhaseAsync("instance_current", "device_current", PersonalCloudInitialSyncPhase.Complete);
+        await snapshotStore.SetPersonalCloudInitialSyncPhaseAsync("instance_snapshot", "device_snapshot", PersonalCloudInitialSyncPhase.Complete);
+        var service = CreateService(currentPath);
+
+        var exception = await Assert.ThrowsAsync<PersonalCloudK0ContractException>(() => service.RestoreBackupAsync(restorePoint));
+
+        Assert.Equal("identity_mismatch", exception.Code);
+        Assert.NotNull(await currentStore.GetTaskAsync("task_current_identity"));
+        Assert.Null(await currentStore.GetTaskAsync("task_snapshot_identity"));
+        Assert.Empty(service.ListBackupInfo());
+    }
+
+    [Fact]
+    public async Task Restore_preserves_quiescent_cloud_high_water_across_repeated_restores()
+    {
+        const string instanceId = "instance_00000000000000000000000000000064";
+        const string deviceId = "device_00000000000000000000000000000064";
+        var currentPath = await CreateDatabaseAsync("sequence-current.db", taskId: "local_before_restore");
         var store = new SqliteTaskStore(currentPath);
         await store.InitializeAsync();
         await store.BeginPersonalCloudInitialSyncAsync(instanceId, deviceId);
@@ -205,31 +301,37 @@ public sealed class BackupServiceTests : IDisposable
             new TaskItem { Id = "sequence_before_restore", Title = "Before restore", SpaceId = SpaceIds.Default },
             instanceId, deviceId);
         await AcceptAsync(store, first);
+        await store.SetPersonalCloudInitialSyncPhaseAsync(instanceId, deviceId, PersonalCloudInitialSyncPhase.Complete);
 
         var service = CreateService(currentPath);
         var restorePoint = await service.CreateBackupAsync();
         var second = await store.CreateTaskWithPersonalCloudIntentAsync(
-            new TaskItem { Id = "sequence_after_backup_1", Title = "Accepted 1", SpaceId = SpaceIds.Default },
+            new TaskItem { Id = "sequence_after_backup", Title = "Accepted after backup", SpaceId = SpaceIds.Default },
             instanceId, deviceId);
         await AcceptAsync(store, second);
-        var third = await store.CreateTaskWithPersonalCloudIntentAsync(
-            new TaskItem { Id = "sequence_after_backup_2", Title = "Accepted 2", SpaceId = SpaceIds.Default },
-            instanceId, deviceId);
-        await AcceptAsync(store, third);
         Assert.Equal(2, await store.AdvancePersonalCloudInitialReportSequenceAsync(instanceId, deviceId));
-        Assert.Equal(3, await store.AdvancePersonalCloudInitialReportSequenceAsync(instanceId, deviceId));
 
         await service.RestoreBackupAsync(restorePoint);
 
         var restoredStore = new SqliteTaskStore(currentPath);
         await restoredStore.InitializeAsync();
-        Assert.NotNull(await restoredStore.GetTaskAsync("sequence_before_restore"));
-        Assert.Null(await restoredStore.GetTaskAsync("sequence_after_backup_1"));
+        Assert.NotNull(await restoredStore.GetTaskAsync("local_before_restore"));
+        Assert.Null(await restoredStore.GetTaskAsync("sequence_after_backup"));
         var next = await restoredStore.CreateTaskWithPersonalCloudIntentAsync(
-            new TaskItem { Id = "sequence_after_restore", Title = "After restore", SpaceId = SpaceIds.Default },
+            new TaskItem { Id = "sequence_after_first_restore", Title = "After first restore", SpaceId = SpaceIds.Default },
             instanceId, deviceId);
-        Assert.Equal(third.DeviceSequence + 1, next.DeviceSequence);
-        Assert.Equal(4, await restoredStore.AdvancePersonalCloudInitialReportSequenceAsync(instanceId, deviceId));
+        Assert.Equal(second.DeviceSequence + 1, next.DeviceSequence);
+        Assert.Equal(3, await restoredStore.AdvancePersonalCloudInitialReportSequenceAsync(instanceId, deviceId));
+        await AcceptAsync(restoredStore, next);
+
+        await service.RestoreBackupAsync(restorePoint);
+
+        var afterRepeatedRestore = new SqliteTaskStore(currentPath);
+        var following = await afterRepeatedRestore.CreateTaskWithPersonalCloudIntentAsync(
+            new TaskItem { Id = "sequence_after_second_restore", Title = "After second restore", SpaceId = SpaceIds.Default },
+            instanceId, deviceId);
+        Assert.Equal(next.DeviceSequence + 1, following.DeviceSequence);
+        Assert.Equal(4, await afterRepeatedRestore.AdvancePersonalCloudInitialReportSequenceAsync(instanceId, deviceId));
     }
 
     private static async Task AcceptAsync(SqliteTaskStore store, PersonalCloudK1OutboxEntry entry)

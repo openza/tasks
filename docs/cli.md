@@ -174,6 +174,13 @@ point automatically. Create/list JSON entries contain `fileName`, `createdAt`,
 `sizeBytes`, `reason`, `note`, `taskCount`, `projectCount`, `spaceCount`, and
 `integrityStatus`; restore returns `restored` and `fileName`. Listing is
 read-only. Creating a restore point and restoring one do not contact a provider.
+Restore is refused before replacing the database if either the live database or
+selected snapshot contains unresolved Personal Cloud edits, conflicts, deferred
+changes, provider commands, or incomplete sync, or if both contain incompatible
+cloud identities. Sync or resolve those changes first. With quiescent compatible
+cloud state, restore preserves the live device-sequence and initial-report
+high-water marks. Restore points replace local data only; they do not undo
+Personal Cloud changes, and later sync may reapply remote state.
 
 Task JSON from both `task list` and single-task commands includes
 `isRecurring` and `recurrenceRule`. `isRecurring` is `true` exactly when the
