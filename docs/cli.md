@@ -139,6 +139,10 @@ clears the start, end, and duration. Text task details add `parent_id`,
 These JSON fields are additive to schema version 2; TSV v1 task columns above
 remain unchanged.
 
+Scheduled start, end, and duration are local task fields on older Personal Cloud
+schemas that do not support workspace task patches. Workspace-capable schemas
+queue schedule edits for Personal Cloud synchronization.
+
 Spaces, projects, and labels can be managed from the CLI as well as listed.
 `space create NAME` accepts optional `--color` and `--icon`; `space rename ID
 NAME` renames a space, and `space archive ID --yes` archives one. The final
