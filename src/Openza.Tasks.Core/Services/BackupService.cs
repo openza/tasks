@@ -139,16 +139,14 @@ public sealed class BackupService(
             cancellationToken.ThrowIfCancellationRequested();
             if (TryValidateSqliteFile(backup.Path, out _))
             {
-                if (!File.Exists(DatabasePath))
+                try
                 {
-                    try
-                    {
-                        await EnsurePersonalCloudRestoreIsSafeAsync(null, backup.Path, cancellationToken).ConfigureAwait(false);
-                    }
-                    catch (PersonalCloudK0ContractException)
-                    {
-                        continue;
-                    }
+                    await EnsurePersonalCloudRestoreIsSafeAsync(
+                        File.Exists(DatabasePath) ? DatabasePath : null, backup.Path, cancellationToken).ConfigureAwait(false);
+                }
+                catch (PersonalCloudK0ContractException)
+                {
+                    continue;
                 }
                 return backup;
             }

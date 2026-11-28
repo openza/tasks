@@ -203,6 +203,8 @@ public sealed partial class SqliteTaskStore(string databasePath, bool readOnly =
             FROM projects
             WHERE id = @id
             """;
+        if (await TableExistsAsync(connection, "personal_cloud_workspace_records", cancellationToken).ConfigureAwait(false))
+            command.CommandText += " AND NOT EXISTS(SELECT 1 FROM personal_cloud_workspace_records w WHERE w.kind='projects' AND w.entity_id=projects.id AND json_extract(w.canonical_json,'$.deletedAt') IS NOT NULL)";
         command.Parameters.AddWithValue("@id", id);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         return await reader.ReadAsync(cancellationToken).ConfigureAwait(false) ? ReadProject(reader) : null;

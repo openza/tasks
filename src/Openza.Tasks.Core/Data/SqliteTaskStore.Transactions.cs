@@ -6,10 +6,10 @@ public sealed partial class SqliteTaskStore
 {
     private readonly AsyncLocal<SqliteConnection?> _transactionConnection = new();
 
-    public async Task<T> ExecuteInTransactionAsync<T>(Func<Task<T>> action, CancellationToken cancellationToken = default)
+    public async Task<T> ExecuteInTransactionAsync<T>(Func<Task<T>> action, CancellationToken cancellationToken = default, bool immediate = false)
     {
         await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
-        await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken, immediate).ConfigureAwait(false);
         var previous = _transactionConnection.Value;
         _transactionConnection.Value = connection;
         try
@@ -33,10 +33,15 @@ public sealed partial class SqliteTaskStore
         public Task CloseAsync() => ownsConnection ? Connection.CloseAsync() : Task.CompletedTask;
         public ValueTask DisposeAsync() => ownsConnection ? Connection.DisposeAsync() : ValueTask.CompletedTask;
 
-        public async ValueTask<TransactionLease> BeginTransactionAsync(CancellationToken cancellationToken)
+        public async ValueTask<TransactionLease> BeginTransactionAsync(CancellationToken cancellationToken, bool immediate = false)
         {
             if (ownsConnection)
-                return new TransactionLease(Connection, (SqliteTransaction)await Connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false), null);
+            {
+                var transaction = immediate
+                    ? Connection.BeginTransaction(deferred: false)
+                    : (SqliteTransaction)await Connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+                return new TransactionLease(Connection, transaction, null);
+            }
 
             var savepoint = $"nested_{Guid.NewGuid():N}";
             await using var command = Connection.CreateCommand();

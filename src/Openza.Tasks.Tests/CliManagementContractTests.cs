@@ -564,6 +564,33 @@ public sealed partial class CliContractTests
     }
 
     [Fact]
+    public async Task Tombstoned_cloud_project_cannot_be_renamed_or_deleted_by_id()
+    {
+        var store = await CreateStoreAsync();
+        const string projectId = "project_tombstoned_cloud";
+        await store.UpsertProjectAsync(new ProjectItem { Id = projectId, Name = "Deleted project" });
+        await store.UpsertTaskAsync(new TaskItem { Id = "task_retaining_tombstone", Title = "Reference", ProjectId = projectId });
+
+        await using (var connection = new SqliteConnection($"Data Source={store.DatabasePath}"))
+        {
+            await connection.OpenAsync();
+            await using var command = connection.CreateCommand();
+            command.CommandText = """
+                INSERT INTO personal_cloud_workspace_records(instance_id,kind,entity_id,entity_version,canonical_json)
+                VALUES('instance_tombstone_test','projects',@id,1,'{"id":"project_tombstoned_cloud","deletedAt":"2030-01-01T00:00:00Z"}')
+                """;
+            command.Parameters.AddWithValue("@id", projectId);
+            await command.ExecuteNonQueryAsync();
+        }
+
+        Assert.Null(await store.GetProjectAsync(projectId));
+        Assert.DoesNotContain(await store.GetProjectsAsync(includeArchived: true), project => project.Id == projectId);
+        AssertCliError(await RunAsync("project", "rename", projectId, "Renamed", "--format", "json"), 3, "not_found_or_ambiguous");
+        AssertCliError(await RunAsync("project", "delete", projectId, "--yes", "--format", "json"), 3, "not_found_or_ambiguous");
+        Assert.Equal(projectId, (await store.GetTaskAsync("task_retaining_tombstone"))!.ProjectId);
+    }
+
+    [Fact]
     public async Task Label_rename_and_delete_are_local_only_when_cloud_connected_or_provider_owned()
     {
         var store = await CreateStoreAsync();
@@ -640,15 +667,92 @@ public sealed partial class CliContractTests
         AssertCliError(await RunAsync("task", "update", "task_provider_parent", "--clear-parent", "--format", "json"),
             6, "operation_restricted");
         Assert.Null((await store.GetTaskAsync("task_provider_parent"))!.ParentId);
+
+        await store.UpsertProviderSourceItemAsync(new ProviderSourceItem
+        {
+            Id = "source_linked_parent", IntegrationId = IntegrationIds.Todoist, ProviderConnectionId = "todoist_default",
+            ExternalId = "provider-source-id",
+            ProviderTaskId = "provider-task-id", Title = "Adopted source task", CompletionState = TaskCompletionState.Open,
+        });
+        var sourceLinkedTask = Assert.IsType<TaskItem>(await store.AdoptProviderSourceItemAsync("source_linked_parent"));
+        Assert.Equal(IntegrationIds.Local, sourceLinkedTask.IntegrationId);
+        Assert.True(sourceLinkedTask.HasProviderSource);
+        AssertCliError(await RunAsync("task", "update", sourceLinkedTask.Id, "--parent", "task_parent_target", "--format", "json"),
+            6, "operation_restricted");
+    }
+
+    [Fact]
+    public async Task Concurrent_reciprocal_parent_moves_cannot_create_a_hierarchy_cycle()
+    {
+        var store = await CreateStoreAsync();
+        await store.UpsertTaskAsync(new TaskItem { Id = "task_cycle_left", Title = "Left" });
+        await store.UpsertTaskAsync(new TaskItem { Id = "task_cycle_right", Title = "Right" });
+        var service = new TaskApplicationService(store);
+
+        async Task<bool> TryMoveAsync(string taskId, string parentId)
+        {
+            try
+            {
+                await service.UpdateTaskAsync(new UpdateTaskRequest
+                {
+                    TaskId = taskId,
+                    ParentId = OptionalValue<string?>.Set(parentId),
+                });
+                return true;
+            }
+            catch (ArgumentException)
+            {
+                return false;
+            }
+        }
+
+        var results = await Task.WhenAll(
+            TryMoveAsync("task_cycle_left", "task_cycle_right"),
+            TryMoveAsync("task_cycle_right", "task_cycle_left"));
+
+        Assert.Single(results, succeeded => succeeded);
+        Assert.Single(results, succeeded => !succeeded);
+        var left = (await store.GetTaskAsync("task_cycle_left"))!;
+        var right = (await store.GetTaskAsync("task_cycle_right"))!;
+        Assert.False(left.ParentId == right.Id && right.ParentId == left.Id);
     }
 
     [Fact]
     public void Personal_cloud_contract_errors_map_to_documented_exit_codes()
     {
         Assert.Equal(6, OpenzaCli.MapPersonalCloudContractExitCode("upgrade_required"));
-        Assert.Equal(6, OpenzaCli.MapPersonalCloudContractExitCode("invalid_request"));
+        Assert.Equal(2, OpenzaCli.MapPersonalCloudContractExitCode("invalid_request"));
         Assert.Equal(4, OpenzaCli.MapPersonalCloudContractExitCode("version_conflict"));
         Assert.Equal(3, OpenzaCli.MapPersonalCloudContractExitCode("entity_not_found"));
+    }
+
+    [Fact]
+    public async Task Legacy_title_rejected_by_personal_cloud_maps_to_invalid_arguments()
+    {
+        var store = await CreateStoreAsync();
+        var title = new string('x', PersonalCloudK0Protocol.MaximumTitleUtf8Bytes + 1);
+        await store.UpsertTaskAsync(new TaskItem { Id = "task_legacy_title", Title = title });
+        await SavePersonalCloudConnectionAsync();
+
+        var result = await RunAsync("task", "update", "task_legacy_title", "--notes", "Updated", "--format", "json");
+        Assert.Equal(2, result.ExitCode);
+        using var error = JsonDocument.Parse(result.Stderr);
+        Assert.Equal("invalid_request", error.RootElement.GetProperty("error").GetProperty("code").GetString());
+        Assert.Equal(title, (await store.GetTaskAsync("task_legacy_title"))!.Title);
+    }
+
+    [Fact]
+    public void Shared_color_validation_matches_avalonia_for_named_and_hex_colors()
+    {
+        var values = Enum.GetNames<System.Drawing.KnownColor>()
+            .Concat(["RebeccaPurple", "rebeccapurple", "#abc", "#abcd", "#aabbcc", "#80aabbcc", "#12", "banana"]);
+        foreach (var value in values)
+        {
+            var acceptedByAvalonia = Avalonia.Media.Color.TryParse(value, out _);
+            var acceptedByShared = WorkspaceColorValidation.IsValid(value);
+            Assert.True(acceptedByAvalonia == acceptedByShared,
+                $"Color parser mismatch for '{value}': Avalonia={acceptedByAvalonia}, shared={acceptedByShared}.");
+        }
     }
 
     [Fact]

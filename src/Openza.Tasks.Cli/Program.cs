@@ -575,7 +575,8 @@ internal static partial class OpenzaCli
         "version_conflict" => Conflict,
         "entity_not_found" or "parent_not_found" => NotFoundOrAmbiguous,
         "pending_intents" or "identity_mismatch" or "pending_provider_writes" or "cloud_connected" or
-            "upgrade_required" or "bridge_upgrade_required" or "invalid_request" or "not_connected" => OperationRestricted,
+            "upgrade_required" or "bridge_upgrade_required" or "not_connected" => OperationRestricted,
+        "invalid_request" => InvalidArguments,
         _ => UnexpectedError,
     };
 

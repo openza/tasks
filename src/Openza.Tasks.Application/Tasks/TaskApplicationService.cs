@@ -136,12 +136,13 @@ public sealed partial class TaskApplicationService(
     {
         using var connectionLease = AcquirePersonalCloudAuthoringLease();
         var original = await RequireTaskAsync(request.TaskId, cancellationToken).ConfigureAwait(false);
-        if (request.ParentId.IsSpecified && original.IntegrationId != IntegrationIds.Local)
+        if (request.ParentId.IsSpecified && (original.IsProviderTask || original.HasProviderSource))
             throw new OperationRestrictedException("Parent changes are not supported for provider-linked tasks; the provider may overwrite local parent changes on the next sync.");
         var target = HasCloudFieldEdits(request) ? PersonalCloudTarget() : null;
-        if ((request.ReminderAt.IsSpecified || request.ScheduledStart.IsSpecified || request.ScheduledEnd.IsSpecified ||
-             request.DurationMinutes.IsSpecified || request.ParentId.IsSpecified) &&
-            target is not null && Store is SqliteTaskStore sqliteStore)
+        var needsTransaction = request.ParentId.IsSpecified ||
+            (target is not null && (request.ReminderAt.IsSpecified || request.ScheduledStart.IsSpecified ||
+             request.ScheduledEnd.IsSpecified || request.DurationMinutes.IsSpecified));
+        if (needsTransaction && Store is SqliteTaskStore sqliteStore)
         {
             return await sqliteStore.ExecuteInTransactionAsync(async () =>
             {
@@ -150,7 +151,7 @@ public sealed partial class TaskApplicationService(
                 if (current.Revision != original.Revision)
                     throw new TaskConflictException(original.Id);
                 return await UpdateTaskCoreAsync(request, original, target, cancellationToken).ConfigureAwait(false);
-            }, cancellationToken).ConfigureAwait(false);
+            }, cancellationToken, immediate: request.ParentId.IsSpecified).ConfigureAwait(false);
         }
         return await UpdateTaskCoreAsync(request, original, target, cancellationToken).ConfigureAwait(false);
     }

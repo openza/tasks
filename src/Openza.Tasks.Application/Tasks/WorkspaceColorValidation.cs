@@ -24,6 +24,10 @@ public static class WorkspaceColorValidation
                    uint.TryParse(hex, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out _);
         }
 
-        return Color.FromName(color).IsKnownColor;
+        if (string.Equals(color, "rebeccapurple", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        var namedColor = Color.FromName(color);
+        return namedColor.IsKnownColor && !namedColor.IsSystemColor;
     }
 }

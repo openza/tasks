@@ -194,6 +194,9 @@ quiescent compatible cloud state, restore preserves the live device-sequence and
 initial-report high-water marks. If the live database is missing, restore also
 refuses a snapshot containing Personal Cloud state because those accepted
 high-water marks cannot be verified; local-only snapshots remain restorable.
+Provider date-update rows that fail to apply (for example, when the referenced
+remote task has been deleted) remain queued and continue to block restore; Phase A
+does not discard them.
 Manual restore points cannot evict pre-restore, pre-import, or pre-migration
 safety points. Restore points replace local data only; they do not undo Personal Cloud changes, and later sync may reapply remote state.
 

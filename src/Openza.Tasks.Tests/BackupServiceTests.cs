@@ -615,6 +615,26 @@ public sealed class BackupServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task FindLatestRestorableBackup_skips_snapshot_with_pending_provider_writes_when_live_database_exists()
+    {
+        var livePath = await CreateDatabaseAsync("discovery-live-empty.db");
+        var snapshotPath = await CreateDatabaseAsync("discovery-snapshot-pending.db", taskId: "task_snapshot");
+        var snapshotStore = new SqliteTaskStore(snapshotPath);
+        await snapshotStore.QueueTaskDateUpdateAsync(new PendingTaskDateUpdate
+        {
+            Id = "snapshot-date", TaskId = "task_snapshot", Provider = IntegrationIds.Todoist,
+            ProviderTaskId = "remote-snapshot", PlannedOn = new DateOnly(2030, 1, 3), CreatedAt = DateTimeOffset.UtcNow,
+        });
+        var backupDirectory = Path.Combine(_directory, "existing-live-discovery-backups");
+        await CreateService(snapshotPath, backupDirectory).CreateBackupAsync(BackupReasons.Manual);
+
+        var candidate = await CreateService(livePath, backupDirectory).FindLatestRestorableBackupAsync();
+
+        Assert.Null(candidate);
+        Assert.True(File.Exists(livePath));
+    }
+
+    [Fact]
     public async Task ShouldCreatePreMigrationBackup_detects_older_database_with_user_tables()
     {
         var databasePath = await CreateDatabaseAsync("older-schema.db", taskId: "task_old");
