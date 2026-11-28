@@ -226,6 +226,8 @@ public sealed class BackupService(
         using var replacementLease = DatabaseReplacementLeaseFactory?.Invoke();
         cancellationToken.ThrowIfCancellationRequested();
         ValidateSqliteFile(sourcePath);
+        if (File.Exists(DatabasePath))
+            await RecoverLiveDatabaseBeforeRestoreAsync(cancellationToken).ConfigureAwait(false);
         await EnsurePersonalCloudRestoreIsSafeAsync(
             File.Exists(DatabasePath) ? DatabasePath : null,
             sourcePath,
@@ -370,6 +372,12 @@ public sealed class BackupService(
             }
         }
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task RecoverLiveDatabaseBeforeRestoreAsync(CancellationToken cancellationToken)
+    {
+        await using var connection = await OpenConnectionAsync(DatabasePath, SqliteOpenMode.ReadWrite, cancellationToken).ConfigureAwait(false);
+        await ExecuteScalarAsync(connection, "PRAGMA user_version", cancellationToken).ConfigureAwait(false);
     }
 
     private static async Task EnsurePersonalCloudRestoreIsSafeAsync(

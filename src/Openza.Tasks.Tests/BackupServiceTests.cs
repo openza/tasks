@@ -423,6 +423,72 @@ public sealed class BackupServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Restore_recovers_hot_rollback_journal_before_read_only_preflight()
+    {
+        var templatePath = await CreateDatabaseAsync("hot-journal-template.db", taskId: "task_current");
+        var restoreSourcePath = await CreateDatabaseAsync("hot-journal-restore.db", taskId: "task_restored");
+        var livePath = Path.Combine(_directory, "hot-journal-live.db");
+        var pristinePath = Path.Combine(_directory, "hot-journal-pristine.db");
+        var templateStore = new SqliteTaskStore(templatePath);
+        for (var index = 0; index < 128; index++)
+            await templateStore.UpsertTaskAsync(new TaskItem { Id = $"task_{index:D3}", Title = $"Task {index}" });
+        SqliteConnection.ClearAllPools();
+        File.Copy(templatePath, pristinePath);
+        var journalPath = $"{templatePath}-journal";
+        await using (var writer = new SqliteConnection(new SqliteConnectionStringBuilder
+        {
+            DataSource = templatePath,
+            Mode = SqliteOpenMode.ReadWrite,
+            Pooling = false,
+        }.ToString()))
+        {
+            await writer.OpenAsync();
+            async Task ExecuteAsync(string sql)
+            {
+                await using var command = writer.CreateCommand();
+                command.CommandText = sql;
+                await command.ExecuteNonQueryAsync();
+            }
+
+            await ExecuteAsync("PRAGMA journal_mode=DELETE");
+            await ExecuteAsync("PRAGMA synchronous=FULL");
+            await ExecuteAsync("PRAGMA cache_size=1");
+            await ExecuteAsync("PRAGMA cache_spill=ON");
+            await ExecuteAsync("BEGIN EXCLUSIVE");
+            for (var index = 0; index < 128; index++)
+                await ExecuteAsync($"UPDATE tasks SET title='Uncommitted {index}' WHERE id='task_{index:D3}'");
+            Assert.False(File.ReadAllBytes(templatePath).SequenceEqual(File.ReadAllBytes(pristinePath)));
+            Assert.True(File.Exists(journalPath));
+            Assert.True(new FileInfo(journalPath).Length > 0);
+            File.Copy(templatePath, livePath);
+            File.Copy(journalPath, $"{livePath}-journal");
+            await writer.CloseAsync();
+        }
+
+        var readOnlyFailure = await Record.ExceptionAsync(async () =>
+        {
+            await using var readOnly = new SqliteConnection(new SqliteConnectionStringBuilder
+            {
+                DataSource = livePath,
+                Mode = SqliteOpenMode.ReadOnly,
+                Pooling = false,
+            }.ToString());
+            await readOnly.OpenAsync();
+            await using var command = readOnly.CreateCommand();
+            command.CommandText = "PRAGMA user_version";
+            await command.ExecuteScalarAsync();
+        });
+        Assert.IsType<SqliteException>(readOnlyFailure);
+
+        await CreateService(livePath).RestoreBackupAsync(restoreSourcePath);
+
+        Assert.False(File.Exists($"{livePath}-journal"));
+        var restoredStore = new SqliteTaskStore(livePath);
+        await restoredStore.InitializeAsync();
+        Assert.NotNull(await restoredStore.GetTaskAsync("task_restored"));
+    }
+
+    [Fact]
     public async Task FindLatestRestorableBackup_returns_candidate_for_fresh_database()
     {
         var backupSourcePath = await CreateDatabaseAsync("backup-source.db", taskId: "task_backup");
