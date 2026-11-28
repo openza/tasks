@@ -506,6 +506,31 @@ public sealed class BackupServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task FindLatestRestorableBackup_skips_cloud_snapshot_when_live_database_is_missing()
+    {
+        const string instanceId = "instance_00000000000000000000000000000066";
+        const string deviceId = "device_00000000000000000000000000000066";
+        var backupDirectory = Path.Combine(_directory, "missing-live-discovery-backups");
+        var localPath = await CreateDatabaseAsync("discovery-local.db", taskId: "local_snapshot_task");
+        var localSnapshot = await CreateService(localPath, backupDirectory).CreateBackupAsync(BackupReasons.Manual);
+        await Task.Delay(25);
+        var cloudPath = await CreateDatabaseAsync("discovery-cloud.db", taskId: "cloud_snapshot_task");
+        var cloudStore = new SqliteTaskStore(cloudPath);
+        await cloudStore.InitializeAsync();
+        await cloudStore.BeginPersonalCloudInitialSyncAsync(instanceId, deviceId);
+        await cloudStore.SetPersonalCloudInitialSyncPhaseAsync(instanceId, deviceId, PersonalCloudInitialSyncPhase.Complete);
+        var cloudSnapshot = await CreateService(cloudPath, backupDirectory).CreateBackupAsync(BackupReasons.Manual);
+        var missingDatabasePath = Path.Combine(_directory, "discovery-live-missing.db");
+        var service = CreateService(missingDatabasePath, backupDirectory);
+
+        Assert.Equal(cloudSnapshot, service.ListBackupInfo()[0].Path);
+        var candidate = await service.FindLatestRestorableBackupAsync();
+
+        Assert.Equal(localSnapshot, candidate?.Path);
+        Assert.False(File.Exists(missingDatabasePath));
+    }
+
+    [Fact]
     public async Task ShouldCreatePreMigrationBackup_detects_older_database_with_user_tables()
     {
         var databasePath = await CreateDatabaseAsync("older-schema.db", taskId: "task_old");
