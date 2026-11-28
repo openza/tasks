@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
+using Openza.Tasks.Core.Data;
 
 namespace Openza.Tasks.Core.Services;
 
@@ -13,6 +14,19 @@ public sealed class BackupService(
     Func<IDisposable>? databaseReplacementLeaseFactory = null)
 {
     private static readonly JsonSerializerOptions MetadataJsonOptions = new() { WriteIndented = true };
+
+    private sealed record InFlightMutation(
+        string MutationId,
+        string Product,
+        string InstanceId,
+        string DeviceId,
+        long DeviceSequence,
+        string Operation,
+        string EntityId,
+        string CanonicalJson,
+        string CanonicalHash,
+        long CreatedAt,
+        long DispatchedAt);
 
     public string DatabasePath { get; } = databasePath;
     public string BackupDirectory { get; } = backupDirectory;
@@ -265,7 +279,9 @@ public sealed class BackupService(
         string restoredDatabasePath,
         CancellationToken cancellationToken)
     {
-        var deviceSequences = new List<(string InstanceId, string DeviceId, long NextSequence)>();
+        await new SqliteTaskStore(restoredDatabasePath).InitializeAsync(cancellationToken).ConfigureAwait(false);
+        var acceptedSequences = new List<(string InstanceId, string DeviceId, long LastAcceptedSequence)>();
+        var inFlightMutations = new List<InFlightMutation>();
         var reportSequences = new List<(string InstanceId, string DeviceId, long ReportSequence)>();
         await using (var current = new SqliteConnection(new SqliteConnectionStringBuilder
         {
@@ -275,13 +291,25 @@ public sealed class BackupService(
         }.ToString()))
         {
             await current.OpenAsync(cancellationToken).ConfigureAwait(false);
-            if (await HasTableAsync(current, "personal_cloud_device_state", cancellationToken).ConfigureAwait(false))
+            if (await HasTableAsync(current, "personal_cloud_outbox", cancellationToken).ConfigureAwait(false))
             {
                 var read = current.CreateCommand();
-                read.CommandText = "SELECT instance_id,device_id,next_device_sequence FROM personal_cloud_device_state";
-                await using var reader = await read.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-                while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-                    deviceSequences.Add((reader.GetString(0), reader.GetString(1), reader.GetInt64(2)));
+                read.CommandText = "SELECT instance_id,device_id,MAX(device_sequence) FROM personal_cloud_outbox WHERE acknowledged_at IS NOT NULL GROUP BY instance_id,device_id";
+                await using (var reader = await read.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+                    while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                        acceptedSequences.Add((reader.GetString(0), reader.GetString(1), reader.GetInt64(2)));
+                if (await HasColumnAsync(current, "personal_cloud_outbox", "dispatched_at", cancellationToken).ConfigureAwait(false))
+                {
+                    var inFlight = current.CreateCommand();
+                    inFlight.CommandText = "SELECT mutation_id,product,instance_id,device_id,device_sequence,operation,entity_id,canonical_json,canonical_hash,created_at,dispatched_at FROM personal_cloud_outbox WHERE acknowledged_at IS NULL AND dispatched_at IS NOT NULL ORDER BY instance_id,device_id,device_sequence";
+                    await using var inFlightReader = await inFlight.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+                    while (await inFlightReader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                        inFlightMutations.Add(new InFlightMutation(
+                            inFlightReader.GetString(0), inFlightReader.GetString(1), inFlightReader.GetString(2),
+                            inFlightReader.GetString(3), inFlightReader.GetInt64(4), inFlightReader.GetString(5),
+                            inFlightReader.GetString(6), inFlightReader.GetString(7), inFlightReader.GetString(8),
+                            inFlightReader.GetInt64(9), inFlightReader.GetInt64(10)));
+                }
             }
             if (await HasTableAsync(current, "personal_cloud_initial_sync", cancellationToken).ConfigureAwait(false))
             {
@@ -292,7 +320,7 @@ public sealed class BackupService(
                     reportSequences.Add((reader.GetString(0), reader.GetString(1), reader.GetInt64(2)));
             }
         }
-        if (deviceSequences.Count == 0 && reportSequences.Count == 0) return;
+        if (acceptedSequences.Count == 0 && inFlightMutations.Count == 0 && reportSequences.Count == 0) return;
 
         await using var restored = new SqliteConnection(new SqliteConnectionStringBuilder
         {
@@ -302,32 +330,58 @@ public sealed class BackupService(
         }.ToString());
         await restored.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = await restored.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-        if (deviceSequences.Count > 0)
+        var acceptedHighWater = acceptedSequences.ToDictionary(
+            sequence => (sequence.InstanceId, sequence.DeviceId), sequence => sequence.LastAcceptedSequence);
+        foreach (var sequence in acceptedSequences)
         {
-            var create = restored.CreateCommand();
-            create.CommandText = """
-                CREATE TABLE IF NOT EXISTS personal_cloud_device_state (
-                    instance_id TEXT NOT NULL,
-                    device_id TEXT NOT NULL,
-                    next_device_sequence INTEGER NOT NULL CHECK (next_device_sequence > 0),
-                    PRIMARY KEY (instance_id, device_id)
-                )
+            await PreserveNextDeviceSequenceAsync(restored, sequence.InstanceId, sequence.DeviceId,
+                checked(sequence.LastAcceptedSequence + 1), cancellationToken).ConfigureAwait(false);
+        }
+        foreach (var mutation in inFlightMutations)
+        {
+            if (acceptedHighWater.TryGetValue((mutation.InstanceId, mutation.DeviceId), out var lastAccepted) &&
+                mutation.DeviceSequence <= lastAccepted)
+                continue;
+
+            var remove = restored.CreateCommand();
+            remove.CommandText = "DELETE FROM personal_cloud_outbox WHERE instance_id=@i AND device_id=@d AND device_sequence=@q AND acknowledged_at IS NULL AND mutation_id<>@m";
+            remove.Parameters.AddWithValue("@i", mutation.InstanceId);
+            remove.Parameters.AddWithValue("@d", mutation.DeviceId);
+            remove.Parameters.AddWithValue("@q", mutation.DeviceSequence);
+            remove.Parameters.AddWithValue("@m", mutation.MutationId);
+            await remove.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+
+            var insert = restored.CreateCommand();
+            insert.CommandText = """
+                INSERT OR IGNORE INTO personal_cloud_outbox(
+                    mutation_id,product,instance_id,device_id,device_sequence,operation,entity_id,
+                    canonical_json,canonical_hash,created_at,dispatched_at)
+                VALUES(@m,@p,@i,@d,@q,@o,@e,@j,@h,@c,@a)
                 """;
-            await create.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-            foreach (var sequence in deviceSequences)
-            {
-                var upsert = restored.CreateCommand();
-                upsert.CommandText = """
-                    INSERT INTO personal_cloud_device_state(instance_id,device_id,next_device_sequence)
-                    VALUES(@i,@d,@q)
-                    ON CONFLICT(instance_id,device_id) DO UPDATE
-                    SET next_device_sequence=MAX(next_device_sequence,excluded.next_device_sequence)
-                    """;
-                upsert.Parameters.AddWithValue("@i", sequence.InstanceId);
-                upsert.Parameters.AddWithValue("@d", sequence.DeviceId);
-                upsert.Parameters.AddWithValue("@q", sequence.NextSequence);
-                await upsert.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-            }
+            insert.Parameters.AddWithValue("@m", mutation.MutationId);
+            insert.Parameters.AddWithValue("@p", mutation.Product);
+            insert.Parameters.AddWithValue("@i", mutation.InstanceId);
+            insert.Parameters.AddWithValue("@d", mutation.DeviceId);
+            insert.Parameters.AddWithValue("@q", mutation.DeviceSequence);
+            insert.Parameters.AddWithValue("@o", mutation.Operation);
+            insert.Parameters.AddWithValue("@e", mutation.EntityId);
+            insert.Parameters.AddWithValue("@j", mutation.CanonicalJson);
+            insert.Parameters.AddWithValue("@h", mutation.CanonicalHash);
+            insert.Parameters.AddWithValue("@c", mutation.CreatedAt);
+            insert.Parameters.AddWithValue("@a", mutation.DispatchedAt);
+            await insert.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+
+            var mark = restored.CreateCommand();
+            mark.CommandText = "UPDATE personal_cloud_outbox SET dispatched_at=COALESCE(dispatched_at,@a) WHERE mutation_id=@m AND instance_id=@i AND device_id=@d AND device_sequence=@q AND acknowledged_at IS NULL";
+            mark.Parameters.AddWithValue("@a", mutation.DispatchedAt);
+            mark.Parameters.AddWithValue("@m", mutation.MutationId);
+            mark.Parameters.AddWithValue("@i", mutation.InstanceId);
+            mark.Parameters.AddWithValue("@d", mutation.DeviceId);
+            mark.Parameters.AddWithValue("@q", mutation.DeviceSequence);
+            if (await mark.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+                throw new InvalidOperationException("An in-flight Personal Cloud mutation could not be preserved during restore.");
+            await PreserveNextDeviceSequenceAsync(restored, mutation.InstanceId, mutation.DeviceId,
+                checked(mutation.DeviceSequence + 1), cancellationToken).ConfigureAwait(false);
         }
         if (reportSequences.Count > 0)
         {
@@ -362,12 +416,42 @@ public sealed class BackupService(
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    private static async Task PreserveNextDeviceSequenceAsync(
+        SqliteConnection connection,
+        string instanceId,
+        string deviceId,
+        long nextSequence,
+        CancellationToken cancellationToken)
+    {
+        var upsert = connection.CreateCommand();
+        upsert.CommandText = """
+            INSERT INTO personal_cloud_device_state(instance_id,device_id,next_device_sequence)
+            VALUES(@i,@d,@q)
+            ON CONFLICT(instance_id,device_id) DO UPDATE
+            SET next_device_sequence=MAX(next_device_sequence,excluded.next_device_sequence)
+            """;
+        upsert.Parameters.AddWithValue("@i", instanceId);
+        upsert.Parameters.AddWithValue("@d", deviceId);
+        upsert.Parameters.AddWithValue("@q", nextSequence);
+        await upsert.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
     private static async Task<bool> HasTableAsync(SqliteConnection connection, string tableName, CancellationToken cancellationToken)
     {
         var command = connection.CreateCommand();
         command.CommandText = "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name=@name)";
         command.Parameters.AddWithValue("@name", tableName);
         return Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)) != 0;
+    }
+
+    private static async Task<bool> HasColumnAsync(SqliteConnection connection, string tableName, string columnName, CancellationToken cancellationToken)
+    {
+        var command = connection.CreateCommand();
+        command.CommandText = $"PRAGMA table_info({tableName})";
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            if (string.Equals(reader.GetString(1), columnName, StringComparison.Ordinal)) return true;
+        return false;
     }
 
     private BackupInfo ReadBackupInfo(string path)

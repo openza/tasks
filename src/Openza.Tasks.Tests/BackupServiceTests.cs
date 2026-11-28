@@ -192,7 +192,7 @@ public sealed class BackupServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task Restore_preserves_personal_cloud_device_and_initial_report_sequences()
+    public async Task Restore_preserves_accepted_and_in_flight_sequences_but_discards_unsent_reservations()
     {
         const string instanceId = "instance_00000000000000000000000000000061";
         const string deviceId = "device_00000000000000000000000000000061";
@@ -212,10 +212,10 @@ public sealed class BackupServiceTests : IDisposable
             new TaskItem { Id = "sequence_after_backup_1", Title = "Accepted 1", SpaceId = SpaceIds.Default },
             instanceId, deviceId);
         await AcceptAsync(store, second);
-        var third = await store.CreateTaskWithPersonalCloudIntentAsync(
-            new TaskItem { Id = "sequence_after_backup_2", Title = "Accepted 2", SpaceId = SpaceIds.Default },
+        var unsent = await store.CreateTaskWithPersonalCloudIntentAsync(
+            new TaskItem { Id = "sequence_unsent_after_backup", Title = "Unsent", SpaceId = SpaceIds.Default },
             instanceId, deviceId);
-        await AcceptAsync(store, third);
+        Assert.Equal(second.DeviceSequence + 1, unsent.DeviceSequence);
         Assert.Equal(2, await store.AdvancePersonalCloudInitialReportSequenceAsync(instanceId, deviceId));
         Assert.Equal(3, await store.AdvancePersonalCloudInitialReportSequenceAsync(instanceId, deviceId));
 
@@ -225,11 +225,34 @@ public sealed class BackupServiceTests : IDisposable
         await restoredStore.InitializeAsync();
         Assert.NotNull(await restoredStore.GetTaskAsync("sequence_before_restore"));
         Assert.Null(await restoredStore.GetTaskAsync("sequence_after_backup_1"));
+        Assert.Null(await restoredStore.GetTaskAsync("sequence_unsent_after_backup"));
         var next = await restoredStore.CreateTaskWithPersonalCloudIntentAsync(
             new TaskItem { Id = "sequence_after_restore", Title = "After restore", SpaceId = SpaceIds.Default },
             instanceId, deviceId);
-        Assert.Equal(third.DeviceSequence + 1, next.DeviceSequence);
+        Assert.Equal(unsent.DeviceSequence, next.DeviceSequence);
         Assert.Equal(4, await restoredStore.AdvancePersonalCloudInitialReportSequenceAsync(instanceId, deviceId));
+
+        await AcceptAsync(restoredStore, next);
+        var inFlightRestorePoint = await service.CreateBackupAsync();
+        var inFlight = await restoredStore.CreateTaskWithPersonalCloudIntentAsync(
+            new TaskItem { Id = "sequence_in_flight", Title = "Uncertain delivery", SpaceId = SpaceIds.Default },
+            instanceId, deviceId);
+        await restoredStore.MarkPersonalCloudOutboxInFlightAsync(instanceId, deviceId, [inFlight.MutationId]);
+        var unsentAfterInFlight = await restoredStore.CreateTaskWithPersonalCloudIntentAsync(
+            new TaskItem { Id = "sequence_unsent_after_in_flight", Title = "Unsent tail", SpaceId = SpaceIds.Default },
+            instanceId, deviceId);
+
+        await service.RestoreBackupAsync(inFlightRestorePoint);
+
+        var afterInFlightRestore = await new SqliteTaskStore(currentPath).GetPendingPersonalCloudOutboxAsync(instanceId, deviceId);
+        var preserved = Assert.Single(afterInFlightRestore, item => item.MutationId == inFlight.MutationId);
+        Assert.Equal(inFlight.CanonicalJson, preserved.CanonicalJson);
+        Assert.Equal(inFlight.DeviceSequence, preserved.DeviceSequence);
+        Assert.DoesNotContain(afterInFlightRestore, item => item.MutationId == unsentAfterInFlight.MutationId);
+        var nextAfterInFlight = await new SqliteTaskStore(currentPath).CreateTaskWithPersonalCloudIntentAsync(
+            new TaskItem { Id = "sequence_after_in_flight_restore", Title = "Next after uncertain delivery", SpaceId = SpaceIds.Default },
+            instanceId, deviceId);
+        Assert.Equal(inFlight.DeviceSequence + 1, nextAfterInFlight.DeviceSequence);
     }
 
     private static async Task AcceptAsync(SqliteTaskStore store, PersonalCloudK1OutboxEntry entry)

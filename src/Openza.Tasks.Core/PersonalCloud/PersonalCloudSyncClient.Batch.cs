@@ -30,14 +30,35 @@ public sealed partial class PersonalCloudSyncClient
                 using var request = CreateAuthorizedRequest(HttpMethod.Post, "/v1/tasks/mutations/batch", accessToken);
                 ApplyFanoutBound(request, value.Items);
                 request.Content = new StringContent(value.Json, Encoding.UTF8, "application/json");
+                await store.MarkPersonalCloudOutboxInFlightAsync(connection.InstanceId, connection.DeviceId,
+                    value.Items.Select(item => item.MutationId).ToArray(), cancellationToken).ConfigureAwait(false);
                 try { response = await SendForJsonAsync(request, cancellationToken, batchRequest: true).ConfigureAwait(false); }
                 catch (BatchEndpointUnavailableException)
                 {
+                    await store.ClearPersonalCloudOutboxInFlightAsync(connection.InstanceId, connection.DeviceId,
+                        value.Items.Select(item => item.MutationId).ToArray(), cancellationToken).ConfigureAwait(false);
                     _batchCapability = null;
                     continue; // Retry the exact persisted envelopes via the old endpoint; no new IDs/sequences.
                 }
+                catch (PersonalCloudK0ContractException exception) when (exception.Code is "daily_quota_exceeded" or "unauthorized")
+                {
+                    await store.ClearPersonalCloudOutboxInFlightAsync(connection.InstanceId, connection.DeviceId,
+                        value.Items.Select(item => item.MutationId).ToArray(), cancellationToken).ConfigureAwait(false);
+                    throw;
+                }
                 catch (PersonalCloudK0ContractException exception) when (IsPermanentMutationRejection(exception.Code))
-                { return (pushed, exception.Code, false); }
+                {
+                    if (exception.IsDefinitiveMutationRejection)
+                        await store.ClearPersonalCloudOutboxInFlightAsync(connection.InstanceId, connection.DeviceId,
+                            value.Items.Select(item => item.MutationId).ToArray(), cancellationToken).ConfigureAwait(false);
+                    return (pushed, exception.Code, false);
+                }
+                catch (PersonalCloudK0ContractException exception) when (exception.IsDefinitiveMutationRejection)
+                {
+                    await store.ClearPersonalCloudOutboxInFlightAsync(connection.InstanceId, connection.DeviceId,
+                        value.Items.Select(item => item.MutationId).ToArray(), cancellationToken).ConfigureAwait(false);
+                    throw;
+                }
 
                 var receipt = ValidateBatchResponse(response, value.Items);
                 foreach (var json in receipt.Receipts)
@@ -48,6 +69,8 @@ public sealed partial class PersonalCloudSyncClient
                 }
                 if (receipt.ErrorCode is { } code)
                 {
+                    await store.ClearPersonalCloudOutboxInFlightAsync(connection.InstanceId, connection.DeviceId,
+                        value.Items.Skip(receipt.Receipts.Count).Select(item => item.MutationId).ToArray(), cancellationToken).ConfigureAwait(false);
                     if ((!receipt.Retryable || code == "parent_not_found") &&
                         await store.ParkRejectedPersonalCloudTaskAsync(value.Items[receipt.Receipts.Count], code, cancellationToken).ConfigureAwait(false))
                         return (pushed, null, true);
@@ -72,18 +95,37 @@ public sealed partial class PersonalCloudSyncClient
             using var single = CreateAuthorizedRequest(HttpMethod.Post, "/v1/tasks/mutations", accessToken);
             ApplyFanoutBound(single, [mutation]);
             single.Content = new StringContent(mutation.CanonicalJson, Encoding.UTF8, "application/json");
+            await store.MarkPersonalCloudOutboxInFlightAsync(connection.InstanceId, connection.DeviceId,
+                [mutation.MutationId], cancellationToken).ConfigureAwait(false);
             string receiptJson;
             try { receiptJson = await SendForJsonAsync(single, cancellationToken).ConfigureAwait(false); }
             catch (PersonalCloudK0ContractException exception) when (exception.Code == "fanout_bound_exceeded")
             {
+                await store.ClearPersonalCloudOutboxInFlightAsync(connection.InstanceId, connection.DeviceId,
+                    [mutation.MutationId], cancellationToken).ConfigureAwait(false);
                 await RememberStaleFanoutAsync(mutation, cancellationToken).ConfigureAwait(false);
                 return (pushed, exception.Code, false);
             }
+            catch (PersonalCloudK0ContractException exception) when (exception.Code is "daily_quota_exceeded" or "unauthorized")
+            {
+                await store.ClearPersonalCloudOutboxInFlightAsync(connection.InstanceId, connection.DeviceId,
+                    [mutation.MutationId], cancellationToken).ConfigureAwait(false);
+                throw;
+            }
             catch (PersonalCloudK0ContractException exception) when (IsPermanentMutationRejection(exception.Code))
             {
+                if (exception.IsDefinitiveMutationRejection)
+                    await store.ClearPersonalCloudOutboxInFlightAsync(connection.InstanceId, connection.DeviceId,
+                        [mutation.MutationId], cancellationToken).ConfigureAwait(false);
                 if (exception.IsDefinitiveMutationRejection && await store.ParkRejectedPersonalCloudTaskAsync(mutation, exception.Code, cancellationToken).ConfigureAwait(false))
                     return (pushed, null, true);
                 return (pushed, exception.Code, false);
+            }
+            catch (PersonalCloudK0ContractException exception) when (exception.IsDefinitiveMutationRejection)
+            {
+                await store.ClearPersonalCloudOutboxInFlightAsync(connection.InstanceId, connection.DeviceId,
+                    [mutation.MutationId], cancellationToken).ConfigureAwait(false);
+                throw;
             }
             SqliteTaskStore.ValidatePersonalCloudMutationReceipt(mutation, receiptJson);
             await store.AcknowledgePersonalCloudMutationAsync(connection.InstanceId, connection.DeviceId, receiptJson, cancellationToken).ConfigureAwait(false);
