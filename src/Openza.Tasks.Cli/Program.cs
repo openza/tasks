@@ -526,7 +526,8 @@ internal static partial class OpenzaCli
         Func<CliContext, Task<int>> action,
         CancellationToken cancellationToken,
         bool? readOnlyOverride = null,
-        bool databaseReplacement = false)
+        bool databaseReplacement = false,
+        bool initializeStore = true)
     {
         var formatValue = parseResult.GetValue(format) ?? "text";
         try
@@ -543,7 +544,8 @@ internal static partial class OpenzaCli
             var connectionStore = new JsonPersonalCloudConnectionStore(
                 Path.Combine(runtime.DataDirectory, "personal-cloud-connection.json"));
             var service = new TaskApplicationService(store, connectionStore.Load);
-            await service.InitializeAsync(cancellationToken);
+            if (initializeStore)
+                await service.InitializeAsync(cancellationToken);
             return await action(new CliContext(runtime, store, service, new CliOutput(formatValue)));
         }
         catch (TaskConflictException exception) { WriteError(formatValue, Conflict, "conflict", exception.Message); return Conflict; }

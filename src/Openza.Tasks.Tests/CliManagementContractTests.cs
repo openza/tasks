@@ -580,6 +580,27 @@ public sealed partial class CliContractTests
     }
 
     [Fact]
+    public async Task Restore_point_list_discovers_snapshots_without_a_live_database()
+    {
+        var store = await CreateStoreAsync();
+        AssertSuccess(await RunAsync("task", "add", "Snapshot only", "--format", "json"));
+        var created = await RunAsync("restore-point", "create", "--format", "json");
+        AssertSuccess(created);
+        using var createdJson = JsonDocument.Parse(created.Stdout);
+        var fileName = createdJson.RootElement.GetProperty("data").GetProperty("fileName").GetString()!;
+
+        SqliteConnection.ClearAllPools();
+        File.Delete(store.DatabasePath);
+        var listed = await RunAsync("restore-point", "list", "--format", "json");
+
+        AssertSuccess(listed);
+        using var listedJson = JsonDocument.Parse(listed.Stdout);
+        Assert.Contains(listedJson.RootElement.GetProperty("data").EnumerateArray(),
+            item => item.GetProperty("fileName").GetString() == fileName);
+        Assert.False(File.Exists(store.DatabasePath));
+    }
+
+    [Fact]
     public async Task Help_documents_new_task_management_and_restore_options()
     {
         var addHelp = await RunAsync("task", "add", "--help");

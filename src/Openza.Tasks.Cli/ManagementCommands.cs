@@ -282,7 +282,7 @@ internal static partial class OpenzaCli
             var backups = CreateBackupService(context).ListBackupInfo(ensureStoragePermissions: false);
             WriteBackupInfoList(context.Output, backups);
             return Task.FromResult(Success);
-        }, cancellationToken, readOnlyOverride: true));
+        }, cancellationToken, readOnlyOverride: true, initializeStore: false));
         return command;
     }
 
