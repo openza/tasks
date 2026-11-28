@@ -475,6 +475,8 @@ public sealed partial class CliContractTests
 
         using var desktopLease = ChannelRuntimeLease.AcquireShared(
             OpenzaRuntimeContext.Create(OpenzaChannel.Dev, _directory));
+        AssertCliError(await RunAsync("restore-point", "restore", fileName, "--format", "json"), 5, "confirmation_required");
+        Assert.Equal("Keep current data", (await store.GetTaskAsync(taskId))!.Notes);
         var restore = await RunAsync("restore-point", "restore", fileName, "--yes", "--format", "json");
 
         Assert.Equal(1, restore.ExitCode);

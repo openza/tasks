@@ -293,22 +293,27 @@ internal static partial class OpenzaCli
         var command = new Command("restore", "Restore a listed restore point; a pre-restore safety point is created automatically.");
         command.Arguments.Add(fileName);
         command.Options.Add(yes);
-        command.SetAction(async (parseResult, cancellationToken) => await ExecuteAsync(parseResult, format, async context =>
+        command.SetAction(async (parseResult, cancellationToken) =>
         {
             if (!parseResult.GetValue(yes))
             {
-                context.Output.WriteError(ConfirmationRequired, "confirmation_required", "Restoring a database requires --yes.");
+                var output = new CliOutput(parseResult.GetValue(format) ?? "text");
+                output.WriteError(ConfirmationRequired, "confirmation_required", "Restoring a database requires --yes.");
                 return ConfirmationRequired;
             }
-            var backupService = CreateBackupService(context);
-            var requestedFileName = parseResult.GetValue(fileName)!;
-            var backup = backupService.ListBackupInfo().FirstOrDefault(item => string.Equals(item.FileName, requestedFileName, StringComparison.Ordinal))
-                ?? throw new KeyNotFoundException($"Restore point '{requestedFileName}' was not found.");
-            await backupService.RestoreBackupAsync(backup.Path, cancellationToken);
-            context.Output.Write(new { restored = true, fileName = backup.FileName }, [["Restored", backup.FileName]],
-                ["restored", "file_name"], [["true", backup.FileName]]);
-            return Success;
-        }, cancellationToken, readOnlyOverride: false, databaseReplacement: true));
+
+            return await ExecuteAsync(parseResult, format, async context =>
+            {
+                var backupService = CreateBackupService(context);
+                var requestedFileName = parseResult.GetValue(fileName)!;
+                var backup = backupService.ListBackupInfo().FirstOrDefault(item => string.Equals(item.FileName, requestedFileName, StringComparison.Ordinal))
+                    ?? throw new KeyNotFoundException($"Restore point '{requestedFileName}' was not found.");
+                await backupService.RestoreBackupAsync(backup.Path, cancellationToken);
+                context.Output.Write(new { restored = true, fileName = backup.FileName }, [["Restored", backup.FileName]],
+                    ["restored", "file_name"], [["true", backup.FileName]]);
+                return Success;
+            }, cancellationToken, readOnlyOverride: false, databaseReplacement: true);
+        });
         return command;
     }
 
